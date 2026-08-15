@@ -100,8 +100,27 @@ def probar_orquestador_completo() -> None:
     assert "validar_contenido_capa2()" in ejecutor
     assert "conservar_salida_parcial" in ejecutor
     assert "restaurar_salida()" not in ejecutor
-    assert "detectar_fecha_corte_ventas" in ejecutor
-    assert "última fecha de FactVentas" in ejecutor
+    assert "fecha_corte_automatica" in ejecutor
+    assert '"aplicar_corte_modelo.py"' in ejecutor
+    assert "último lunes" in ejecutor
+
+
+def probar_reglas_corte_y_panel() -> None:
+    from datetime import date
+    from reglas_corte import ultimo_lunes, validar_fecha_corte
+
+    assert ultimo_lunes(date(2026, 8, 14)) == date(2026, 8, 10)
+    assert ultimo_lunes(date(2026, 8, 10)) == date(2026, 8, 10)
+    assert validar_fecha_corte(date(2026, 8, 12))
+    corte = (BASE_DIR / "aplicar_corte_modelo.py").read_text(encoding="utf-8")
+    generador = (BASE_DIR / "generar_datos_web.py").read_text(encoding="utf-8")
+    panel = (BASE_DIR / "panel_control.py").read_text(encoding="utf-8")
+    assert "Reporte_Cobertura.json" in corte
+    assert "rowsExcludedAfterCutoff" in corte
+    assert "dataWarnings" in generador
+    assert "generate_series" in generador
+    assert "2_ACTUALIZAR_DATOS.bat" in panel
+    assert "6_ACTUALIZAR_DASHBOARD_WEB.bat" in panel
 
 
 def probar_tmdl_sin_comentarios() -> None:
@@ -268,7 +287,7 @@ def probar_finalizadores_seguros() -> None:
         texto = archivo.read_text(encoding="utf-8", errors="ignore")
         if '__name__ == "__main__"' not in texto:
             continue
-        if archivo.name == "parquet_metadata.py":
+        if archivo.name in {"parquet_metadata.py", "panel_control.py"}:
             continue
         assert "finalizar_proceso" in texto, archivo.name
 
@@ -349,6 +368,7 @@ def main() -> int:
         probar_fuentes_excel_manual,
         probar_nombres_capa2,
         probar_orquestador_completo,
+        probar_reglas_corte_y_panel,
         probar_tmdl_sin_comentarios,
         probar_tmdl_unico_en_capa2,
         probar_escalabilidad,

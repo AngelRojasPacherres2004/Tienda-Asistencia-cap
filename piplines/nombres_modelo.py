@@ -72,6 +72,7 @@ def limpiar_capa2_generada() -> None:
         archivo.unlink(missing_ok=True)
     for archivo in CAPA2_DIR.glob("*.parquet.tmp"):
         archivo.unlink(missing_ok=True)
+    (CAPA2_DIR / "Reporte_Cobertura.json").unlink(missing_ok=True)
 
 
 def limpiar_modelo_powerbi() -> None:

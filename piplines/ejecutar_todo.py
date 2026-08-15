@@ -34,6 +34,7 @@ from project_paths import (
     limpiar_temporales,
     preparar_directorios,
 )
+from reglas_corte import fecha_corte_automatica, validar_fecha_corte
 
 CODIGO_STACK_OVERFLOW_WINDOWS = 0xC00000FD
 
@@ -60,7 +61,7 @@ def validar_entorno_previo(fecha_corte: date | None, solo_capa2: bool) -> None:
     print(f"Proyecto     : {PROJECT_ROOT}")
     print(
         "Fecha corte  : "
-        + (fecha_corte.isoformat() if fecha_corte else "AUTOMÁTICA · ÚLTIMA VENTA")
+        + (fecha_corte.isoformat() if fecha_corte else "AUTOMÁTICA · ÚLTIMO LUNES")
     )
 
     faltan_modulos = [
@@ -74,11 +75,9 @@ def validar_entorno_previo(fecha_corte: date | None, solo_capa2: bool) -> None:
               r"-r .\piplines\requirements.txt"
         )
 
-    if fecha_corte is not None and fecha_corte > date.today():
-        print(
-            "ADVERTENCIA: la fecha de corte está en el futuro respecto al equipo.",
-            flush=True,
-        )
+    if fecha_corte is not None:
+        for advertencia in validar_fecha_corte(fecha_corte):
+            print(f"ADVERTENCIA: {advertencia}", flush=True)
 
     manuales_faltantes = [
         nombre for nombre in ARCHIVOS_MANUALES_REQUERIDOS
@@ -445,31 +444,6 @@ def fase_capa1(
     )
 
 
-def detectar_fecha_corte_ventas() -> str:
-    """Devuelve la última fecha comercial publicada en FactVentas."""
-
-    import duckdb
-
-    fact_ventas = CAPA2_DIR / "FactVentas.parquet"
-    if not fact_ventas.exists():
-        raise FileNotFoundError(
-            "No se puede inferir la fecha de stock porque falta FactVentas.parquet."
-        )
-    conexion = duckdb.connect()
-    valor = conexion.execute(
-        "SELECT MAX(fecha_venta) FROM read_parquet(?)",
-        [str(fact_ventas)],
-    ).fetchone()[0]
-    if valor is None:
-        raise RuntimeError(
-            "FactVentas.parquet no contiene una fecha de venta utilizable."
-        )
-    fecha = valor.date() if isinstance(valor, datetime) else valor
-    if not isinstance(fecha, date):
-        fecha = date.fromisoformat(str(fecha)[:10])
-    return fecha.isoformat()
-
-
 def fase_capa2(
     fecha: str | None,
     omitir_faltantes: bool,
@@ -497,11 +471,11 @@ def fase_capa2(
     # con otras facts sobre los mismos Parquet y el mismo disco.
     ejecutar("ventas_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"])
 
-    fecha_efectiva = fecha or detectar_fecha_corte_ventas()
+    fecha_efectiva = fecha or fecha_corte_automatica().isoformat()
     print(
-        "Fecha comercial de Stock y Guías: "
+        "Fecha de corte general del modelo: "
         f"{fecha_efectiva}"
-        + (" (indicada)" if fecha else " (última venta publicada)"),
+        + (" (indicada)" if fecha else " (último lunes automático)"),
         flush=True,
     )
 
@@ -567,8 +541,9 @@ def main() -> int:
         type=parsear_fecha,
         default=None,
         help=(
-            "Fecha comercial de corte para Stock y Guías, formato YYYY-MM-DD. "
-            "Si se omite, usa automáticamente la última fecha de FactVentas."
+            "Fecha de corte general, formato YYYY-MM-DD. Excluye movimientos posteriores, "
+            "usa el último stock disponible y genera alertas de cobertura. "
+            "Si se omite, usa automáticamente el último lunes."
         ),
     )
     parser.add_argument("--anio-inicio", type=int, default=ANIO_INICIO_MODELO)
@@ -639,8 +614,13 @@ def main() -> int:
 
         crear_backup_salida()
         try:
-            fase_capa2(
+            fecha_efectiva = fase_capa2(
                 fecha, args.omitir_faltantes, args.paralelismo, args.anio_inicio
+            )
+
+            ejecutar(
+                "aplicar_corte_modelo.py",
+                ["--fecha-corte", fecha_efectiva],
             )
 
             ejecutar(

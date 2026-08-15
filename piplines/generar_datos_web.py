@@ -16,6 +16,7 @@ from runtime_config import finalizar_proceso
 WEB_DIR = PROJECT_ROOT / "dashboard-web"
 SALIDA_PUBLICA = WEB_DIR / "public" / "assets" / "data" / "dashboard.json"
 SALIDA_COMPILADA = WEB_DIR / "dist" / "dashboard-web" / "browser" / "assets" / "data" / "dashboard.json"
+REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
 
 
 def normalizar(valor):
@@ -40,6 +41,12 @@ def literal_parquet(nombre: str) -> str:
     if not (CAPA2_DIR / f"{nombre}.parquet").exists():
         raise FileNotFoundError(f"Falta capa2/{nombre}.parquet")
     return f"read_parquet('{ruta}')"
+
+
+def cargar_reporte_cobertura() -> dict:
+    if not REPORTE_COBERTURA.exists():
+        return {}
+    return json.loads(REPORTE_COBERTURA.read_text(encoding="utf-8"))
 
 
 def resumen_mensual_dimension(
@@ -110,16 +117,17 @@ def generar() -> dict:
     tiendas = literal_parquet("DimTiendas")
     merma = literal_parquet("FactMerma")
 
+    reporte_cobertura = cargar_reporte_cobertura()
     conexion = duckdb.connect()
     fecha_ultima_venta = conexion.execute(f"SELECT MAX(fecha_venta) FROM {ventas}").fetchone()[0]
     fecha_stock = conexion.execute(
         f"SELECT MAX(fecha_corte) FROM {stock_historico}"
     ).fetchone()[0]
-    if fecha_ultima_venta != fecha_stock:
-        raise RuntimeError(
-            "El stock y las ventas no comparten corte comercial: "
-            f"ventas={fecha_ultima_venta}, stock={fecha_stock}. Actualice la capa 2."
-        )
+    fecha_corte = date.fromisoformat(
+        reporte_cobertura.get("selectedCutoff")
+        or (fecha_ultima_venta or fecha_stock or date.today()).isoformat()
+    )
+    fecha_ancla_stock = fecha_stock or fecha_corte
     periodos_stock = [
         int(fila[0])
         for fila in conexion.execute(
@@ -131,6 +139,8 @@ def generar() -> dict:
     stock = (
         f"(SELECT * FROM {stock_historico} "
         f"WHERE fecha_corte = DATE '{fecha_stock.isoformat()}')"
+        if fecha_stock
+        else f"(SELECT * FROM {stock_historico} WHERE FALSE)"
     )
 
     dimensiones_tienda = filas(
@@ -184,12 +194,19 @@ def generar() -> dict:
             SELECT periodo_id, tienda_id, SUM(cantidad_recibida) AS received
             FROM {ingresos}
             GROUP BY 1, 2
+        ), periodos AS (
+            SELECT CAST(strftime(fecha, '%Y%m') AS INTEGER) AS periodo_id
+            FROM generate_series(
+                DATE '2024-01-01',
+                date_trunc('month', DATE '{fecha_corte.isoformat()}'),
+                INTERVAL 1 MONTH
+            ) AS calendario(fecha)
         ), llaves AS (
-            SELECT periodo_id, tienda_id FROM ventas_mes
-            UNION SELECT periodo_id, tienda_id FROM meta_mes
-            UNION SELECT periodo_id, tienda_id FROM trafico_mes
-            UNION SELECT periodo_id, tienda_id FROM personal_mes
-            UNION SELECT periodo_id, tienda_id FROM ingresos_mes
+            SELECT p.periodo_id, t.tienda_id
+            FROM periodos p
+            CROSS JOIN (
+                SELECT tienda_id FROM {tiendas} WHERE COALESCE(es_tienda, FALSE)
+            ) t
         )
         SELECT
             l.periodo_id AS "periodId", CAST(FLOOR(l.periodo_id / 100) AS INTEGER) AS year,
@@ -363,8 +380,8 @@ def generar() -> dict:
                 SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units30,
                 SUM(total_venta) AS sales30
             FROM {ventas}
-            WHERE fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 29 DAY
-                                  AND DATE '{fecha_stock.isoformat()}'
+            WHERE fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 29 DAY
+                                  AND DATE '{fecha_ancla_stock.isoformat()}'
             GROUP BY 1
         )
         SELECT st.tienda_id AS "storeId", CAST(st.stock_units AS DOUBLE) AS "stockUnits",
@@ -390,8 +407,8 @@ def generar() -> dict:
                 SUM(total_venta) AS sales30,
                 SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units30
             FROM {ventas}
-            WHERE fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 29 DAY
-                                  AND DATE '{fecha_stock.isoformat()}'
+            WHERE fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 29 DAY
+                                  AND DATE '{fecha_ancla_stock.isoformat()}'
             GROUP BY 1, 2
         )
         SELECT st.tienda_id AS "storeId", st.category,
@@ -425,17 +442,17 @@ def generar() -> dict:
             HAVING SUM(cantidad) > 0
         ), ventas_producto AS (
             SELECT tienda_id, producto_id,
-                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 29 DAY
-                                              AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 29 DAY
+                                              AND DATE '{fecha_ancla_stock.isoformat()}'
                          AND cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units30,
-                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 29 DAY
-                                              AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 29 DAY
+                                              AND DATE '{fecha_ancla_stock.isoformat()}'
                          THEN total_venta ELSE 0 END) AS sales30,
-                SUM(CASE WHEN fecha_venta > DATE '{fecha_stock.isoformat()}' - INTERVAL 12 MONTH
-                         AND fecha_venta <= DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_venta > DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 12 MONTH
+                         AND fecha_venta <= DATE '{fecha_ancla_stock.isoformat()}'
                          AND cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units12,
-                SUM(CASE WHEN fecha_venta > DATE '{fecha_stock.isoformat()}' - INTERVAL 12 MONTH
-                         AND fecha_venta <= DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_venta > DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 12 MONTH
+                         AND fecha_venta <= DATE '{fecha_ancla_stock.isoformat()}'
                          THEN total_venta ELSE 0 END) AS sales12
             FROM {ventas}
             GROUP BY 1, 2
@@ -465,32 +482,32 @@ def generar() -> dict:
             WHERE producto_id IS NOT NULL
         ), ventas_ventanas AS (
             SELECT tienda_id, producto_id,
-                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 59 DAY
-                                              AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 59 DAY
+                                              AND DATE '{fecha_ancla_stock.isoformat()}'
                          AND cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units60,
-                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 89 DAY
-                                              AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 89 DAY
+                                              AND DATE '{fecha_ancla_stock.isoformat()}'
                          AND cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units90
             FROM {ventas}
             WHERE producto_id IS NOT NULL
-              AND fecha_venta BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 89 DAY
-                                  AND DATE '{fecha_stock.isoformat()}'
+              AND fecha_venta BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 89 DAY
+                                  AND DATE '{fecha_ancla_stock.isoformat()}'
             GROUP BY 1, 2
         ), merma_ventanas AS (
             SELECT tienda_id, producto_id,
-                SUM(CASE WHEN fecha_analisis BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 29 DAY
-                                                   AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_analisis BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 29 DAY
+                                                   AND DATE '{fecha_ancla_stock.isoformat()}'
                          THEN COALESCE(cantidad, 0) ELSE 0 END) AS merma30,
-                SUM(CASE WHEN fecha_analisis BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 59 DAY
-                                                   AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_analisis BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 59 DAY
+                                                   AND DATE '{fecha_ancla_stock.isoformat()}'
                          THEN COALESCE(cantidad, 0) ELSE 0 END) AS merma60,
-                SUM(CASE WHEN fecha_analisis BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 89 DAY
-                                                   AND DATE '{fecha_stock.isoformat()}'
+                SUM(CASE WHEN fecha_analisis BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 89 DAY
+                                                   AND DATE '{fecha_ancla_stock.isoformat()}'
                          THEN COALESCE(cantidad, 0) ELSE 0 END) AS merma90
             FROM {merma}
             WHERE producto_id IS NOT NULL
-              AND fecha_analisis BETWEEN DATE '{fecha_stock.isoformat()}' - INTERVAL 89 DAY
-                                     AND DATE '{fecha_stock.isoformat()}'
+              AND fecha_analisis BETWEEN DATE '{fecha_ancla_stock.isoformat()}' - INTERVAL 89 DAY
+                                     AND DATE '{fecha_ancla_stock.isoformat()}'
             GROUP BY 1, 2
         )
         SELECT p.tienda_id AS "storeId", p.producto_id AS "productId",
@@ -506,12 +523,32 @@ def generar() -> dict:
         """,
     )
 
+    cobertura_fuentes = reporte_cobertura.get("sources", [])
+    advertencias_datos = [
+        {"source": fuente.get("source", "Fuente"), "message": fuente.get("message", "")}
+        for fuente in cobertura_fuentes
+        if fuente.get("status") == "warning"
+    ]
+    advertencias_datos.extend(
+        {"source": "Fecha de corte", "message": mensaje}
+        for mensaje in reporte_cobertura.get("manualWarnings", [])
+    )
+    cobertura_por_nombre = {
+        fuente.get("source"): fuente for fuente in cobertura_fuentes
+    }
+    ventas_hasta = cobertura_por_nombre.get("Ventas", {}).get("dataThrough")
+    stock_hasta = cobertura_por_nombre.get("Stock", {}).get("dataThrough")
     anios = sorted({registro["year"] for registro in base_mensual})
     resultado = {
         "metadata": {
             "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "salesCutoff": fecha_ultima_venta.isoformat(),
-            "stockCutoff": fecha_stock.isoformat(),
+            "selectedCutoff": fecha_corte.isoformat(),
+            "salesCutoff": fecha_corte.isoformat(),
+            "salesDataThrough": ventas_hasta or (fecha_ultima_venta.isoformat() if fecha_ultima_venta else None),
+            "stockCutoff": fecha_ancla_stock.isoformat(),
+            "stockDataThrough": stock_hasta or (fecha_stock.isoformat() if fecha_stock else None),
+            "dataWarnings": advertencias_datos,
+            "sourceCoverage": cobertura_fuentes,
             "stockPeriods": periodos_stock,
             "years": anios,
             "nonSellableRate": 0.18,

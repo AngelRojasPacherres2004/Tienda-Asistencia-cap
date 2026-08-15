@@ -2,12 +2,20 @@
 
 ## Flujo operativo
 
-1. `2_ACTUALIZAR_DATOS.bat` reconstruye Capa 1, Capa 2 y los siete JSON para el uso local.
+1. `0_ABRIR_PANEL.bat` permite elegir el corte y ejecutar los BAT mediante botones. `2_ACTUALIZAR_DATOS.bat` reconstruye Capa 1, aplica el corte en Capa 2 y genera los siete JSON para el uso local.
 2. `6_ACTUALIZAR_DASHBOARD_WEB.bat` solicita el usuario y la contraseña del publicador. Después `piplines/publicar_supabase.py` divide cada JSON en partes de 5 MB y las sube al bucket privado `dashboard-data`.
 3. Supabase registra primero una publicación `staging`. Solo después de completar todas las partes cambia a `published`.
 4. La web consulta la publicación más reciente y descarga únicamente los archivos que necesita. Cada dos minutos verifica si el BAT publicó una versión nueva.
 5. Netlify sirve la aplicación Angular, pero no contiene los datos comerciales dentro del despliegue.
 6. Angular envía chat o audio a Supabase Edge Functions; las funciones validan al usuario y recién entonces llaman a Groq.
+
+## Corte y cobertura de fuentes
+
+- El valor predeterminado es el último lunes; un operador puede elegir otra fecha.
+- Los movimientos posteriores al corte se excluyen solamente de Capa 2. Capa 1 conserva el histórico completo para poder regenerar otro corte; las metas futuras se mantienen porque representan el plan anual, no una transacción real.
+- El stock es mensual y usa la última fotografía anterior o igual al corte. No necesita coincidir con la fecha máxima de ventas.
+- `capa2/Reporte_Cobertura.json` registra máximo disponible, datos incluidos, rezago y filas excluidas por cada fuente.
+- El dashboard genera la malla completa tienda/mes y usa cero donde falta una medición, mostrando además las advertencias de cobertura.
 
 ## Seguridad
 

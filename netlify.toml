@@ -1,7 +1,7 @@
 [build]
   base = "dashboard-web"
   command = "npm run build:netlify"
-  publish = "dist/dashboard-web/browser"
+  publish = "dashboard-web/dist/dashboard-web/browser"
 
 [build.environment]
   NODE_VERSION = "22"

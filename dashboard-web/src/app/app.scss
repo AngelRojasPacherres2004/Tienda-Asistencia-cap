@@ -8,6 +8,10 @@
 .cutoff span { display: block; color: #64748b; font-size: .68rem; font-weight: 900; }
 .cutoff strong { font-size: .95rem; }
 .cutoff small { display: block; max-width: 150px; margin-top: 3px; overflow: hidden; color: #94a3b8; font-size: .5rem; text-overflow: ellipsis; white-space: nowrap; }
+.data-coverage-warning { display: flex; align-items: flex-start; gap: 16px; margin: 12px 0 0; padding: 10px 14px; border: 1px solid #f1c96b; border-left: 5px solid #f4b400; border-radius: 9px; background: #fff9e8; }
+.data-coverage-warning > strong { flex: 0 0 auto; color: #8a5b00; font-size: .7rem; }
+.data-coverage-warning div { display: grid; gap: 3px; color: #5f6570; font-size: .68rem; }
+.data-coverage-warning b { color: #8a5b00; }
 .header-actions { display: grid; justify-items: stretch; gap: 6px; }
 .logout { height: 27px; border: 1px solid #c6cfdd; border-radius: 7px; background: #fff; color: #123a8c; cursor: pointer; font-size: .58rem; font-weight: 900; }
 .logout:hover { border-color: #123a8c; background: #123a8c; color: #fff; }

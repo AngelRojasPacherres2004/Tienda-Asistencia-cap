@@ -30,6 +30,17 @@
       </div>
     </header>
 
+    @if (dataWarnings().length) {
+      <section class="data-coverage-warning" role="alert" aria-label="Alertas de cobertura de datos">
+        <strong>DATOS INCOMPLETOS AL CORTE</strong>
+        <div>
+          @for (warning of dataWarnings(); track warning.source + warning.message) {
+            <span><b>{{ warning.source }}:</b> {{ warning.message }}</span>
+          }
+        </div>
+      </section>
+    }
+
     <section class="filter-panel" aria-label="Filtros del dashboard">
       <div class="target-title"><span>META {{ year() }}</span><strong>{{ money(annualTargetStatic(), true) }}</strong></div>
       <div class="filters">

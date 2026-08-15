@@ -38,9 +38,12 @@ type PredictiveCalculation = {
   vendability: number; demandDaily: number; annualDemand: number; stockActual: number; stockVendible: number;
   coverageDays: number | null;
 };
+type DataWarning = { source: string; message: string };
 type DashboardData = {
   metadata: {
     generatedAt: string; salesCutoff: string; stockCutoff: string; years: number[]; nonSellableRate: number;
+    selectedCutoff?: string; salesDataThrough?: string | null; stockDataThrough?: string | null;
+    dataWarnings?: DataWarning[];
     eoq: { available: boolean; pilot: boolean; orderCost: number; annualHoldingCost: number };
     rop: { available: boolean; pilot: boolean; leadTimeDays: number; safetyStockUnits: number };
     coverageRanges: { min: number; max: number; label: string; color: string }[]; capacityIsProvisional: boolean;
@@ -114,6 +117,7 @@ export class App implements OnInit {
   readonly Math = Math;
   readonly monthNamesFull = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
   readonly data = signal<DashboardData | null>(null);
+  readonly dataWarnings = computed(() => this.data()?.metadata.dataWarnings ?? []);
   readonly salesCutoffYear = computed(() => Number(this.data()?.metadata.salesCutoff?.slice(0, 4)) || new Date().getFullYear());
   readonly loadingError = signal('');
   readonly loginEmail = signal('');

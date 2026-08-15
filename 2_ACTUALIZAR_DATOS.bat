@@ -4,6 +4,32 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 set "WEBROOT=dashboard-web\dist\dashboard-web\browser"
+set "FECHA_CORTE="
+set "SIN_PAUSA=0"
+
+:leer_argumentos
+if "%~1"=="" goto :argumentos_listos
+if /I "%~1"=="--sin-pausa" (
+    set "SIN_PAUSA=1"
+    shift
+    goto :leer_argumentos
+)
+if /I "%~1"=="--fecha-corte" (
+    if "%~2"=="" (
+        echo ERROR: --fecha-corte requiere una fecha AAAA-MM-DD.
+        goto :error
+    )
+    set "FECHA_CORTE=%~2"
+    shift
+    shift
+    goto :leer_argumentos
+)
+echo ERROR: argumento no reconocido: %~1
+goto :error
+
+:argumentos_listos
+set "ARG_FECHA_CORTE="
+if defined FECHA_CORTE set "ARG_FECHA_CORTE=--fecha-corte %FECHA_CORTE%"
 
 echo ============================================================
 echo ACTUALIZACION COMPLETA - DASHBOARD GENERAL
@@ -20,15 +46,19 @@ for /f "delims=" %%F in ('.venv\Scripts\python.exe -c "from datetime import date
 
 echo.
 echo Se reconstruiran Capa 1, Capa 2 y el modelo TMDL.
-echo La fecha comercial del STOCK se igualara automaticamente a la
-echo ultima fecha disponible en ventas.
+if defined FECHA_CORTE (
+    echo Fecha de corte elegida: %FECHA_CORTE%
+) else (
+    echo Fecha de corte automatica: ultimo lunes.
+)
+echo Cada fuente se validara segun su frecuencia; los rezagos se avisaran.
 echo.
 
 ".venv\Scripts\python.exe" "piplines\ejecutar_todo.py" ^
     --reconstruir-capa1 ^
     --paralelismo 2 ^
     --anio-inicio 2024 ^
-    --anio-fin "%ANIO_FIN%"
+    --anio-fin "%ANIO_FIN%" %ARG_FECHA_CORTE%
 if errorlevel 1 goto :error
 
 echo Ejecutando validacion estricta final...
@@ -91,12 +121,12 @@ echo Parquet finales: capa2
 echo Modelo Power BI: capa2\Modelo_Dashboard.tmdl
 echo Dashboard web: ejecutar 4_EJECUTAR_DASHBOARD_WEB.bat
 echo ============================================================
-if /I not "%~1"=="--sin-pausa" pause
+if "%SIN_PAUSA%"=="0" pause
 exit /b 0
 
 :error
 echo.
 echo La actualizacion no pudo completarse. Los resultados anteriores se
 echo conservan mediante el respaldo automatico de la pipeline.
-if /I not "%~1"=="--sin-pausa" pause
+if "%SIN_PAUSA%"=="0" pause
 exit /b 1
