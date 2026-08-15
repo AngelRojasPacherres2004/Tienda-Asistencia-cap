@@ -1,0 +1,26 @@
+# Credenciales y configuración privada
+.env
+.env.*
+!.env.supabase.local.example
+
+# Entornos, cachés y temporales
+.venv/
+.etl_work/
+**/__pycache__/
+*.py[cod]
+dashboard-web/node_modules/
+dashboard-web/.angular/
+dashboard-web/.netlify/
+supabase/.temp/
+
+# Datos comerciales y artefactos regenerables
+input/
+capa1/
+capa2/
+dashboard-web/public/assets/data/
+dashboard-web/dist/
+DashboardGeneral_Portable_v*.zip
+
+# Archivos locales del sistema
+.DS_Store
+Thumbs.db

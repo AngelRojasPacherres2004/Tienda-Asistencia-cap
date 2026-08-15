@@ -1,0 +1,332 @@
+<main class="app-shell">
+  @if (!cloud.authReady()) {
+    <section class="status-panel"><span class="loader"></span><strong>Validando acceso seguro…</strong></section>
+  } @else if (!cloud.hasAccess()) {
+    <section class="login-page" aria-label="Inicio de sesión">
+      <form class="login-card" (ngSubmit)="signIn()">
+        <img src="logo-almacen-remates.png" alt="Almacén de Remates" />
+        <div><span class="login-kicker">ACCESO PRIVADO</span><h1>Dashboard ejecutivo</h1><p>Ingresa con tu usuario y contraseña asignados.</p></div>
+        <label><span>USUARIO</span><input type="text" name="identity" autocomplete="username" required [ngModel]="loginEmail()" (ngModelChange)="loginEmail.set($event)" /></label>
+        <label><span>CONTRASEÑA</span><input type="password" name="password" autocomplete="current-password" required minlength="8" [ngModel]="loginPassword()" (ngModelChange)="loginPassword.set($event)" /></label>
+        @if (cloud.authError()) { <p class="login-error" role="alert">{{ cloud.authError() }}</p> }
+        <button type="submit" [disabled]="loginBusy() || !loginEmail() || !loginPassword()">{{ loginBusy() ? 'INGRESANDO…' : 'INGRESAR' }}</button>
+      </form>
+    </section>
+  } @else if (loadingError()) {
+    <section class="status-panel error"><strong>No se pudo abrir el dashboard.</strong><span>{{ loadingError() }}</span></section>
+  } @else if (!data()) {
+    <section class="status-panel"><span class="loader"></span><strong>Preparando la información comercial…</strong><small>La primera apertura puede tardar unos segundos.</small></section>
+  } @else {
+    @if (expandedChart()) { <button type="button" class="chart-backdrop" aria-label="Cerrar gráfico ampliado" (click)="closeExpandedChart()"></button> }
+    <header class="brand-header">
+      <img src="logo-almacen-remates.png" alt="Almacén de Remates" />
+      <div>
+        <h1>DASHBOARD EJECUTIVO COMERCIAL {{ year() }} · {{ selectedMonths().length ? 'PERÍODO ' + monthFilterLabel() : 'CIERRE ' + monthNamesFull[selectedMonth() - 1] }}</h1>
+        <p class="store-summary"><strong>{{ annualStoreSummary().total }} TIENDAS</strong><span>{{ annualStoreSummary().metro }} METRO</span><span>{{ annualStoreSummary().outside }} FUERA DE METRO</span></p>
+      </div>
+      <div class="header-actions">
+        <div class="cutoff"><span>CORTE COMERCIAL</span><strong>{{ formatDate(data()!.metadata.salesCutoff) }}</strong><small>{{ cloud.dataVersion() }}</small></div>
+        @if (cloud.remoteEnabled()) { <button type="button" class="logout" (click)="signOut()" [title]="cloud.userEmail()">SALIR</button> }
+      </div>
+    </header>
+
+    <section class="filter-panel" aria-label="Filtros del dashboard">
+      <div class="target-title"><span>META {{ year() }}</span><strong>{{ money(annualTargetStatic(), true) }}</strong></div>
+      <div class="filters">
+        <label>AÑO<select [ngModel]="year()" (ngModelChange)="onYear($event)">@for (y of data()!.metadata.years; track y) { <option [ngValue]="y">{{ y }}</option> }</select></label>
+
+        <div class="filter-field"><span>MES</span>
+          <details class="multi-select" [open]="openFilter() === 'month'" (toggle)="onFilterToggle('month', $event)"><summary>{{ monthFilterLabel() }}</summary><div class="multi-menu">
+            <input class="filter-search" type="search" placeholder="Buscar mes…" [value]="filterSearch().month" (input)="setFilterSearch('month', $any($event.target).value)" />
+            <label class="multi-option all"><input type="checkbox" [checked]="selectedMonths().length === 0" (change)="clearMonths()" /> ACUMULADO</label>
+            @for (m of searchedMonths(); track m) { <label class="multi-option"><input type="checkbox" [checked]="selectedMonths().includes(m)" (change)="toggleMonth(m)" /> {{ periodLabel(year() * 100 + m).split(' ')[0] }}</label> } @empty { <span class="filter-empty">SIN COINCIDENCIAS</span> }
+          </div></details>
+        </div>
+
+        <label>CLÚSTER<select [ngModel]="cluster()" (ngModelChange)="onCluster($event)"><option value="TODOS">TODOS</option>@for (c of clusters(); track c) { <option [value]="c">{{ c === 'CD' ? 'CD (CD + ONLINE)' : c }}</option> }</select></label>
+        <label>FORMATO<select [ngModel]="format()" (ngModelChange)="onFormat($event)"><option value="TODOS">TODOS</option>@for (f of formats(); track f) { <option [value]="f">{{ f }}</option> }</select></label>
+
+        <div class="filter-field"><span>TIENDA</span>
+          <details class="multi-select" [open]="openFilter() === 'store'" (toggle)="onFilterToggle('store', $event)"><summary>{{ storeFilterLabel() }}</summary><div class="multi-menu wide">
+            <input class="filter-search" type="search" placeholder="Buscar tienda…" [value]="filterSearch().store" (input)="setFilterSearch('store', $any($event.target).value)" />
+            <label class="multi-option all"><input type="checkbox" [checked]="selectedStores().length === 0" (change)="clearStores()" /> TODAS</label>
+            @for (st of searchedStores(); track st.storeId) { <label class="multi-option"><input type="checkbox" [checked]="selectedStores().includes(st.storeId)" (change)="toggleStore(st.storeId)" /> {{ st.alias }}</label> } @empty { <span class="filter-empty">SIN COINCIDENCIAS</span> }
+          </div></details>
+        </div>
+
+        <div class="filter-field hierarchy"><span>RUBRO</span>
+          <details class="multi-select" [open]="openFilter() === 'category'" (toggle)="onFilterToggle('category', $event)"><summary>{{ categoryFilterLabel() }}</summary><div class="multi-menu wide">
+            <input class="filter-search" type="search" placeholder="Buscar rubro…" [value]="filterSearch().category" (input)="setFilterSearch('category', $any($event.target).value)" />
+            <label class="multi-option all"><input type="checkbox" [checked]="selectedCategories().length === 0" (change)="clearCategories()" /> TODOS</label>
+            @for (v of searchedCategories(); track v) { <label class="multi-option"><input type="checkbox" [checked]="selectedCategories().includes(v)" (change)="toggleCategory(v)" /> {{ v }}</label> } @empty { <span class="filter-empty">SIN COINCIDENCIAS</span> }
+          </div></details>
+        </div>
+
+        <div class="filter-field hierarchy"><span>LÍNEA</span>
+          <details class="multi-select" [open]="openFilter() === 'line'" (toggle)="onFilterToggle('line', $event)"><summary>{{ lineFilterLabel() }}</summary><div class="multi-menu wide">
+            <input class="filter-search" type="search" placeholder="Buscar línea…" [value]="filterSearch().line" (input)="setFilterSearch('line', $any($event.target).value)" />
+            <label class="multi-option all"><input type="checkbox" [checked]="selectedLines().length === 0" (change)="clearLines()" /> TODAS</label>
+            @for (v of searchedLines(); track v) { <label class="multi-option"><input type="checkbox" [checked]="selectedLines().includes(v)" (change)="toggleLine(v)" /> {{ v }}</label> } @empty { <span class="filter-empty">SIN COINCIDENCIAS</span> }
+          </div></details>
+        </div>
+
+        <div class="filter-field hierarchy"><span>SUBLÍNEA</span>
+          <details class="multi-select" [open]="openFilter() === 'subline'" (toggle)="onFilterToggle('subline', $event)"><summary>{{ sublineFilterLabel() }}</summary><div class="multi-menu wide">
+            <input class="filter-search" type="search" placeholder="Buscar sublínea…" [value]="filterSearch().subline" (input)="setFilterSearch('subline', $any($event.target).value)" />
+            <label class="multi-option all"><input type="checkbox" [checked]="selectedSublines().length === 0" (change)="clearSublines()" /> TODAS</label>
+            @for (v of searchedSublines(); track v) { <label class="multi-option"><input type="checkbox" [checked]="selectedSublines().includes(v)" (change)="toggleSubline(v)" /> {{ v }}</label> } @empty { <span class="filter-empty">SIN COINCIDENCIAS</span> }
+          </div></details>
+        </div>
+
+        <button class="reset" type="button" (click)="resetFilters()" title="Restablecer todos los filtros" aria-label="Restablecer todos los filtros"><span>↺</span></button>
+      </div>
+      <div class="store-pills" aria-label="Acceso rápido a tienda">
+        @for (s of storeOptions(); track s.storeId) {
+          <button type="button" [class.active]="selectedStores().includes(s.storeId)" (click)="selectStore(s.storeId)" [title]="s.store">{{ s.alias }}</button>
+        }
+      </div>
+    </section>
+
+    <nav class="page-tabs" aria-label="Páginas del dashboard">
+      <button type="button" [class.active]="page() === 1" (click)="goPage(1)"><span>01</span> GESTIÓN Y COMERCIAL</button>
+      <button type="button" [class.active]="page() === 2" (click)="goPage(2)"><span>02</span> INVENTARIO Y PREDICTIVA</button>
+    </nav>
+
+    @if (page() === 1) {
+      <section class="page page-one" aria-label="Gestión y comercial">
+        <div class="flow-growth-row primary-kpis" aria-label="Indicadores comerciales principales">
+          <div class="flow-row" aria-label="Composición de venta neta">
+            <article class="metric-card"><span>VENTA BRUTA</span><strong>{{ money(metrics().gross, true) }}</strong></article><span class="operator">→</span>
+            <article class="metric-card"><span>NOTAS DE CRÉDITO</span><strong>{{ money(metrics().notes, true) }}</strong></article><span class="operator">→</span>
+            <article class="metric-card"><span>DESCUENTO TOTAL</span><strong>{{ money(metrics().discount, true) }}</strong></article><span class="operator">→</span>
+            <article class="metric-card"><span>VENTA NETA</span><strong>{{ money(metrics().net, true) }}</strong></article>
+          </div>
+          <div class="replacement-kpis">
+            <article class="metric-card featured-kpi daily-average-kpi" title="Venta promedio diaria: con meses seleccionados divide entre sus días calendario; en ACUMULADO divide entre el día de corte y la cantidad de meses acumulados.">
+              <span>VENTA PROMEDIO DIARIA</span><strong>{{ money(metrics().dailyAverage, true) }}</strong>
+            </article>
+          </div>
+        </div>
+
+        <div class="kpi-strip">
+          <article><span>TRÁFICO METRO</span><strong [class.missing]="metrics().trafficMetro == null">{{ number(metrics().trafficMetro) }}</strong></article>
+          <article><span>TRÁFICO OTRAS TDS.</span><strong [class.missing]="metrics().trafficOther == null">{{ number(metrics().trafficOther) }}</strong></article>
+          <article><span>CONVERSIÓN</span><strong>{{ percent(metrics().conversion) }}</strong></article>
+          <article><span>TICKET PROMEDIO</span><strong>{{ money(metrics().ticket) }}</strong></article>
+          <article title="Venta neta ÷ 80% del metraje total de las tiendas activas en el filtro."><span>VENTA × M²</span><strong>{{ money(metrics().saleM2) }}</strong></article>
+          <article class="collaborator-kpi" title="Venta por colaborador = venta neta del período ÷ colaboradores promedio. Ambos valores responden a los filtros."><span>VENTA × COLAB.<em>{{ number(metrics().personnel) }}</em></span><strong>{{ money(metrics().saleCollaborator, true) }}</strong></article>
+          <article title="Ratio de devoluciones = Notas de crédito ÷ Venta real positiva."><span>RATIO DEVOLUCIONES</span><strong class="negative">{{ percent(metrics().returnRatio) }}</strong></article>
+          <article title="Variación entre precio real positivo y precio sugerido; no es margen contable."><span>MARKUP</span><strong [class.positive]="(metrics().priceVariation || 0) >= 0" [class.negative]="(metrics().priceVariation || 0) < 0">{{ trend(metrics().priceVariation) }}</strong></article>
+          <article title="Sell-through = unidades vendidas recientes ÷ (unidades vendidas recientes + stock actual)."><span>SELL-THROUGH<em>{{ number(metrics().sellThroughStock, ' und') }}</em></span><strong>{{ percent(metrics().sellThrough) }}</strong></article>
+        </div>
+
+        <div class="executive-grid">
+          <article class="card progress-card annual">
+            <h2><svg><use href="assets/icons.svg#target"></use></svg> AVANCE ACUMULADO</h2>
+            <div class="split-meter">
+              <div class="meter-actual" [style.flex-grow]="Math.max(.12, Math.min(1, metrics().annualPct || 0))"><strong>{{ percent(metrics().annualPct) }}</strong><span>{{ money(metrics().net, true) }}</span></div>
+              <div class="meter-remaining" [style.flex-grow]="Math.max(.12, 1 - Math.min(1, metrics().annualPct || 0))"><strong>{{ percent(metrics().annualPct == null ? null : Math.max(0, 1 - metrics().annualPct!)) }}</strong><span>{{ money(metrics().annualTarget ? Math.max(0, metrics().annualTarget - metrics().net) : null, true) }}</span></div>
+            </div>
+          </article>
+          <article class="card progress-card accumulated">
+            <h2><svg><use href="assets/icons.svg#gauge"></use></svg> AVANCE MENSUAL</h2>
+            <div class="split-meter accumulated-meter">
+              <div class="meter-actual" [style.flex-grow]="Math.max(.12, Math.min(1, metrics().accumulatedPct || 0))"><strong>{{ percent(metrics().accumulatedPct) }}</strong><span>{{ money(metrics().net, true) }}</span></div>
+              <div class="meter-gap" [style.flex-grow]="Math.max(.12, 1 - Math.min(1, metrics().accumulatedPct || 0))"><strong>{{ metrics().accumulatedPct == null ? 'FALTA INFORMACIÓN' : percent(Math.min(0, metrics().accumulatedPct! - 1)) }}</strong><span>{{ money(metrics().targetYtd ? Math.max(0, metrics().targetYtd - metrics().net) : null, true) }}</span></div>
+            </div>
+          </article>
+          <article class="card summary-card">
+            <h2>AVANCE ANUAL</h2>
+            <dl><div><dt>META ANUAL {{ year() }}</dt><dd>{{ money(metrics().annualTarget, true) }}</dd></div><div><dt>REAL {{ annualContextLabel() }}</dt><dd>{{ money(metrics().net, true) }}</dd></div><div><dt>CUMPL. META ANUAL</dt><dd>{{ percent(metrics().annualPct) }}</dd></div><div><dt [title]="'Compara con ' + annualPreviousContextLabel()">{{ annualVariationLabel() }}</dt><dd [class.positive]="(metrics().annualGrowth || 0) >= 0" [class.negative]="(metrics().annualGrowth || 0) < 0">{{ trend(metrics().annualGrowth) }}</dd></div></dl>
+          </article>
+          <article class="card summary-card">
+            <h2>AVANCE MENSUAL</h2>
+            <dl><div><dt>META {{ monthlyContextLabel() }}</dt><dd>{{ money(metrics().monthTarget, true) }}</dd></div><div><dt>REAL {{ monthlyContextLabel() }}</dt><dd>{{ money(metrics().monthNet, true) }}</dd></div><div><dt>CUMPL. META</dt><dd>{{ percent(metrics().monthlyPct) }}</dd></div><div><dt>{{ monthlyVariationLabel() }}</dt><dd [class.positive]="(metrics().monthVariation || 0) >= 0" [class.negative]="(metrics().monthVariation || 0) < 0">{{ trend(metrics().monthVariation) }}</dd></div></dl>
+          </article>
+        </div>
+
+        <div class="charts-four">
+          <article class="card chart-card"><h2><svg><use href="assets/icons.svg#comparison"></use></svg> AVANCE META VS REAL</h2><dashboard-chart [option]="metaVsRealOption()" label="Venta real y meta por mes" /></article>
+          <article class="card chart-card"><h2><svg><use href="assets/icons.svg#ranking"></use></svg> RANKING TIENDAS</h2><p>VENTA + ROTACIÓN + TICKET PROM</p><dashboard-chart [option]="rankingOption()" label="Ranking compuesto por tienda según año, clúster, formato y rubro" /></article>
+          <article class="card chart-card category-card" [class.chart-expanded]="expandedChart() === 'category'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('category')" [attr.aria-label]="expandedChart() === 'category' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'category' ? '×' : '⛶' }}</button><h2><svg><use href="assets/icons.svg#category"></use></svg> PARTICIPACIÓN RUBRO</h2><div class="category-chart-content"><dashboard-chart [option]="categoryOption()" label="Participación comercial por rubro" />@if (expandedChart() === 'category') { <div class="category-detail-table" aria-label="Detalle de participación por rubro"><div class="category-detail-head"><span>RUBRO</span><span>VENTA NETA</span><span>PARTICIPACIÓN</span><span>UNIDADES</span><span>LÍNEA CON MÁS PARTICIPACIÓN</span><span>COLOR</span></div><div class="category-detail-body">@for (category of categorySummary(); track category.name) { <div><strong>{{ category.name }}</strong><span>{{ money(category.net, true) }}</span><span>{{ percent(category.share) }}</span><span>{{ number(category.units) }}</span><span>{{ category.topLine }}</span><i [style.background-color]="category.color" [attr.aria-label]="'Color ' + category.color"></i></div> } @empty { <p>FALTA INFORMACIÓN</p> }</div></div> }</div></article>
+          <article class="card chart-card" [class.chart-expanded]="expandedChart() === 'brand'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('brand')" [attr.aria-label]="expandedChart() === 'brand' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'brand' ? '×' : '⛶' }}</button><h2><svg><use href="assets/icons.svg#brand"></use></svg> VENTA POR MARCA</h2><div class="brand-chart-content"><dashboard-chart [option]="brandOption()" label="Venta por marca" />@if (expandedChart() === 'brand') { <div class="brand-detail-table" aria-label="Detalle de venta por marca"><div class="brand-detail-head"><span>MARCA</span><span>VENTA NETA</span><span>PARTICIPACIÓN</span><span>UNIDADES</span></div><div class="brand-detail-body">@for (brand of brandSummary(); track brand.name) { <div><strong>{{ brand.name }}</strong><span>{{ money(brand.net, true) }}</span><span>{{ percent(brand.share) }}</span><span>{{ number(brand.units) }}</span></div> } @empty { <p>FALTA INFORMACIÓN</p> }</div></div> }</div></article>
+        </div>
+        <div class="static-charts">
+          <article class="card chart-card gender-card" [class.chart-expanded]="expandedChart() === 'gender'">
+            <button type="button" class="chart-expand" (click)="toggleChartExpansion('gender')" [attr.aria-label]="expandedChart() === 'gender' ? 'Cerrar gráfico' : 'Ampliar participación por género'">{{ expandedChart() === 'gender' ? '×' : '⛶' }}</button>
+            <h2><svg><use href="assets/icons.svg#category"></use></svg> PARTICIPACIÓN GÉNERO</h2>
+            <div class="gender-chart-content">
+              <div class="gender-donut-pane">
+                <dashboard-chart [option]="genderOption()" label="Participación de venta por género" />
+                <div class="gender-rubro-toggle" aria-label="Rubros incluidos en participación por género"><button type="button" [class.active]="genderRubros().includes('TEXTIL')" (click)="toggleGenderRubro('TEXTIL')">TEXTIL</button><button type="button" [class.active]="genderRubros().includes('CALZADO')" (click)="toggleGenderRubro('CALZADO')">CALZADO</button></div>
+              </div>
+              @if (expandedChart() === 'gender') { <dashboard-chart class="gender-bar-chart" [option]="genderBarOption()" label="Comparación de venta por género" /> }
+            </div>
+          </article>
+          <article class="card chart-card growth"><h2><svg><use href="assets/icons.svg#trend"></use></svg> TENDENCIA INTERANUAL ACUMULADA</h2><dashboard-chart [option]="growthOption()" label="Venta neta acumulada del año seleccionado frente al año anterior" /></article>
+          <article class="card chart-card price-range-card" [class.chart-expanded]="expandedChart() === 'price-range'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('price-range')" [attr.aria-label]="expandedChart() === 'price-range' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'price-range' ? '×' : '⛶' }}</button><h2><svg><use href="assets/icons.svg#comparison"></use></svg> RANGO DE PRECIOS VENDIDOS</h2><dashboard-chart [option]="priceRangeOption()" label="Venta y unidades por rango de precios vendidos" /></article>
+        </div>
+      </section>
+    } @else {
+      <section class="page page-two" aria-label="Inventario y analítica predictiva">
+        <div class="inventory-grid">
+          <article class="card chart-card"><h2><svg><use href="assets/icons.svg#warehouse"></use></svg> CAPACIDAD VS STOCK</h2><dashboard-chart [option]="capacityOption()" label="Capacidad y unidades en stock" /><div class="chart-summary"><strong>{{ number(stockTotals().capacity) }}</strong><span>vs</span><strong>{{ number(stockTotals().units) }}</strong><em [class.positive]="stockTotals().capacity - stockTotals().units >= 0" [class.negative]="stockTotals().capacity - stockTotals().units < 0">DIF. {{ number(stockTotals().capacity - stockTotals().units) }}</em></div></article>
+          <article class="card chart-card rotation-card"><div class="rotation-title"><h2><svg><use href="assets/icons.svg#rotate"></use></svg> {{ rotationView() === 'rotation' ? 'ROTACIÓN POR TIENDA · 30D' : 'STOCK ANTIGUO POR TIENDA · +90D' }}</h2><div class="rotation-switch"><button type="button" [class.active]="rotationView() === 'rotation'" (click)="rotationView.set('rotation')">ROT.</button><button type="button" [class.active]="rotationView() === 'aged-stock'" (click)="rotationView.set('aged-stock')">+90D</button></div></div><dashboard-chart [option]="rotationOption()" [label]="rotationView() === 'rotation' ? 'Rotación de inventario de 30 días' : 'Participación de stock antiguo por tienda'" /></article>
+          <article class="card chart-card antiquity-card" [class.chart-expanded]="expandedChart() === 'antiquity'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('antiquity')" [attr.aria-label]="expandedChart() === 'antiquity' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'antiquity' ? '×' : '⛶' }}</button><h2><svg><use href="assets/icons.svg#calendar"></use></svg> ANTIGÜEDAD STOCK · {{ stockHistoryLabel() }}</h2>
+            @if (detailLoading()) { <div class="card-inline-loader"><span class="loader"></span>Preparando antigüedad…</div> }
+            <div class="stock-year-tabs" aria-label="Años de origen del stock; se pueden seleccionar varios">@for (bucket of stockHistoryBuckets; track bucket.value) { <button type="button" [class.active]="bucket.value === 'ALL' ? stockHistoryBucketsSelected().length === 0 : stockHistoryBucketsSelected().includes(bucket.value)" [attr.aria-pressed]="bucket.value === 'ALL' ? stockHistoryBucketsSelected().length === 0 : stockHistoryBucketsSelected().includes(bucket.value)" [title]="bucket.title" (click)="toggleStockHistoryBucket(bucket.value)">{{ bucket.label }}</button> }</div>
+            <dashboard-chart [option]="antiquityOption()" label="Unidades de stock por mes de origen" />
+            <div class="stock-history-summary"><div><small>UNIDADES</small><strong>{{ number(stockHistorySummary().units, ' und') }}</strong></div><div><small>VALOR STOCK</small><strong>{{ money(stockHistorySummary().value, true) }}</strong></div><div><small>% DEL STOCK</small><strong>{{ percent(stockHistorySummary().share) }}</strong></div></div>
+          </article>
+        </div>
+
+        <div class="inventory-analysis-row">
+          <article class="card chart-card store-value-coverage-card" [class.chart-expanded]="expandedChart() === 'store-value-coverage'">
+            <button type="button" class="chart-expand" (click)="toggleChartExpansion('store-value-coverage')" [attr.aria-label]="expandedChart() === 'store-value-coverage' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'store-value-coverage' ? '×' : '⛶' }}</button>
+            <div class="inventory-chart-heading"><h2><svg><use href="assets/icons.svg#warehouse"></use></svg> VALOR DE INVENTARIO POR TIENDA</h2></div>
+            <dashboard-chart [option]="storeValueCoverageOption()" label="Valor de inventario por tienda, coloreado según estado de cobertura" />
+            <div class="inventory-health-strip">@for (item of inventoryHealthSummary(); track item.label) { <span [class]="item.tone"><i></i>{{ item.label }}<strong>{{ item.count }}</strong></span> }</div>
+          </article>
+
+          <article class="card inventory-matrix-card">
+            <div class="inventory-matrix-heading"><h2><svg><use href="assets/icons.svg#comparison"></use></svg> RESUMEN DE STOCK POR TIENDA</h2></div>
+            <div class="inventory-matrix-scroll">
+              <table>
+                <thead><tr><th>TIENDA</th><th>STOCK</th><th>COBERTURA</th><th>ESTADO</th></tr></thead>
+                <tbody>@for (row of inventoryMatrixRows(); track row.storeId) { <tr [class]="row.tone"><th>{{ row.alias }}</th><td>{{ number(row.stockUnits, ' und') }}</td><td>{{ row.coverageDays == null ? 'SIN VENTA' : number(row.coverageDays, ' días') }}</td><td><strong [class]="'status-pill ' + row.tone">{{ row.status }}</strong></td></tr> } @empty { <tr><td colspan="4">FALTA INFORMACIÓN</td></tr> }</tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <div class="predictive-heading"><div><h2>ANALÍTICA PREDICTIVA</h2></div></div>
+
+        @if (!stockDetailLoaded()) {
+          <div class="detail-loader compact"><span class="loader"></span><strong>Preparando analítica por producto…</strong><small>El resto de la pestaña ya puede utilizarse.</small></div>
+        } @else {
+        <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
+          <div class="predictive-parameters">
+            <div class="predictive-rubro-control"><span>RUBRO</span><div class="predictive-toggle"><button type="button" [class.active]="predictiveRubros().includes('TEXTIL')" (click)="togglePredictiveRubro('TEXTIL')">TEXTIL</button><button type="button" [class.active]="predictiveRubros().includes('CALZADO')" (click)="togglePredictiveRubro('CALZADO')">CALZADO</button></div></div>
+            <label><span>TIENDA</span><select [ngModel]="predictiveStore()" (ngModelChange)="predictiveStore.set($event)"><option value="TODAS">TODAS</option>@for (store of predictiveStoreOptions(); track store.storeId) { <option [value]="store.storeId">{{ store.alias || store.store }}</option> }</select></label>
+            <label class="predictive-number"><span>VENTANA DEMANDA</span><div><input type="number" min="0.01" step="0.25" [ngModel]="timeValue(demandWindow(), demandWindowUnit())" (ngModelChange)="setDemandWindowValue(+$event)" /><select aria-label="Unidad de ventana de demanda" [ngModel]="demandWindowUnit()" (ngModelChange)="demandWindowUnit.set($event)"><option value="MONTHS">MESES</option><option value="YEARS">AÑOS</option></select></div></label>
+            <label class="predictive-number"><span>INVENTARIO SALUDABLE</span><div><input type="number" min="0.01" step="0.25" [ngModel]="timeValue(healthyCoverageDays(), healthyCoverageUnit())" (ngModelChange)="setHealthyCoverageValue(+$event)" /><select aria-label="Unidad de inventario saludable" [ngModel]="healthyCoverageUnit()" (ngModelChange)="healthyCoverageUnit.set($event)"><option value="MONTHS">MESES</option><option value="YEARS">AÑOS</option></select></div></label>
+            <label class="predictive-number"><span>SOBRESTOCK DESDE</span><div><input type="number" min="0.01" step="0.25" [ngModel]="timeValue(overstockDays(), overstockUnit())" (ngModelChange)="setOverstockValue(+$event)" /><select aria-label="Unidad de sobrestock" [ngModel]="overstockUnit()" (ngModelChange)="overstockUnit.set($event)"><option value="MONTHS">MESES</option><option value="YEARS">AÑOS</option></select></div></label>
+            <label class="predictive-number"><span>SIN MOVIMIENTO</span><div><input type="number" min="0.01" step="0.25" [ngModel]="monthTimeValue(noMovementMonths(), noMovementUnit())" (ngModelChange)="setNoMovementValue(+$event)" /><select aria-label="Unidad de sin movimiento" [ngModel]="noMovementUnit()" (ngModelChange)="noMovementUnit.set($event)"><option value="MONTHS">MESES</option><option value="YEARS">AÑOS</option></select></div></label>
+            <label class="predictive-number"><span>MERMA</span><div><input type="number" min="0" max="50" step=".5" [ngModel]="predictiveMermaPct()" (ngModelChange)="setPredictiveMerma(+$event)" /><b>%</b></div></label>
+          </div>
+          <div class="predictive-overview-grid">
+            <article class="card predictive-v2-card predictive-breakage-card" [class.chart-expanded]="expandedChart() === 'predictive-breakage'">
+              <button type="button" class="chart-expand" (click)="toggleChartExpansion('predictive-breakage')" [attr.aria-label]="expandedChart() === 'predictive-breakage' ? 'Cerrar gráfico' : 'Ampliar gráfico y ver detalle'">{{ expandedChart() === 'predictive-breakage' ? '×' : '⛶' }}</button>
+              <div class="title-row"><span class="card-letter">1</span><h2><svg><use href="assets/icons.svg#alert"></use></svg> PRONÓSTICO DE QUIEBRE POR MARCA</h2></div>
+              <p>Días de cobertura: stock vendible ÷ demanda diaria esperada</p>
+              <div class="predictive-status-legend"><span class="critical">CRÍTICO ≤ {{ healthyCoverageDays() / 2 }}D</span><span class="warning">ALERTA ≤ {{ healthyCoverageDays() }}D</span><span class="normal">SALUDABLE</span><span class="excess">SOBRESTOCK</span></div>
+              <div class="predictive-chart-content">
+                <dashboard-chart [option]="predictiveBreakageOption()" label="Pronóstico de quiebre por marca" />
+                @if (expandedChart() === 'predictive-breakage') {
+                  <div class="predictive-detail-table" aria-label="Detalle del pronóstico de quiebre por marca">
+                    <div class="predictive-detail-head"><span>MARCA</span><span>COBERTURA</span><span>ESTADO</span><span>STOCK VENDIBLE</span><span>DEMANDA DIARIA</span></div>
+                    <div class="predictive-detail-body">@for (row of predictiveBrandRows(); track row.name) { <div><strong>{{ row.name }}</strong><span>{{ row.coverageDays == null ? 'SIN MOVIMIENTO' : number(row.coverageDays, ' días') }}</span><span class="status-cell"><i [style.background-color]="row.color"></i>{{ row.status }}</span><span>{{ number(row.vendibleUnits, ' und') }}</span><span>{{ number(row.demandDaily, ' und/día') }}</span></div> } @empty { <p>FALTA INFORMACIÓN</p> }</div>
+                  </div>
+                }
+              </div>
+            </article>
+
+            <article class="card predictive-v2-card health-card">
+              <div class="title-row"><span class="card-letter">2</span><h2><svg><use href="assets/icons.svg#category"></use></svg> SALUD DEL INVENTARIO</h2></div>
+              <p>Distribución del valor de stock vendible por estado</p>
+              <div class="health-card-content"><dashboard-chart [option]="predictiveHealthOption()" label="Salud del inventario por estado" /><div class="health-table"><div class="health-table-head"><span>ESTADO</span><span>VALOR STOCK</span><span>PARTIC.</span></div>@for (row of predictiveHealthRows(); track row.status) { <div><strong><i [style.background-color]="row.color"></i>{{ row.status }}</strong><span>{{ money(row.value, true) }}</span><span>{{ percent(row.share) }}</span></div> }</div></div>
+            </article>
+          </div>
+
+          <div class="predictive-actions-grid">
+            <article class="card predictive-v2-card predictive-action-card" [class.chart-expanded]="expandedChart() === 'predictive-replenishment'">
+              <button type="button" class="chart-expand" (click)="toggleChartExpansion('predictive-replenishment')" [attr.aria-label]="expandedChart() === 'predictive-replenishment' ? 'Cerrar gráfico' : 'Ampliar gráfico y ver detalle'">{{ expandedChart() === 'predictive-replenishment' ? '×' : '⛶' }}</button>
+              <div class="title-row"><span class="card-letter">3</span><h2><svg><use href="assets/icons.svg#reorder"></use></svg> PRIORIDAD DE REPOSICIÓN POR MARCA</h2></div>
+              <p>Déficit para alcanzar {{ healthyCoverageDays() }} días de inventario saludable</p>
+              <div class="predictive-chart-content">
+                <dashboard-chart [option]="predictiveReplenishmentOption()" label="Prioridad de reposición por marca" />
+                @if (expandedChart() === 'predictive-replenishment') {
+                  <div class="predictive-detail-table" aria-label="Detalle de prioridad de reposición por marca">
+                    <div class="predictive-detail-head replenishment-head"><span>MARCA</span><span>PRIORIDAD</span><span>REPOSICIÓN</span><span>COBERTURA</span><span>STOCK VENDIBLE</span></div>
+                    <div class="predictive-detail-body replenishment-body">@for (row of predictiveReplenishmentRows(); track row.name) { <div><strong>{{ row.name }}</strong><span class="status-cell"><i [style.background-color]="row.priorityColor"></i>{{ row.priority }}</span><span>{{ number(row.deficitUnits, ' und') }}</span><span>{{ row.coverageDays == null ? 'SIN MOVIMIENTO' : number(row.coverageDays, ' días') }}</span><span>{{ number(row.vendibleUnits, ' und') }}</span></div> } @empty { <p>FALTA INFORMACIÓN</p> }</div>
+                  </div>
+                }
+              </div>
+            </article>
+
+            <article class="card predictive-v2-card predictive-action-card">
+              <div class="title-row"><span class="card-letter">4</span><h2><svg><use href="assets/icons.svg#trend"></use></svg> PROYECCIÓN DE COBERTURA 30 / 60 / 90</h2></div>
+              <p>Escenario sin nuevas reposiciones, con demanda reciente constante</p>
+              <dashboard-chart [option]="predictiveProjectionOption()" label="Proyección futura de cobertura de inventario" />
+            </article>
+
+            <section class="simulation-panel">
+              <h3><span class="card-letter">5</span> REPOSICIÓN · EOQ Y ROP</h3>
+              <p>Cantidad óptima y punto de reorden para el producto seleccionado</p>
+              <div class="simulation-controls"><label>PRODUCTO<select [ngModel]="productId()" (ngModelChange)="productId.set($event)"><option value="AUTO">AUTOMÁTICO · MAYOR STOCK</option>@for (p of productOptions(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }</select></label><label>COSTO PEDIDO<input type="number" min="0" step="100" [ngModel]="orderCost()" (ngModelChange)="orderCost.set(+$event)" /></label><label>COSTO MANTENIMIENTO<input type="number" min="0" step="1" [ngModel]="holdingCost()" (ngModelChange)="holdingCost.set(+$event)" /></label><label class="lead-time-control">LEAD TIME<div><input type="number" min="0.01" step="0.25" [ngModel]="leadTimeValue()" (ngModelChange)="setLeadTimeValue(+$event)" /><select aria-label="Unidad de lead time" [ngModel]="leadTimeUnit()" (ngModelChange)="leadTimeUnit.set($event)"><option value="DAYS">DÍAS</option><option value="MONTHS">MESES</option></select></div></label><div class="simulation-result"><span>EOQ</span><strong>{{ number(eoq().value, ' und') }}</strong></div><div class="simulation-result"><span>ROP</span><strong>{{ number(rop().value, ' und') }}</strong></div></div>
+            </section>
+          </div>
+        </section>
+        }
+
+        @if (false) {
+        <div class="predictive-workspace" [class.only-coverage]="!predictiveApplicable()">
+          <article class="card predictive-card coverage" [class.chart-expanded]="expandedChart() === 'coverage'">
+            <button type="button" class="chart-expand" (click)="toggleChartExpansion('coverage')" [attr.aria-label]="expandedChart() === 'coverage' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'coverage' ? '×' : '⛶' }}</button>
+            <div class="title-row"><span class="card-letter">A</span><h2><svg><use href="assets/icons.svg#alert"></use></svg> PRONÓSTICO DE QUIEBRE</h2><small class="snapshot-note">ÚLTIMO CORTE DE STOCK</small></div>
+            <div class="range-legend"><span class="critical">&lt;30 CRÍTICO</span><span class="warning">30–45 ALERTA</span><span class="normal">&gt;45–60 NORMAL</span><span class="watch">&gt;60–90 OBS.</span><span class="excess">&gt;90 EXCESO</span></div>
+            <dashboard-chart [option]="coverageOption()" label="Cobertura efectiva por tienda del último corte de stock" />
+            <div class="coverage-kpis"><span>MÍNIMO<strong>{{ number(coverageKpis().min, ' d') }}</strong></span><span>MEDIANA<strong>{{ number(coverageKpis().median, ' d') }}</strong></span><span>MÁXIMO<strong>{{ number(coverageKpis().max, ' d') }}</strong></span><span>CRÍTICAS<strong>{{ coverageKpis().critical }}</strong></span><span>EXCESO<strong>{{ coverageKpis().excess }}</strong></span></div>
+            <div class="product-facts">
+              <div><span>MAYOR STOCK</span><div class="fact-list">@for (product of productExtremes().high; track product.name) { <strong [title]="product.name + ' · ' + number(product.units, ' und')">{{ product.name }} · {{ number(product.units, ' und') }}</strong> } @empty { <strong>FALTA INFORMACIÓN</strong> }</div></div>
+              <div><span>MENOR STOCK POSITIVO</span><div class="fact-list">@for (product of productExtremes().low; track product.name) { <strong [title]="product.name + ' · ' + number(product.units, ' und')">{{ product.name }} · {{ number(product.units, ' und') }}</strong> } @empty { <strong>FALTA INFORMACIÓN</strong> }</div></div>
+            </div>
+          </article>
+
+          @if (predictiveApplicable()) {
+            <div class="predictive-right-area">
+              <div class="eoq-rop-product">
+                <label>PRODUCTO A CALCULAR<select [ngModel]="productId()" (ngModelChange)="productId.set($event)"><option value="AUTO">AUTOMÁTICO · MAYOR STOCK</option>@for (p of productOptions(); track p.id) { <option [value]="p.id">{{ p.name }} · {{ number(p.stock, ' und') }}</option> }</select></label>
+                <div><span>PRODUCTO ACTIVO</span><strong>{{ activeProduct().name }}</strong></div>
+                <div><span>CORTE EOQ / ROP</span><strong>{{ formatDate(data()!.metadata.stockCutoff) }}</strong></div>
+                <div><span>NO VENDIBLE</span><strong>18% FIJO</strong></div>
+              </div>
+
+              <div class="eoq-rop-cards">
+                <article class="card predictive-card calc-card eoq-card">
+                  <div class="title-row"><span class="card-letter">B</span><h2><svg><use href="assets/icons.svg#box"></use></svg> LOTE ECONÓMICO EOQ</h2></div>
+                  <div class="calc-controls eoq-controls">
+                    <div class="control-block"><span>Ventana demanda</span><div class="segmented">@for (v of [30,60,90]; track v) { <button type="button" [class.active]="demandWindow() === v" (click)="setDemandWindow(v)">{{ v }} días</button> }</div></div>
+                    <label class="mini-input"><span>Costo pedido S</span><input type="number" min="0" step="100" [ngModel]="orderCost()" (ngModelChange)="orderCost.set(+$event)" /></label>
+                    <label class="mini-input"><span>Costo mantenimiento H</span><input type="number" min="0" step="1" [ngModel]="holdingCost()" (ngModelChange)="holdingCost.set(+$event)" /></label>
+                  </div>
+                  <div class="result-panel"><span>EOQ</span><strong>{{ number(eoq().value, ' und') }}</strong></div>
+                  <div class="calc-table"><div><span>Demanda anual D</span><strong>{{ number(annualDemand(), ' und') }}</strong></div><div><span>Costo por pedido S</span><strong>{{ money(orderCost()) }}</strong></div><div><span>Mantener inventario H</span><strong>{{ money(holdingCost()) }}/und·año</strong></div><div><span>Vendibilidad VE</span><strong>{{ percent(predictiveCalculation()?.vendability ?? null) }}</strong></div></div>
+                  <div class="formula formula-box">EOQ = √[(2 × D × S) / H] × (1 / % Vendibilidad Esperada)</div>
+                </article>
+
+                <article class="card predictive-card calc-card rop-card" [class.chart-expanded]="expandedChart() === 'rop'">
+                  <button type="button" class="chart-expand" (click)="toggleChartExpansion('rop')" [attr.aria-label]="expandedChart() === 'rop' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'rop' ? '×' : '⛶' }}</button>
+                  <div class="title-row"><span class="card-letter">C</span><h2><svg><use href="assets/icons.svg#reorder"></use></svg> PUNTO DE REORDEN (ROP)</h2></div>
+                  <div class="calc-controls rop-controls">
+                    <div class="control-block"><span>Ventana demanda</span><div class="segmented">@for (v of [30,60,90]; track v) { <button type="button" [class.active]="demandWindow() === v" (click)="setDemandWindow(v)">{{ v }}d</button> }</div></div>
+                    <div class="control-block"><span>Tipo reposición</span><div class="segmented"><button type="button" [class.active]="replenishmentType() === 'internal'" (click)="replenishmentType.set('internal')">Interna</button><button type="button" [class.active]="replenishmentType() === 'supplier'" (click)="replenishmentType.set('supplier')">Proveedor</button></div></div>
+                    @if (replenishmentType() === 'internal') { <label class="mini-input"><span>Lead time</span><select [ngModel]="internalLeadTime()" (ngModelChange)="setInternalLeadTime($event)"><option [ngValue]="1">1 día</option><option [ngValue]="2">2 días</option><option [ngValue]="3">3 días</option><option [ngValue]="4">4 días</option><option [ngValue]="5">5 días</option><option [ngValue]="7">7 días</option><option [ngValue]="10">10 días</option></select></label> } @else { <label class="mini-input"><span>Lead time</span><select [ngModel]="supplierLeadTime()" (ngModelChange)="setSupplierLeadTime($event)"><option [ngValue]="15">15 días</option><option [ngValue]="30">30 días</option><option [ngValue]="45">45 días</option><option [ngValue]="60">60 días</option><option [ngValue]="90">90 días</option></select></label> }
+                    <label class="mini-input"><span>Días seguridad</span><select [ngModel]="securityDays()" (ngModelChange)="setSecurityDays($event)"><option [ngValue]="7">7 días</option><option [ngValue]="15">15 días</option><option [ngValue]="30">30 días</option></select></label>
+                  </div>
+                  <div class="result-panel"><span>ROP</span><strong>{{ number(rop().value, ' und') }}</strong></div>
+                  <dashboard-chart class="rop-gauge" [option]="ropOption()" label="Stock actual y punto de reorden" />
+                  <div class="calc-table"><div><span>Demanda diaria</span><strong>{{ number(predictiveCalculation()?.demandDaily ?? null, ' und/día') }}</strong></div><div><span>Lead time</span><strong>{{ number(leadTime(), ' días') }}</strong></div><div><span>Stock de seguridad SS</span><strong>{{ number(safetyStock(), ' und') }}</strong></div><div><span>Stock actual</span><strong>{{ number(rop().current, ' und') }}</strong></div><div><span>Días hasta pedir</span><strong>{{ rop().daysUntil == null ? 'FALTA INFORMACIÓN' : number(rop().daysUntil, ' días') }}</strong></div></div>
+                  <div class="formula formula-box">ROP = (demanda diaria × LT + SS) / VE</div>
+                </article>
+              </div>
+            </div>
+          }
+        </div>
+        }
+      </section>
+    }
+
+    @if (cloud.assistantEnabled) { <dashboard-assistant [context]="assistantContext()" /> }
+  }
+</main>

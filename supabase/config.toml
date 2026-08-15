@@ -1,0 +1,10 @@
+project_id = "hiwvtldpwenstxeoteui"
+
+[functions.groq-chat]
+verify_jwt = true
+
+[functions.groq-transcribe]
+verify_jwt = true
+
+[functions.session-control]
+verify_jwt = true
