@@ -203,8 +203,8 @@
             <div class="inventory-matrix-heading"><h2><svg><use href="assets/icons.svg#comparison"></use></svg> RESUMEN DE STOCK POR TIENDA</h2></div>
             <div class="inventory-matrix-scroll">
               <table>
-                <thead><tr><th>TIENDA</th><th>STOCK</th><th>COBERTURA</th><th>ESTADO</th></tr></thead>
-                <tbody>@for (row of inventoryMatrixRows(); track row.storeId) { <tr [class]="row.tone"><th>{{ row.alias }}</th><td>{{ number(row.stockUnits, ' und') }}</td><td>{{ row.coverageDays == null ? 'SIN VENTA' : number(row.coverageDays, ' días') }}</td><td><strong [class]="'status-pill ' + row.tone">{{ row.status }}</strong></td></tr> } @empty { <tr><td colspan="4">FALTA INFORMACIÓN</td></tr> }</tbody>
+                <thead><tr><th>TIENDA</th><th>CAPACIDAD</th><th>STOCK</th><th>VENTA PROM. DIARIA</th><th>COBERTURA</th><th>ESTADO</th></tr></thead>
+                <tbody>@for (row of inventoryMatrixRows(); track row.storeId) { <tr [class]="row.tone"><th>{{ row.alias }}</th><td>{{ number(row.capacity, ' und') }}</td><td>{{ number(row.stockUnits, ' und') }}</td><td>{{ number(row.dailySales, ' und/día') }}</td><td>{{ row.coverageDays == null ? 'SIN VENTA' : number(row.coverageDays, ' días') }}</td><td><strong [class]="'status-pill ' + row.tone">{{ row.status }}</strong></td></tr> } @empty { <tr><td colspan="6">FALTA INFORMACIÓN</td></tr> }</tbody>
               </table>
             </div>
           </article>

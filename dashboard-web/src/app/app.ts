@@ -70,7 +70,7 @@ type RotationView = 'rotation' | 'aged-stock';
 type PredictiveTimeUnit = 'MONTHS' | 'YEARS';
 type LeadTimeUnit = 'DAYS' | 'MONTHS';
 type InventoryMatrixRow = {
-  storeId: string; alias: string; stockUnits: number; stockValue: number; units30: number;
+  storeId: string; alias: string; capacity: number; stockUnits: number; stockValue: number; units30: number; dailySales: number;
   coverageDays: number | null; targetStock: number | null; gapUnits: number | null;
   status: 'DÉFICIT' | 'ÓPTIMO' | 'EXCESO';
   tone: 'deficit' | 'optimal' | 'excess'; color: string;
@@ -1406,7 +1406,8 @@ export class App implements OnInit {
       const vendableRate = row.stockUnits > 0 ? Math.max(.01, row.effectiveUnits / row.stockUnits) : 1;
       const targetStock = row.units30 > 0 ? Math.round((row.units30 / 30) * targetDays / vendableRate) : null;
       const gapUnits = targetStock == null ? null : row.stockUnits - targetStock;
-      return { storeId: row.storeId, alias: row.alias, stockUnits: row.stockUnits, stockValue: row.stockValue, units30: row.units30,
+      return { storeId: row.storeId, alias: row.alias, capacity: this.data()?.stores.find(store => store.storeId === row.storeId)?.capacity || 0,
+        stockUnits: row.stockUnits, stockValue: row.stockValue, units30: row.units30, dailySales: row.units30 / 30,
         coverageDays: row.days, targetStock, gapUnits, status: health.status, tone: health.tone, color: health.color };
     }).sort((a, b) => a.alias.localeCompare(b.alias));
   });
