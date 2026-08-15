@@ -19,7 +19,7 @@ También se puede usar la consola: `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.
 
-En una PC nueva ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` ya incluye la web compilada, los datos operativos, el BAT de publicación y las instrucciones necesarias. La contraseña se solicita al publicar y nunca se guarda en el ZIP ni en GitHub.
+En una PC nueva ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` ya incluye la web compilada, los datos operativos, el BAT de publicación y `Manual_Actualizacion_Dashboard_Comercial.docx`. La contraseña se solicita al publicar y nunca se guarda en el ZIP ni en GitHub.
 
 ## Desarrollo web
 
@@ -44,7 +44,7 @@ La configuración pública de Supabase se genera durante el build de Netlify. `G
 - Si Groq no responde, el dashboard continúa funcionando sin depender de la IA.
 - Los datos de inventario se cargan por niveles: resumen primero y detalle por producto en segundo plano.
 
-El proyecto Supabase correcto es **dashboard-comercial**, referencia `hiwvtldpwenstxeoteui`. Puedes abrir directamente su [Editor de tablas](https://supabase.com/dashboard/project/hiwvtldpwenstxeoteui/editor). Allí deben verse `dashboard_users`, `dashboard_releases` y `dashboard_files`. El proyecto llamado `dashboardcomercialn-dev's Project` que aparece en la captura es otro proyecto vacío.
+La web productiva continúa temporalmente vinculada a **dashboard-comercial**, referencia `hiwvtldpwenstxeoteui`. Allí existen `dashboard_users`, `dashboard_releases` y `dashboard_files`. No se debe borrar ese proyecto hasta replicar la estructura, usuarios, datos, funciones y variables en `dashboardcomercialn-dev's Project`, validar la nueva publicación y cambiar Netlify al proyecto nuevo.
 
 Consulta [ARQUITECTURA_NUBE.md](ARQUITECTURA_NUBE.md) para el flujo completo.
 

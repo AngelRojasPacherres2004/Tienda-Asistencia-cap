@@ -594,10 +594,10 @@ _m(
     ),
     _m(
         "Sell-Through %",
-        "DIVIDE ( [Unidades Vendidas Positivas], [Unidades Recibidas] )",
+        "DIVIDE ( [Unidades Vendidas Positivas], [Unidades en Stock Actual] + [Unidades Recibidas] )",
         "0.00%",
         "07. Inventario",
-        "Unidades vendidas positivamente sobre unidades recibidas.",
+        "Total de unidades vendidas de la tienda sobre stock actual más unidades recibidas.",
     ),
     _m(
         "Productos con Stock Saludable",

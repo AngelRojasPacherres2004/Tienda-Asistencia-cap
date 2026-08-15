@@ -1,10 +1,18 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 
-const PRODUCTION_ORIGIN = 'https://dashboard-comercial-remates.netlify.app';
+const PRODUCTION_ORIGIN = 'https://dashboard-general-comercial.netlify.app';
 
 export function requestCorsHeaders(request: Request): Record<string, string> | null {
   const origin = request.headers.get('origin');
-  const localOrigin = !!origin && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  let localOrigin = false;
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      localOrigin = parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname);
+    } catch {
+      localOrigin = false;
+    }
+  }
   if (origin && origin !== PRODUCTION_ORIGIN && !localOrigin) return null;
   return {
     ...corsHeaders,

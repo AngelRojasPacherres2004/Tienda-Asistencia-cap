@@ -128,7 +128,7 @@
           <article class="collaborator-kpi" title="Venta por colaborador = venta neta del período ÷ colaboradores promedio. Ambos valores responden a los filtros."><span>VENTA × COLAB.<em>{{ number(metrics().personnel) }}</em></span><strong>{{ money(metrics().saleCollaborator, true) }}</strong></article>
           <article title="Ratio de devoluciones = Notas de crédito ÷ Venta real positiva."><span>RATIO DEVOLUCIONES</span><strong class="negative">{{ percent(metrics().returnRatio) }}</strong></article>
           <article title="Variación entre precio real positivo y precio sugerido; no es margen contable."><span>MARKUP</span><strong [class.positive]="(metrics().priceVariation || 0) >= 0" [class.negative]="(metrics().priceVariation || 0) < 0">{{ trend(metrics().priceVariation) }}</strong></article>
-          <article title="Sell-through = unidades vendidas recientes ÷ (unidades vendidas recientes + stock actual)."><span>SELL-THROUGH<em>{{ number(metrics().sellThroughStock, ' und') }}</em></span><strong>{{ percent(metrics().sellThrough) }}</strong></article>
+          <article title="Sell-through = total de unidades vendidas de la tienda ÷ (stock actual + unidades recibidas)."><span>SELL-THROUGH<em>{{ number(metrics().sellThroughStock, ' und stock') }}</em></span><strong>{{ percent(metrics().sellThrough) }}</strong></article>
         </div>
 
         <div class="executive-grid">

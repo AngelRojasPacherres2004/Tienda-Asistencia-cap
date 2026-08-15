@@ -91,7 +91,7 @@ if exist "%ZIP%" del /q "%ZIP%"
 echo Creando %ZIP% ...
 rem Una sola linea: evita que CMD interprete accidentalmente un BAT listado
 rem como si fuera el siguiente comando cuando una continuacion se corrompe.
-tar.exe -a -c -f "%ZIP%" --exclude="piplines/**pycache**" --exclude="dashboard-web/node_modules" --exclude="dashboard-web/.angular" --exclude="dashboard-web/.netlify" --exclude="dashboard-web/.vscode" --exclude="dashboard-web/public/assets/data" --exclude="dashboard-web/src.zip" "0_ABRIR_PANEL.bat" "1_INSTALAR_REQUISITOS.bat" "2_ACTUALIZAR_DATOS.bat" "3_CREAR_PAQUETE_PORTABLE.bat" "4_EJECUTAR_DASHBOARD_WEB.bat" "5_CREAR_USUARIO_WEB.bat" "6_ACTUALIZAR_DASHBOARD_WEB.bat" ".env.supabase.local.example" "README.md" "ARQUITECTURA_NUBE.md" "netlify.toml" "input" "capa1" "capa2" "piplines" "supabase" "dashboard-web"
+tar.exe -a -c -f "%ZIP%" --exclude="piplines/**pycache**" --exclude="dashboard-web/node_modules" --exclude="dashboard-web/.angular" --exclude="dashboard-web/.netlify" --exclude="dashboard-web/.vscode" --exclude="dashboard-web/public/assets/data" --exclude="dashboard-web/src.zip" "0_ABRIR_PANEL.bat" "1_INSTALAR_REQUISITOS.bat" "2_ACTUALIZAR_DATOS.bat" "3_CREAR_PAQUETE_PORTABLE.bat" "4_EJECUTAR_DASHBOARD_WEB.bat" "5_CREAR_USUARIO_WEB.bat" "6_ACTUALIZAR_DASHBOARD_WEB.bat" ".env.supabase.local.example" "README.md" "Manual_Actualizacion_Dashboard_Comercial.docx" "ARQUITECTURA_NUBE.md" "netlify.toml" "input" "capa1" "capa2" "piplines" "supabase" "dashboard-web"
 if errorlevel 1 goto :error
 
 for %%Z in ("%ZIP%") do set "ZIP_BYTES=%%~zZ"
@@ -103,7 +103,7 @@ echo Tamano en bytes: %ZIP_BYTES%
 echo.
 echo IMPORTANTE: el ZIP ya contiene dashboard-web\dist compilado.
 echo Tambien contiene los Parquet operativos de capa1 y los resultados
-echo disponibles de capa2 para trasladar el proyecto sin perder el modelo.
+echo disponibles de capa2, ademas del manual Word de actualizacion.
 echo En otra PC: extraer, ejecutar 1_INSTALAR_REQUISITOS.bat y luego
 echo 0_ABRIR_PANEL.bat. Para abrir la web, ejecutar
 echo 4_EJECUTAR_DASHBOARD_WEB.bat.

@@ -578,14 +578,12 @@ export class App implements OnInit {
     const storeMap = new Map(this.data()?.stores.map(s => [s.storeId, s]) || []);
     const trafficMetro = base.filter(r => storeMap.get(r.storeId)?.format === 'METRO').reduce((t, r) => t + (r.traffic || 0), 0);
     const units = sum(ytd, 'units');
-    // El cociente ventas del periodo / ingresos del periodo puede superar 100% cuando se
-    // vende inventario recibido antes. Para que sea comparable y nunca se infle, el KPI usa
-    // la salida real de los últimos 30 días sobre el inventario disponible para vender.
+    // Sell-through comercial: unidades vendidas del período sobre el inventario
+    // disponible, definido como stock actual más unidades recibidas del período.
     const d = this.data(); const sellThroughStores = this.filteredStoreIds();
     const sellThroughSource = this.selectedCategories().length
       ? (d?.predictiveCategory || []).filter(row => sellThroughStores.has(row.storeId) && this.categoryMatches(row.category))
       : (d?.predictiveStore || []).filter(row => sellThroughStores.has(row.storeId));
-    const sellThroughUnits = sellThroughSource.reduce((total, row) => total + (row.units30 || 0), 0);
     const sellThroughStock = sellThroughSource.reduce((total, row) => total + (row.stockUnits || 0), 0);
     const canCompareSellThrough = !this.selectedLines().length && !this.selectedSublines().length;
     const personnel = this.personnelForSelectedContext();
@@ -613,7 +611,9 @@ export class App implements OnInit {
       returnRatio: positive > 0 ? sum(ytd, 'notes') / positive : null,
       conversion: traffic ? tx / traffic : null, ticket: tx ? net / tx : null, saleM2: area ? net / area : null,
       personnel, saleCollaborator: personnel ? monthNet / personnel : null, priceVariation: gross ? (positive - gross) / gross : null,
-      sellThrough: canCompareSellThrough && sellThroughUnits + sellThroughStock > 0 ? sellThroughUnits / (sellThroughUnits + sellThroughStock) : null,
+      sellThrough: canCompareSellThrough && sellThroughStock + sum(ytd, 'received') > 0
+        ? units / (sellThroughStock + sum(ytd, 'received'))
+        : null,
       sellThroughStock,
     };
   });
