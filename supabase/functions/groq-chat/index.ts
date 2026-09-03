@@ -15,7 +15,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     if (!groqApiKey) return jsonResponse(request, { error: 'El asistente no está configurado.' }, 503);
 
     const primaryModel = Deno.env.get('GROQ_CHAT_MODEL') || 'openai/gpt-oss-120b';
-    const configuredFallbacks = (Deno.env.get('GROQ_FALLBACK_MODELS') || 'openai/gpt-oss-20b,llama-3.1-8b-instant')
+    const configuredFallbacks = (Deno.env.get('GROQ_FALLBACK_MODELS') || 'openai/gpt-oss-20b,qwen/qwen3.8-27b')
       .split(',').map(value => value.trim()).filter(Boolean);
     const models = [...new Set([primaryModel, ...configuredFallbacks])];
 
