@@ -144,6 +144,15 @@ def sign_in(base_url: str, publishable_key: str, username: str, password: str) -
     return access_token
 
 
+def control_session(base_url: str, api_key: str, access_token: str, action: str) -> None:
+    request(
+        "POST",
+        f"{base_url}/functions/v1/session-control",
+        api_headers(api_key, access_token),
+        json.dumps({"action": action}).encode("utf-8"),
+    )
+
+
 def postgrest(
     base_url: str,
     api_key: str,
@@ -233,6 +242,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         or public_config.get("url", "")
     ).rstrip("/")
     service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    publisher_session = False
     if not base_url:
         raise PublishError("No se encontró la URL pública de Supabase.")
 
@@ -259,6 +269,8 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
             raise PublishError(
                 "La cuenta ingresada no es el publicador dedicado. Usa el usuario Sistemas."
             )
+        control_session(base_url, api_key, access_token, "claim")
+        publisher_session = True
 
     missing = [name for name in REQUIRED_FILES if not (DATA_DIR / name).is_file()]
     if missing:
@@ -369,8 +381,18 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
             )
         except Exception:
             pass
+        if publisher_session:
+            try:
+                control_session(base_url, api_key, access_token, "release")
+            except Exception:
+                pass
         raise
 
+    if publisher_session:
+        try:
+            control_session(base_url, api_key, access_token, "release")
+        except Exception:
+            pass
     print(f"Versión publicada correctamente: {version}")
     print(f"Datos enviados: {total_bytes / 1024 / 1024:.2f} MB")
 
