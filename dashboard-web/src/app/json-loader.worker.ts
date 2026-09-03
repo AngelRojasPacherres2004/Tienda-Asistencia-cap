@@ -9,9 +9,20 @@ addEventListener('message', async ({ data }: MessageEvent<LoadRequest>) => {
     const decoder = new TextDecoder('utf-8');
     let source = '';
     for (const url of data.urls) {
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      source += decoder.decode(await response.arrayBuffer(), { stream: true });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60_000);
+      try {
+        const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        source += decoder.decode(await response.arrayBuffer(), { stream: true });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new Error('La descarga tardó demasiado. Intenta nuevamente.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
     }
     source += decoder.decode();
     const payload = JSON.parse(source) as unknown;

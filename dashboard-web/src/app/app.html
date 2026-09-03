@@ -13,7 +13,11 @@
       </form>
     </section>
   } @else if (loadingError()) {
-    <section class="status-panel error"><strong>No se pudo abrir el dashboard.</strong><span>{{ loadingError() }}</span></section>
+    <section class="status-panel error">
+      <strong>No se pudo abrir el dashboard.</strong>
+      <span>{{ loadingError() }}</span>
+      <button type="button" class="retry-button" (click)="retryDashboardLoad()">REINTENTAR</button>
+    </section>
   } @else if (!data()) {
     <section class="status-panel"><span class="loader"></span><strong>Preparando la información comercial…</strong><small>La primera apertura puede tardar unos segundos.</small></section>
   } @else {

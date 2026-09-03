@@ -565,6 +565,8 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .card-inline-loader { position: absolute; inset: 58px 12px 40px; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9px; background: rgba(255,255,255,.88); color: #475569; font-size: .62rem; font-weight: 850; backdrop-filter: blur(2px); }
 .card-inline-loader .loader { width: 20px; height: 20px; }
 .status-panel.error { color: #b91c1c; }
+.retry-button { min-width: 140px; height: 40px; margin: 6px auto 0; padding: 0 18px; border: 0; border-radius: 8px; background: #123a8c; color: #fff; cursor: pointer; font-size: .7rem; font-weight: 900; letter-spacing: .06em; }
+.retry-button:hover { background: #0f327c; }
 .login-page { display: grid; min-height: calc(100vh - 54px); place-items: center; padding: 18px; }
 .login-card { box-sizing: border-box; display: grid; width: min(100%, 430px); gap: 15px; padding: 30px; border: 1px solid #d5deea; border-top: 5px solid #e11d2e; border-radius: 18px; background: #fff; box-shadow: 0 20px 60px rgba(15,35,70,.14); }
 .login-card > img { width: 175px; height: 92px; margin: 0 auto; object-fit: contain; }

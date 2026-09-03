@@ -2350,6 +2350,11 @@ export class App implements OnInit {
     this.loadingError.set('');
   }
 
+  async retryDashboardLoad(): Promise<void> {
+    this.loadingError.set('');
+    await this.loadDashboardBase();
+  }
+
   private async loadDashboardBase(): Promise<void> {
     try {
       const loaded = await this.loadDetail<DashboardData>('dashboard.json');
