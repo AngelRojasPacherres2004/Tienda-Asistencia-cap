@@ -15,8 +15,14 @@ if not exist ".venv\Scripts\python.exe" (
 
 if not exist ".env.supabase.local" (
     echo ERROR: falta .env.supabase.local con las credenciales de Supabase.
+    echo Copia .env.supabase.local.example, renombralo a .env.supabase.local
+    echo y completa SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
+    echo Consulta CONFIGURAR_CREDENCIALES_SUPABASE.txt.
     goto :error
 )
+
+".venv\Scripts\python.exe" "piplines\crear_usuario_dashboard.py" --check-config
+if errorlevel 1 goto :error
 
 ".venv\Scripts\python.exe" "piplines\crear_usuario_dashboard.py"
 if errorlevel 1 goto :error

@@ -4,6 +4,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  GROQ_ASSISTANT_ENABLED = "true"
 
 [[redirects]]
   from = "/*"

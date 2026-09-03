@@ -1,10 +1,11 @@
 [build]
   base = "dashboard-web"
   command = "npm run build:netlify"
-  publish = "dashboard-web/dist/dashboard-web/browser"
+  publish = "dist/dashboard-web/browser"
 
 [build.environment]
   NODE_VERSION = "22"
+  GROQ_ASSISTANT_ENABLED = "true"
 
 [[redirects]]
   from = "/*"

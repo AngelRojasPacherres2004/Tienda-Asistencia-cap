@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "dashboard-web" / "public" / "assets" / "data"
 REQUIRED_FILES = (
     "dashboard.json",
+    "dashboard-daily.json",
     "dashboard-brand.json",
     "dashboard-predictive.json",
     "dashboard-price-range.json",
@@ -40,12 +41,6 @@ REQUIRED_FILES = (
 # La carga estándar de Storage es más estable por debajo de 6 MB.
 CHUNK_BYTES = 5 * 1024 * 1024
 RUNTIME_CONFIG = ROOT / "dashboard-web" / "public" / "runtime-config.js"
-PUBLISHER_ALIASES = {
-    "sistemas": "joelalexanderdiaz9+publisher@gmail.com",
-    "publicador": "joelalexanderdiaz9+publisher@gmail.com",
-}
-
-
 class PublishError(RuntimeError):
     pass
 
@@ -131,11 +126,13 @@ def api_headers(
     }
 
 
-def sign_in(base_url: str, publishable_key: str, email: str, password: str) -> str:
-    payload = json.dumps({"email": email, "password": password}).encode("utf-8")
+def sign_in(base_url: str, publishable_key: str, username: str, password: str) -> str:
+    """Inicia la sesión publicadora mediante su nombre de usuario, no correo."""
+
+    payload = json.dumps({"username": username, "password": password}).encode("utf-8")
     raw = request(
         "POST",
-        f"{base_url}/auth/v1/token?grant_type=password",
+        f"{base_url}/functions/v1/username-login",
         {"apikey": publishable_key, "Content-Type": "application/json"},
         payload,
     )
@@ -237,18 +234,17 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
             os.environ.get("SUPABASE_PUBLISHABLE_KEY", "").strip()
             or public_config.get("key", "")
         )
-        publisher_email = os.environ.get("SUPABASE_PUBLISHER_EMAIL", "").strip()
+        publisher_username = os.environ.get("SUPABASE_PUBLISHER_USERNAME", "").strip()
         publisher_password = os.environ.get("SUPABASE_PUBLISHER_PASSWORD", "").strip()
-        if interactive and not publisher_email:
-            identity = input("Usuario publicador [Sistemas]: ").strip() or "Sistemas"
-            publisher_email = PUBLISHER_ALIASES.get(identity.casefold(), identity)
+        if interactive and not publisher_username:
+            publisher_username = input("Usuario publicador [Sistemas]: ").strip() or "Sistemas"
         if interactive and not publisher_password:
             publisher_password = getpass.getpass("Contraseña: ")
-        if not api_key or not publisher_email or not publisher_password:
+        if not api_key or not publisher_username or not publisher_password:
             raise PublishError(
                 "Faltan las credenciales limitadas de publicación."
             )
-        access_token = sign_in(base_url, api_key, publisher_email, publisher_password)
+        access_token = sign_in(base_url, api_key, publisher_username, publisher_password)
         if jwt_app_purpose(access_token) != "dashboard_publisher":
             raise PublishError(
                 "La cuenta ingresada no es el publicador dedicado. Usa el usuario Sistemas."

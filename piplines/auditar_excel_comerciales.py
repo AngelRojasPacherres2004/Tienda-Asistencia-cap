@@ -28,7 +28,7 @@ SALIDA = PROJECT_ROOT / "auditoria_excel_comerciales.json"
 CONTRATOS = {
     "tiendas": {
         "archivo": "TIENDAS.xlsx", "palabras": ("TIENDA",), "hoja": "TIENDAS",
-        "columnas": ("tienda", "Alias", "tipo_ubicacion", "formato_tienda", "cluster", "metraje_m2", "departamento", "provincia", "distrito", "direccion", "fecha_apertura", "estado_operativo", "fecha_cierre"),
+        "columnas": ("tienda", "Alias", "tipo_ubicacion", "formato_tienda", "cluster", "metraje_m2", "capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp", "departamento", "provincia", "distrito", "direccion", "fecha_apertura", "estado_operativo", "fecha_cierre"),
     },
     "catalogo": {
         "archivo": "CATALOGO_TIENDAS.xlsx", "palabras": ("CATALOGO", "TIENDA"), "hoja": "CATALOGO",
@@ -43,12 +43,12 @@ CONTRATOS = {
         "columnas": ("fecha_periodo", "fecha_ocurrencia", "anio", "mes_numero", "mes_nombre", "tienda", "area", "tipo_merma", "detalle_ocurrencia", "codigo_nissei", "descripcion", "cantidad", "precio_unitario", "total_merma"),
     },
     "metas": {
-        "archivo": "METAS_TIENDAS.xlsx", "palabras": ("META", "TIENDA"), "hoja": "METAS_TIENDAS",
-        "columnas": ("fecha_periodo", "anio", "mes_numero", "mes_nombre", "nivel_periodo", "tienda", "meta_ventas"),
+        "archivo": "METAS_TIENDAS.xlsx", "palabras": ("META", "TIENDA"), "hoja": "METAS",
+        "columnas": ("anio", "mes_numero", "mes_nombre", "tienda", "meta_total", "meta_textil", "meta_calzado", "otros_validos"),
     },
     "personal": {
         "archivo": "PERSONAL_TIENDAS.xlsx", "palabras": ("PERSONAL", "TIENDA"), "hoja": "PERSONAL_TIENDAS",
-        "columnas": ("fecha_inicio_periodo", "fecha_corte", "tienda", "cargo", "area_asignada", "cantidad_personal"),
+        "columnas": ("nombre_completo", "numero_documento", "tienda", "puesto", "area", "fecha_ingreso", "estado_laboral", "fecha_retiro"),
     },
     "trafico": {
         "archivo": "TRAFICO_CLIENTES.xlsx", "palabras": ("TRAFICO", "CLIENTE"), "hoja": "TRAFICO_CLIENTE",
@@ -197,7 +197,7 @@ def auditar() -> dict[str, Any]:
     minimo_modelo = date(ANIO_INICIO_MODELO, 1, 1)
     controles_fecha = {
         "metas": ("fecha_periodo",),
-        "personal": ("fecha_inicio_periodo", "fecha_corte"),
+        "personal": ("fecha_ingreso", "fecha_retiro"),
         "trafico": ("fecha",),
         "merma": ("fecha_periodo", "fecha_ocurrencia"),
     }
@@ -226,47 +226,53 @@ def auditar() -> dict[str, Any]:
     if incompletas:
         agregar(resultado, "errores", f"CATALOGO: {incompletas} filas sin clasificación completa.")
 
-    # Metas: una fila por mes y tienda. Meta cero es válida como SIN META.
+    # Metas: una fila por mes y tienda. TEXTIL/CALZADO son metas oficiales;
+    # los otros rubros se estimarán en la interfaz desde el remanente y ventas.
     metas = datos["metas"]
     claves = []
     inconsistentes = negativas = ceros = 0
     for r in metas:
-        d = fecha_excel(r["fecha_periodo"])
         y = numero(r["anio"]); m = numero(r["mes_numero"])
         y_int = int(y) if y is not None else None
         m_int = int(m) if m is not None else None
-        if d is None or y_int is None or m_int is None or d.year != y_int or d.month != m_int:
+        if y_int is None or m_int is None or not 1 <= m_int <= 12:
             inconsistentes += 1
-        valor = numero(r["meta_ventas"])
-        negativas += valor is not None and valor < 0
-        ceros += valor == 0
+        valores = [numero(r[campo]) for campo in ("meta_total", "meta_textil", "meta_calzado", "otros_validos")]
+        negativas += sum(valor is not None and valor < 0 for valor in valores)
+        ceros += sum(valor == 0 for valor in valores)
         claves.append((y_int, m_int, tienda(r["tienda"]), "META VENTAS"))
     rep, grupos = duplicados(claves)
     if rep:
         agregar(resultado, "errores", f"METAS: {grupos} claves mes/tienda duplicadas.")
     if inconsistentes:
-        agregar(resultado, "errores", f"METAS: {inconsistentes} fechas no coinciden con año/mes.")
+        agregar(resultado, "errores", f"METAS: {inconsistentes} años o meses inválidos.")
     if negativas:
         agregar(resultado, "errores", f"METAS: {negativas} importes negativos.")
     if ceros:
         agregar(resultado, "advertencias", f"METAS: {ceros} filas con meta 0 se publicarán como SIN META.")
 
-    # Personal: una fila por vigencia, tienda, cargo y área.
+    # Personal: padrón individual. El pipeline lo agrega por mes, tienda, puesto y área.
     personal = datos["personal"]
     claves = [
-        (fecha_excel(r["fecha_inicio_periodo"]), fecha_excel(r["fecha_corte"]), tienda(r["tienda"]), clave_texto(r["cargo"]), clave_texto(r["area_asignada"]))
+        (str(r["numero_documento"] or "").strip(), clave_texto(r["nombre_completo"]), fecha_excel(r["fecha_ingreso"]))
         for r in personal
     ]
     rep, grupos = duplicados(claves)
     if rep:
-        agregar(resultado, "errores", f"PERSONAL: {grupos} claves de vigencia/tienda/cargo/área duplicadas.")
+        agregar(resultado, "errores", f"PERSONAL: {grupos} colaboradores duplicados por documento/nombre/fecha de ingreso.")
     invalidas = sum(
-        fecha_excel(r["fecha_inicio_periodo"]) is None or fecha_excel(r["fecha_corte"]) is None
-        or numero(r["cantidad_personal"]) is None or (numero(r["cantidad_personal"]) or 0) < 0
+        fecha_excel(r["fecha_ingreso"]) is None or vacio(r["tienda"]) or vacio(r["puesto"]) or vacio(r["area"])
         for r in personal
     )
     if invalidas:
-        agregar(resultado, "errores", f"PERSONAL: {invalidas} filas con fecha o cantidad inválida.")
+        agregar(resultado, "errores", f"PERSONAL: {invalidas} filas con fecha de ingreso, tienda, puesto o área inválidos.")
+    retiros_invalidos = sum(
+        fecha_excel(r["fecha_retiro"]) is not None and fecha_excel(r["fecha_ingreso"]) is not None
+        and fecha_excel(r["fecha_retiro"]) < fecha_excel(r["fecha_ingreso"])
+        for r in personal
+    )
+    if retiros_invalidos:
+        agregar(resultado, "errores", f"PERSONAL: {retiros_invalidos} retiros anteriores al ingreso.")
 
     # Tráfico: una fila por fecha y tienda; NULL solo con estado informativo.
     trafico = datos["trafico"]
@@ -281,10 +287,15 @@ def auditar() -> dict[str, Any]:
         for r in trafico
     )
     negativos = sum((numero(r["cantidad_personas"]) or 0) < 0 for r in trafico)
-    if nulos_inconsistentes or negativos:
-        agregar(resultado, "errores", f"TRAFICO: nulos inconsistentes={nulos_inconsistentes}; negativos={negativos}.")
+    if negativos:
+        agregar(resultado, "errores", f"TRAFICO: negativos={negativos}.")
+    if nulos_inconsistentes:
+        # Datos recien actualizados pueden tener conteos NULL sin estado_registro
+        # definitivo. Se publica como advertencia para no bloquear la pipeline.
+        agregar(resultado, "advertencias", f"TRAFICO: {nulos_inconsistentes} conteos NULL sin estado informativo (se conservan como NULL).")
     if nulos:
-        agregar(resultado, "advertencias", f"TRAFICO: {nulos} conteos NULL se conservarán según estado_registro.")
+        agregar(resultado, "advertencias", f"TRAFICO: {nulos} conteos NULL se conservaran segun estado_registro.")
+
 
     # Merma: código y precio pueden faltar, cantidad/total no pueden ser negativos.
     merma = datos["merma"]

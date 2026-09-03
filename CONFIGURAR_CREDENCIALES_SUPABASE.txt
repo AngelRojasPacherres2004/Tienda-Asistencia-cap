@@ -1,0 +1,62 @@
+CONFIGURACIÓN PRIVADA DE SUPABASE Y NETLIFY
+============================================
+
+Propósito
+---------
+La cuenta administradora del proyecto es dashboardcomercialn@gmail.com. Los
+operadores del dashboard no ingresan con correo: usan un nombre de usuario.
+
+Antes de continuar
+------------------
+La base de datos, Storage privado, usuarios iniciales, secretos de Groq y Edge
+Functions ya están configurados. Netlify usa la URL y clave publicable del mismo
+proyecto. No hace falta repetir esta configuración en las PC operativas.
+
+Archivo obligatorio para crear accesos
+--------------------------------------
+1. Copia .env.supabase.local.example y cámbiale el nombre a .env.supabase.local.
+2. Completa exactamente estas variables con Project Settings > API del proyecto
+   del mismo proyecto Supabase que indica runtime-config.js:
+
+   SUPABASE_URL
+   SUPABASE_PUBLISHABLE_KEY
+   SUPABASE_SERVICE_ROLE_KEY
+   SUPABASE_PUBLISHER_USERNAME=Sistemas
+
+La clave SERVICE_ROLE es secreta. Solo puede estar en .env.supabase.local de la
+PC administradora. Nunca la agregues a Netlify, GitHub, el frontend o un chat.
+La clave PUBLISHABLE sí puede estar en Netlify y en el frontend, pero debe ser del
+mismo proyecto.
+
+Crear personas con acceso
+-------------------------
+Con el archivo anterior ya configurado, ejecuta 5_CREAR_USUARIO_WEB.bat.
+El programa solicita usuario, contraseña, cargo, dispositivo y rol.
+Cada persona se crea en Supabase Auth y se registra automáticamente en la tabla
+public.dashboard_users del mismo proyecto. La contraseña no se guarda en la
+tabla ni se muestra en pantalla: Supabase Auth la protege. Usa viewer para
+consulta, manager para gestión futura y admin solo para administración.
+
+Cuenta de publicación
+---------------------
+El BAT 6 usa Sistemas como cuenta publicadora. Para crearla, ejecuta
+5_CREAR_USUARIO_WEB.bat, escribe Sistemas y responde S a la pregunta
+"¿Es la cuenta publicadora del dashboard?". El asistente la crea en Supabase Auth,
+la activa en dashboard_users como admin y asigna app_metadata.purpose =
+dashboard_publisher. La contraseña se pide oculta al publicar; déjala vacía en
+.env.supabase.local.
+
+Archivo opcional de respaldo local
+----------------------------------
+Si necesitas anotar valores privados fuera del .env, copia
+CREDENCIALES_SUPABASE_LOCAL.txt.example como CREDENCIALES_SUPABASE_LOCAL.txt.
+Git ignora el archivo final. No pegues esas claves aquí ni lo subas a ningún
+repositorio.
+
+VERIFICACIÓN FINAL
+------------------
+- El dominio de Netlify muestra el login y usa la URL del proyecto nuevo.
+- 5_CREAR_USUARIO_WEB.bat confirma la configuración antes de pedir datos.
+- El usuario creado aparece en Authentication > Users y en Table Editor >
+  dashboard_users; su rol se relaciona desde dashboard_roles.
+- Un usuario viewer puede leer el dashboard, pero no publicar información.

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import os
@@ -380,6 +380,52 @@ RUBROS_INVALIDOS = {"X ERROR", "X PRUEBA", "ERROR", "N A", "NA", "NULL"}
 TOKENS_NULOS = {"", "N/A", "NA", "NULL", "NONE", "-", "--", "ERROR", "#N/A"}
 
 
+def numero_a_letras(n: int) -> str:
+    """Convierte número de columna (base 1) a letras Excel (A, B, …, AA, AB, …)."""
+    result = ""
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        result = chr(ord("A") + rem) + result
+    return result
+
+
+def _clave_encabezado(valor: str) -> str:
+    """Normaliza encabezado para comparación flexible (mayúsculas, saltos de línea, etc.)."""
+    texto = str(valor).replace("_x000a_", " ").replace("\n", " ").replace("\r", " ")
+    return re.sub(r"\s+", " ", texto.strip().upper())
+
+
+def _mapear_columnas_por_nombre(
+    columnas_reales: tuple[str, ...],
+    columnas_esperadas: list[str],
+) -> dict[str, int | None]:
+    """Mapea columnas esperadas a posiciones reales (0-base) por nombre.
+
+    Prioridad:
+    1. Coincidencia exacta normalizada.
+    2. El nombre esperado es prefijo del nombre real
+       (p. ej. "FECHA" coincide con "FECHA TRANSFERNCIA").
+    Devuelve None para columnas sin correspondencia -> SELECT emite NULL.
+    """
+    claves_reales = [_clave_encabezado(c) for c in columnas_reales]
+    resultado: dict[str, int | None] = {}
+    for esperada in columnas_esperadas:
+        clave_esp = _clave_encabezado(esperada)
+        if clave_esp in claves_reales:
+            resultado[esperada] = claves_reales.index(clave_esp)
+            continue
+        encontrado = next(
+            (i for i, cr in enumerate(claves_reales) if cr.startswith(clave_esp + " ")),
+            None,
+        )
+        resultado[esperada] = encontrado
+    return resultado
+
+
+# Primeras columnas estables para detectar si la fila 1 es un encabezado de ventas.
+_COLS_ESTABLES_HEADER_VENTAS = COLUMNAS_VENTAS[:6]  # Hasta LOTE inclusive.
+
+
 @dataclass(frozen=True)
 class HojaExcel:
     archivo: Path
@@ -388,6 +434,8 @@ class HojaExcel:
     filas_dimension: int
     tiene_encabezado: bool
     anio_archivo: int
+    columnas_reales: tuple[str, ...]  # encabezados leídos; () = modo posicional estricto
+    ultima_columna_excel: str         # última columna real (p. ej. "AB" para 28 cols)
 
     @property
     def fila_inicio(self) -> int:
@@ -395,11 +443,13 @@ class HojaExcel:
 
     @property
     def rango_datos(self) -> str:
-        return f"A{self.fila_inicio}:{COLUMNA_FINAL_EXCEL}{self.filas_dimension}"
+        col_final = self.ultima_columna_excel or COLUMNA_FINAL_EXCEL
+        return f"A{self.fila_inicio}:{col_final}{self.filas_dimension}"
 
     @property
     def filas_datos_esperadas(self) -> int:
         return max(0, self.filas_dimension - self.fila_inicio + 1)
+
 
 
 # ==========================================================
@@ -506,15 +556,22 @@ def obtener_hojas_desde_xlsx(archivo: Path) -> list[tuple[str, str, int]]:
             cantidad_columnas, ultima_fila = analizar_dimension(dimension)
             if ultima_fila < 1:
                 continue
-            if cantidad_columnas != TOTAL_COLUMNAS_ORIGEN:
-                raise ValueError(
-                    f"{archivo.name} / {nombre_hoja}: se esperaban {TOTAL_COLUMNAS_ORIGEN} "
-                    f"columnas (A:{COLUMNA_FINAL_EXCEL}), pero la dimensión indica "
-                    f"{cantidad_columnas}: {dimension}."
+            if cantidad_columnas > TOTAL_COLUMNAS_ORIGEN:
+                print(
+                    f"  - Aviso: {nombre_hoja} tiene {cantidad_columnas} columnas; "
+                    f"se procesarán únicamente A:{COLUMNA_FINAL_EXCEL}."
+                )
+                cantidad_columnas = TOTAL_COLUMNAS_ORIGEN
+            elif cantidad_columnas < TOTAL_COLUMNAS_ORIGEN:
+                print(
+                    f"  - Aviso: {nombre_hoja} tiene {cantidad_columnas} columnas "
+                    f"(esperadas {TOTAL_COLUMNAS_ORIGEN}); columnas faltantes -> NULL."
                 )
 
-            hojas.append((nombre_hoja, f"A1:{COLUMNA_FINAL_EXCEL}{ultima_fila}", ultima_fila))
+            col_final_real = numero_a_letras(cantidad_columnas)
+            hojas.append((nombre_hoja, f"A1:{col_final_real}{ultima_fila}", ultima_fila, col_final_real))
         return hojas
+
 
 
 def buscar_archivos_ventas() -> list[Path]:
@@ -565,19 +622,28 @@ def consulta_read_xlsx(archivo: Path, hoja: str, rango: str, tiene_encabezado: b
 
 def detectar_encabezado(
     conexion: duckdb.DuckDBPyConnection, archivo: Path, hoja: str
-) -> bool:
-    # La detección mediante read_xlsx recorría hojas completas incluso para A1.
-    # La lectura XML obtiene únicamente la primera fila y conserva el mismo rigor.
+) -> tuple[bool, list[str]]:
+    """Detecta si la fila 1 es encabezado; devuelve (tiene_enc, headers_reales).
+
+    Compara sólo las primeras columnas estables de la lista canónica para
+    admitir archivos con más o menos columnas de lo esperado.
+    Si la fila es encabezado, devuelve también todos los headers reales del archivo
+    (pueden ser menos que TOTAL_COLUMNAS_ORIGEN) para el mapeo por nombre posterior.
+    """
     del conexion
     filas = leer_filas_xlsx(archivo, hoja, max_filas=1, max_columnas=TOTAL_COLUMNAS_ORIGEN)
     primera_fila = filas[0] if filas else None
-    if primera_fila is None or len(primera_fila) != TOTAL_COLUMNAS_ORIGEN:
+    if not primera_fila:
         raise ValueError(
-            f"No se pudo leer correctamente la primera fila de {archivo.name} / {hoja}."
+            f"No se pudo leer la primera fila de {archivo.name} / {hoja}."
         )
-    esperado = [normalizar_encabezado(x) for x in COLUMNAS_VENTAS]
-    recibido = [normalizar_encabezado(x) for x in primera_fila]
-    return recibido == esperado
+    n = len(_COLS_ESTABLES_HEADER_VENTAS)
+    esperado = [normalizar_encabezado(x) for x in _COLS_ESTABLES_HEADER_VENTAS]
+    recibido = [normalizar_encabezado(x) for x in primera_fila[:n]]
+    tiene_enc = recibido == esperado
+    return tiene_enc, list(primera_fila) if tiene_enc else []
+
+
 
 
 def obtener_columnas_lectura(conexion: duckdb.DuckDBPyConnection, origen_sql: str) -> list[str]:
@@ -608,8 +674,10 @@ def inspeccionar_fuentes(
             raise ValueError(f"El archivo no contiene hojas utilizables: {archivo.name}")
 
         print(f"\n{archivo.name}")
-        for nombre_hoja, rango, filas_dimension in hojas_estructura:
-            tiene_encabezado = detectar_encabezado(conexion, archivo, nombre_hoja)
+        for nombre_hoja, rango, filas_dimension, col_final_real in hojas_estructura:
+            tiene_encabezado, headers_reales = detectar_encabezado(
+                conexion, archivo, nombre_hoja
+            )
             hoja = HojaExcel(
                 archivo=archivo,
                 nombre=nombre_hoja,
@@ -617,14 +685,22 @@ def inspeccionar_fuentes(
                 filas_dimension=filas_dimension,
                 tiene_encabezado=tiene_encabezado,
                 anio_archivo=anio,
+                columnas_reales=tuple(headers_reales),
+                ultima_columna_excel=col_final_real,
             )
             resultado.append(hoja)
             tipo = "con encabezado" if tiene_encabezado else "sin encabezado"
+            ncols_real = len(headers_reales) if headers_reales else TOTAL_COLUMNAS_ORIGEN
+            aviso = (
+                f" [{ncols_real}/{TOTAL_COLUMNAS_ORIGEN} cols, faltantes->NULL]"
+                if ncols_real < TOTAL_COLUMNAS_ORIGEN else ""
+            )
             print(
-                f"  - {nombre_hoja}: {hoja.rango_datos} | {tipo} | "
+                f"  - {nombre_hoja}: {hoja.rango_datos} | {tipo}{aviso} | "
                 f"filas de datos esperadas: {hoja.filas_datos_esperadas:,}"
             )
     return resultado
+
 
 
 def construir_select_hoja(
@@ -632,22 +708,48 @@ def construir_select_hoja(
     hoja: HojaExcel,
     fecha_procesamiento: datetime,
 ) -> str:
+    """Genera el SELECT DuckDB para una hoja Excel.
+
+    Si el archivo tiene encabezados (columnas_reales no vacío) usa mapeo por nombre:
+    - Alias posicionales col_1, col_2, … para las columnas reales del archivo.
+    - Cada columna esperada se resuelve por nombre (exacto o prefijo).
+    - Columnas ausentes en el Excel emiten NULL::VARCHAR.
+    Si no hay encabezados, usa modo posicional estricto (esquema completo requerido).
+    """
     del conexion
-    # Se omite físicamente la fila de encabezado y se asignan los nombres por
-    # posición. Así DuckDB no necesita inferir ni describir toda la hoja.
     origen = consulta_read_xlsx(
         archivo=hoja.archivo,
         hoja=hoja.nombre,
         rango=hoja.rango_datos,
         tiene_encabezado=False,
     )
-    alias_columnas = ", ".join(sql_identificador(c) for c in COLUMNAS_VENTAS)
-    expresiones = [
-        f"CAST({sql_identificador(nombre)} AS VARCHAR) AS {sql_identificador(nombre)}"
-        for nombre in COLUMNAS_VENTAS
-    ]
     desplazamiento = hoja.fila_inicio - 1
     fecha_sql = fecha_procesamiento.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    if hoja.columnas_reales:
+        # Modo por nombre: alias posicionales para las columnas reales del archivo.
+        num_cols = len(hoja.columnas_reales)
+        alias_posicionales = [f"col_{i + 1}" for i in range(num_cols)]
+        alias_columnas = ", ".join(sql_identificador(a) for a in alias_posicionales)
+        mapa = _mapear_columnas_por_nombre(hoja.columnas_reales, COLUMNAS_VENTAS)
+        expresiones = []
+        for nombre in COLUMNAS_VENTAS:
+            pos = mapa.get(nombre)
+            if pos is not None:
+                src = sql_identificador(f"col_{pos + 1}")
+                expresiones.append(
+                    f"CAST({src} AS VARCHAR) AS {sql_identificador(nombre)}"
+                )
+            else:
+                expresiones.append(f"NULL::VARCHAR AS {sql_identificador(nombre)}")
+    else:
+        # Modo posicional estricto (archivos sin fila de encabezado, esquema completo).
+        alias_columnas = ", ".join(sql_identificador(c) for c in COLUMNAS_VENTAS)
+        expresiones = [
+            f"CAST({sql_identificador(nombre)} AS VARCHAR) AS {sql_identificador(nombre)}"
+            for nombre in COLUMNAS_VENTAS
+        ]
+
     expresiones.extend(
         [
             f"{sql_texto(hoja.archivo.name)}::VARCHAR AS archivo_origen",
@@ -658,6 +760,7 @@ def construir_select_hoja(
         ]
     )
     return ("SELECT\n    " + ",\n    ".join(expresiones) + f"\nFROM {origen} AS src({alias_columnas})")
+
 
 
 def crear_capa1(conexion: duckdb.DuckDBPyConnection, hojas: list[HojaExcel]) -> None:

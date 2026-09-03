@@ -128,6 +128,7 @@ export class DashboardAssistantWidgetComponent {
   private unavailableMessage(error: unknown): string {
     const detail = error instanceof Error ? error.message.toLowerCase() : '';
     if (detail.includes('sesión') || detail.includes('sesiÃ³n')) return 'Tu sesión cambió. Vuelve a ingresar para usar el asistente.';
+    if (error instanceof Error && error.message) return error.message;
     return 'El asistente no está disponible ahora. El dashboard continúa funcionando normalmente.';
   }
 

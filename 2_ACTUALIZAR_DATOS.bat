@@ -109,10 +109,16 @@ if exist "dashboard-web\public" (
     )
 )
 
-if not exist "%WEBROOT%\index.html" (
-    echo ERROR: La actualizacion termino, pero no existe la compilacion web.
-    goto :error
+if exist "dashboard-web\public" (
+    if not exist "%WEBROOT%\index.html" (
+        echo.
+        echo AVISO: Los datos se actualizaron correctamente, pero la version
+        echo        compilada del dashboard web no existe aun.
+        echo        Ejecuta 3_CREAR_PAQUETE_PORTABLE.bat para compilarla una vez,
+        echo        o abre 4_EJECUTAR_DASHBOARD_WEB.bat que la compilara automaticamente.
+    )
 )
+
 
 echo.
 echo ============================================================

@@ -34,13 +34,20 @@ CAPA2_FINAL = CAPA2_DIR / "FactPersonalTienda.parquet"
 CAPA2_TEMP = WORK_TEMP_DIR / "FactPersonalTienda_temporal.parquet"
 HOJA_CAPA1 = "PERSONAL_TIENDAS"
 
-COLUMNAS_REQUERIDAS = [
+COLUMNAS_RESUMEN_REQUERIDAS = [
     "fecha_inicio_periodo",
     "fecha_corte",
     "tienda",
     "cargo",
     "area_asignada",
     "cantidad_personal",
+]
+
+# Desde septiembre de 2026 el archivo puede llegar como padrón individual.
+# Se conserva el contrato anterior para no romper periodos ya preparados.
+COLUMNAS_PADRON_REQUERIDAS = [
+    "nombre_completo", "numero_documento", "tienda", "puesto", "area",
+    "fecha_ingreso", "estado_laboral", "fecha_retiro",
 ]
 
 COLUMNAS_CAPA2 = [
@@ -304,7 +311,7 @@ def obtener_columnas(con: duckdb.DuckDBPyConnection, archivo: Path) -> list[str]
     return [f[0] for f in con.execute(f"DESCRIBE SELECT * FROM {consulta_excel(archivo)}").fetchall()]
 
 
-def construir_sql_capa2(archivo: Path) -> str:
+def construir_sql_resumen(archivo: Path) -> str:
     """Construye la dotación mensual vigente entre inicio y corte.
 
     El Excel registra intervalos (por ejemplo 01/01/2026 a 21/07/2026).
@@ -427,13 +434,130 @@ def construir_sql_capa2(archivo: Path) -> str:
     """
 
 
+def es_formato_padron(columnas: list[str]) -> bool:
+    disponibles = {normalizar_clave_python(columna) for columna in columnas}
+    return all(normalizar_clave_python(columna) in disponibles for columna in COLUMNAS_PADRON_REQUERIDAS)
+
+
+def construir_sql_padron(archivo: Path, columnas: list[str]) -> str:
+    """Convierte el padrón individual en una dotación mensual agregada.
+
+    La Capa 2 no conserva nombres, DNI ni datos sensibles. Solo usa una clave
+    interna para evitar duplicados dentro de cada mes y publica conteos por
+    tienda, puesto y área, que es el grano que consumen el dashboard y Power BI.
+    """
+    origen = consulta_excel(archivo)
+    mapa = {normalizar_clave_python(columna): columna for columna in columnas}
+
+    def columna(*candidatos: str) -> str:
+        for candidato in candidatos:
+            encontrada = mapa.get(normalizar_clave_python(candidato))
+            if encontrada:
+                return '"' + encontrada.replace('"', '""') + '"'
+        return "NULL"
+
+    nombre = columna("nombre_completo", "nombre")
+    documento = columna("numero_documento", "documento", "dni")
+    tienda_raw = columna("tienda")
+    puesto = columna("puesto", "cargo")
+    area = columna("area", "area_asignada")
+    fecha_ingreso = columna("fecha_ingreso")
+    fecha_retiro = columna("fecha_retiro")
+    estado = columna("estado_laboral", "estado")
+    tienda_mapeada = sql_mapear("tienda_origen", TIENDAS_EQUIVALENCIAS, "tienda_origen")
+    cargo_mapeado = sql_mapear("cargo_origen", CARGOS_EQUIVALENCIAS, "cargo_origen")
+    area_mapeada = sql_mapear("area_origen", AREAS_EQUIVALENCIAS, "area_origen")
+    areas_soporte = ", ".join(sql_texto(x) for x in sorted(AREAS_SOPORTE))
+
+    return f"""
+    WITH raw AS (
+        SELECT
+            row_number() OVER () AS fila_origen,
+            NULLIF(trim(CAST({documento} AS VARCHAR)), '') AS documento_origen,
+            {sql_limpiar_texto(nombre)} AS nombre_origen,
+            {sql_fecha_excel(fecha_ingreso)} AS fecha_ingreso,
+            {sql_fecha_excel(fecha_retiro)} AS fecha_retiro,
+            {sql_limpiar_texto(tienda_raw)} AS tienda_origen,
+            {sql_limpiar_texto(puesto)} AS cargo_origen,
+            {sql_limpiar_texto(area)} AS area_origen,
+            {sql_limpiar_texto(estado)} AS estado_laboral
+        FROM {origen}
+    ), normalizado AS (
+        SELECT
+            fila_origen,
+            COALESCE(documento_origen, sha256(COALESCE(nombre_origen, '') || '|' || COALESCE(CAST(fecha_ingreso AS VARCHAR), '') || '|' || COALESCE(tienda_origen, ''))) AS colaborador_clave,
+            fecha_ingreso,
+            CASE
+                WHEN estado_laboral IN ('POR INGRESAR', 'NO INGRESO', 'ANULADO') THEN NULL
+                ELSE COALESCE(fecha_retiro, CURRENT_DATE)
+            END AS fecha_fin,
+            {tienda_mapeada} AS tienda,
+            COALESCE({cargo_mapeado}, 'SIN PUESTO') AS cargo,
+            COALESCE({area_mapeada}, 'SIN ÁREA') AS area_asignada
+        FROM raw
+    ), vigencias AS (
+        SELECT *
+        FROM normalizado
+        WHERE fecha_ingreso IS NOT NULL
+          AND fecha_ingreso <= fecha_fin
+          AND fecha_fin >= make_date(2023, 1, 1)
+          AND tienda IS NOT NULL
+    ), expandido AS (
+        SELECT
+            colaborador_clave, tienda, cargo, area_asignada,
+            CAST(mes.fecha_periodo AS DATE) AS fecha_periodo
+        FROM vigencias
+        CROSS JOIN LATERAL generate_series(
+            GREATEST(CAST(date_trunc('month', fecha_ingreso) AS DATE), make_date(2023, 1, 1)),
+            CAST(date_trunc('month', fecha_fin) AS DATE),
+            INTERVAL '1 month'
+        ) AS mes(fecha_periodo)
+    ), mensual AS (
+        SELECT
+            fecha_periodo, tienda, cargo, area_asignada,
+            COUNT(DISTINCT colaborador_clave)::INTEGER AS cantidad_personal
+        FROM expandido
+        GROUP BY 1, 2, 3, 4
+    )
+    SELECT
+        CAST(strftime(fecha_periodo, '%Y%m%d') AS INTEGER) AS fecha_id,
+        CAST(strftime(fecha_periodo, '%Y%m') AS INTEGER) AS periodo_id,
+        fecha_periodo,
+        fecha_periodo AS fecha_inicio_periodo,
+        last_day(fecha_periodo) AS fecha_corte,
+        date_part('year', fecha_periodo)::INTEGER AS anio,
+        date_part('month', fecha_periodo)::INTEGER AS mes_numero,
+        {sql_nombre_mes("date_part('month', fecha_periodo)::INTEGER")} AS mes_nombre,
+        date_part('quarter', fecha_periodo)::INTEGER AS trimestre,
+        date_part('week', fecha_periodo)::INTEGER AS semana,
+        date_part('isodow', fecha_periodo)::INTEGER AS dia_semana_numero,
+        {sql_nombre_dia("date_part('isodow', fecha_periodo)::INTEGER")} AS dia_semana_nombre,
+        {id_sql('tienda')} AS tienda_id,
+        tienda,
+        cargo,
+        area_asignada,
+        CASE WHEN area_asignada IN ({areas_soporte}) THEN 'SOPORTE' ELSE 'COMERCIAL' END AS tipo_area,
+        cantidad_personal
+    FROM mensual
+    """
+
+
+def construir_sql_capa2(archivo: Path, columnas: list[str]) -> str:
+    return construir_sql_padron(archivo, columnas) if es_formato_padron(columnas) else construir_sql_resumen(archivo)
+
+
 def verificar_capa1(con: duckdb.DuckDBPyConnection, archivo: Path) -> dict[str, int]:
     columnas = obtener_columnas(con, archivo)
-    faltan = [c for c in COLUMNAS_REQUERIDAS if c not in columnas]
+    formato_padron = es_formato_padron(columnas)
+    requeridas = COLUMNAS_PADRON_REQUERIDAS if formato_padron else COLUMNAS_RESUMEN_REQUERIDAS
+    faltan = [c for c in requeridas if c not in columnas]
     if faltan:
-        raise RuntimeError(f"El Excel de personal no contiene las columnas requeridas. Faltan: {faltan}")
+        raise RuntimeError(
+            "El Excel de personal no coincide con el formato de resumen ni con el padrón individual. "
+            f"Faltan: {faltan}; encontradas={columnas}"
+        )
 
-    sql = construir_sql_capa2(archivo)
+    sql = construir_sql_capa2(archivo, columnas)
     resumen = con.execute(
         f"""
         SELECT
@@ -454,6 +578,7 @@ def verificar_capa1(con: duckdb.DuckDBPyConnection, archivo: Path) -> dict[str, 
 
     print("\nCAPA 1 DE PERSONAL VERIFICADA")
     print(f"Archivo                    : {archivo}")
+    print(f"Formato                    : {'padrón individual agregado' if formato_padron else 'resumen por vigencia'}")
     print(f"Registros mensuales        : {resumen[0]}")
     print(f"Periodos mensuales         : {resumen[1]}")
     print(f"Rango mensual              : {resumen[2]} a {resumen[3]}")
@@ -462,18 +587,19 @@ def verificar_capa1(con: duckdb.DuckDBPyConnection, archivo: Path) -> dict[str, 
     print(f"Cantidad negativa          : {resumen[6]}")
     print(f"Tiendas                    : {resumen[7]}")
     print(f"Suma de dotación mensual   : {resumen[8]}")
-    print("Cada intervalo del Excel se expande a una fila por mes.")
-    print("El cargo vacío se completa como VENDEDOR y la homologación usa el maestro central.")
+    print("La salida conserva solo conteos mensuales; no publica datos personales identificables.")
+    print("La homologación de tienda, puesto y área usa el maestro central.")
     return {"filas": int(resumen[0]), "columnas": len(columnas)}
 
 
 def crear_capa2(con: duckdb.DuckDBPyConnection, archivo: Path) -> None:
+    columnas = obtener_columnas(con, archivo)
     verificar_capa1(con, archivo)
     CAPA2_TEMP.unlink(missing_ok=True)
     con.execute(
         f"""
         COPY (
-            SELECT * FROM ({construir_sql_capa2(archivo)})
+            SELECT * FROM ({construir_sql_capa2(archivo, columnas)})
             ORDER BY fecha_periodo, tienda_id, area_asignada
         ) TO {sql_texto(CAPA2_TEMP.as_posix())}
         (FORMAT PARQUET, COMPRESSION SNAPPY)

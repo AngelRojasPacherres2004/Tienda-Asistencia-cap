@@ -1,0 +1,63 @@
+{
+  "estado": "ADVERTENCIA",
+  "errores": [],
+  "advertencias": [
+    "METAS: 54 filas con meta 0 se publicarán como SIN META.",
+    "TRAFICO: 23 conteos NULL sin estado informativo (se conservan como NULL).",
+    "TRAFICO: 259 conteos NULL se conservaran segun estado_registro.",
+    "MERMA: 25 filas sin código conservarán producto_id NULL.",
+    "GUIAS: 540 filas anteriores a 2023 serán excluidas de Capa 2.",
+    "GUIAS: 1 totales fuente difieren de cantidad × precio; se recalcularán."
+  ],
+  "archivos": {
+    "tiendas": {
+      "archivo": "TIENDAS.xlsx",
+      "hoja": "TIENDAS",
+      "filas": 20,
+      "columnas": 16,
+      "estado": "OK"
+    },
+    "catalogo": {
+      "archivo": "CATALOGO_TIENDAS.xlsx",
+      "hoja": "CATALOGO",
+      "filas": 1033,
+      "columnas": 6,
+      "estado": "OK"
+    },
+    "guias": {
+      "archivo": "GUIAS_EN_TRANSITO.xlsx",
+      "hoja": "GUIAS_EN_TRANSITO_C1",
+      "filas": 35175,
+      "columnas": 20,
+      "estado": "OK"
+    },
+    "merma": {
+      "archivo": "MERMA.xlsx",
+      "hoja": "MERMA",
+      "filas": 51,
+      "columnas": 14,
+      "estado": "OK"
+    },
+    "metas": {
+      "archivo": "METAS_TIENDAS.xlsx",
+      "hoja": "METAS_TIENDAS",
+      "filas": 648,
+      "columnas": 7,
+      "estado": "OK"
+    },
+    "personal": {
+      "archivo": "PERSONAL_TIENDAS.xlsx",
+      "hoja": "PERSONAL_TIENDAS",
+      "filas": 112,
+      "columnas": 28,
+      "estado": "OK"
+    },
+    "trafico": {
+      "archivo": "TRAFICO_CLIENTES.xlsx",
+      "hoja": "TRAFICO_CLIENTE",
+      "filas": 4248,
+      "columnas": 4,
+      "estado": "OK"
+    }
+  }
+}

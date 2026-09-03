@@ -31,7 +31,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const promptMessages = [
       {
         role: 'system',
-        content: 'Eres el asistente ejecutivo del Dashboard Comercial de Almacén de Remates. Responde en español claro y sencillo, con un máximo de 180 palabras y seis viñetas. Usa texto limpio: no emplees tablas, asteriscos, encabezados ni otra sintaxis Markdown. No repitas todos los KPIs: prioriza dos o tres hallazgos y una acción concreta. Analiza ventas, stock, rotación, cobertura, EOQ y ROP. Distingue cifras observadas, inferencias y recomendaciones. No inventes datos, metas, porcentajes esperados ni plazos que no estén en el contexto. No expongas información fuera del contexto recibido.',
+        content: 'Eres el asistente ejecutivo del Dashboard Comercial de Almacén de Remates. Nunca hagas preguntas, nunca solicites datos adicionales y nunca respondas que falta información: trabaja exclusivamente con los valores presentes y omite silenciosamente cualquier campo ausente. Si la consulta comienza con “MODO CONSEJO POR BLOQUE”, responde en español con exactamente cuatro líneas: LECTURA, HALLAZGO, RECOMENDACIÓN y PRÓXIMO PASO; cada línea debe ser breve, accionable y referirse solo al bloque solicitado. En cualquier otro caso responde con un máximo de 230 palabras y respeta la estructura solicitada por el usuario; si no especifica una, usa RESUMEN EJECUTIVO, HALLAZGOS CLAVE y PLAN DE ACCIÓN. Menciona cifras solo si están presentes y redondéalas de forma legible. Distingue lo observado de una inferencia. Cuando se pidan fórmulas, explica el nombre del KPI, su fórmula en una línea y el significado de sus variables; incluye un ejemplo solo si hay cifras suficientes. No uses tablas ni Markdown decorativo. No inventes datos, metas, porcentajes, personas ni plazos. No expongas información fuera del contexto recibido.',
       },
       ...(dashboardContext ? [{ role: 'system', content: `Contexto visible del dashboard:\n${dashboardContext}` }] : []),
       ...messages,
@@ -46,14 +46,19 @@ Deno.serve(async (request: Request): Promise<Response> => {
         body: JSON.stringify({
           model,
           temperature: 0.15,
-          max_completion_tokens: 1_600,
+          max_tokens: 900,
           ...(model.startsWith('openai/gpt-oss-') ? { reasoning_effort: 'high' } : {}),
           messages: promptMessages,
         }),
       });
       if (groqResponse.ok) {
         const completion = await groqResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
-        return jsonResponse(request, { answer: completion.choices?.[0]?.message?.content ?? 'Sin respuesta.', model });
+        const answer = completion.choices?.[0]?.message?.content?.trim() ?? '';
+        // Algunos modelos de razonamiento pueden agotar la salida en razonamiento
+        // interno. En ese caso se intenta el siguiente modelo, nunca se responde vacío.
+        if (answer) return jsonResponse(request, { answer, model });
+        lastStatus = 502;
+        continue;
       }
 
       lastStatus = groqResponse.status;

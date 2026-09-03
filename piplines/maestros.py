@@ -10,7 +10,7 @@ import re
 import unicodedata
 from typing import Any
 
-ANIO_INICIO_MODELO = 2024
+ANIO_INICIO_MODELO = 2023
 ANIO_FIN_MODELO = 2026
 FECHA_INICIO_MODELO = f"{ANIO_INICIO_MODELO:04d}-01-01"
 

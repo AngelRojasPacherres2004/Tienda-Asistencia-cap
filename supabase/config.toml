@@ -1,4 +1,6 @@
-project_id = "hiwvtldpwenstxeoteui"
+# Identificador local. Para desplegar, enlaza este repositorio al proyecto de
+# dashboardcomercialn@gmail.com con `supabase link --project-ref <nuevo_ref>`.
+project_id = "nxykusedctriathfxovf"
 
 [functions.groq-chat]
 verify_jwt = true
@@ -8,3 +10,6 @@ verify_jwt = true
 
 [functions.session-control]
 verify_jwt = true
+
+[functions.username-login]
+verify_jwt = false

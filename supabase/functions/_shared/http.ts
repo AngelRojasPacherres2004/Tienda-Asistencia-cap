@@ -1,6 +1,9 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 
-const PRODUCTION_ORIGIN = 'https://dashboard-general-comercial.netlify.app';
+const PRODUCTION_ORIGINS = new Set([
+  'https://dashboard-comercial-remates.netlify.app',
+  'https://dashboard-general-comercial.netlify.app',
+]);
 
 export function requestCorsHeaders(request: Request): Record<string, string> | null {
   const origin = request.headers.get('origin');
@@ -13,10 +16,10 @@ export function requestCorsHeaders(request: Request): Record<string, string> | n
       localOrigin = false;
     }
   }
-  if (origin && origin !== PRODUCTION_ORIGIN && !localOrigin) return null;
+  if (origin && !PRODUCTION_ORIGINS.has(origin) && !localOrigin) return null;
   return {
     ...corsHeaders,
-    'Access-Control-Allow-Origin': origin || PRODUCTION_ORIGIN,
+    'Access-Control-Allow-Origin': origin || 'https://dashboard-comercial-remates.netlify.app',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Vary': 'Origin',
   };

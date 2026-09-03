@@ -44,7 +44,7 @@ La configuración pública de Supabase se genera durante el build de Netlify. `G
 - Si Groq no responde, el dashboard continúa funcionando sin depender de la IA.
 - Los datos de inventario se cargan por niveles: resumen primero y detalle por producto en segundo plano.
 
-La web productiva continúa temporalmente vinculada a **dashboard-comercial**, referencia `hiwvtldpwenstxeoteui`. Allí existen `dashboard_users`, `dashboard_releases` y `dashboard_files`. No se debe borrar ese proyecto hasta replicar la estructura, usuarios, datos, funciones y variables en `dashboardcomercialn-dev's Project`, validar la nueva publicación y cambiar Netlify al proyecto nuevo.
+La web productiva está vinculada al proyecto privado de Supabase `nxykusedctriathfxovf`, administrado por `dashboardcomercialn@gmail.com`. Allí están las tablas de acceso, el Storage privado y las Edge Functions del asistente de IA. Netlify usa la URL y la clave publicable de este mismo proyecto.
 
 Consulta [ARQUITECTURA_NUBE.md](ARQUITECTURA_NUBE.md) para el flujo completo.
 

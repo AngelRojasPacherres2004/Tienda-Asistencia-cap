@@ -40,6 +40,9 @@ COLUMNAS_REQUERIDAS = [
     "formato_tienda",
     "cluster",
     "metraje_m2",
+    "capacidad_stock_unid",
+    "cant_colaboradores_normal",
+    "colaboradores_camp",
     "departamento",
     "provincia",
     "distrito",
@@ -59,6 +62,9 @@ COLUMNAS_CAPA2 = [
     "es_tienda",
     "metraje_m2",
     "capacidad_stock_unidades",
+    "cant_colaboradores_normal",
+    "colaboradores_camp",
+    "cant_colaboradores_referencial",
     "departamento",
     "provincia",
     "distrito",
@@ -312,6 +318,20 @@ def construir_sql_capa2(archivo: Path, columnas_disponibles: list[str] | None = 
         if columna_capacidad
         else "CAST(NULL AS DECIMAL(14,2))"
     )
+    columna_colaboradores_normal = columna_opcional(
+        "cant_colaboradores_normal", "cantidad_colaboradores_normal", "colaboradores_normal",
+    )
+    columna_colaboradores_camp = columna_opcional(
+        "colaboradores_camp", "cant_colaboradores_camp", "colaboradores_campana",
+    )
+    colaboradores_normal_expr = (
+        sql_numero('"' + columna_colaboradores_normal.replace('"', '""') + '"')
+        if columna_colaboradores_normal else "CAST(NULL AS DECIMAL(14,2))"
+    )
+    colaboradores_camp_expr = (
+        sql_numero('"' + columna_colaboradores_camp.replace('"', '""') + '"')
+        if columna_colaboradores_camp else "CAST(NULL AS DECIMAL(14,2))"
+    )
 
     tienda_limpia = sql_limpiar_texto('"tienda"')
     tienda = sql_mapear("tienda_limpia", TIENDAS_EQUIVALENCIAS, "tienda_limpia")
@@ -330,6 +350,8 @@ def construir_sql_capa2(archivo: Path, columnas_disponibles: list[str] | None = 
             {sql_limpiar_texto('"cluster"')} AS cluster,
             {sql_numero('"metraje_m2"')} AS metraje_m2,
             {capacidad_expr} AS capacidad_stock_unidades,
+            {colaboradores_normal_expr} AS cant_colaboradores_normal,
+            {colaboradores_camp_expr} AS colaboradores_camp,
             {sql_limpiar_texto('"departamento"')} AS departamento,
             {sql_limpiar_texto('"provincia"')} AS provincia,
             {sql_limpiar_texto('"distrito"')} AS distrito,
@@ -348,6 +370,8 @@ def construir_sql_capa2(archivo: Path, columnas_disponibles: list[str] | None = 
             cluster,
             metraje_m2,
             capacidad_stock_unidades,
+            cant_colaboradores_normal,
+            colaboradores_camp,
             departamento,
             provincia,
             distrito,
@@ -370,6 +394,8 @@ def construir_sql_capa2(archivo: Path, columnas_disponibles: list[str] | None = 
             cluster,
             CASE WHEN tienda IN ('ONLINE', 'CD') THEN NULL ELSE metraje_m2 END AS metraje_m2,
             CASE WHEN tienda IN ('ONLINE', 'CD') THEN NULL ELSE capacidad_stock_unidades END AS capacidad_stock_unidades,
+            CASE WHEN tienda IN ('ONLINE', 'CD') THEN NULL ELSE cant_colaboradores_normal END AS cant_colaboradores_normal,
+            CASE WHEN tienda IN ('ONLINE', 'CD') THEN NULL ELSE colaboradores_camp END AS colaboradores_camp,
             departamento,
             provincia,
             distrito,
@@ -392,6 +418,9 @@ def construir_sql_capa2(archivo: Path, columnas_disponibles: list[str] | None = 
         (tipo_ubicacion = 'TIENDA FÍSICA') AS es_tienda,
         CAST(metraje_m2 AS DECIMAL(14,2)) AS metraje_m2,
         CAST(capacidad_stock_unidades AS DECIMAL(14,2)) AS capacidad_stock_unidades,
+        CAST(cant_colaboradores_normal AS INTEGER) AS cant_colaboradores_normal,
+        CAST(colaboradores_camp AS INTEGER) AS colaboradores_camp,
+        CAST(COALESCE(cant_colaboradores_normal, 0) + COALESCE(colaboradores_camp, 0) AS INTEGER) AS cant_colaboradores_referencial,
         departamento,
         provincia,
         distrito,
@@ -455,6 +484,7 @@ def verificar_capa1(con: duckdb.DuckDBPyConnection, archivo: Path) -> dict[str, 
         SELECT
             COUNT(*) FILTER (WHERE tipo_ubicacion = 'TIENDA FÍSICA' AND metraje_m2 IS NULL),
             COUNT(*) FILTER (WHERE tipo_ubicacion = 'TIENDA FÍSICA' AND capacidad_stock_unidades IS NULL),
+            COUNT(*) FILTER (WHERE tipo_ubicacion = 'TIENDA FÍSICA' AND (cant_colaboradores_normal IS NULL OR colaboradores_camp IS NULL)),
             COUNT(*) FILTER (WHERE fecha_apertura IS NULL),
             COUNT(*) FILTER (WHERE estado_operativo IS NULL),
             COUNT(*) FILTER (WHERE estado_operativo = 'INACTIVA' AND fecha_cierre IS NULL),
@@ -468,10 +498,11 @@ def verificar_capa1(con: duckdb.DuckDBPyConnection, archivo: Path) -> dict[str, 
     print(f"Registros                       : {filas}")
     print(f"Tiendas físicas sin metraje     : {advertencias[0]}")
     print(f"Tiendas físicas sin capacidad   : {advertencias[1]}")
-    print(f"Fechas de apertura vacías       : {advertencias[2]}")
-    print(f"Estados operativos vacíos       : {advertencias[3]}")
-    print(f"Inactivas sin fecha de cierre   : {advertencias[4]}")
-    print(f"Direcciones vacías              : {advertencias[5]}")
+    print(f"Tiendas sin dotación referencial: {advertencias[2]}")
+    print(f"Fechas de apertura vacías       : {advertencias[3]}")
+    print(f"Estados operativos vacíos       : {advertencias[4]}")
+    print(f"Inactivas sin fecha de cierre   : {advertencias[5]}")
+    print(f"Direcciones vacías              : {advertencias[6]}")
     print("Los campos vacíos opcionales se publicarán como NULL y no detienen la pipeline.")
     return {"filas": int(filas), "columnas": len(columnas)}
 

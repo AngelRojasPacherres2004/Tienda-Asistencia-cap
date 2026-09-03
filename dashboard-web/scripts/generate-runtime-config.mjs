@@ -11,7 +11,9 @@ const config = {
   dataMode: 'supabase',
   supabaseUrl,
   supabasePublishableKey,
-  groqAssistantEnabled: (process.env.GROQ_ASSISTANT_ENABLED ?? '').toLowerCase() === 'true',
+  groqAssistantEnabled: (process.env.GROQ_ASSISTANT_ENABLED ?? 'true').toLowerCase() !== 'false',
+  groqChatModel: (process.env.GROQ_CHAT_MODEL ?? 'openai/gpt-oss-120b').trim(),
+  groqFallbackModels: ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b'],
 };
 const output = `window.__DASHBOARD_CONFIG__ = ${JSON.stringify(config, null, 2)};\n`;
 await writeFile(resolve('public/runtime-config.js'), output, 'utf8');

@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.supabase.local.example
+CREDENCIALES_SUPABASE_LOCAL.txt
+credenciales.txt
 
 # Entornos, cachés y temporales
 .venv/

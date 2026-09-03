@@ -15,7 +15,7 @@ import re
 import sys
 import zipfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -49,8 +49,8 @@ ARCHIVOS_PREFERIDOS = (
     "METAS_TIENDAS.xlsx",
     "METAS_TIENDAS_MENSUALES_CAPA1.xlsx",
 )
-HOJAS_PERMITIDAS = ("METAS_TIENDAS", "METAS_TIENDAS_C1")
-COLUMNAS_MINIMAS = {
+HOJAS_PERMITIDAS = ("METAS", "METAS_TIENDAS", "METAS_TIENDAS_C1")
+COLUMNAS_MINIMAS_LEGACY = {
     "fecha_periodo",
     "anio",
     "mes_numero",
@@ -58,6 +58,9 @@ COLUMNAS_MINIMAS = {
     "nivel_periodo",
     "tienda",
     "meta_ventas",
+}
+COLUMNAS_METAS_RUBRO = {
+    "anio", "mes_numero", "tienda", "meta_total", "meta_textil", "meta_calzado", "otros_validos",
 }
 COLUMNAS_SALIDA = [
     "meta_tienda_id",
@@ -178,7 +181,7 @@ def buscar_hoja(archivo: Path) -> str:
     for nombre in HOJAS_PERMITIDAS:
         if nombre in hojas:
             return nombre
-    candidatas = [h for h in hojas if "META" in h.upper() and "TIENDA" in h.upper()]
+    candidatas = [h for h in hojas if "META" in h.upper()]
     if len(candidatas) == 1:
         return candidatas[0]
     raise RuntimeError(
@@ -290,7 +293,10 @@ def cargar_tiendas_maestras() -> set[str]:
     return ids
 
 
-def normalizar_fila(fila: dict[str, str], numero_fila: int, anio_inicio: int) -> MetaNormalizada | None:
+def normalizar_fila(
+    fila: dict[str, str], numero_fila: int, anio_inicio: int,
+    *, indicador: str = "META VENTAS", campo_meta: str = "meta_ventas",
+) -> MetaNormalizada | None:
     fecha_fuente = parsear_fecha(fila.get("fecha_periodo"))
     anio_fuente = parsear_entero(fila.get("anio"))
     mes_fuente = parsear_entero(fila.get("mes_numero"))
@@ -311,7 +317,7 @@ def normalizar_fila(fila: dict[str, str], numero_fila: int, anio_inicio: int) ->
     if tienda is None or tienda_id is None:
         raise RuntimeError(f"Fila {numero_fila}: tienda vacía o no homologable.")
 
-    meta_original = parsear_decimal(fila.get("meta_ventas"))
+    meta_original = parsear_decimal(fila.get(campo_meta))
     meta = meta_original if meta_original is not None and meta_original > 0 else None
     estado = "META DEFINIDA" if meta is not None else "SIN META"
     anio = fecha_inicio.year
@@ -319,7 +325,8 @@ def normalizar_fila(fila: dict[str, str], numero_fila: int, anio_inicio: int) ->
     periodo_id = anio * 100 + mes
     fecha_id = anio * 10000 + mes * 100 + 1
     trimestre = ((mes - 1) // 3) + 1
-    meta_id = f"{periodo_id}_{tienda_id}_META_VENTAS"
+    indicador_id = re.sub(r"[^A-Z0-9]+", "_", indicador.upper()).strip("_")
+    meta_id = f"{periodo_id}_{tienda_id}_{indicador_id}"
 
     return MetaNormalizada(
         meta_tienda_id=meta_id,
@@ -334,7 +341,7 @@ def normalizar_fila(fila: dict[str, str], numero_fila: int, anio_inicio: int) ->
         nivel_periodo="MENSUAL",
         tienda_id=tienda_id,
         tienda=tienda,
-        indicador="META VENTAS",
+        indicador=indicador,
         meta_ventas=meta,
         moneda="PEN",
         estado_registro=estado,
@@ -347,8 +354,9 @@ def cargar_y_normalizar(archivo: Path, hoja: str, anio_inicio: int) -> list[Meta
     with csv_origen.open("r", encoding="utf-8-sig", newline="") as f:
         lector = csv.DictReader(f)
         columnas = set(lector.fieldnames or [])
-        faltan = sorted(COLUMNAS_MINIMAS - columnas)
-        if faltan:
+        es_formato_rubro = COLUMNAS_METAS_RUBRO.issubset(columnas)
+        faltan = sorted(COLUMNAS_MINIMAS_LEGACY - columnas)
+        if not es_formato_rubro and faltan:
             raise RuntimeError(
                 f"El Excel de metas no contiene columnas mínimas. "
                 f"Faltan={faltan}; encontradas={sorted(columnas)}"
@@ -357,9 +365,32 @@ def cargar_y_normalizar(archivo: Path, hoja: str, anio_inicio: int) -> list[Meta
         for numero, fila in enumerate(lector, start=2):
             if not any(_texto(v) for v in fila.values()):
                 continue
-            normalizada = normalizar_fila(fila, numero, anio_inicio)
+            if not es_formato_rubro:
+                normalizada = normalizar_fila(fila, numero, anio_inicio)
+                if normalizada is not None:
+                    filas.append(normalizada)
+                continue
+
+            # La hoja METAS entrega metas oficiales por tienda, mes y rubro.
+            # META_TOTAL se conserva como meta corporativa; si viene vacía, se
+            # reconstruye solo con los componentes definidos en la propia fila.
+            componentes = [parsear_decimal(fila.get(campo)) for campo in ("meta_textil", "meta_calzado", "otros_validos")]
+            total = parsear_decimal(fila.get("meta_total"))
+            if total is None or total <= 0:
+                total = sum((valor for valor in componentes if valor is not None and valor > 0), Decimal("0")) or None
+            fila_total = {**fila, "meta_ventas": total}
+            normalizada = normalizar_fila(fila_total, numero, anio_inicio)
             if normalizada is not None:
                 filas.append(normalizada)
+
+            for campo, indicador in (
+                ("meta_textil", "META RUBRO TEXTIL"),
+                ("meta_calzado", "META RUBRO CALZADO"),
+                ("otros_validos", "META RUBROS RESTANTES"),
+            ):
+                detalle = normalizar_fila(fila, numero, anio_inicio, indicador=indicador, campo_meta=campo)
+                if detalle is not None and detalle.es_meta_valida:
+                    filas.append(detalle)
     return filas
 
 
@@ -406,6 +437,32 @@ def validar_filas(filas: list[MetaNormalizada]) -> dict[str, int]:
         "periodos": len({f.periodo_id for f in filas}),
         "sin_meta": sin_meta,
     }
+
+
+def consolidar_filas(filas: list[MetaNormalizada]) -> list[MetaNormalizada]:
+    """Consolida solo la meta total cuando una tienda cambió de nombre.
+
+    AGUAS VERDES y el nombre histórico TUMBES comparten el mismo ID. En la
+    nueva hoja, uno puede aportar META_TOTAL y el otro las metas por rubro.
+    Para META VENTAS se conserva el mayor valor válido (que también recoge la
+    suma de rubros cuando el total venía vacío); los indicadores por rubro no
+    se mezclan para no ocultar una duplicidad real de negocio.
+    """
+    grupos: dict[tuple[int, str, str], list[MetaNormalizada]] = {}
+    for fila in filas:
+        grupos.setdefault((fila.periodo_id, fila.tienda_id, fila.indicador), []).append(fila)
+    salida: list[MetaNormalizada] = []
+    for (_, _, indicador), grupo in grupos.items():
+        if len(grupo) == 1 or indicador != "META VENTAS":
+            salida.extend(grupo)
+            continue
+        validas = [fila for fila in grupo if fila.meta_ventas is not None and fila.meta_ventas > 0]
+        if not validas:
+            salida.append(grupo[0])
+            continue
+        elegida = max(validas, key=lambda fila: fila.meta_ventas or Decimal("0"))
+        salida.append(replace(elegida, estado_registro="META DEFINIDA", es_meta_valida=True))
+    return salida
 
 
 def escribir_csv_final(filas: list[MetaNormalizada]) -> None:
@@ -531,7 +588,7 @@ def ejecutar(modo: str, anio_inicio: int) -> None:
     archivo = buscar_archivo()
     hoja = buscar_hoja(archivo)
     print("\nPreparando metas con motor Python estable...", flush=True)
-    filas = cargar_y_normalizar(archivo, hoja, anio_inicio)
+    filas = consolidar_filas(cargar_y_normalizar(archivo, hoja, anio_inicio))
     resumen = validar_filas(filas)
 
     print("\nCAPA 1 DE METAS VERIFICADA")

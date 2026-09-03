@@ -18,10 +18,6 @@ type SessionAction = 'claim' | 'ensure' | 'verify' | 'release';
 @Injectable({ providedIn: 'root' })
 export class CloudDataService {
   private readonly config = readRuntimeConfig();
-  private readonly loginAliases: Record<string, string> = {
-    sistemas: 'joelalexanderdiaz9@gmail.com',
-    arias: 'joelalexanderdiaz9+arias@gmail.com',
-  };
   private readonly client: SupabaseClient | null = this.config.dataMode === 'supabase'
     ? createClient(this.config.supabaseUrl, this.config.supabasePublishableKey, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -37,8 +33,12 @@ export class CloudDataService {
   readonly dataVersion = signal('LOCAL');
   readonly remoteEnabled = computed(() => this.client !== null);
   readonly hasAccess = computed(() => !this.remoteEnabled() || this.session() !== null);
-  readonly userEmail = computed(() => this.session()?.user.email ?? '');
-  readonly assistantEnabled = this.config.groqAssistantEnabled;
+  // La dirección interna de Auth no se expone nunca en la interfaz.
+  readonly userName = computed(() => {
+    const value = this.session()?.user.user_metadata?.['display_name'];
+    return typeof value === 'string' && value.trim() ? value.trim() : 'Usuario';
+  });
+  readonly assistantEnabled = true;
 
   initialize(): Promise<void> {
     if (this.initializePromise) return this.initializePromise;
@@ -72,13 +72,28 @@ export class CloudDataService {
   }
 
   async signIn(identity: string, password: string): Promise<boolean> {
-    if (!this.client) return true;
     this.authError.set('');
-    const normalizedIdentity = identity.trim().toLowerCase();
-    const email = this.loginAliases[normalizedIdentity] ?? identity.trim();
-    const { data, error } = await this.client.auth.signInWithPassword({ email, password });
-    if (error || !data.session) {
+    if (!this.client) return true;
+    const username = identity.trim();
+    let accessToken = '';
+    let refreshToken = '';
+    try {
+      const response = await fetch(`${this.config.supabaseUrl}/functions/v1/username-login`, {
+        method: 'POST',
+        headers: { apikey: this.config.supabasePublishableKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const payload = await response.json().catch(() => ({})) as { access_token?: string; refresh_token?: string };
+      if (!response.ok || !payload.access_token || !payload.refresh_token) throw new Error('Acceso denegado.');
+      accessToken = payload.access_token;
+      refreshToken = payload.refresh_token;
+    } catch {
       this.authError.set('Usuario o contraseña incorrectos.');
+      return false;
+    }
+    const { data, error } = await this.client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    if (error || !data.session) {
+      this.authError.set('No se pudo iniciar la sesión. Inténtalo nuevamente.');
       return false;
     }
     this.session.set(data.session);

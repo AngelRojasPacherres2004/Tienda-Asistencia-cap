@@ -54,6 +54,17 @@ if not exist "%WEBROOT%\index.html" (
     goto :error
 )
 
+rem Localhost debe leer los JSON generados en este equipo, no la version de Supabase.
+if not exist "dashboard-web\public\runtime-config.local.js" (
+    echo ERROR: Falta dashboard-web\public\runtime-config.local.js.
+    goto :error
+)
+copy /Y "dashboard-web\public\runtime-config.local.js" "%WEBROOT%\runtime-config.js" >nul
+if errorlevel 1 (
+    echo ERROR: No se pudo activar la configuracion local del dashboard.
+    goto :error
+)
+
 if exist "capa2\FactVentas.parquet" if exist "capa2\FactStock.parquet" (
     echo Actualizando la web con los Parquet actuales...
     ".venv\Scripts\python.exe" "piplines\generar_datos_web.py"

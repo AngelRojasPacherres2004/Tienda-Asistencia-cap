@@ -10,8 +10,9 @@
     </header>
 
     <div class="assistant-suggestions" aria-label="Consultas sugeridas">
-      <button type="button" (click)="send('Resume los KPIs visibles y señala las dos prioridades principales.')">RESUMIR KPIs</button>
-      <button type="button" (click)="send('¿Qué riesgo comercial o de inventario debería revisar primero?')">VER RIESGOS</button>
+      <button type="button" (click)="send('RESUMEN KPI ESTRUCTURADO. Entrega exactamente: 1) LECTURA EJECUTIVA de los KPIs visibles; 2) FÓRMULAS CLAVE, explicando cómo se calcula venta bruta, venta neta, ticket promedio, conversión, venta promedio diaria, venta por colaborador, sell-through y cumplimiento; 3) PLAN PRIORIZADO con tres acciones concretas. Usa solamente el contexto disponible, omite métricas no visibles y no pidas más información.')">RESUMIR KPIs</button>
+      <button type="button" (click)="send('PLAN COMERCIAL. Resume qué está impulsando o frenando la venta visible, identifica dos oportunidades concretas y entrega un plan priorizado de tres pasos. Usa solo las cifras disponibles y no solicites información adicional.')">PLAN COMERCIAL</button>
+      <button type="button" (click)="send('RIESGO Y REPOSICIÓN. Lee los indicadores visibles de stock, cobertura, rotación y reposición; señala las dos alertas más importantes y plantea tres acciones ordenadas por prioridad. Usa solo los datos disponibles y no pidas aclaraciones.')">RIESGO Y STOCK</button>
     </div>
 
     <div #messageList class="assistant-messages" aria-live="polite">
@@ -34,6 +35,5 @@
         <button type="submit" class="assistant-send" [disabled]="busy() || !draft().trim()">ENVIAR</button>
       </div>
     </form>
-    <small>La IA recibe únicamente el resumen de los filtros y KPIs visibles. 🎧 permite grabar o elegir audio.</small>
   </section>
 }

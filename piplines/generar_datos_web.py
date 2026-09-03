@@ -11,12 +11,15 @@ import duckdb
 
 from project_paths import PROJECT_ROOT, CAPA2_DIR
 from runtime_config import finalizar_proceso
+from maestros import homologar_tienda_python, tienda_id_python
+from xlsx_staging import origen_xlsx_csv
 
 
 WEB_DIR = PROJECT_ROOT / "dashboard-web"
 SALIDA_PUBLICA = WEB_DIR / "public" / "assets" / "data" / "dashboard.json"
 SALIDA_COMPILADA = WEB_DIR / "dist" / "dashboard-web" / "browser" / "assets" / "data" / "dashboard.json"
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
+PERSONAL_XLSX = PROJECT_ROOT / "capa1" / "PERSONAL_TIENDAS.xlsx"
 
 
 def normalizar(valor):
@@ -43,10 +46,114 @@ def literal_parquet(nombre: str) -> str:
     return f"read_parquet('{ruta}')"
 
 
+def rubro_homologado_sql(expresion: str) -> str:
+    """Mantiene la fuente intacta y entrega un rubro canónico al dashboard."""
+    clave = f"UPPER(TRIM(CAST({expresion} AS VARCHAR)))"
+    return f"""
+        CASE
+            WHEN {expresion} IS NULL OR TRIM(CAST({expresion} AS VARCHAR)) = '' THEN 'PRODUCTOS VARIOS / N/A'
+            WHEN {clave} IN ('COMPUTO', 'CÓMPUTO') THEN 'CÓMPUTO'
+            WHEN {clave} IN ('FERRETERIA', 'FERRETERÍA') THEN 'FERRETERÍA'
+            WHEN {clave} IN ('TECNOLOGIA', 'TECNOLOGÍA') THEN 'TECNOLOGÍA'
+            WHEN {clave} IN ('LINEA BLANCA', 'LÍNEA BLANCA') THEN 'LÍNEA BLANCA'
+            WHEN {clave} IN ('BANO Y LAVANDERIA', 'BAÑO Y LAVANDERÍA') THEN 'BAÑO Y LAVANDERÍA'
+            WHEN {clave} IN ('RECREACION', 'RECREACIÓN') THEN 'RECREACIÓN'
+            WHEN {clave} IN ('JOYERIA', 'JOYERÍA') THEN 'JOYERÍA'
+            WHEN {clave} IN ('MOCHILA/MALETA/MALETIN/CARTERA', 'MOCHILA/MALETA/MALETÍN/CARTERA', 'MOCHILAS MALETAS') THEN 'MOCHILA/MALETA/MALETÍN/CARTERA'
+            WHEN {clave} IN ('MUEBLE', 'MUEBLES') THEN 'MUEBLE'
+            WHEN {clave} IN ('VARIOS', 'N/A', 'SIN CLASIFICACIÓN', 'SIN CLASIFICACION') THEN 'PRODUCTOS VARIOS / N/A'
+            ELSE TRIM(CAST({expresion} AS VARCHAR))
+        END
+    """
+
+
+def expresion_dimension(columna: str, alias: str, vacio: str) -> str:
+    if columna.strip().lower() == "rubro":
+        return f"{rubro_homologado_sql(columna)} AS {alias}"
+    return f"COALESCE(NULLIF(TRIM({columna}), ''), '{vacio}') AS {alias}"
+
+
 def cargar_reporte_cobertura() -> dict:
     if not REPORTE_COBERTURA.exists():
         return {}
     return json.loads(REPORTE_COBERTURA.read_text(encoding="utf-8"))
+
+
+def fecha_excel_sql(expresion: str) -> str:
+    """Convierte fecha ISO/dd-mm-yyyy o serial Excel sin alterar el archivo fuente."""
+    raw = f"NULLIF(TRIM(CAST({expresion} AS VARCHAR)), '')"
+    return f"""
+        CASE
+            WHEN {raw} IS NULL THEN NULL
+            WHEN regexp_full_match({raw}, '^[0-9]+([.,][0-9]+)?$')
+                THEN CAST(DATE '1899-12-30' + TRY_CAST(REPLACE({raw}, ',', '.') AS INTEGER) AS DATE)
+            ELSE COALESCE(
+                TRY_CAST({raw} AS DATE),
+                CAST(try_strptime({raw}, '%d/%m/%Y') AS DATE),
+                CAST(try_strptime({raw}, '%d-%m-%Y') AS DATE)
+            )
+        END
+    """
+
+
+def cargar_personal_detalle(conexion: duckdb.DuckDBPyConnection) -> list[dict]:
+    """Publica solo atributos laborales/demográficos mínimos; excluye DNI y contacto."""
+    if not PERSONAL_XLSX.exists():
+        return []
+    origen = origen_xlsx_csv(PERSONAL_XLSX, "PERSONAL_TIENDAS")
+    fecha_nacimiento = fecha_excel_sql('"fecha_nacimiento"')
+    fecha_ingreso = fecha_excel_sql('"fecha_ingreso"')
+    fecha_retiro = fecha_excel_sql('"fecha_retiro"')
+    registros = filas(
+        conexion,
+        f"""
+        WITH normalizado AS (
+            SELECT
+                NULLIF(TRIM(CAST("nombre_completo" AS VARCHAR)), '') AS name,
+                NULLIF(TRIM(CAST("tienda" AS VARCHAR)), '') AS "rawStore",
+                UPPER(NULLIF(TRIM(CAST("sexo" AS VARCHAR)), '')) AS gender,
+                {fecha_nacimiento} AS "birthDate",
+                TRY_CAST(NULLIF(TRIM(CAST("mes_cumpleanos" AS VARCHAR)), '') AS VARCHAR) AS "birthdayMonthName",
+                TRY_CAST(NULLIF(TRIM(CAST("dia_cumpleanos" AS VARCHAR)), '') AS INTEGER) AS "birthdayDaySource",
+                UPPER(COALESCE(NULLIF(TRIM(CAST("puesto" AS VARCHAR)), ''), 'SIN PUESTO')) AS role,
+                UPPER(COALESCE(NULLIF(TRIM(CAST("area" AS VARCHAR)), ''), 'SIN ÁREA')) AS area,
+                {fecha_ingreso} AS "hireDate",
+                {fecha_retiro} AS "retirementDate",
+                UPPER(NULLIF(TRIM(CAST("motivo_retiro" AS VARCHAR)), '')) AS "retirementReason",
+                UPPER(COALESCE(NULLIF(TRIM(CAST("estado_laboral" AS VARCHAR)), ''), 'SIN ESTADO')) AS status
+            FROM {origen}
+        )
+        SELECT DISTINCT
+            name,
+            "rawStore",
+            CASE WHEN gender IN ('M', 'MASCULINO', 'HOMBRE') THEN 'M'
+                 WHEN gender IN ('F', 'FEMENINO', 'MUJER') THEN 'F'
+                 ELSE 'N/A' END AS gender,
+            "birthDate",
+            COALESCE(EXTRACT(MONTH FROM "birthDate")::INTEGER,
+                CASE UPPER("birthdayMonthName")
+                    WHEN 'ENERO' THEN 1 WHEN 'FEBRERO' THEN 2 WHEN 'MARZO' THEN 3
+                    WHEN 'ABRIL' THEN 4 WHEN 'MAYO' THEN 5 WHEN 'JUNIO' THEN 6
+                    WHEN 'JULIO' THEN 7 WHEN 'AGOSTO' THEN 8 WHEN 'SEPTIEMBRE' THEN 9
+                    WHEN 'OCTUBRE' THEN 10 WHEN 'NOVIEMBRE' THEN 11 WHEN 'DICIEMBRE' THEN 12
+                END) AS "birthdayMonth",
+            COALESCE(EXTRACT(DAY FROM "birthDate")::INTEGER, "birthdayDaySource") AS "birthdayDay",
+            role, area,
+            CASE WHEN area IN ('CAJA', 'SEGURIDAD', 'ADMINISTRATIVA', 'ADMINISTRATIVO', 'ALMACÉN', 'ALMACEN')
+                 THEN 'SOPORTE' ELSE 'COMERCIAL' END AS "areaType",
+            "hireDate", "retirementDate", "retirementReason", status
+        FROM normalizado
+        WHERE name IS NOT NULL AND "rawStore" IS NOT NULL
+        ORDER BY "rawStore", name
+        """,
+    )
+    salida: list[dict] = []
+    for registro in registros:
+        store_id = tienda_id_python(homologar_tienda_python(registro.pop("rawStore", None)), estricto=True)
+        if store_id:
+            registro["storeId"] = store_id
+            salida.append(registro)
+    return salida
 
 
 def resumen_mensual_dimension(
@@ -57,10 +164,7 @@ def resumen_mensual_dimension(
 ) -> list[dict]:
     """Resume ventas e ingresos al nivel exacto elegido para filtros web."""
     aliases = [alias for _, alias, _ in dimensiones]
-    expresiones_venta = [
-        f"COALESCE(NULLIF(TRIM({columna}), ''), '{vacio}') AS {alias}"
-        for columna, alias, vacio in dimensiones
-    ]
+    expresiones_venta = [expresion_dimension(columna, alias, vacio) for columna, alias, vacio in dimensiones]
     expresiones_ingreso = expresiones_venta
     seleccion_llaves = ", ".join(["periodo_id", "tienda_id", *aliases])
     uso_llaves = ", ".join(["periodo_id", "tienda_id", *aliases])
@@ -114,6 +218,7 @@ def generar() -> dict:
     metas = literal_parquet("FactMetasTienda")
     personal = literal_parquet("FactPersonalTienda")
     trafico = literal_parquet("FactTraficoClientes")
+    rubro_dashboard = rubro_homologado_sql("rubro")
     tiendas = literal_parquet("DimTiendas")
     merma = literal_parquet("FactMerma")
 
@@ -154,6 +259,8 @@ def generar() -> dict:
             COALESCE(es_tienda, FALSE) AS "isStore",
             CAST(metraje_m2 AS DOUBLE) AS "areaM2",
             CAST(capacidad_stock_unidades AS DOUBLE) AS capacity,
+            CAST(cant_colaboradores_normal AS DOUBLE) AS "normalStaff",
+            CAST(colaboradores_camp AS DOUBLE) AS "campaignStaff",
             fecha_apertura AS "openingDate", fecha_cierre AS "closingDate",
             estado_operativo AS status
         FROM {tiendas}
@@ -178,7 +285,7 @@ def generar() -> dict:
             GROUP BY 1, 2
         ), meta_mes AS (
             SELECT periodo_id, tienda_id,
-                SUM(CASE WHEN es_meta_valida THEN meta_ventas ELSE 0 END) AS target
+                SUM(CASE WHEN es_meta_valida AND indicador = 'META VENTAS' THEN meta_ventas ELSE 0 END) AS target
             FROM {metas}
             GROUP BY 1, 2
         ), trafico_mes AS (
@@ -197,8 +304,9 @@ def generar() -> dict:
         ), periodos AS (
             SELECT CAST(strftime(fecha, '%Y%m') AS INTEGER) AS periodo_id
             FROM generate_series(
-                DATE '2024-01-01',
-                date_trunc('month', DATE '{fecha_corte.isoformat()}'),
+                DATE '2023-01-01',
+                -- Incluye metas futuras para calcular la meta anual completa.
+                DATE '{fecha_corte.year}-12-01',
                 INTERVAL 1 MONTH
             ) AS calendario(fecha)
         ), llaves AS (
@@ -232,6 +340,140 @@ def generar() -> dict:
         """,
     )
 
+    metas_por_rubro = filas(
+        conexion,
+        f"""
+        SELECT periodo_id AS "periodId", tienda_id AS "storeId",
+            CASE indicador
+                WHEN 'META RUBRO TEXTIL' THEN 'TEXTIL'
+                WHEN 'META RUBRO CALZADO' THEN 'CALZADO'
+                WHEN 'META RUBROS RESTANTES' THEN 'OTROS'
+            END AS category,
+            CAST(meta_ventas AS DOUBLE) AS target,
+            'DEFINIDA' AS source
+        FROM {metas}
+        WHERE es_meta_valida
+          AND indicador IN ('META RUBRO TEXTIL', 'META RUBRO CALZADO', 'META RUBROS RESTANTES')
+        ORDER BY 1, 2, 3
+        """,
+    )
+
+    diario_tienda = filas(
+        conexion,
+        f"""
+        SELECT
+            CAST(fecha_venta AS DATE) AS "date",
+            CAST(strftime(fecha_venta, '%Y%m') AS INTEGER) AS "periodId",
+            CAST(EXTRACT(YEAR FROM fecha_venta) AS INTEGER) AS year,
+            CAST(EXTRACT(MONTH FROM fecha_venta) AS INTEGER) AS month,
+            tienda_id AS "storeId",
+            {rubro_dashboard} AS category,
+            COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
+            COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+            COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
+            CASE
+                WHEN cantidad <= 0 OR total_venta <= 0 THEN NULL
+                WHEN total_venta / cantidad <= 30 THEN 1
+                WHEN total_venta / cantidad <= 60 THEN 2
+                WHEN total_venta / cantidad <= 90 THEN 3
+                WHEN total_venta / cantidad <= 120 THEN 4
+                WHEN total_venta / cantidad <= 150 THEN 5
+                WHEN total_venta / cantidad <= 180 THEN 6
+                WHEN total_venta / cantidad <= 210 THEN 7
+                WHEN total_venta / cantidad <= 240 THEN 8
+                WHEN total_venta / cantidad <= 270 THEN 9
+                WHEN total_venta / cantidad <= 300 THEN 10
+                ELSE 11
+            END AS "bandOrder",
+            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0
+                THEN cantidad * precio_sugerido ELSE 0 END) AS DOUBLE) AS gross,
+            CAST(SUM(CASE WHEN total_venta > 0 THEN total_venta ELSE 0 END) AS DOUBLE) AS "positiveReal",
+            CAST(ABS(SUM(CASE WHEN total_venta < 0 THEN total_venta ELSE 0 END)) AS DOUBLE) AS notes,
+            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad * precio_sugerido ELSE 0 END)
+                - SUM(CASE WHEN total_venta > 0 THEN total_venta ELSE 0 END) AS DOUBLE) AS discount,
+            CAST(SUM(total_venta) AS DOUBLE) AS net,
+            COUNT(DISTINCT CAST(fecha_venta AS VARCHAR) || '|' || tienda_id || '|' || nro_venta) AS transactions,
+            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS DOUBLE) AS units,
+            CAST(0 AS DOUBLE) AS target,
+            CAST(0 AS DOUBLE) AS traffic,
+            CAST(0 AS DOUBLE) AS personnel,
+            CAST(0 AS DOUBLE) AS received
+        FROM {ventas}
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+        ORDER BY 1, 5, 6, 7, 8, 9
+        """,
+    )
+    diario_trafico = filas(
+        conexion,
+        f"""
+        SELECT fecha AS "date", tienda_id AS "storeId",
+            CAST(SUM(CASE WHEN es_dato_valido THEN cantidad_personas ELSE 0 END) AS DOUBLE) AS traffic
+        FROM {trafico}
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+        """,
+    )
+    diario_ingresos = filas(
+        conexion,
+        f"""
+        SELECT fecha_ingreso AS "date", tienda_id AS "storeId",
+            CAST(SUM(cantidad_recibida) AS DOUBLE) AS received
+        FROM {ingresos}
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+        """,
+    )
+
+    # Para tiendas sin movimientos en FactIngresos, calculamos una reposición
+    # conciliada: variación de stock entre cortes + unidades vendidas dentro del
+    # mismo intervalo. Es una estimación basada íntegramente en los inputs, no
+    # un cero de relleno. La UI siempre prefiere el ingreso directo cuando exista.
+    ingresos_conciliados = filas(
+        conexion,
+        f"""
+        WITH stock_cortes AS (
+            SELECT tienda_id, fecha_corte, SUM(cantidad) AS stock_unidades
+            FROM {stock_historico}
+            WHERE fecha_corte IS NOT NULL
+            GROUP BY 1, 2
+        ), intervalos AS (
+            SELECT
+                tienda_id,
+                fecha_corte,
+                stock_unidades,
+                LAG(fecha_corte) OVER (PARTITION BY tienda_id ORDER BY fecha_corte) AS corte_anterior,
+                LAG(stock_unidades) OVER (PARTITION BY tienda_id ORDER BY fecha_corte) AS stock_anterior
+            FROM stock_cortes
+        ), conciliacion AS (
+            SELECT
+                i.tienda_id,
+                i.fecha_corte,
+                i.corte_anterior,
+                i.stock_unidades,
+                i.stock_anterior,
+                COALESCE(SUM(CASE WHEN v.cantidad > 0 AND v.total_venta >= 0 THEN v.cantidad ELSE 0 END), 0) AS unidades_vendidas
+            FROM intervalos i
+            LEFT JOIN {ventas} v
+                ON v.tienda_id = i.tienda_id
+               AND v.fecha_venta > i.corte_anterior
+               AND v.fecha_venta <= i.fecha_corte
+            WHERE i.corte_anterior IS NOT NULL
+            GROUP BY 1, 2, 3, 4, 5
+        )
+        SELECT
+            tienda_id AS "storeId",
+            CAST(
+                SUM(GREATEST(stock_unidades - stock_anterior + unidades_vendidas, 0))
+                / NULLIF(SUM(DATE_DIFF('day', corte_anterior, fecha_corte)), 0)
+                AS DOUBLE
+            ) AS daily
+        FROM conciliacion
+        GROUP BY 1
+        HAVING SUM(DATE_DIFF('day', corte_anterior, fecha_corte)) > 0
+        ORDER BY 1
+        """,
+    )
+
     personal_por_area = filas(
         conexion,
         f"""
@@ -246,6 +488,7 @@ def generar() -> dict:
         ORDER BY 1, 2, 3
         """,
     )
+    personal_detalle = cargar_personal_detalle(conexion)
 
     por_rubro = resumen_mensual_dimension(
         conexion,
@@ -274,7 +517,7 @@ def generar() -> dict:
         conexion,
         f"""
         SELECT periodo_id AS "periodId", tienda_id AS "storeId",
-            COALESCE(NULLIF(TRIM(rubro), ''), 'SIN RUBRO') AS category,
+            {rubro_dashboard} AS category,
             COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
             COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
             COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
@@ -287,13 +530,51 @@ def generar() -> dict:
         """,
     )
 
+    desempeno_vendedores = filas(
+        conexion,
+        f"""
+        SELECT periodo_id AS "periodId", tienda_id AS "storeId",
+            {rubro_dashboard} AS category,
+            COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
+            COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+            COALESCE(NULLIF(TRIM(vendedor_nombre), ''), NULLIF(TRIM(vendedor_codigo), ''), 'SIN VENDEDOR') AS seller,
+            CAST(SUM(total_venta) AS DOUBLE) AS net,
+            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS DOUBLE) AS units,
+            CAST(COUNT(DISTINCT CAST(fecha_venta AS VARCHAR) || '|' || tienda_id || '|' || nro_venta) AS DOUBLE) AS transactions
+        FROM {ventas}
+        WHERE COALESCE(NULLIF(TRIM(vendedor_nombre), ''), NULLIF(TRIM(vendedor_codigo), '')) IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5, 6
+        HAVING SUM(total_venta) <> 0
+        ORDER BY 1, 2, 6
+        """,
+    )
+
+    desempeno_clientes = filas(
+        conexion,
+        f"""
+        SELECT periodo_id AS "periodId", tienda_id AS "storeId",
+            {rubro_dashboard} AS category,
+            COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
+            COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+            COALESCE(NULLIF(TRIM(cliente), ''), 'SIN CLIENTE') AS client,
+            CAST(SUM(total_venta) AS DOUBLE) AS net,
+            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS DOUBLE) AS units,
+            CAST(COUNT(DISTINCT CAST(fecha_venta AS VARCHAR) || '|' || tienda_id || '|' || nro_venta) AS DOUBLE) AS transactions
+        FROM {ventas}
+        WHERE NULLIF(TRIM(cliente), '') IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5, 6
+        HAVING SUM(total_venta) <> 0
+        ORDER BY 1, 2, 6
+        """,
+    )
+
     rangos_precio = filas(
         conexion,
         f"""
         WITH ventas_positivas AS (
             SELECT
                 periodo_id, tienda_id,
-                COALESCE(NULLIF(TRIM(rubro), ''), 'SIN RUBRO') AS category,
+                {rubro_dashboard} AS category,
                 COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
                 COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
                 total_venta / cantidad AS precio_unitario,
@@ -358,7 +639,7 @@ def generar() -> dict:
         conexion,
         f"""
         SELECT tienda_id AS "storeId",
-            COALESCE(NULLIF(TRIM(rubro), ''), 'SIN RUBRO') AS category,
+            {rubro_dashboard} AS category,
             COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
             COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
             CASE WHEN es_periodo_origen_valido THEN periodo_origen_id ELSE 0 END AS "originPeriodId",
@@ -399,11 +680,11 @@ def generar() -> dict:
         conexion,
         f"""
         WITH st AS (
-            SELECT tienda_id, COALESCE(NULLIF(TRIM(rubro), ''), 'SIN RUBRO') AS category,
+            SELECT tienda_id, {rubro_dashboard} AS category,
                 SUM(valor_stock) AS stock_value, SUM(cantidad) AS stock_units
             FROM {stock} GROUP BY 1, 2
         ), v30 AS (
-            SELECT tienda_id, COALESCE(NULLIF(TRIM(rubro), ''), 'SIN RUBRO') AS category,
+            SELECT tienda_id, {rubro_dashboard} AS category,
                 SUM(total_venta) AS sales30,
                 SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units30
             FROM {ventas}
@@ -428,7 +709,7 @@ def generar() -> dict:
         WITH st AS (
             SELECT tienda_id, producto_id,
                 COALESCE(NULLIF(TRIM(descripcion), ''), codigo_nissei, producto_id) AS product,
-                COALESCE(NULLIF(TRIM(rubro), ''), 'SIN RUBRO') AS category,
+                {rubro_dashboard} AS category,
                 COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
                 COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
                 COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
@@ -575,11 +856,19 @@ def generar() -> dict:
         },
         "stores": dimensiones_tienda,
         "monthlyStore": base_mensual,
+        "dailyStore": diario_tienda,
+        "dailyTraffic": diario_trafico,
+        "dailyReceived": diario_ingresos,
+        "inferredReceivedDaily": ingresos_conciliados,
         "monthlyPersonnelArea": personal_por_area,
+        "personnelProfiles": personal_detalle,
         "monthlyCategory": por_rubro,
+        "monthlyCategoryTarget": metas_por_rubro,
         "monthlyLine": por_linea,
         "monthlySubline": por_sublinea,
         "monthlyBrand": por_marca,
+        "sellerPerformance": desempeno_vendedores,
+        "clientPerformance": desempeno_clientes,
         "monthlyPriceRange": rangos_precio,
         "stockStore": stock_tienda,
         "stockOrigin": antiguedad,
@@ -618,6 +907,7 @@ def escribir(resultado: dict) -> None:
         }
     )
     archivos = {
+        "dashboard-daily.json": {"dailyStore": resultado["dailyStore"]},
         "dashboard-brand.json": {"monthlyBrand": resultado["monthlyBrand"]},
         "dashboard-subline.json": {"monthlySubline": resultado["monthlySubline"]},
         "dashboard-price-range.json": {"monthlyPriceRange": resultado["monthlyPriceRange"]},
@@ -639,7 +929,7 @@ def escribir(resultado: dict) -> None:
     principal = {
         **{
             clave: valor for clave, valor in resultado.items()
-            if clave not in {"predictiveRows", "monthlyPriceRange"}
+            if clave not in {"predictiveRows", "monthlyPriceRange", "dailyStore"}
         },
         "hierarchyCatalog": [
             {"category": rubro, "line": linea, "subline": sublinea}

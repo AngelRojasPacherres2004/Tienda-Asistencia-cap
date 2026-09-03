@@ -10,6 +10,7 @@ from tkinter import messagebox, ttk
 
 from project_paths import PROJECT_ROOT
 from reglas_corte import ultimo_lunes
+from runtime_config import finalizar_proceso
 
 
 NUEVA_CONSOLA = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
@@ -123,7 +124,7 @@ class PanelDashboard(tk.Tk):
         if not ruta.exists():
             messagebox.showerror("Archivo no encontrado", f"No se encontró {nombre}.")
             return
-        argumentos_cmd = " ".join(argumentos)
+        argumentos_cmd = " ".join(f'"{a}"' if " " in a else a for a in argumentos)
         self._lanzar(f'call "{ruta}" {argumentos_cmd}'.strip(), nombre)
 
     def _actualizar(self) -> None:
@@ -137,14 +138,21 @@ class PanelDashboard(tk.Tk):
             return
         actualizar = PROJECT_ROOT / "2_ACTUALIZAR_DATOS.bat"
         publicar = PROJECT_ROOT / "6_ACTUALIZAR_DASHBOARD_WEB.bat"
+        # --sin-pausa en BAT2 suprime la pausa al EXITO para que se encadene con BAT6.
+        # El bloque || al final captura cualquier fallo (BAT2 o BAT6) y mantiene la
+        # ventana abierta con el mensaje de error visible para el usuario.
         comando = (
-            f'call "{actualizar}" --fecha-corte {corte} --sin-pausa '
-            f'&& call "{publicar}"'
+            f'call "{actualizar}" --fecha-corte "{corte}" --sin-pausa'
+            f' && call "{publicar}"'
+            f' || (echo. & echo ======================================================'
+            f' & echo PROCESO FALLIDO - Revisa los mensajes anteriores.'
+            f' & echo ====================================================== & pause)'
         )
         self._lanzar(
             comando,
-            "actualización y publicación (el BAT 6 solicitará usuario y contraseña)",
+            "actualizacion y publicacion (el BAT 6 solicitara usuario y contrasena)",
         )
+
 
 
 def main() -> None:
@@ -152,4 +160,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    finalizar_proceso(main())

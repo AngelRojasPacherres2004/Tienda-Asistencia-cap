@@ -5,6 +5,8 @@ export type DashboardRuntimeConfig = {
   supabaseUrl: string;
   supabasePublishableKey: string;
   groqAssistantEnabled: boolean;
+  groqChatModel?: string;
+  groqFallbackModels?: string[];
 };
 
 declare global {
@@ -17,7 +19,9 @@ const DEFAULT_CONFIG: DashboardRuntimeConfig = {
   dataMode: 'local',
   supabaseUrl: '',
   supabasePublishableKey: '',
-  groqAssistantEnabled: false,
+  groqAssistantEnabled: true,
+  groqChatModel: 'openai/gpt-oss-120b',
+  groqFallbackModels: ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b'],
 };
 
 export function readRuntimeConfig(): DashboardRuntimeConfig {
@@ -33,6 +37,8 @@ export function readRuntimeConfig(): DashboardRuntimeConfig {
     dataMode: remoteReady ? 'supabase' : 'local',
     supabaseUrl: supplied.supabaseUrl?.trim() ?? '',
     supabasePublishableKey: supplied.supabasePublishableKey?.trim() ?? '',
-    groqAssistantEnabled: supplied.groqAssistantEnabled === true,
+    groqAssistantEnabled: supplied.groqAssistantEnabled !== false,
+    groqChatModel: supplied.groqChatModel?.trim() || DEFAULT_CONFIG.groqChatModel,
+    groqFallbackModels: supplied.groqFallbackModels || DEFAULT_CONFIG.groqFallbackModels,
   };
 }

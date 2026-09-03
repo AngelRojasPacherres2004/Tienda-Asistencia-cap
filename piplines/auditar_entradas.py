@@ -40,7 +40,8 @@ PARQUET_OPCIONALES = {
 EXCEL_MANUALES = {
     "TIENDAS.xlsx": ("TIENDAS", {
         "tienda", "tipo_ubicacion", "formato_tienda", "cluster",
-        "metraje_m2", "departamento", "provincia", "distrito", "direccion",
+        "metraje_m2", "capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp",
+        "departamento", "provincia", "distrito", "direccion",
         "fecha_apertura", "estado_operativo", "fecha_cierre",
     }),
     "CATALOGO_TIENDAS.xlsx": ("CATALOGO", {
@@ -60,13 +61,13 @@ EXCEL_MANUALES = {
         "codigo_nissei", "descripcion", "cantidad", "precio_unitario",
         "total_merma",
     }),
-    "METAS_TIENDAS.xlsx": ("METAS_TIENDAS", {
-        "fecha_periodo", "anio", "mes_numero", "mes_nombre",
-        "nivel_periodo", "tienda", "meta_ventas",
+    "METAS_TIENDAS.xlsx": ("METAS", {
+        "anio", "mes_numero", "mes_nombre", "tienda", "meta_total",
+        "meta_textil", "meta_calzado", "otros_validos",
     }),
     "PERSONAL_TIENDAS.xlsx": ("PERSONAL_TIENDAS", {
-        "fecha_inicio_periodo", "fecha_corte", "tienda", "cargo",
-        "area_asignada", "cantidad_personal",
+        "nombre_completo", "numero_documento", "tienda", "puesto", "area",
+        "fecha_ingreso", "estado_laboral", "fecha_retiro",
     }),
     "TRAFICO_CLIENTES.xlsx": ("TRAFICO_CLIENTE", {
         "fecha", "tienda", "cantidad_personas", "estado_registro",
