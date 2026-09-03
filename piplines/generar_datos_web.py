@@ -908,6 +908,8 @@ def escribir(resultado: dict) -> None:
     )
     archivos = {
         "dashboard-daily.json": {"dailyStore": resultado["dailyStore"]},
+        # El detalle por vendedor se descarga únicamente al abrir Talento.
+        "dashboard-sellers.json": {"sellerPerformance": resultado["sellerPerformance"]},
         "dashboard-brand.json": {"monthlyBrand": resultado["monthlyBrand"]},
         "dashboard-subline.json": {"monthlySubline": resultado["monthlySubline"]},
         "dashboard-price-range.json": {"monthlyPriceRange": resultado["monthlyPriceRange"]},
@@ -929,7 +931,10 @@ def escribir(resultado: dict) -> None:
     principal = {
         **{
             clave: valor for clave, valor in resultado.items()
-            if clave not in {"predictiveRows", "monthlyPriceRange", "dailyStore"}
+            if clave not in {
+                "predictiveRows", "monthlyPriceRange", "dailyStore",
+                "sellerPerformance", "clientPerformance",
+            }
         },
         "hierarchyCatalog": [
             {"category": rubro, "line": linea, "subline": sublinea}
@@ -938,6 +943,8 @@ def escribir(resultado: dict) -> None:
         "monthlySubline": [],
         "monthlyBrand": list(resumen_marca.values()),
         "monthlyPriceRange": [],
+        "sellerPerformance": [],
+        "clientPerformance": [],
         "stockOrigin": [],
         "stockProducts": [],
     }

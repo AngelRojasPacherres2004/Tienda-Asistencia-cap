@@ -1239,6 +1239,7 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .talent-training-switch button { height: 22px; padding: 0 6px; border: 1px solid #b7c2d3; border-radius: 5px; background: #fff; color: #475569; cursor: pointer; font-size: .48rem; font-weight: 850; }
 .talent-training-switch button.active { border-color: #123a8c; background: #123a8c; color: #fff; }
 .seller-performance-card { position: relative; }
+.detail-loading { display: grid; min-height: 180px; margin: 0; place-items: center; color: #64748b; font-size: .62rem; font-weight: 900; letter-spacing: .08em; }
 .seller-performance-card > h2 { padding-right: 82px; }
 .seller-more-btn { position: absolute; z-index: 8; top: 9px; right: 10px; width: 27px; height: 27px; padding: 0; border: 1px solid #9db0cb; border-radius: 6px; background: #fff; color: #123a8c; cursor: pointer; font-size: .92rem; font-weight: 900; }
 .seller-more-btn:hover { border-color: #123a8c; background: #123a8c; color: #fff; }

@@ -150,6 +150,9 @@ export class App implements OnInit {
   readonly predictiveIndex = signal<Map<string, PredictiveRow>>(new Map());
   readonly predictiveNote = signal('');
   readonly sectionAdvices = signal<Record<string, { text: string; loading: boolean; error: boolean }>>({});
+  readonly sellerDetailLoaded = signal(false);
+  readonly sellerDetailLoading = signal(false);
+  readonly sellerPerformanceData = signal<SellerPerformanceRow[]>([]);
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
   readonly stockOriginData = signal<StockOrigin[]>([]);
@@ -186,6 +189,7 @@ export class App implements OnInit {
   private legacyStockPromise?: Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>;
   private predictiveDetailPromise?: Promise<void>;
   private priceRangeDetailPromise?: Promise<void>;
+  private sellerDetailPromise?: Promise<void>;
   private pageOverflowBeforeModal = '';
   private cloudRefreshTimer?: ReturnType<typeof setInterval>;
 
@@ -1094,7 +1098,7 @@ export class App implements OnInit {
   readonly sellerPerformanceMode = signal<'top' | 'bottom'>('top');
   readonly talentSellerRows = computed(() => {
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
-    const rows = (this.data()?.sellerPerformance || []).filter(row =>
+    const rows = this.sellerPerformanceData().filter(row =>
       ids.has(row.storeId) && periods.has(row.periodId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
     const bySeller = grouped(rows, row => row.seller || 'SIN VENDEDOR');
     const ranking = [...bySeller.entries()].map(([seller, sellerRows]) => ({
@@ -2341,6 +2345,8 @@ export class App implements OnInit {
   async signOut(): Promise<void> {
     await this.cloud.signOut();
     this.data.set(null);
+    this.sellerPerformanceData.set([]);
+    this.sellerDetailLoaded.set(false);
     this.loadingError.set('');
   }
 
@@ -2361,6 +2367,8 @@ export class App implements OnInit {
       this.monthlyLineIndex = this.indexPeriodStore(loaded.monthlyLine || []);
       this.monthlySublineIndex = this.indexPeriodStore(loaded.monthlySubline || []);
       this.monthlyBrandIndex = this.indexPeriodStore(loaded.monthlyBrand || []);
+      this.sellerPerformanceData.set(loaded.sellerPerformance || []);
+      this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
       this.data.set(loaded);
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
@@ -2597,6 +2605,11 @@ export class App implements OnInit {
     this.closeExpandedChart();
     this.sectionAdvices.set({});
     this.page.set(value);
+    if (value === 3) {
+      await this.nextPaint();
+      void this.ensureSellerDetail();
+      return;
+    }
     if (value !== 2) return;
     await this.nextPaint();
     // La parte superior usa agregados de dashboard.json y aparece de inmediato.
@@ -2739,6 +2752,25 @@ export class App implements OnInit {
       }
     })();
     return this.priceRangeDetailPromise;
+  }
+  private async ensureSellerDetail(): Promise<void> {
+    if (this.sellerDetailLoaded()) return;
+    if (this.sellerDetailPromise) return this.sellerDetailPromise;
+    this.sellerDetailLoading.set(true);
+    this.sellerDetailPromise = (async () => {
+      try {
+        const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>('dashboard-sellers.json');
+        this.sellerPerformanceData.set(payload.sellerPerformance || []);
+        this.sellerDetailLoaded.set(true);
+      } catch {
+        // Las demás métricas de Talento deben seguir disponibles si falla este detalle.
+        this.sellerPerformanceData.set([]);
+      } finally {
+        this.sellerDetailLoading.set(false);
+        this.sellerDetailPromise = undefined;
+      }
+    })();
+    return this.sellerDetailPromise;
   }
   private async ensureStockOrigin(): Promise<void> {
     if (this.stockOriginLoaded()) return;

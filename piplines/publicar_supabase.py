@@ -31,6 +31,7 @@ DATA_DIR = ROOT / "dashboard-web" / "public" / "assets" / "data"
 REQUIRED_FILES = (
     "dashboard.json",
     "dashboard-daily.json",
+    "dashboard-sellers.json",
     "dashboard-brand.json",
     "dashboard-predictive.json",
     "dashboard-price-range.json",
@@ -164,6 +165,15 @@ def postgrest(
     return json.loads(raw) if raw else None
 
 
+def get_postgrest(base_url: str, api_key: str, access_token: str, resource: str) -> Any:
+    raw = request(
+        "GET",
+        f"{base_url}/rest/v1/{resource}",
+        api_headers(api_key, access_token),
+    )
+    return json.loads(raw) if raw else None
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -263,6 +273,25 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     version = f"{timestamp}-{combined[:12]}"
 
+    # Reutiliza las partes inmutables de la última versión cuando el checksum
+    # coincide. Así una corrección pequeña no vuelve a subir cientos de MB.
+    reusable: dict[str, dict[str, Any]] = {}
+    try:
+        previous = get_postgrest(
+            base_url, api_key, access_token,
+            "dashboard_releases?select=id&status=eq.published&order=published_at.desc&limit=1",
+        )
+        if previous:
+            previous_id = urllib.parse.quote(str(previous[0]["id"]))
+            previous_files = get_postgrest(
+                base_url, api_key, access_token,
+                "dashboard_files?select=logical_name,byte_size,checksum_sha256,content_type,parts"
+                f"&release_id=eq.{previous_id}",
+            ) or []
+            reusable = {str(row["logical_name"]): row for row in previous_files}
+    except Exception:
+        reusable = {}
+
     release_payload = {
         "version": version,
         "status": "staging",
@@ -292,7 +321,18 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         manifest: dict[str, Any] = {}
         for name in REQUIRED_FILES:
             path = DATA_DIR / name
-            parts = upload_file_parts(base_url, api_key, access_token, version, path)
+            previous = reusable.get(name)
+            unchanged = bool(
+                previous
+                and previous.get("checksum_sha256") == checksums[name]
+                and int(previous.get("byte_size") or 0) == path.stat().st_size
+                and previous.get("parts")
+            )
+            if unchanged:
+                parts = previous["parts"]
+                print(f"  {name}: sin cambios, partes reutilizadas")
+            else:
+                parts = upload_file_parts(base_url, api_key, access_token, version, path)
             file_rows.append(
                 {
                     "release_id": release_id,
@@ -303,7 +343,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
                     "parts": parts,
                 }
             )
-            manifest[name] = {"bytes": path.stat().st_size, "parts": len(parts)}
+            manifest[name] = {"bytes": path.stat().st_size, "parts": len(parts), "reused": unchanged}
 
         postgrest(base_url, api_key, access_token, "POST", "dashboard_files", file_rows)
         published_at = datetime.now(timezone.utc).isoformat()
