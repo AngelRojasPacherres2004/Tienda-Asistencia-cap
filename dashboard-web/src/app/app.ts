@@ -1325,12 +1325,15 @@ export class App implements OnInit {
         rubros: this.categoryFilterLabel(), lineas: this.lineFilterLabel(), sublineas: this.sublineFilterLabel(),
       },
       kpisVisibles: {
-        ventaNeta: metrics.net, metaAnual: metrics.annualTarget, cumplimientoAnual: metrics.annualPct,
+        ventaBruta: metrics.gross, notasCredito: metrics.notes, descuentos: metrics.discount,
+        ventaNeta: metrics.net, proyeccionCierre: metrics.projectedClose,
+        metaAnual: metrics.annualTarget, cumplimientoAnual: metrics.annualPct,
         metaAcumulada: metrics.targetYtd, cumplimientoAcumulado: metrics.accumulatedPct,
         ventaPeriodo: metrics.monthNet, metaPeriodo: metrics.monthTarget, cumplimientoPeriodo: metrics.monthlyPct,
         ventaPromedioDiaria: metrics.dailyAverage, ticketPromedio: metrics.ticket, conversion: metrics.conversion,
         sellThrough: metrics.sellThrough, stockSellThroughUnidades: metrics.sellThroughStock,
-        ventaPorM2: metrics.saleM2, ratioDevoluciones: metrics.returnRatio,
+        ventaPorM2: metrics.saleM2, ventaPorColaborador: metrics.saleCollaborator,
+        colaboradores: metrics.personnel, ratioDevoluciones: metrics.returnRatio,
       },
       formulasKpi: {
         ventaBruta: 'Σ(precio sugerido × cantidad) para ventas positivas',
