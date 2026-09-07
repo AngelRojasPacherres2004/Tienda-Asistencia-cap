@@ -1,16 +1,20 @@
-# Nexo Contable
+# Asiste
 
-Migración del dashboard original de Streamlit a React, con una API serverless para Netlify y PostgreSQL.
+Gestión de asistencias y capacitaciones para varias tiendas. React + Vite en el frontend, una Netlify Function como API privada y Supabase (Postgres) como base de datos.
+
+## Roles
+
+- **Administrador**: Dashboard general, Documentos (exportar Excel), Usuarios y Tiendas.
+- **Jefe de tienda**: Dashboard de su tienda, registro de Asistencias y Capacitaciones de su equipo, y su perfil.
+- **Empleado**: consulta de su propia asistencia y capacitaciones, y su perfil.
 
 ## Arquitectura
 
-- `src/`: interfaz React y sistema visual responsive.
-- `netlify/functions/api.js`: API privada, autenticación, permisos y acceso a PostgreSQL.
-- `scripts/dev-api.js`: servidor de API únicamente para desarrollo local.
+- `src/`: interfaz React (login, sidebar, dashboard con Recharts, páginas por rol).
+- `netlify/functions/api.js`: API privada. Autenticación propia (usuario + contraseña con bcrypt, sesión JWT en cookie httpOnly) y acceso a la base de datos con `@supabase/supabase-js` usando la *service role key* (nunca se expone al navegador).
+- `scripts/dev-api.js`: servidor de la API únicamente para desarrollo local (usa el mismo `handler` que Netlify en producción).
+- `supabase/migrations/0001_init.sql`: esquema inicial (tiendas, usuarios, asistencias, capacitaciones). Se ejecuta manualmente una vez desde el SQL Editor de Supabase.
 - `netlify.toml`: build, funciones y redirecciones para Netlify.
-- Los archivos Python originales se conservan como referencia y respaldo; ya no son necesarios para el despliegue React.
-
-La URL de PostgreSQL nunca se envía al navegador. Todas las consultas pasan por la función serverless y las rutas administrativas validan el rol del usuario.
 
 ## Desarrollo local
 
@@ -23,21 +27,27 @@ npm run dev
 
 La aplicación queda disponible en `http://127.0.0.1:5180`. El comando inicia tanto React como la API local.
 
-Variables requeridas en `.env`:
+Variables requeridas en `.env` (ver `.env.example`):
 
 ```env
-DATABASE_URL=postgresql://...
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_xxxxxxxxxxxxxxxxxxxxxxxx
 JWT_SECRET=un-secreto-largo
-CREDENTIALS_ENCRYPTION_KEY=clave-hexadecimal-de-64-caracteres
 ```
 
-Para generar valores seguros:
+Para generar un `JWT_SECRET` seguro:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Ejecuta el comando dos veces: una para `JWT_SECRET` y otra para `CREDENTIALS_ENCRYPTION_KEY`.
+## Base de datos
+
+1. Abre el SQL Editor de tu proyecto en Supabase.
+2. Pega y ejecuta el contenido de `supabase/migrations/0001_init.sql`. Crea las tablas, restricciones y un usuario administrador inicial:
+   - Usuario: `admin`
+   - Contraseña: `Admin123!`
+   - **Cámbiala apenas ingreses** (Usuarios → editar → nueva contraseña).
 
 ## Despliegue en Netlify
 
@@ -46,10 +56,7 @@ Ejecuta el comando dos veces: una para `JWT_SECRET` y otra para `CREDENTIALS_ENC
    - Build command: `npm run build`
    - Publish directory: `dist`
    - Functions directory: `netlify/functions`
-3. En **Site configuration → Environment variables**, agrega:
-   - `DATABASE_URL`
-   - `JWT_SECRET`
-   - `CREDENTIALS_ENCRYPTION_KEY`
+3. En **Site configuration → Environment variables**, agrega `SUPABASE_URL`, `SUPABASE_SECRET_KEY` y `JWT_SECRET`.
 4. Despliega el sitio.
 5. Comprueba `https://tu-sitio.netlify.app/api/health`; debe responder que la base está conectada.
 
@@ -58,35 +65,15 @@ No configures secretos con el prefijo `VITE_`: ese prefijo los haría visibles e
 ## Seguridad incorporada
 
 - Sesión firmada en cookie `HttpOnly`, `Secure` y `SameSite=Lax`.
-- Rutas protegidas por rol (`admin` y `trabajador`).
-- Contraseñas nuevas con bcrypt.
-- Las contraseñas antiguas en texto plano se convierten automáticamente a bcrypt después de un inicio de sesión correcto.
-- Límite básico de intentos de acceso.
-- Cifrado AES-256-GCM para nuevas credenciales SUNAT, AFPnet y Banco de la Nación en producción.
-- Consultas parametrizadas contra PostgreSQL.
+- Rutas protegidas por rol (`admin`, `jefe_tienda`, `empleado`).
+- Contraseñas con bcrypt (costo 12).
+- Límite básico de intentos de acceso por IP.
+- La *service role key* de Supabase solo vive en variables de entorno del servidor.
 
 ## Verificación
 
 ```bash
 npm run check
 npm run build
-npm run qa:integration
 ```
-
-La compilación de producción se genera en `dist/`.
-
-`qa:integration` crea datos temporales con prefijo QA, prueba autenticación,
-permisos, CRUD, vencimientos, progreso, rendimiento y cronograma, y elimina
-esos datos al finalizar aunque una prueba falle.
-
-## Migraciones de base de datos
-
-Para una base existente que todavía conserve las columnas originales:
-
-```bash
-npm run db:migrate
-```
-
-La migración amplía las columnas de credenciales para soportar AES-256-GCM,
-añade restricciones de integridad e índices, y sincroniza vencimientos e
-indicadores del cronograma. Es idempotente y puede ejecutarse nuevamente.
+# Tienda-asistencia-cap
