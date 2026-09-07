@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 
 export function PageHeader({ eyebrow, title, subtitle, action }) {
   return (
@@ -47,6 +47,21 @@ export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy }
         </button>
       </div>
     </Modal>
+  );
+}
+
+export function SuccessDialog({ open, title, message, action = "Continuar", onContinue }) {
+  if (!open) return null;
+  return (
+    <div className="success-backdrop" role="presentation">
+      <section className="success-dialog" role="dialog" aria-modal="true" aria-labelledby="success-dialog-title">
+        <span className="success-dialog__icon"><CheckCircle2 size={42} /></span>
+        <p className="eyebrow">Operación completada</p>
+        <h2 id="success-dialog-title">{title}</h2>
+        {message && <p className="success-dialog__message">{message}</p>}
+        <button className="button button--primary" autoFocus onClick={onContinue}>{action}</button>
+      </section>
+    </div>
   );
 }
 
@@ -109,6 +124,6 @@ export function Pagination({ page, pages, onChange }) {
   );
 }
 
-export function Field({ label, hint, children, className = "" }) {
-  return <label className={`field ${className}`}><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
+export function Field({ label, hint, error, children, className = "" }) {
+  return <label className={`field ${error ? "field--error" : ""} ${className}`}><span>{label}</span>{children}{error ? <small className="field__error">{error}</small> : hint && <small>{hint}</small>}</label>;
 }

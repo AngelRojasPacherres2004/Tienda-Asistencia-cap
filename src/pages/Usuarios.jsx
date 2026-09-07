@@ -1,15 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Edit3, FileUp, Trash2, UsersRound } from "lucide-react";
 import ExcelJS from "exceljs";
+import { Download, Edit3, FileSpreadsheet, FileUp, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
 import {
-  ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge,
+  ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
 const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
 const blank = {
   nombres: "", apellidos: "", dni: "", usuario: "", password: "",
   telefono: "", rol: "empleado", tienda_id: "", estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
+};
+
+const excelFields = {
+  nombres: "nombres", apellidos: "apellidos", dni: "dni", usuario: "usuario",
+  contrasena: "password", password: "password", telefono: "telefono", fechaingreso: "fecha_ingreso",
+};
+const normalizeHeader = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+const excelDate = (value) => {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "number") return new Date(Date.UTC(1899, 11, 30 + value)).toISOString().slice(0, 10);
+  return String(value || "").trim().slice(0, 10);
 };
 
 export default function Usuarios({ user }) {
@@ -22,6 +33,10 @@ export default function Usuarios({ user }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const importInput = useRef(null);
+  const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [success, setSuccess] = useState(null);
+  const fileRef = useRef(null);
 
   const load = () => api("/usuarios").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadTiendas = useCallback(
@@ -35,27 +50,97 @@ export default function Usuarios({ user }) {
       .join(" ").toLowerCase().includes(search.toLowerCase()),
   ), [items, search]);
 
-  const openNew = () => setEditing({ ...blank });
-  const openEdit = (item) => setEditing({ ...item, tienda_id: item.tienda_id || "", password: "" });
-  const set = (field, value) => setEditing((current) => ({ ...current, [field]: value }));
+  const clearErrors = () => { setFormError(""); setFieldErrors({}); };
+  const closeEditor = () => { setEditing(null); clearErrors(); };
+  const openNew = () => { clearErrors(); setEditing({ ...blank, fecha_ingreso: todayISO() }); };
+  const openEdit = (item) => { clearErrors(); setEditing({ ...item, tienda_id: item.tienda_id || "", password: "" }); };
+  const set = (field, value) => {
+    setEditing((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+  };
 
   const save = async (event) => {
     event.preventDefault();
-    setBusy(true); setNotice(null);
+    clearErrors();
+    const errors = {};
+    for (const field of ["nombres", "apellidos", "dni", "usuario", "fecha_ingreso"]) {
+      if (!String(editing[field] ?? "").trim()) errors[field] = "Este campo es obligatorio.";
+    }
+    if (!editing.id && editing.rol !== "empleado" && !editing.password) errors.password = "Este campo es obligatorio para este rol.";
+    if (editing.rol !== "admin" && !editing.tienda_id) errors.tienda_id = "Selecciona una tienda.";
+    if (editing.nombres && editing.nombres.trim().length < 2) errors.nombres = "Ingresa al menos 2 caracteres.";
+    if (editing.apellidos && editing.apellidos.trim().length < 2) errors.apellidos = "Ingresa al menos 2 caracteres.";
+    if (editing.dni && !/^\d{8}$/.test(editing.dni)) errors.dni = "Debe tener exactamente 8 dígitos.";
+    if (editing.telefono && !/^\d{9}$/.test(editing.telefono)) errors.telefono = "Debe tener exactamente 9 dígitos.";
+    if (editing.usuario && (editing.usuario.trim().length < 3 || !/^[a-z0-9._-]+$/i.test(editing.usuario.trim()))) errors.usuario = "Usa al menos 3 caracteres: letras, números, punto o guion.";
+    if (editing.password && editing.password.length < 6) errors.password = "Debe tener al menos 6 caracteres.";
+    if (Object.keys(errors).length) { setFieldErrors(errors); return; }
+    setBusy(true);
     try {
       const payload = { ...editing, tienda_id: editing.rol === "admin" ? null : Number(editing.tienda_id) || null };
       if (!payload.password) delete payload.password;
       await api(editing.id ? `/usuarios/${editing.id}` : "/usuarios", {
         method: editing.id ? "PUT" : "POST", body: payload,
       });
-      setEditing(null);
+      closeEditor();
       await load();
-      setNotice({ type: "success", text: editing.id ? "Usuario actualizado." : "Usuario creado correctamente." });
+      setSuccess({ title: editing.id ? "Usuario actualizado" : "Usuario creado", message: editing.id ? "Los cambios del usuario se guardaron correctamente." : "El nuevo usuario fue registrado correctamente." });
     } catch (err) {
-      setNotice({ type: "error", text: err.message });
+      const message = err.message || "No se pudo guardar el usuario.";
+      if (/DNI/i.test(message)) setFieldErrors({ dni: message });
+      else if (/nombre de usuario|usuario.*registrado/i.test(message)) setFieldErrors({ usuario: message });
+      else if (/nombres y apellidos/i.test(message)) setFieldErrors({ nombres: message, apellidos: message });
+      else if (/contrase/i.test(message)) setFieldErrors({ password: message });
+      else if (/tel[eé]fono/i.test(message)) setFieldErrors({ telefono: message });
+      else if (/fecha de ingreso/i.test(message)) setFieldErrors({ fecha_ingreso: message });
+      else if (/fecha de salida/i.test(message)) setFieldErrors({ fecha_salida: message });
+      else if (/tienda/i.test(message)) setFieldErrors({ tienda_id: message });
+      else setFormError(message);
     } finally {
       setBusy(false);
     }
+  };
+
+  const downloadUsers = async (template = false) => {
+    setBusy(true); setFormError("");
+    try { await downloadFile(`/api/usuarios/export.xlsx${template ? "?plantilla=1" : ""}`, template ? "plantilla-usuarios.xlsx" : "usuarios-mi-tienda.xlsx"); }
+    catch (err) { setNotice({ type: "error", text: err.message }); }
+    finally { setBusy(false); }
+  };
+
+  const importExcel = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true); setNotice(null);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(await file.arrayBuffer());
+      const sheet = workbook.worksheets[0];
+      if (!sheet) throw new Error("El archivo no contiene ninguna hoja.");
+      const headers = {};
+      sheet.getRow(1).eachCell((cell, column) => { const field = excelFields[normalizeHeader(cell.value)]; if (field) headers[column] = field; });
+      const required = ["nombres", "apellidos", "dni", "usuario", "fecha_ingreso"];
+      if (required.some((field) => !Object.values(headers).includes(field))) throw new Error("El Excel no tiene todas las columnas requeridas. Descarga y utiliza la plantilla.");
+      const usuarios = [];
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const data = {};
+        Object.entries(headers).forEach(([column, field]) => { data[field] = row.getCell(Number(column)).value ?? ""; });
+        if (!Object.values(data).some((value) => String(value).trim())) return;
+        data.dni = String(data.dni).padStart(8, "0");
+        data.telefono = data.telefono ? String(data.telefono) : "";
+        data.fecha_ingreso = excelDate(data.fecha_ingreso);
+        usuarios.push(data);
+      });
+      const result = await api("/usuarios/importar", { method: "POST", body: { usuarios } });
+      await load();
+      setSuccess({
+        title: result.creados ? "Usuarios importados" : "No había usuarios nuevos",
+        message: `Se crearon ${result.creados} usuario(s) y se omitieron ${result.omitidos} que ya estaban registrados.`,
+      });
+    } catch (err) { setNotice({ type: "error", text: err.message }); }
+    finally { setBusy(false); }
   };
 
   const remove = async () => {
@@ -77,10 +162,10 @@ export default function Usuarios({ user }) {
     }
   };
 
-  const downloadUsers = (template = false) => downloadFile(`/api/usuarios/export.xlsx${template ? "?plantilla=1" : ""}`, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx")
+  const downloadUsersAdmin = (template = false) => downloadFile(`/api/usuarios/export.xlsx${template ? "?plantilla=1" : ""}`, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx")
     .catch((err) => setNotice({ type: "error", text: err.message }));
 
-  const importUsers = async (event) => {
+  const importUsersAdmin = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -123,10 +208,17 @@ export default function Usuarios({ user }) {
         title={isAdmin ? "Usuarios" : "Mi equipo"}
         subtitle={isAdmin ? "Administradores, jefes de tienda y empleados con acceso al sistema." : "Empleados de tu tienda con acceso al sistema."}
         action={<div className="header-actions">
-          <button className="button button--ghost" onClick={() => downloadUsers(true)}><Download size={15} />Plantilla</button>
-          <button className="button button--ghost" onClick={() => importInput.current?.click()} disabled={busy}><FileUp size={15} />Importar Excel</button>
-          <button className="button button--soft" onClick={() => downloadUsers()}><Download size={15} />Exportar Excel</button>
-          <input ref={importInput} type="file" accept=".xlsx" onChange={importUsers} hidden />
+          {isAdmin ? <>
+            <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
+            <button className="button button--ghost" onClick={() => importInput.current?.click()} disabled={busy}><FileUp size={15} />Importar Excel</button>
+            <button className="button button--soft" onClick={() => downloadUsersAdmin()}><Download size={15} />Exportar Excel</button>
+            <input ref={importInput} type="file" accept=".xlsx" onChange={importUsersAdmin} hidden />
+          </> : <>
+            <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(false)}><Download size={16} />Exportar Excel</button>
+            <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(true)}><FileSpreadsheet size={16} />Descargar plantilla</button>
+            <button className="button button--soft" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={16} />Importar Excel</button>
+            <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel} />
+          </>}
           <button className="button button--primary" onClick={openNew}>Nuevo usuario</button>
         </div>}
       />
@@ -174,20 +266,21 @@ export default function Usuarios({ user }) {
         open={!!editing}
         title={editing?.id ? "Editar usuario" : "Nuevo usuario"}
         subtitle="Los campos marcados son obligatorios."
-        onClose={() => setEditing(null)}
+        onClose={closeEditor}
       >
         {editing && (
-          <form className="form-grid" onSubmit={save}>
-            <Field label="Nombres"><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
-            <Field label="Apellidos"><input required value={editing.apellidos} onChange={(e) => set("apellidos", e.target.value)} /></Field>
-            <Field label="DNI"><input required maxLength={8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
-            <Field label="Teléfono" hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
-            <Field label="Usuario"><input required value={editing.usuario} onChange={(e) => set("usuario", e.target.value)} /></Field>
-            <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} hint={editing.id ? "Déjala vacía para conservar la actual." : "Mínimo 6 caracteres."}>
-              <input required={!editing.id} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
+          <form className="form-grid" onSubmit={save} noValidate>
+            {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
+            <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
+            <Field label="Apellidos" error={fieldErrors.apellidos}><input required value={editing.apellidos} onChange={(e) => set("apellidos", e.target.value)} /></Field>
+            <Field label="DNI" error={fieldErrors.dni}><input required maxLength={8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
+            <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
+            <Field label="Usuario" error={fieldErrors.usuario}><input required value={editing.usuario} onChange={(e) => set("usuario", e.target.value)} /></Field>
+            <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual o agrega una para habilitar el acceso." : editing.rol === "empleado" ? "Opcional. Sin contraseña, el empleado no podrá iniciar sesión." : "Obligatoria para este rol; mínimo 6 caracteres."}>
+              <input required={!editing.id && editing.rol !== "empleado"} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
-            <Field label="Fecha de ingreso"><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
-            <Field label="Fecha de salida" hint="Déjala vacía si sigue activo."><input type="date" min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>
+            <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
+            <Field label="Fecha de salida" error={fieldErrors.fecha_salida} hint="Se deja en blanco al crear el usuario."><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>
             {isAdmin && (
               <>
                 <Field label="Rol">
@@ -197,7 +290,7 @@ export default function Usuarios({ user }) {
                     <option value="admin">Administrador</option>
                   </select>
                 </Field>
-                <Field label="Tienda" hint={editing.rol === "admin" ? "No aplica para administradores." : undefined}>
+                <Field label="Tienda" error={fieldErrors.tienda_id} hint={editing.rol === "admin" ? "No aplica para administradores." : undefined}>
                   <select required={editing.rol !== "admin"} disabled={editing.rol === "admin"} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
                     <option value="">Selecciona una tienda</option>
                     {tiendaOptions.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
@@ -212,7 +305,7 @@ export default function Usuarios({ user }) {
               </select>
             </Field>
             <div className="form-actions span-2">
-              <button type="button" className="button button--ghost" onClick={() => setEditing(null)}>Cancelar</button>
+              <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>
               <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
             </div>
           </form>
@@ -227,6 +320,7 @@ export default function Usuarios({ user }) {
         onClose={() => setDeleting(null)}
         onConfirm={remove}
       />
+      <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );
 }

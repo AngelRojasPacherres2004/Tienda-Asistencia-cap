@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { GraduationCap, Pencil, Trash2, UserRound } from "lucide-react";
 import { api } from "../lib/api";
 import {
-  EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge,
+  EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
 const blankCurso = { nombre: "", competencia: "", activo: true };
@@ -16,6 +16,9 @@ export default function Cursos() {
   const [editingEncargado, setEditingEncargado] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [cursoError, setCursoError] = useState("");
+  const [encargadoError, setEncargadoError] = useState("");
+  const [success, setSuccess] = useState(null);
 
   const loadCursos = () => api("/cursos").then(setCursos).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadEncargados = () => api("/encargados").then(setEncargados).catch((err) => setNotice({ type: "error", text: err.message }));
@@ -23,16 +26,16 @@ export default function Cursos() {
 
   const saveCurso = async (event) => {
     event.preventDefault();
-    setBusy(true); setNotice(null);
+    setBusy(true); setCursoError("");
     try {
       await api(editingCurso.id ? `/cursos/${editingCurso.id}` : "/cursos", {
         method: editingCurso.id ? "PUT" : "POST", body: editingCurso,
       });
       setEditingCurso(null);
       await loadCursos();
-      setNotice({ type: "success", text: editingCurso.id ? "Curso actualizado." : "Curso creado correctamente." });
+      setSuccess({ title: editingCurso.id ? "Curso actualizado" : "Curso creado", message: "La información del curso se guardó correctamente." });
     } catch (err) {
-      setNotice({ type: "error", text: err.message });
+      setCursoError(err.message);
     } finally {
       setBusy(false);
     }
@@ -57,16 +60,16 @@ export default function Cursos() {
 
   const saveEncargado = async (event) => {
     event.preventDefault();
-    setBusy(true); setNotice(null);
+    setBusy(true); setEncargadoError("");
     try {
       await api(editingEncargado.id ? `/encargados/${editingEncargado.id}` : "/encargados", {
         method: editingEncargado.id ? "PUT" : "POST", body: editingEncargado,
       });
       setEditingEncargado(null);
       await loadEncargados();
-      setNotice({ type: "success", text: editingEncargado.id ? "Encargado actualizado." : "Encargado creado correctamente." });
+      setSuccess({ title: editingEncargado.id ? "Encargado actualizado" : "Encargado creado", message: "La información del encargado se guardó correctamente." });
     } catch (err) {
-      setNotice({ type: "error", text: err.message });
+      setEncargadoError(err.message);
     } finally {
       setBusy(false);
     }
@@ -80,8 +83,8 @@ export default function Cursos() {
         subtitle="Cursos disponibles y encargados que se pueden asignar en cualquier tienda."
         action={
           tab === "cursos"
-            ? <button className="button button--primary" onClick={() => setEditingCurso({ ...blankCurso })}>Nuevo curso</button>
-            : <button className="button button--primary" onClick={() => setEditingEncargado({ ...blankEncargado })}>Nuevo encargado</button>
+            ? <button className="button button--primary" onClick={() => { setCursoError(""); setEditingCurso({ ...blankCurso }); }}>Nuevo curso</button>
+            : <button className="button button--primary" onClick={() => { setEncargadoError(""); setEditingEncargado({ ...blankEncargado }); }}>Nuevo encargado</button>
         }
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
@@ -102,7 +105,7 @@ export default function Cursos() {
                   <span>{curso.competencia}</span>
                   <span><StatusBadge value={curso.activo ? "activo" : "inactivo"} /></span>
                   <div className="row-actions">
-                    <button onClick={() => setEditingCurso({ ...curso })} aria-label="Editar"><Pencil size={15} /></button>
+                    <button onClick={() => { setCursoError(""); setEditingCurso({ ...curso }); }} aria-label="Editar"><Pencil size={15} /></button>
                     <button className="danger" onClick={() => deleteCurso(curso)} aria-label="Eliminar"><Trash2 size={15} /></button>
                   </div>
                 </div>
@@ -120,7 +123,7 @@ export default function Cursos() {
                   <span className="cell-primary">{encargado.nombre}</span>
                   <span><StatusBadge value={encargado.activo ? "activo" : "inactivo"} /></span>
                   <div className="row-actions">
-                    <button onClick={() => setEditingEncargado({ ...encargado })} aria-label="Editar"><Pencil size={15} /></button>
+                    <button onClick={() => { setEncargadoError(""); setEditingEncargado({ ...encargado }); }} aria-label="Editar"><Pencil size={15} /></button>
                   </div>
                 </div>
               ))}
@@ -129,9 +132,10 @@ export default function Cursos() {
         ) : <EmptyState icon={UserRound} title="Sin encargados" text="Todavía no hay encargados en el catálogo." />
       )}
 
-      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar curso" : "Nuevo curso"} onClose={() => setEditingCurso(null)}>
+      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar curso" : "Nuevo curso"} onClose={() => { setEditingCurso(null); setCursoError(""); }}>
         {editingCurso && (
           <form className="form-grid" onSubmit={saveCurso}>
+            {cursoError && <div className="span-2"><Notice type="error" onClose={() => setCursoError("")}>{cursoError}</Notice></div>}
             <Field label="Curso" className="span-2">
               <input required value={editingCurso.nombre} onChange={(e) => setEditingCurso({ ...editingCurso, nombre: e.target.value })} />
             </Field>
@@ -152,9 +156,10 @@ export default function Cursos() {
         )}
       </Modal>
 
-      <Modal open={!!editingEncargado} title={editingEncargado?.id ? "Editar encargado" : "Nuevo encargado"} onClose={() => setEditingEncargado(null)}>
+      <Modal open={!!editingEncargado} title={editingEncargado?.id ? "Editar encargado" : "Nuevo encargado"} onClose={() => { setEditingEncargado(null); setEncargadoError(""); }}>
         {editingEncargado && (
           <form className="form-grid" onSubmit={saveEncargado}>
+            {encargadoError && <div className="span-2"><Notice type="error" onClose={() => setEncargadoError("")}>{encargadoError}</Notice></div>}
             <Field label="Nombre" className="span-2">
               <input required value={editingEncargado.nombre} onChange={(e) => setEditingEncargado({ ...editingEncargado, nombre: e.target.value })} />
             </Field>
@@ -171,6 +176,7 @@ export default function Cursos() {
           </form>
         )}
       </Modal>
+      <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );
 }

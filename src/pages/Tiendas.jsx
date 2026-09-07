@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Building2, Crown, Pencil, UsersRound, X } from "lucide-react";
 import { api } from "../lib/api";
 import {
-  EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge,
+  EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
 const blank = { nombre: "", direccion: "", jefe_id: "", estado: "activo" };
@@ -16,6 +16,8 @@ export default function Tiendas() {
   const [notice, setNotice] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [storeUsers, setStoreUsers] = useState(null);
+  const [formError, setFormError] = useState("");
+  const [success, setSuccess] = useState(null);
 
   const load = () => api("/tiendas").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
@@ -27,28 +29,29 @@ export default function Tiendas() {
 
   const jefeOptions = usuarios.filter((u) => u.estado === "activo" && (u.rol === "jefe_tienda" || u.rol === "empleado"));
 
-  const openNew = () => setEditing({ ...blank });
-  const openEdit = (item) => setEditing({ ...item, jefe_id: item.jefe_id || "" });
   const openUsers = (item) => {
     setViewing(item);
     setStoreUsers(null);
     api(`/tiendas/${item.id}/usuarios`).then(setStoreUsers).catch((err) => setNotice({ type: "error", text: err.message }));
   };
+  const closeEditor = () => { setEditing(null); setFormError(""); };
+  const openNew = () => { setFormError(""); setEditing({ ...blank }); };
+  const openEdit = (item) => { setFormError(""); setEditing({ ...item, jefe_id: item.jefe_id || "" }); };
   const set = (field, value) => setEditing((current) => ({ ...current, [field]: value }));
 
   const save = async (event) => {
     event.preventDefault();
-    setBusy(true); setNotice(null);
+    setBusy(true); setFormError("");
     try {
       const payload = { ...editing, jefe_id: editing.jefe_id ? Number(editing.jefe_id) : null };
       await api(editing.id ? `/tiendas/${editing.id}` : "/tiendas", {
         method: editing.id ? "PUT" : "POST", body: payload,
       });
-      setEditing(null);
+      closeEditor();
       await Promise.all([load(), loadUsuarios()]);
-      setNotice({ type: "success", text: editing.id ? "Tienda actualizada." : "Tienda creada correctamente." });
+      setSuccess({ title: editing.id ? "Tienda actualizada" : "Tienda creada", message: editing.id ? "Los cambios de la tienda se guardaron correctamente." : "La nueva tienda fue registrada correctamente." });
     } catch (err) {
-      setNotice({ type: "error", text: err.message });
+      setFormError(err.message);
     } finally {
       setBusy(false);
     }
@@ -97,10 +100,11 @@ export default function Tiendas() {
         open={!!editing}
         title={editing?.id ? "Editar tienda" : "Nueva tienda"}
         subtitle="Los campos marcados son obligatorios."
-        onClose={() => setEditing(null)}
+        onClose={closeEditor}
       >
         {editing && (
           <form className="form-grid" onSubmit={save}>
+            {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
             <Field label="Nombre" className="span-2"><input required value={editing.nombre} onChange={(e) => set("nombre", e.target.value)} /></Field>
             <Field label="Dirección" className="span-2">
               <input value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} placeholder="Av. Ejemplo 123, distrito" />
@@ -118,13 +122,12 @@ export default function Tiendas() {
               </select>
             </Field>
             <div className="form-actions span-2">
-              <button type="button" className="button button--ghost" onClick={() => setEditing(null)}>Cancelar</button>
+              <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>
               <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
             </div>
           </form>
         )}
       </Modal>
-
       <Modal open={!!viewing} wide title={viewing ? `Usuarios de ${viewing.nombre}` : "Usuarios"} subtitle="El jefe de tienda aparece separado del equipo operativo." onClose={() => setViewing(null)}>
         {!storeUsers ? <Loading label="Cargando usuarios de la tienda..." /> : <div className="store-users">
           <section className="store-users__leader">
@@ -135,6 +138,7 @@ export default function Tiendas() {
           {storeUsers.length ? <div className="store-users__list">{storeUsers.filter((item) => item.rol !== "jefe_tienda").map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>@{item.usuario} · {item.fecha_ingreso || "Sin fecha de ingreso"}</small></div><StatusBadge value={item.estado} /></div>)}</div> : <EmptyState icon={UsersRound} title="Sin usuarios operativos" text="Esta tienda todavía no tiene empleados registrados." />}
         </div>}
       </Modal>
+      <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );
 }

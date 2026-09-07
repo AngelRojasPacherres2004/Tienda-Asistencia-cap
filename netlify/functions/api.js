@@ -27,6 +27,7 @@ const presenteEstados = new Set(["presente", "tardanza", "medio_turno", "apoyo"]
 const operacionesLog = new Set(["creacion", "edicion", "eliminacion"]);
 const progresoLabels = { pendiente: "Pendiente", en_curso: "En curso", completado: "Completado" };
 const progresoEstados = new Set(["pendiente", "en_curso", "completado"]);
+const disabledPassword = "!SIN_ACCESO!";
 
 function httpError(message, status) {
   return Object.assign(new Error(message), { status });
@@ -133,7 +134,7 @@ function cleanUsuario(value) {
 }
 
 function validateUserPayload(data, creating = false) {
-  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso"]);
+  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso", ...(creating && data.rol !== "empleado" ? ["password"] : [])]);
   if (cleanText(data.nombres).length < 2 || cleanText(data.apellidos).length < 2) {
     throw httpError("Los nombres y apellidos deben ser válidos.", 400);
   }
@@ -161,8 +162,12 @@ function validateUserPayload(data, creating = false) {
   if (data.rol !== "admin" && !data.tienda_id) {
     throw httpError("Selecciona la tienda del usuario.", 400);
   }
-  if ((creating || data.password) && String(data.password || "").length < 6) {
+  if (data.password && String(data.password).length < 6) {
     throw httpError("La contraseña debe tener al menos 6 caracteres.", 400);
+  }
+  if (!isISODate(data.fecha_ingreso)) throw httpError("La fecha de ingreso no es válida.", 400);
+  if (data.fecha_salida && (!isISODate(data.fecha_salida) || data.fecha_salida < data.fecha_ingreso)) {
+    throw httpError("La fecha de salida debe ser válida y posterior a la fecha de ingreso.", 400);
   }
 }
 
@@ -216,6 +221,7 @@ async function login(event) {
     return json(401, { error: "Usuario o contraseña incorrectos." });
   };
   if (!account || account.estado !== "activo") return fail();
+  if (!account.password || account.password === disabledPassword) return fail();
   const valid = await bcrypt.compare(String(password), account.password);
   if (!valid) return fail();
 
@@ -277,7 +283,7 @@ async function createUser(event, actor) {
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni);
   if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
-  const password = await bcrypt.hash(String(data.password), 12);
+  const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
@@ -288,9 +294,62 @@ async function createUser(event, actor) {
   return created;
 }
 
+async function importStoreUsers(event, actor) {
+  const { usuarios } = bodyOf(event);
+  if (!Array.isArray(usuarios) || !usuarios.length) throw httpError("El Excel no contiene usuarios para importar.", 400);
+  if (usuarios.length > 500) throw httpError("Solo puedes importar hasta 500 usuarios por archivo.", 400);
+
+  const prepared = usuarios.map((row, index) => {
+    const data = {
+      ...row, rol: "empleado", tienda_id: actor.tienda_id, estado: "activo", fecha_salida: null,
+    };
+    try { validateUserPayload(data, true); } catch (error) {
+      throw httpError(`Fila ${index + 2}: ${error.message}`, error.status || 400);
+    }
+    return {
+      nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni: cleanText(data.dni),
+      usuario: cleanUsuario(data.usuario), telefono: data.telefono ? cleanText(data.telefono) : null,
+      password: data.password ? String(data.password) : disabledPassword, rol: "empleado", tienda_id: actor.tienda_id, estado: "activo",
+      fecha_ingreso: data.fecha_ingreso, fecha_salida: null,
+    };
+  });
+  const usuariosSet = new Set();
+  const dniSet = new Set();
+  for (const row of prepared) {
+    if (usuariosSet.has(row.usuario)) throw httpError(`El usuario "${row.usuario}" está repetido en el Excel.`, 400);
+    if (dniSet.has(row.dni)) throw httpError(`El DNI "${row.dni}" está repetido en el Excel.`, 400);
+    usuariosSet.add(row.usuario); dniSet.add(row.dni);
+  }
+  const [{ data: existingUsers, error: userError }, { data: existingDnis, error: dniError }] = await Promise.all([
+    supabase.from("usuarios").select("id,usuario,dni").in("usuario", [...usuariosSet]),
+    supabase.from("usuarios").select("id,usuario,dni").in("dni", [...dniSet]),
+  ]);
+  if (userError) throw dbError(userError);
+  if (dniError) throw dbError(dniError);
+  const byUsuario = new Map((existingUsers || []).map((row) => [cleanUsuario(row.usuario), row]));
+  const byDni = new Map((existingDnis || []).map((row) => [row.dni, row]));
+  const nuevos = prepared.filter((row) => {
+    const sameUsuario = byUsuario.get(row.usuario);
+    const sameDni = byDni.get(row.dni);
+    if (!sameUsuario && !sameDni) return true;
+    if (sameUsuario?.id === sameDni?.id) return false;
+    if (sameUsuario) throw httpError(`El usuario "${row.usuario}" ya pertenece a otro DNI.`, 409);
+    throw httpError(`El DNI "${row.dni}" ya pertenece a otro usuario.`, 409);
+  });
+
+  const rows = await Promise.all(nuevos.map(async (row) => ({
+    ...row, password: row.password === disabledPassword ? disabledPassword : await bcrypt.hash(row.password, 12),
+  })));
+  if (rows.length) {
+    const { error } = await supabase.from("usuarios").insert(rows);
+    if (error) throw dbError(error);
+  }
+  return { creados: rows.length, omitidos: prepared.length - rows.length };
+}
+
 async function updateUser(event, id, actor) {
   const data = bodyOf(event);
-  const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id").eq("id", id).maybeSingle();
+  const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id,password").eq("id", id).maybeSingle();
   if (!current) throw httpError("Usuario no encontrado.", 404);
   if (actor.rol === "jefe_tienda") {
     if (current.tienda_id !== actor.tienda_id || current.rol !== "empleado") {
@@ -300,6 +359,9 @@ async function updateUser(event, id, actor) {
     data.tienda_id = actor.tienda_id;
   }
   validateUserPayload(data);
+  if (data.rol !== "empleado" && (!current.password || current.password === disabledPassword) && !data.password) {
+    throw httpError("Asigna una contraseña antes de otorgar este rol.", 400);
+  }
   if (Number(id) === Number(actor.id) && (data.rol !== "admin" || data.estado !== "activo")) {
     throw httpError("No puedes quitarte tu propio acceso de administrador.", 400);
   }
@@ -347,7 +409,7 @@ async function deleteUser(id, actor) {
   return { eliminado: true, inhabilitado: false };
 }
 
-async function importUsers(event, actor) {
+async function importUsersAdmin(event, actor) {
   const body = bodyOf(event);
   const rows = Array.isArray(body.rows) ? body.rows : [];
   if (!rows.length || rows.length > 200) throw httpError("El archivo debe contener entre 1 y 200 usuarios.", 400);
@@ -364,7 +426,7 @@ async function importUsers(event, actor) {
       const dni = cleanText(data.dni);
       await ensureUniqueUser(usuario, dni);
       if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
-      const password = await bcrypt.hash(String(data.password), 12);
+      const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
       const { error } = await supabase.from("usuarios").insert({
         nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
         telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
@@ -380,7 +442,7 @@ async function importUsers(event, actor) {
   return { total: rows.length, creados: results.filter((item) => item.ok).length, errores: results.filter((item) => !item.ok) };
 }
 
-async function exportUsersExcel(actor, template = false) {
+async function exportUsersExcelAdmin(actor, template = false) {
   const rows = template ? [] : await listUsers(actor);
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Usuarios");
@@ -916,19 +978,14 @@ async function getStates(tiendaFilter, monthStart, today) {
   return Object.entries(counts).map(([estado, cantidad]) => ({ estado, cantidad })).sort((a, b) => b.cantidad - a.cantidad);
 }
 
-async function getTrend(tiendaFilter, todayStr) {
+async function getTrend(tiendaFilter, selectedYear) {
+  const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
   const months = [];
-  const cursor = new Date(`${todayStr}T00:00:00Z`);
-  cursor.setUTCDate(1);
-  for (let i = 0; i < 12; i += 1) {
-    const year = cursor.getUTCFullYear();
-    const month = cursor.getUTCMonth();
+  const year = Number(selectedYear);
+  for (let month = 0; month < 12; month += 1) {
     const start = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
-    const naturalEnd = new Date(Date.UTC(year, month + 1, 0));
-    const cap = new Date(`${todayStr}T00:00:00Z`);
-    const end = (naturalEnd > cap ? cap : naturalEnd).toISOString().slice(0, 10);
-    months.unshift({ label: start.slice(0, 7), start, end });
-    cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+    const end = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+    months.push({ label: monthLabels[month], start, end });
   }
   return Promise.all(months.map(async ({ label, start, end }) => {
     let request = supabase.from("asistencias").select("estado").gte("fecha", start).lte("fecha", end);
@@ -1007,6 +1064,7 @@ async function getCourseProgress(tiendaFilter) {
 }
 
 async function getRotation(tiendaFilter, desde, hasta) {
+  const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
   let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id").in("rol", ["empleado", "jefe_tienda"]);
   if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
   const { data, error } = await request;
@@ -1024,7 +1082,7 @@ async function getRotation(tiendaFilter, desde, hasta) {
     const salida = (data || []).filter((row) => row.fecha_salida && row.fecha_salida >= start && row.fecha_salida <= end).length;
     const personalInicio = (data || []).filter((row) => row.fecha_ingreso <= start && (!row.fecha_salida || row.fecha_salida >= start)).length;
     const personalFin = (data || []).filter((row) => row.fecha_ingreso <= end && (!row.fecha_salida || row.fecha_salida >= end)).length;
-    months.push({ mes: `${String(month + 1).padStart(2, "0")}/${String(year).slice(-2)}`, ingreso, salida, personal_inicio: personalInicio, personal_fin: personalFin });
+    months.push({ mes: monthLabels[month], anio: year, ingreso, salida, personal_inicio: personalInicio, personal_fin: personalFin });
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
   return months;
@@ -1036,16 +1094,19 @@ async function getDashboard(user, event) {
   const defaultStart = `${today.slice(0, 4)}-01-01`;
   const desde = isISODate(query.desde) ? query.desde : defaultStart;
   const hasta = isISODate(query.hasta) ? query.hasta : today;
+  const rotationYear = /^\d{4}$/.test(String(query.rotation_year || "")) ? String(query.rotation_year) : today.slice(0, 4);
+  const rotationDesde = `${rotationYear}-01-01`;
+  const rotationHasta = `${rotationYear}-12-31`;
   const tiendaFilter = user.rol === "admin" ? Number(query.tienda_id) || null : user.tienda_id;
   const [summary, states, trend, workload, progresoCursos, rotation] = await Promise.all([
     getSummary(tiendaFilter, hasta, desde),
     getStates(tiendaFilter, desde, hasta),
-    getTrend(tiendaFilter, hasta),
+    getTrend(tiendaFilter, rotationYear),
     getWorkload(tiendaFilter, desde, hasta),
     getCourseProgress(tiendaFilter),
-    getRotation(tiendaFilter, desde, hasta),
+    getRotation(tiendaFilter, rotationDesde, rotationHasta),
   ]);
-  return { summary, states, trend, workload, progresoCursos, rotation, filters: { desde, hasta, tienda_id: tiendaFilter } };
+  return { summary, states, trend, workload, progresoCursos, rotation, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
 }
 
 // ---------- Documentos (Excel) ----------
@@ -1129,11 +1190,12 @@ function addCapacitacionesSheet(workbook, sheetName, rows) {
 
 async function excelResponse(workbook, filename) {
   const buffer = await workbook.xlsx.writeBuffer();
+  const safeFilename = String(filename).replace(/[^a-zA-Z0-9._-]/g, "-");
   return {
     statusCode: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       "Cache-Control": "no-store",
     },
     body: Buffer.from(buffer).toString("base64"),
@@ -1141,18 +1203,68 @@ async function excelResponse(workbook, filename) {
   };
 }
 
+async function exportStoreUsersExcel(actor, templateOnly = false) {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Usuarios");
+  sheet.columns = [
+    { header: "Nombres", key: "nombres", width: 22 },
+    { header: "Apellidos", key: "apellidos", width: 22 },
+    { header: "DNI", key: "dni", width: 12 },
+    { header: "Usuario", key: "usuario", width: 18 },
+    { header: "Contraseña", key: "password", width: 18 },
+    { header: "Teléfono", key: "telefono", width: 14 },
+    { header: "Fecha ingreso", key: "fecha_ingreso", width: 16 },
+  ];
+  sheet.getCell("E1").note = "Opcional para empleados. Si agregas una contraseña, debe tener como mínimo 6 caracteres.";
+  for (let rowNumber = 2; rowNumber <= 501; rowNumber += 1) {
+    sheet.getCell(`E${rowNumber}`).dataValidation = {
+      type: "custom",
+      formulae: [`OR(E${rowNumber}="",LEN(E${rowNumber})>=6)`],
+      allowBlank: true,
+      showInputMessage: true,
+      promptTitle: "Contraseña opcional",
+      prompt: "Déjala vacía o escribe una contraseña de mínimo 6 caracteres.",
+      showErrorMessage: true,
+      errorTitle: "Contraseña no válida",
+      error: "La contraseña debe estar vacía o tener al menos 6 caracteres.",
+    };
+  }
+  if (templateOnly) {
+    const instructions = workbook.addWorksheet("Instrucciones");
+    instructions.columns = [{ header: "Cómo completar la plantilla", key: "texto", width: 90 }];
+    instructions.addRows([
+      { texto: "Completa una persona por fila en la hoja Usuarios. No cambies los nombres de las columnas." },
+      { texto: "DNI: exactamente 8 dígitos. Teléfono: 9 dígitos (opcional)." },
+      { texto: "Usuario: mínimo 3 caracteres; usa letras, números, punto, guion o guion bajo." },
+      { texto: "Contraseña: opcional. Si se completa, debe tener mínimo 6 caracteres. Fecha ingreso: formato AAAA-MM-DD." },
+      { texto: "La tienda, el rol Empleado y el estado Activo se asignan automáticamente." },
+    ]);
+    styleHeader(instructions);
+  } else {
+    const { data, error } = await supabase.from("usuarios")
+      .select("nombres,apellidos,dni,usuario,telefono,fecha_ingreso")
+      .eq("tienda_id", actor.tienda_id).eq("rol", "empleado").order("nombres");
+    if (error) throw dbError(error);
+    sheet.addRows(data.map((row) => ({ ...row, password: "" })));
+  }
+  styleHeader(sheet);
+  sheet.getColumn("dni").numFmt = "@";
+  sheet.getColumn("telefono").numFmt = "@";
+  return excelResponse(workbook, templateOnly ? "plantilla-usuarios.xlsx" : "usuarios-mi-tienda.xlsx");
+}
+
 async function exportTiendaExcel(event, id) {
   const query = event.queryStringParameters || {};
+  const tipo = query.tipo === "capacitaciones" ? "capacitaciones" : "asistencias";
   const { data: tienda } = await supabase.from("tiendas").select("nombre").eq("id", id).maybeSingle();
   if (!tienda) throw httpError("Tienda no encontrada.", 404);
   const workbook = new ExcelJS.Workbook();
-  const [asistencias, capacitaciones] = await Promise.all([
-    fetchAsistenciasExport(id, query.desde, query.hasta),
-    fetchCapacitacionesExport(id, query.desde, query.hasta),
-  ]);
-  addAsistenciasSheet(workbook, "Asistencias", asistencias);
-  addCapacitacionesSheet(workbook, "Capacitaciones", capacitaciones);
-  return excelResponse(workbook, `${excelSheetName(tienda.nombre)}.xlsx`);
+  if (tipo === "capacitaciones") {
+    addCapacitacionesSheet(workbook, "Capacitaciones", await fetchCapacitacionesExport(id, query.desde, query.hasta));
+  } else {
+    addAsistenciasSheet(workbook, "Asistencias", await fetchAsistenciasExport(id, query.desde, query.hasta));
+  }
+  return excelResponse(workbook, `${excelSheetName(tienda.nombre)}-${tipo}.xlsx`);
 }
 
 async function exportMiHistorialExcel(event, user) {
@@ -1169,6 +1281,10 @@ async function exportTodoExcel(event) {
   const { data: tiendas, error } = await supabase.from("tiendas").select("id,nombre").order("nombre");
   if (error) throw dbError(error);
   const workbook = new ExcelJS.Workbook();
+  if (!tiendas.length) {
+    if (tipo === "capacitaciones") addCapacitacionesSheet(workbook, "Capacitaciones", []);
+    else addAsistenciasSheet(workbook, "Asistencias", []);
+  }
   for (const tienda of tiendas) {
     const rows = tipo === "capacitaciones"
       ? await fetchCapacitacionesExport(tienda.id, query.desde, query.hasta)
@@ -1221,11 +1337,17 @@ export async function handler(event) {
     }
     if (path === "/usuarios/import" && method === "POST") {
       ensureAuth(event, ["admin", "jefe_tienda"]);
-      return json(200, await importUsers(event, user));
+      return json(200, await importUsersAdmin(event, user));
+    }
+    if (path === "/usuarios/importar" && method === "POST") {
+      ensureAuth(event, "jefe_tienda");
+      return json(201, await importStoreUsers(event, user));
     }
     if (path === "/usuarios/export.xlsx" && method === "GET") {
       ensureAuth(event, ["admin", "jefe_tienda"]);
-      return await exportUsersExcel(user, event.queryStringParameters?.plantilla === "1");
+      return user.rol === "admin"
+        ? await exportUsersExcelAdmin(user, event.queryStringParameters?.plantilla === "1")
+        : await exportStoreUsersExcel(user, event.queryStringParameters?.plantilla === "1");
     }
     const userMatch = path.match(/^\/usuarios\/(\d+)$/);
     if (userMatch && method === "PUT") {

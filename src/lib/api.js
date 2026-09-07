@@ -42,15 +42,38 @@ export const estadoAsistenciaLabels = {
 };
 
 export async function downloadFile(url, fallbackName) {
+  let fileHandle = null;
+  if (typeof window.showSaveFilePicker === "function") {
+    try {
+      fileHandle = await window.showSaveFilePicker({
+        suggestedName: fallbackName,
+        types: [{
+          description: "Archivo de Microsoft Excel",
+          accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
+        }],
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") return false;
+      throw error;
+    }
+  }
   const response = await fetch(url, { credentials: "include" });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || "No se pudo generar el archivo.");
   }
   const disposition = response.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="([^"]+)"/);
-  const filename = match ? match[1] : fallbackName;
+  const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const basicMatch = disposition.match(/filename="([^"]+)"/i);
+  const filename = encodedMatch ? decodeURIComponent(encodedMatch[1]) : basicMatch ? basicMatch[1] : fallbackName;
   const blob = await response.blob();
+  if (!blob.size) throw new Error("El archivo generado está vacío.");
+  if (fileHandle) {
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  }
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
@@ -58,7 +81,8 @@ export async function downloadFile(url, fallbackName) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(objectUrl);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  return true;
 }
 
 export const formatDateTime = (value) => {

@@ -26,7 +26,9 @@ export default function Documentos() {
   const downloadTienda = async (tienda) => {
     setBusyId(tienda.id); setNotice(null);
     try {
-      await downloadFile(`/api/documentos/tiendas/${tienda.id}.xlsx?${rangeParams()}`, `${tienda.nombre}.xlsx`);
+      const params = new URLSearchParams(rangeParams());
+      params.set("tipo", tipo);
+      await downloadFile(`/api/documentos/tiendas/${tienda.id}.xlsx?${params}`, `${tienda.nombre}-${tipo}.xlsx`);
     } catch (err) {
       setNotice({ type: "error", text: err.message });
     } finally {

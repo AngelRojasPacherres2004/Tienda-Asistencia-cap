@@ -14,7 +14,10 @@ const server = http.createServer(async (request, response) => {
   });
   response.statusCode = result.statusCode;
   for (const [key, value] of Object.entries(result.headers || {})) response.setHeader(key, value);
-  response.end(result.body || "");
+  const responseBody = result.isBase64Encoded
+    ? Buffer.from(result.body || "", "base64")
+    : result.body || "";
+  response.end(responseBody);
 });
 
 server.listen(8788, "127.0.0.1", () => {

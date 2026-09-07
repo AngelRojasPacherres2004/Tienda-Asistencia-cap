@@ -6,7 +6,7 @@ import {
   api, downloadFile, estadoAsistenciaLabels, formatDate, formatDateTime, todayISO,
 } from "../lib/api";
 import {
-  EmptyState, Loading, Notice, PageHeader, SearchInput, StatusBadge,
+  EmptyState, Loading, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
 const estados = [
@@ -39,6 +39,7 @@ export default function Asistencias() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
   const [tab, setTab] = useState("registros");
+  const [success, setSuccess] = useState(null);
 
   const loadRoster = useCallback(() => (
     api(`/asistencias?fecha=${fecha}&estado=${mostrar}`).then(setRoster).catch((err) => setNotice({ type: "error", text: err.message }))
@@ -91,10 +92,7 @@ export default function Asistencias() {
       const result = await api("/asistencias/lote", { method: "PUT", body: { fecha, marcas } });
       setPending({});
       await loadRoster();
-      setNotice({
-        type: "success",
-        text: result.actualizados > 0 ? `Se actualizaron ${result.actualizados} trabajador(es).` : "No hubo cambios.",
-      });
+      setSuccess({ title: "Asistencia guardada", message: result.actualizados > 0 ? `Se guardaron los cambios de ${result.actualizados} trabajador(es).` : "La información ya estaba actualizada." });
     } catch (err) {
       setNotice({ type: "error", text: err.message });
     } finally {
@@ -183,6 +181,7 @@ export default function Asistencias() {
         <button className={tab === "cambios" ? "active" : ""} onClick={() => setTab("cambios")}>Historial de Cambios</button>
       </div>
       {tab === "registros" ? <RegistrosPanel onDeleted={() => loadRoster()} /> : <CambiosPanel />}
+      <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );
 }

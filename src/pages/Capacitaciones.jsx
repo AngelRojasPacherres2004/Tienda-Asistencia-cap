@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { api, formatDate } from "../lib/api";
 import {
-  EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge,
+  EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
 const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
@@ -95,6 +95,7 @@ function TrabajadorPerfilView({ id, onBack }) {
   const [drafts, setDrafts] = useState({});
   const [savingCurso, setSavingCurso] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   const load = useCallback(() => api(`/capacitaciones/trabajadores/${id}`).then((res) => {
     setData(res);
@@ -121,7 +122,7 @@ function TrabajadorPerfilView({ id, onBack }) {
         body: { estado: draft.estado, duracion_horas: draft.duracion_horas || null, encargado_id: Number(draft.encargado_id) },
       });
       await load();
-      setNotice({ type: "success", text: "Progreso guardado." });
+      setSuccess({ title: "Progreso actualizado", message: "La capacitación del trabajador se guardó correctamente." });
     } catch (err) {
       setNotice({ type: "error", text: err.message });
     } finally {
@@ -193,6 +194,7 @@ function TrabajadorPerfilView({ id, onBack }) {
       ) : (
         <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos en el catálogo." />
       )}
+      <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );
 }
@@ -288,6 +290,7 @@ function AsignarPanel({ cursos, onAssigned }) {
   const [filtroEstado, setFiltroEstado] = useState("activo");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   useEffect(() => { api("/encargados").then(setEncargados).catch(() => {}); }, []);
 
@@ -330,7 +333,7 @@ function AsignarPanel({ cursos, onAssigned }) {
       setSelected(new Set());
       await loadTrabajadores();
       onAssigned?.();
-      setNotice({ type: "success", text: `${result.actualizados} trabajador(es) actualizados.` });
+      setSuccess({ title: "Capacitación asignada", message: `Se actualizaron ${result.actualizados} trabajador(es) correctamente.` });
     } catch (err) {
       setNotice({ type: "error", text: err.message });
     } finally {
@@ -394,6 +397,7 @@ function AsignarPanel({ cursos, onAssigned }) {
         <span style={{ marginRight: "auto", alignSelf: "center", fontSize: 11, color: "#8b96a5" }}>{selected.size} seleccionados</span>
         <button className="button button--primary" disabled={busy} onClick={aplicar}>{busy ? "Aplicando…" : "Aplicar a seleccionados"}</button>
       </div>
+      <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );
 }
