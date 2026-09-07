@@ -83,6 +83,21 @@ export function Notice({ type = "success", children, onClose }) {
   );
 }
 
+export function SaveSuccessDialog({ open, action, onContinue }) {
+  if (!open) return null;
+  return (
+    <div className="save-success-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-success-title">
+      <section className="save-success-card">
+        <span className="save-success-icon"><Check size={34} strokeWidth={3} /></span>
+        <p className="eyebrow">Operación completada</p>
+        <h2 id="save-success-title">{action}</h2>
+        <p className="save-success-copy">Los cambios se guardaron correctamente.</p>
+        <button className="button button--primary button--large" onClick={onContinue}>Continuar</button>
+      </section>
+    </div>
+  );
+}
+
 export function Pagination({ page, pages, onChange }) {
   if (pages <= 1) return null;
   return (

@@ -133,7 +133,7 @@ function cleanUsuario(value) {
 }
 
 function validateUserPayload(data, creating = false) {
-  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado"]);
+  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso"]);
   if (cleanText(data.nombres).length < 2 || cleanText(data.apellidos).length < 2) {
     throw httpError("Los nombres y apellidos deben ser válidos.", 400);
   }
@@ -149,6 +149,12 @@ function validateUserPayload(data, creating = false) {
   }
   if (!userRoles.has(data.rol)) throw httpError("El rol no es válido.", 400);
   if (!userStates.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  if (!isISODate(data.fecha_ingreso) || (data.fecha_salida && !isISODate(data.fecha_salida))) {
+    throw httpError("Las fechas de ingreso y salida deben ser vÃ¡lidas.", 400);
+  }
+  if (data.fecha_salida && data.fecha_salida < data.fecha_ingreso) {
+    throw httpError("La fecha de salida no puede ser anterior a la fecha de ingreso.", 400);
+  }
   if (data.rol === "admin" && data.tienda_id) {
     throw httpError("Un administrador no debe tener tienda asignada.", 400);
   }
@@ -229,12 +235,14 @@ function mapUserRow(row) {
   return { ...rest, tienda_nombre: tiendas?.nombre || null };
 }
 
-async function listUsers(actor) {
+async function listUsers(actor, storeId = null) {
   let request = supabase
     .from("usuarios")
-    .select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
     .order("nombres");
   if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
+  if (actor.rol === "admin" && storeId) request = request.eq("tienda_id", storeId);
+  if (actor.rol === "admin" && !storeId) request = request.eq("rol", "jefe_tienda");
   const { data, error } = await request;
   if (error) throw dbError(error);
   return data.map(mapUserRow);
@@ -274,7 +282,8 @@ async function createUser(event, actor) {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
     tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
-  }).select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado").single();
+    fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
+  }).select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida").single();
   if (error) throw dbError(error);
   return created;
 }
@@ -308,6 +317,7 @@ async function updateUser(event, id, actor) {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
     tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
+    fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
   };
   if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
   const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
@@ -335,6 +345,56 @@ async function deleteUser(id, actor) {
   const { error: deleteError } = await supabase.from("usuarios").delete().eq("id", id);
   if (deleteError) throw dbError(deleteError);
   return { eliminado: true, inhabilitado: false };
+}
+
+async function importUsers(event, actor) {
+  const body = bodyOf(event);
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  if (!rows.length || rows.length > 200) throw httpError("El archivo debe contener entre 1 y 200 usuarios.", 400);
+  const results = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    try {
+      const data = { ...rows[index] };
+      if (actor.rol === "jefe_tienda") {
+        data.rol = "empleado";
+        data.tienda_id = actor.tienda_id;
+      }
+      validateUserPayload(data, true);
+      const usuario = cleanUsuario(data.usuario);
+      const dni = cleanText(data.dni);
+      await ensureUniqueUser(usuario, dni);
+      if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
+      const password = await bcrypt.hash(String(data.password), 12);
+      const { error } = await supabase.from("usuarios").insert({
+        nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
+        telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
+        tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
+        fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
+      });
+      if (error) throw dbError(error);
+      results.push({ fila: index + 2, ok: true });
+    } catch (error) {
+      results.push({ fila: index + 2, ok: false, error: error.message });
+    }
+  }
+  return { total: rows.length, creados: results.filter((item) => item.ok).length, errores: results.filter((item) => !item.ok) };
+}
+
+async function exportUsersExcel(actor, template = false) {
+  const rows = template ? [] : await listUsers(actor);
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Usuarios");
+  sheet.columns = [
+    { header: "Nombres", key: "nombres", width: 22 }, { header: "Apellidos", key: "apellidos", width: 24 },
+    { header: "DNI", key: "dni", width: 12 }, { header: "Usuario", key: "usuario", width: 18 },
+    { header: "Contraseña", key: "password", width: 18 }, { header: "Teléfono", key: "telefono", width: 14 },
+    { header: "Rol", key: "rol", width: 16 }, { header: "Tienda", key: "tienda_nombre", width: 24 },
+    { header: "Estado", key: "estado", width: 12 }, { header: "Fecha de ingreso", key: "fecha_ingreso", width: 17 },
+    { header: "Fecha de salida", key: "fecha_salida", width: 17 },
+  ];
+  sheet.addRows(rows.map((row) => ({ ...row, password: "" })));
+  styleHeader(sheet);
+  return excelResponse(workbook, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx");
 }
 
 // ---------- Tiendas ----------
@@ -946,18 +1006,46 @@ async function getCourseProgress(tiendaFilter) {
     .slice(0, 6);
 }
 
-async function getDashboard(user) {
-  const tiendaFilter = user.rol === "admin" ? null : user.tienda_id;
+async function getRotation(tiendaFilter, desde, hasta) {
+  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id").in("rol", ["empleado", "jefe_tienda"]);
+  if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const months = [];
+  const cursor = new Date(`${desde}T00:00:00Z`);
+  const limit = new Date(`${hasta}T00:00:00Z`);
+  cursor.setUTCDate(1);
+  while (cursor <= limit && months.length < 24) {
+    const year = cursor.getUTCFullYear();
+    const month = cursor.getUTCMonth();
+    const start = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+    const ingreso = (data || []).filter((row) => row.fecha_ingreso >= start && row.fecha_ingreso <= end).length;
+    const salida = (data || []).filter((row) => row.fecha_salida && row.fecha_salida >= start && row.fecha_salida <= end).length;
+    const personalInicio = (data || []).filter((row) => row.fecha_ingreso <= start && (!row.fecha_salida || row.fecha_salida >= start)).length;
+    const personalFin = (data || []).filter((row) => row.fecha_ingreso <= end && (!row.fecha_salida || row.fecha_salida >= end)).length;
+    months.push({ mes: `${String(month + 1).padStart(2, "0")}/${String(year).slice(-2)}`, ingreso, salida, personal_inicio: personalInicio, personal_fin: personalFin });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return months;
+}
+
+async function getDashboard(user, event) {
+  const query = event.queryStringParameters || {};
   const today = todayISO();
-  const monthStart = `${today.slice(0, 7)}-01`;
-  const [summary, states, trend, workload, progresoCursos] = await Promise.all([
-    getSummary(tiendaFilter, today, monthStart),
-    getStates(tiendaFilter, monthStart, today),
-    getTrend(tiendaFilter, today),
-    getWorkload(tiendaFilter, monthStart, today),
+  const defaultStart = `${today.slice(0, 4)}-01-01`;
+  const desde = isISODate(query.desde) ? query.desde : defaultStart;
+  const hasta = isISODate(query.hasta) ? query.hasta : today;
+  const tiendaFilter = user.rol === "admin" ? Number(query.tienda_id) || null : user.tienda_id;
+  const [summary, states, trend, workload, progresoCursos, rotation] = await Promise.all([
+    getSummary(tiendaFilter, hasta, desde),
+    getStates(tiendaFilter, desde, hasta),
+    getTrend(tiendaFilter, hasta),
+    getWorkload(tiendaFilter, desde, hasta),
     getCourseProgress(tiendaFilter),
+    getRotation(tiendaFilter, desde, hasta),
   ]);
-  return { summary, states, trend, workload, progresoCursos };
+  return { summary, states, trend, workload, progresoCursos, rotation, filters: { desde, hasta, tienda_id: tiendaFilter } };
 }
 
 // ---------- Documentos (Excel) ----------
@@ -1120,7 +1208,7 @@ export async function handler(event) {
 
     if (path === "/dashboard" && method === "GET") {
       ensureAuth(event, ["admin", "jefe_tienda"]);
-      return json(200, await getDashboard(user));
+      return json(200, await getDashboard(user, event));
     }
 
     if (path === "/usuarios" && method === "GET") {
@@ -1130,6 +1218,14 @@ export async function handler(event) {
     if (path === "/usuarios" && method === "POST") {
       ensureAuth(event, ["admin", "jefe_tienda"]);
       return json(201, await createUser(event, user));
+    }
+    if (path === "/usuarios/import" && method === "POST") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await importUsers(event, user));
+    }
+    if (path === "/usuarios/export.xlsx" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return await exportUsersExcel(user, event.queryStringParameters?.plantilla === "1");
     }
     const userMatch = path.match(/^\/usuarios\/(\d+)$/);
     if (userMatch && method === "PUT") {
@@ -1143,6 +1239,11 @@ export async function handler(event) {
     }
 
     if (path === "/tiendas" && method === "GET") { ensureAuth(event, "admin"); return json(200, await listTiendas()); }
+    const tiendaUsersMatch = path.match(/^\/tiendas\/(\d+)\/usuarios$/);
+    if (tiendaUsersMatch && method === "GET") {
+      ensureAuth(event, "admin");
+      return json(200, await listUsers(user, Number(tiendaUsersMatch[1])));
+    }
     if (path === "/tiendas" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createTienda(event)); }
     const tiendaMatch = path.match(/^\/tiendas\/(\d+)$/);
     if (tiendaMatch && method === "PUT") {

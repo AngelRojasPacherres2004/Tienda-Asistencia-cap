@@ -1,108 +1,43 @@
 import { useEffect, useState } from "react";
-import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from "recharts";
-import { Building2, CheckCircle2, Clock3, GraduationCap, UsersRound } from "lucide-react";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Building2, CheckCircle2, Clock3, Filter, GraduationCap, RotateCcw, UsersRound, X } from "lucide-react";
 import { api, estadoAsistenciaLabels } from "../lib/api";
 import { Loading, Notice, PageHeader } from "../components/UI";
 
-const palette = {
-  presente: "#2f9e78", tardanza: "#c9932f", medio_turno: "#df9f39", apoyo: "#4f8dc9",
-  falta: "#d9635f", permiso: "#7668ba", descanso_medico: "#8d96a3", suspension: "#a54f4f",
-};
-const tooltipStyle = { color: "#f3eee5", background: "#171719", border: "1px solid rgba(206,169,92,.3)", borderRadius: 12, boxShadow: "0 12px 30px rgba(0,0,0,.35)", fontSize: 12 };
+const palette = { presente: "#2f9e78", tardanza: "#c9932f", medio_turno: "#df9f39", apoyo: "#4f8dc9", falta: "#d9635f", permiso: "#7668ba", descanso_medico: "#8d96a3", suspension: "#a54f4f" };
+const tooltipStyle = { color: "#f3eee5", background: "#171719", border: "1px solid rgba(206,169,92,.3)", borderRadius: 12, fontSize: 12 };
 
 function Metric({ icon: Icon, label, value, note, tone }) {
-  return (
-    <article className={`metric-card metric-card--${tone}`}>
-      <div className="metric-card__top"><span><Icon size={20} /></span><small>{label}</small></div>
-      <strong>{value ?? 0}</strong><p>{note}</p>
-    </article>
-  );
+  return <article className={`metric-card metric-card--${tone}`}><div className="metric-card__top"><span><Icon size={20} /></span><small>{label}</small></div><strong>{value ?? 0}</strong><p>{note}</p></article>;
 }
 
 export default function Dashboard({ user }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
   const isAdmin = user?.rol === "admin";
-  useEffect(() => { api("/dashboard").then(setData).catch((err) => setError(err.message)); }, []);
+  const today = new Date().toISOString().slice(0, 10);
+  const [data, setData] = useState(null);
+  const [tiendas, setTiendas] = useState([]);
+  const [filters, setFilters] = useState({ tienda_id: "", desde: `${new Date().getFullYear()}-01-01`, hasta: today });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { if (isAdmin) api("/tiendas").then(setTiendas).catch(() => {}); }, [isAdmin]);
+  useEffect(() => { setData(null); const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)); api(`/dashboard?${params}`).then(setData).catch((err) => setError(err.message)); }, [filters]);
   if (error) return <Notice type="error">{error}</Notice>;
   if (!data) return <Loading />;
+  const selectedStore = tiendas.find((item) => String(item.id) === String(filters.tienda_id));
+  const updateFilter = (field, value) => setFilters((current) => ({ ...current, [field]: value }));
+  const resetFilters = () => setFilters({ tienda_id: "", desde: `${new Date().getFullYear()}-01-01`, hasta: today });
   const workloadTotal = data.workload.reduce((sum, item) => sum + item.total, 0);
-
-  return (
-    <>
-      <PageHeader eyebrow="Centro de control" title="Buenos días" subtitle="Una lectura clara de lo que está ocurriendo hoy." />
-      <section className="metrics-grid">
-        {isAdmin && <Metric icon={Building2} label="Tiendas" value={data.summary.tiendas_activas} note="Activas" tone="violet" />}
-        <Metric icon={UsersRound} label={isAdmin ? "Equipo activo" : "Mi equipo"} value={data.summary.usuarios_activos} note="Usuarios habilitados" tone="blue" />
-        <Metric icon={CheckCircle2} label="Presentes hoy" value={data.summary.asistencias_hoy} note="Registrados como presente" tone="green" />
-        <Metric icon={Clock3} label="Asistencia del mes" value={`${data.summary.tasa_asistencia_mes}%`} note="Tasa de presentes" tone="amber" />
-        <Metric icon={GraduationCap} label="Capacitaciones" value={data.summary.cursos_en_curso} note="En curso" tone="red" />
-      </section>
-
-      <section className="dashboard-grid">
-        <article className="panel panel--wide">
-          <header className="panel__header"><div><h2>Ritmo de asistencia</h2><p>Tasa de presentes por mes</p></div><span className="panel-tag">Últimos 12 meses</span></header>
-          <div className="chart chart--large">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data.trend}>
-                <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#cda85f" stopOpacity={.32} /><stop offset="100%" stopColor="#cda85f" stopOpacity={.02} /></linearGradient></defs>
-                <CartesianGrid stroke="#2a2926" vertical={false} />
-                <XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{ fill: "#9f9789", fontSize: 11 }} />
-                <YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "#9f9789", fontSize: 11 }} unit="%" />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Area type="monotone" dataKey="tasa" stroke="#d6b56f" strokeWidth={2.5} fill="url(#trendFill)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-        <article className="panel">
-          <header className="panel__header"><div><h2>Estado del mes</h2><p>Distribución de asistencias</p></div></header>
-          <div className="donut-wrap">
-            <ResponsiveContainer width="100%" height={210}>
-              <PieChart><Pie data={data.states} dataKey="cantidad" nameKey="estado" innerRadius={60} outerRadius={82} paddingAngle={3}>
-                {data.states.map((item) => <Cell key={item.estado} fill={palette[item.estado] || "#8d96a3"} />)}
-              </Pie><Tooltip contentStyle={tooltipStyle} /></PieChart>
-            </ResponsiveContainer>
-            <div className="donut-center"><strong>{data.states.reduce((sum, item) => sum + item.cantidad, 0)}</strong><small>Total</small></div>
-          </div>
-          <div className="chart-legend">{data.states.map((item) => <span key={item.estado}><i style={{ background: palette[item.estado] }} />{estadoAsistenciaLabels[item.estado] || item.estado}<strong>{item.cantidad}</strong></span>)}</div>
-        </article>
-        <article className="panel panel--wide">
-          <header className="panel__header"><div><h2>{isAdmin ? "Asistencia por tienda" : "Asistencia por empleado"}</h2><p>Este mes</p></div></header>
-          <div className="chart chart--medium">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.workload} barGap={2}>
-                <CartesianGrid stroke="#2a2926" vertical={false} />
-                <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fill: "#9f9789", fontSize: 11 }} />
-                <YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "#9f9789", fontSize: 11 }} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="presentes" stackId="a" fill="#2f9e78" radius={[0, 0, 4, 4]} />
-                <Bar dataKey="otros" stackId="a" fill="#df9f39" />
-                <Bar dataKey="faltas" stackId="a" fill="#d9635f" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          {!workloadTotal && <div className="panel-empty"><CheckCircle2 size={24} /><span>Aún no hay asistencias registradas este mes.</span></div>}
-        </article>
-        <article className="panel">
-          <header className="panel__header"><div><h2>Progreso de capacitaciones</h2><p>Cursos con más pendientes</p></div></header>
-          <div className="due-list">
-            {data.progresoCursos.length ? data.progresoCursos.map((item, index) => {
-              const total = item.completados + item.en_curso + item.pendientes;
-              const porcentaje = total ? Math.round((item.completados / total) * 100) : 0;
-              return (
-                <div key={`${item.titulo}-${index}`}>
-                  <span className={`due-days ${item.pendientes > 0 ? "urgent" : ""}`}>{porcentaje}%</span>
-                  <div><strong>{item.titulo}</strong><small>{item.completados} completados · {item.en_curso} en curso · {item.pendientes} pendientes</small></div>
-                </div>
-              );
-            }) : <div className="panel-empty"><CheckCircle2 size={24} /><span>Todavía no hay cursos en el catálogo.</span></div>}
-          </div>
-        </article>
-      </section>
-    </>
-  );
+  const rotationTotals = data.rotation.reduce((totals, item) => ({ ingreso: totals.ingreso + item.ingreso, salida: totals.salida + item.salida }), { ingreso: 0, salida: 0 });
+  return <>
+    <PageHeader eyebrow="Centro de control" title="Buenos dias" subtitle="Una lectura clara de lo que esta ocurriendo hoy." action={isAdmin && <button className="button button--soft" onClick={() => setFiltersOpen((open) => !open)}><Filter size={15} />Filtros{selectedStore ? ` · ${selectedStore.nombre}` : " · Todas las tiendas"}</button>} />
+    {isAdmin && filtersOpen && <aside className="dashboard-filter-popover"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Vista global</span><h2>Periodo y tienda</h2></div><button className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={17} /></button></div><label className="field"><span>Tienda</span><select value={filters.tienda_id} onChange={(e) => updateFilter("tienda_id", e.target.value)}><option value="">Todas las tiendas</option>{tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label><div className="dashboard-filter-popover__dates"><label className="field"><span>Desde</span><input type="date" value={filters.desde} onChange={(e) => updateFilter("desde", e.target.value)} /></label><label className="field"><span>Hasta</span><input type="date" value={filters.hasta} onChange={(e) => updateFilter("hasta", e.target.value)} /></label></div><button className="button button--ghost button--small" onClick={resetFilters}><RotateCcw size={14} />Restablecer filtros</button></aside>}
+    <section className="metrics-grid">{isAdmin && <Metric icon={Building2} label="Tiendas" value={data.summary.tiendas_activas} note="Activas" tone="violet" />}<Metric icon={UsersRound} label={isAdmin ? "Equipo activo" : "Mi equipo"} value={data.summary.usuarios_activos} note="Usuarios habilitados" tone="blue" /><Metric icon={CheckCircle2} label="Presentes hoy" value={data.summary.asistencias_hoy} note="Registrados como presente" tone="green" /><Metric icon={Clock3} label="Asistencia del periodo" value={`${data.summary.tasa_asistencia_mes}%`} note="Tasa de presentes" tone="amber" /><Metric icon={GraduationCap} label="Capacitaciones" value={data.summary.cursos_en_curso} note="En curso" tone="red" /></section>
+    <section className="dashboard-grid">
+      <article className="panel panel--wide panel--attendance"><header className="panel__header"><div><h2>Ritmo de asistencia</h2><p>Tasa de presentes por mes</p></div><span className="panel-tag">Ultimos 12 meses</span></header><div className="chart chart--large"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data.trend}><defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#cda85f" stopOpacity={.32} /><stop offset="100%" stopColor="#cda85f" stopOpacity={.02} /></linearGradient></defs><CartesianGrid stroke="#2a2926" vertical={false} /><XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{ fill: "#9f9789", fontSize: 11 }} /><YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "#9f9789", fontSize: 11 }} unit="%" /><Tooltip contentStyle={tooltipStyle} /><Area type="monotone" dataKey="tasa" stroke="#d6b56f" strokeWidth={2.5} fill="url(#trendFill)" /></AreaChart></ResponsiveContainer></div></article>
+      <article className="panel"><header className="panel__header"><div><h2>Estado del periodo</h2><p>Distribucion de asistencias</p></div></header><div className="donut-wrap"><ResponsiveContainer width="100%" height={210}><PieChart><Pie data={data.states} dataKey="cantidad" nameKey="estado" innerRadius={60} outerRadius={82} paddingAngle={3}>{data.states.map((item) => <Cell key={item.estado} fill={palette[item.estado] || "#8d96a3"} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer><div className="donut-center"><strong>{data.states.reduce((sum, item) => sum + item.cantidad, 0)}</strong><small>Total</small></div></div><div className="chart-legend">{data.states.map((item) => <span key={item.estado}><i style={{ background: palette[item.estado] }} />{estadoAsistenciaLabels[item.estado] || item.estado}<strong>{item.cantidad}</strong></span>)}</div></article>
+      <article className="panel panel--attendance"><header className="panel__header"><div><h2>{isAdmin ? "Asistencia por tienda" : "Asistencia por empleado"}</h2><p>Periodo seleccionado</p></div></header><div className="chart chart--medium"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.workload} barGap={2}><CartesianGrid stroke="#2a2926" vertical={false} /><XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fill: "#9f9789", fontSize: 10 }} /><YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: "#9f9789", fontSize: 10 }} /><Tooltip contentStyle={tooltipStyle} /><Bar dataKey="presentes" stackId="a" fill="#2f9e78" radius={[0, 0, 4, 4]} /><Bar dataKey="otros" stackId="a" fill="#df9f39" /><Bar dataKey="faltas" stackId="a" fill="#d9635f" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>{!workloadTotal && <div className="panel-empty"><CheckCircle2 size={24} /><span>Aun no hay asistencias registradas en este periodo.</span></div>}</article>
+      <article className="panel panel--rotation"><header className="panel__header"><div><h2>Rotacion de personal por mes</h2><p>Entradas, salidas y dotacion del equipo</p></div><span className="panel-tag">{rotationTotals.ingreso} ingresos · {rotationTotals.salida} salidas</span></header><div className="rotation-legend"><span><i className="rotation-dot rotation-dot--in" />Ingreso</span><span><i className="rotation-dot rotation-dot--out" />Salida</span></div><div className="rotation-table"><div className="rotation-table__labels"><span>PERSONAL AL INICIO DEL MES</span><span>PERSONAL AL FINAL DEL MES</span></div>{data.rotation.map((item) => { const max = Math.max(item.ingreso, item.salida, 1); const ingresoWidth = item.ingreso ? Math.max(8, (item.ingreso / max) * 100) : 7; const salidaWidth = item.salida ? Math.max(8, (item.salida / max) * 100) : 7; return <div className="rotation-row" key={item.mes}><strong>{item.mes}</strong><span className="rotation-count">{item.personal_inicio || "-"}</span><div className="rotation-track"><span className="rotation-bar rotation-bar--in" style={{ width: `${ingresoWidth}%` }}><b>{item.ingreso}</b></span></div><div className="rotation-track"><span className="rotation-bar rotation-bar--out" style={{ width: `${salidaWidth}%` }}><b>{item.salida}</b></span></div><span className="rotation-count">{item.personal_fin || "-"}</span></div>; })}</div></article>
+      <article className="panel"><header className="panel__header"><div><h2>Progreso de capacitaciones</h2><p>Cursos con mas pendientes</p></div></header><div className="due-list">{data.progresoCursos.length ? data.progresoCursos.map((item, index) => { const total = item.completados + item.en_curso + item.pendientes; const porcentaje = total ? Math.round((item.completados / total) * 100) : 0; return <div key={`${item.titulo}-${index}`}><span className={`due-days ${item.pendientes > 0 ? "urgent" : ""}`}>{porcentaje}%</span><div><strong>{item.titulo}</strong><small>{item.completados} completados · {item.en_curso} en curso · {item.pendientes} pendientes</small></div></div>; }) : <div className="panel-empty"><CheckCircle2 size={24} /><span>Todavia no hay cursos en el catalogo.</span></div>}</div></article>
+    </section>
+  </>;
 }

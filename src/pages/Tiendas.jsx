@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Pencil } from "lucide-react";
+import { Building2, Crown, Pencil, UsersRound, X } from "lucide-react";
 import { api } from "../lib/api";
 import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge,
@@ -14,6 +14,8 @@ export default function Tiendas() {
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const [storeUsers, setStoreUsers] = useState(null);
 
   const load = () => api("/tiendas").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
@@ -27,6 +29,11 @@ export default function Tiendas() {
 
   const openNew = () => setEditing({ ...blank });
   const openEdit = (item) => setEditing({ ...item, jefe_id: item.jefe_id || "" });
+  const openUsers = (item) => {
+    setViewing(item);
+    setStoreUsers(null);
+    api(`/tiendas/${item.id}/usuarios`).then(setStoreUsers).catch((err) => setNotice({ type: "error", text: err.message }));
+  };
   const set = (field, value) => setEditing((current) => ({ ...current, [field]: value }));
 
   const save = async (event) => {
@@ -76,6 +83,7 @@ export default function Tiendas() {
                 <div><dt>Creada</dt><dd>{new Date(item.fecha_creacion).toLocaleDateString("es-PE")}</dd></div>
               </dl>
               <div className="company-card__footer">
+                <button onClick={() => openUsers(item)}><UsersRound size={14} />Usuarios</button>
                 <button onClick={() => openEdit(item)}><Pencil size={14} />Editar</button>
               </div>
             </article>
@@ -115,6 +123,17 @@ export default function Tiendas() {
             </div>
           </form>
         )}
+      </Modal>
+
+      <Modal open={!!viewing} wide title={viewing ? `Usuarios de ${viewing.nombre}` : "Usuarios"} subtitle="El jefe de tienda aparece separado del equipo operativo." onClose={() => setViewing(null)}>
+        {!storeUsers ? <Loading label="Cargando usuarios de la tienda..." /> : <div className="store-users">
+          <section className="store-users__leader">
+            <div className="store-users__icon"><Crown size={18} /></div>
+            <div><span>Jefe de tienda</span><strong>{viewing?.jefe_nombre || "Sin jefe asignado"}</strong><small>Responsable de la operación de esta tienda</small></div>
+          </section>
+          <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{storeUsers.filter((item) => item.rol !== "jefe_tienda").length} usuarios</h3></div><button className="icon-button" onClick={() => setViewing(null)} aria-label="Cerrar"><X size={17} /></button></div>
+          {storeUsers.length ? <div className="store-users__list">{storeUsers.filter((item) => item.rol !== "jefe_tienda").map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>@{item.usuario} · {item.fecha_ingreso || "Sin fecha de ingreso"}</small></div><StatusBadge value={item.estado} /></div>)}</div> : <EmptyState icon={UsersRound} title="Sin usuarios operativos" text="Esta tienda todavía no tiene empleados registrados." />}
+        </div>}
       </Modal>
     </>
   );

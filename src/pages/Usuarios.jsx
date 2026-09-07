@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Edit3, Trash2, UsersRound } from "lucide-react";
-import { api } from "../lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Edit3, FileUp, Trash2, UsersRound } from "lucide-react";
+import ExcelJS from "exceljs";
+import { api, downloadFile, todayISO } from "../lib/api";
 import {
   ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge,
 } from "../components/UI";
@@ -8,7 +9,7 @@ import {
 const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
 const blank = {
   nombres: "", apellidos: "", dni: "", usuario: "", password: "",
-  telefono: "", rol: "empleado", tienda_id: "", estado: "activo",
+  telefono: "", rol: "empleado", tienda_id: "", estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
 };
 
 export default function Usuarios({ user }) {
@@ -20,6 +21,7 @@ export default function Usuarios({ user }) {
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const importInput = useRef(null);
 
   const load = () => api("/usuarios").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadTiendas = useCallback(
@@ -75,6 +77,43 @@ export default function Usuarios({ user }) {
     }
   };
 
+  const downloadUsers = (template = false) => downloadFile(`/api/usuarios/export.xlsx${template ? "?plantilla=1" : ""}`, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx")
+    .catch((err) => setNotice({ type: "error", text: err.message }));
+
+  const importUsers = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true); setNotice(null);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(await file.arrayBuffer());
+      const sheet = workbook.worksheets[0];
+      const headers = {};
+      sheet.getRow(1).eachCell((cell, column) => { headers[String(cell.value || "").trim().toLowerCase()] = column; });
+      const value = (row, header) => row.getCell(headers[header.toLowerCase()] || 0).value;
+      const rows = [];
+      sheet.eachRow((row, index) => {
+        if (index === 1 || !value(row, "nombres")) return;
+        const tiendaName = String(value(row, "tienda") || "").trim().toLowerCase();
+        const tienda = tiendas.find((item) => item.nombre.toLowerCase() === tiendaName);
+        rows.push({
+          nombres: String(value(row, "nombres") || "").trim(), apellidos: String(value(row, "apellidos") || "").trim(),
+          dni: String(value(row, "dni") || "").replace(/\.0$/, "").padStart(8, "0"), usuario: String(value(row, "usuario") || "").trim(),
+          password: String(value(row, "contraseña") || value(row, "contrasena") || ""), telefono: String(value(row, "teléfono") || value(row, "telefono") || "").replace(/\.0$/, ""),
+          rol: String(value(row, "rol") || "empleado").trim().toLowerCase().replace("jefe de tienda", "jefe_tienda").replace("administrador", "admin"),
+          tienda_id: tienda?.id || (isAdmin ? "" : user.tienda_id), estado: String(value(row, "estado") || "activo").trim().toLowerCase(),
+          fecha_ingreso: String(value(row, "fecha de ingreso") || todayISO()).slice(0, 10), fecha_salida: String(value(row, "fecha de salida") || "").slice(0, 10) || null,
+        });
+      });
+      const result = await api("/usuarios/import", { method: "POST", body: { rows } });
+      await load();
+      setNotice({ type: result.errores.length ? "error" : "success", text: `${result.creados} usuarios importados${result.errores.length ? `; ${result.errores.length} filas con error.` : "."}` });
+    } catch (err) {
+      setNotice({ type: "error", text: err.message || "No se pudo leer el archivo Excel." });
+    } finally { setBusy(false); }
+  };
+
   const tiendaOptions = tiendas.filter((t) => t.estado === "activo" || String(t.id) === String(editing?.tienda_id));
 
   return (
@@ -83,7 +122,13 @@ export default function Usuarios({ user }) {
         eyebrow={isAdmin ? "Equipo" : "Mi tienda"}
         title={isAdmin ? "Usuarios" : "Mi equipo"}
         subtitle={isAdmin ? "Administradores, jefes de tienda y empleados con acceso al sistema." : "Empleados de tu tienda con acceso al sistema."}
-        action={<button className="button button--primary" onClick={openNew}>Nuevo usuario</button>}
+        action={<div className="header-actions">
+          <button className="button button--ghost" onClick={() => downloadUsers(true)}><Download size={15} />Plantilla</button>
+          <button className="button button--ghost" onClick={() => importInput.current?.click()} disabled={busy}><FileUp size={15} />Importar Excel</button>
+          <button className="button button--soft" onClick={() => downloadUsers()}><Download size={15} />Exportar Excel</button>
+          <input ref={importInput} type="file" accept=".xlsx" onChange={importUsers} hidden />
+          <button className="button button--primary" onClick={openNew}>Nuevo usuario</button>
+        </div>}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
       <div className="toolbar">
@@ -141,6 +186,8 @@ export default function Usuarios({ user }) {
             <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} hint={editing.id ? "Déjala vacía para conservar la actual." : "Mínimo 6 caracteres."}>
               <input required={!editing.id} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
+            <Field label="Fecha de ingreso"><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
+            <Field label="Fecha de salida" hint="Déjala vacía si sigue activo."><input type="date" min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>
             {isAdmin && (
               <>
                 <Field label="Rol">

@@ -16,6 +16,12 @@ export async function api(path, options = {}) {
     error.status = response.status;
     throw error;
   }
+  if (["POST", "PUT", "PATCH", "DELETE"].includes((options.method || "GET").toUpperCase())
+      && !path.startsWith("/auth/")) {
+    const method = (options.method || "GET").toUpperCase();
+    const action = method === "DELETE" ? "Eliminación guardada" : method === "PUT" || method === "PATCH" ? "Edición guardada" : "Creación guardada";
+    window.dispatchEvent(new CustomEvent("asiste:save-success", { detail: { action } }));
+  }
   return payload;
 }
 
