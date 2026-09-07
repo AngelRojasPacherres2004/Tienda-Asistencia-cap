@@ -1,0 +1,176 @@
+import { useEffect, useState } from "react";
+import { GraduationCap, Pencil, Trash2, UserRound } from "lucide-react";
+import { api } from "../lib/api";
+import {
+  EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge,
+} from "../components/UI";
+
+const blankCurso = { nombre: "", competencia: "", activo: true };
+const blankEncargado = { nombre: "", activo: true };
+
+export default function Cursos() {
+  const [tab, setTab] = useState("cursos");
+  const [cursos, setCursos] = useState(null);
+  const [encargados, setEncargados] = useState(null);
+  const [editingCurso, setEditingCurso] = useState(null);
+  const [editingEncargado, setEditingEncargado] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  const loadCursos = () => api("/cursos").then(setCursos).catch((err) => setNotice({ type: "error", text: err.message }));
+  const loadEncargados = () => api("/encargados").then(setEncargados).catch((err) => setNotice({ type: "error", text: err.message }));
+  useEffect(() => { loadCursos(); loadEncargados(); }, []);
+
+  const saveCurso = async (event) => {
+    event.preventDefault();
+    setBusy(true); setNotice(null);
+    try {
+      await api(editingCurso.id ? `/cursos/${editingCurso.id}` : "/cursos", {
+        method: editingCurso.id ? "PUT" : "POST", body: editingCurso,
+      });
+      setEditingCurso(null);
+      await loadCursos();
+      setNotice({ type: "success", text: editingCurso.id ? "Curso actualizado." : "Curso creado correctamente." });
+    } catch (err) {
+      setNotice({ type: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteCurso = async (curso) => {
+    if (!window.confirm(`¿Eliminar el curso "${curso.nombre}"?`)) return;
+    setNotice(null);
+    try {
+      const result = await api(`/cursos/${curso.id}`, { method: "DELETE" });
+      await loadCursos();
+      setNotice({
+        type: "success",
+        text: result.inhabilitado
+          ? "Ese curso ya tiene progreso registrado por trabajadores, así que se inhabilitó en vez de eliminarse."
+          : "Curso eliminado.",
+      });
+    } catch (err) {
+      setNotice({ type: "error", text: err.message });
+    }
+  };
+
+  const saveEncargado = async (event) => {
+    event.preventDefault();
+    setBusy(true); setNotice(null);
+    try {
+      await api(editingEncargado.id ? `/encargados/${editingEncargado.id}` : "/encargados", {
+        method: editingEncargado.id ? "PUT" : "POST", body: editingEncargado,
+      });
+      setEditingEncargado(null);
+      await loadEncargados();
+      setNotice({ type: "success", text: editingEncargado.id ? "Encargado actualizado." : "Encargado creado correctamente." });
+    } catch (err) {
+      setNotice({ type: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Catálogo"
+        title="Cursos y Encargados"
+        subtitle="Cursos disponibles y encargados que se pueden asignar en cualquier tienda."
+        action={
+          tab === "cursos"
+            ? <button className="button button--primary" onClick={() => setEditingCurso({ ...blankCurso })}>Nuevo curso</button>
+            : <button className="button button--primary" onClick={() => setEditingEncargado({ ...blankEncargado })}>Nuevo encargado</button>
+        }
+      />
+      {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
+
+      <div className="segmented">
+        <button className={tab === "cursos" ? "active" : ""} onClick={() => setTab("cursos")}>Cursos</button>
+        <button className={tab === "encargados" ? "active" : ""} onClick={() => setTab("encargados")}>Encargados</button>
+      </div>
+
+      {tab === "cursos" ? (
+        !cursos ? <Loading /> : cursos.length ? (
+          <div className="table-panel">
+            <div className="data-table data-table--cursos">
+              <div className="data-table__head"><span>Curso</span><span>Competencia</span><span>Estado</span><span /></div>
+              {cursos.map((curso) => (
+                <div className="data-table__row" key={curso.id}>
+                  <span className="cell-primary">{curso.nombre}</span>
+                  <span>{curso.competencia}</span>
+                  <span><StatusBadge value={curso.activo ? "activo" : "inactivo"} /></span>
+                  <div className="row-actions">
+                    <button onClick={() => setEditingCurso({ ...curso })} aria-label="Editar"><Pencil size={15} /></button>
+                    <button className="danger" onClick={() => deleteCurso(curso)} aria-label="Eliminar"><Trash2 size={15} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos en el catálogo." />
+      ) : (
+        !encargados ? <Loading /> : encargados.length ? (
+          <div className="table-panel">
+            <div className="data-table data-table--encargados">
+              <div className="data-table__head"><span>Encargado</span><span>Estado</span><span /></div>
+              {encargados.map((encargado) => (
+                <div className="data-table__row" key={encargado.id}>
+                  <span className="cell-primary">{encargado.nombre}</span>
+                  <span><StatusBadge value={encargado.activo ? "activo" : "inactivo"} /></span>
+                  <div className="row-actions">
+                    <button onClick={() => setEditingEncargado({ ...encargado })} aria-label="Editar"><Pencil size={15} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : <EmptyState icon={UserRound} title="Sin encargados" text="Todavía no hay encargados en el catálogo." />
+      )}
+
+      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar curso" : "Nuevo curso"} onClose={() => setEditingCurso(null)}>
+        {editingCurso && (
+          <form className="form-grid" onSubmit={saveCurso}>
+            <Field label="Curso" className="span-2">
+              <input required value={editingCurso.nombre} onChange={(e) => setEditingCurso({ ...editingCurso, nombre: e.target.value })} />
+            </Field>
+            <Field label="Competencia" className="span-2">
+              <input required value={editingCurso.competencia} onChange={(e) => setEditingCurso({ ...editingCurso, competencia: e.target.value })} />
+            </Field>
+            <Field label="Estado" className="span-2">
+              <select value={editingCurso.activo ? "activo" : "inactivo"} onChange={(e) => setEditingCurso({ ...editingCurso, activo: e.target.value === "activo" })}>
+                <option value="activo">Activo</option>
+                <option value="inactivo">Inactivo</option>
+              </select>
+            </Field>
+            <div className="form-actions span-2">
+              <button type="button" className="button button--ghost" onClick={() => setEditingCurso(null)}>Cancelar</button>
+              <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal open={!!editingEncargado} title={editingEncargado?.id ? "Editar encargado" : "Nuevo encargado"} onClose={() => setEditingEncargado(null)}>
+        {editingEncargado && (
+          <form className="form-grid" onSubmit={saveEncargado}>
+            <Field label="Nombre" className="span-2">
+              <input required value={editingEncargado.nombre} onChange={(e) => setEditingEncargado({ ...editingEncargado, nombre: e.target.value })} />
+            </Field>
+            <Field label="Estado" className="span-2">
+              <select value={editingEncargado.activo ? "activo" : "inactivo"} onChange={(e) => setEditingEncargado({ ...editingEncargado, activo: e.target.value === "activo" })}>
+                <option value="activo">Activo</option>
+                <option value="inactivo">Inactivo</option>
+              </select>
+            </Field>
+            <div className="form-actions span-2">
+              <button type="button" className="button button--ghost" onClick={() => setEditingEncargado(null)}>Cancelar</button>
+              <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </>
+  );
+}

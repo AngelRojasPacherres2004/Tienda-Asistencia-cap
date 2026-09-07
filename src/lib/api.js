@@ -30,6 +30,38 @@ export const formatDate = (value, options = {}) => {
   }).format(date);
 };
 
+export const estadoAsistenciaLabels = {
+  presente: "Asistencia", tardanza: "Tardanza", medio_turno: "Medio Turno", apoyo: "Apoyo",
+  falta: "Falta", permiso: "Permiso", descanso_medico: "Descanso Médico", suspension: "Suspensión",
+};
+
+export async function downloadFile(url, fallbackName) {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "No se pudo generar el archivo.");
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : fallbackName;
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+export const formatDateTime = (value) => {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("es-PE", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(new Date(value));
+};
+
 export const todayISO = () => {
   const now = new Date();
   const offset = now.getTimezoneOffset();

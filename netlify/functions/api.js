@@ -1,50 +1,36 @@
-import { Pool } from "pg";
+import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import ExcelJS from "exceljs";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
-import crypto from "node:crypto";
 
-let activePool;
-function getPool() {
-  if (!activePool) {
-    activePool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_URL?.includes("localhost")
-        ? false
-        : { rejectUnauthorized: false },
-      max: 6,
-      idleTimeoutMillis: 20_000,
-      connectionTimeoutMillis: 10_000,
-    });
-  }
-  return activePool;
-}
-const pool = {
-  query: (...args) => getPool().query(...args),
-  connect: (...args) => getPool().connect(...args),
-};
-
-const companyFields = [
-  "alias", "razon_social", "ruc", "sunat_usuario", "sunat_clave",
-  "regimen_tributario", "regimen_laboral", "afpnet_usuario", "afpnet_clave",
-  "bn_usuario", "bn_clave", "bn_cta_detraccion", "giro_negocio",
-  "estado_contrato", "fecha_contrato", "correo_principal", "digio_ruc",
-  "p_electronico",
-];
-const secretCompanyFields = new Set([
-  "sunat_usuario", "sunat_clave", "afpnet_usuario", "afpnet_clave",
-  "bn_usuario", "bn_clave",
-]);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 
 const headers = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
 const loginAttempts = new Map();
-const assignmentStates = new Set(["pendiente", "completada", "vencida"]);
-const userRoles = new Set(["admin", "trabajador"]);
+const userRoles = new Set(["admin", "jefe_tienda", "empleado"]);
 const userStates = new Set(["activo", "inactivo"]);
-const companyStates = new Set(["Activo", "Inactivo", "Suspendido"]);
+const tiendaEstados = new Set(["activo", "inactivo"]);
+const asistenciaEstados = new Set([
+  "presente", "tardanza", "medio_turno", "apoyo", "falta", "permiso", "descanso_medico", "suspension",
+]);
+const estadoLabels = {
+  presente: "Asistencia", tardanza: "Tardanza", medio_turno: "Medio Turno", apoyo: "Apoyo",
+  falta: "Falta", permiso: "Permiso", descanso_medico: "Descanso Médico", suspension: "Suspensión",
+};
+const presenteEstados = new Set(["presente", "tardanza", "medio_turno", "apoyo"]);
+const operacionesLog = new Set(["creacion", "edicion", "eliminacion"]);
+const progresoLabels = { pendiente: "Pendiente", en_curso: "En curso", completado: "Completado" };
+const progresoEstados = new Set(["pendiente", "en_curso", "completado"]);
+
+function httpError(message, status) {
+  return Object.assign(new Error(message), { status });
+}
 
 function json(statusCode, body, extraHeaders = {}) {
   return { statusCode, headers: { ...headers, ...extraHeaders }, body: JSON.stringify(body) };
@@ -61,25 +47,23 @@ function bodyOf(event) {
   try {
     return event.body ? JSON.parse(event.body) : {};
   } catch {
-    throw Object.assign(new Error("El cuerpo de la solicitud no es JSON válido."), { status: 400 });
+    throw httpError("El cuerpo de la solicitud no es JSON válido.", 400);
   }
 }
 
 function requireFields(data, fields) {
   const missing = fields.filter((key) => data[key] === undefined || data[key] === null || data[key] === "");
   if (missing.length) {
-    throw Object.assign(new Error(`Completa los campos obligatorios: ${missing.join(", ")}.`), { status: 400 });
-  }
-}
-
-function requireAssignmentState(value) {
-  if (!assignmentStates.has(value)) {
-    throw Object.assign(new Error("El estado de la asignación no es válido."), { status: 400 });
+    throw httpError(`Completa los campos obligatorios: ${missing.join(", ")}.`, 400);
   }
 }
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function isISODate(value) {
@@ -88,150 +72,42 @@ function isISODate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function validateUserPayload(data, creating = false) {
-  requireFields(data, ["nom_res", "alias", "usuario", "rol", "estado"]);
-  if (cleanText(data.nom_res).length < 3 || cleanText(data.alias).length < 2 || cleanText(data.usuario).length < 3) {
-    throw Object.assign(new Error("Nombre, alias y usuario deben contener información válida."), { status: 400 });
+function dbError(error) {
+  if (error.code === "23505") return httpError("Ya existe un registro con esos datos.", 409);
+  if (error.code === "23503") {
+    return httpError("La operación no es válida porque hace referencia a un registro inexistente o en uso.", 409);
   }
-  if (!/^[a-zA-Z0-9._-]+$/.test(cleanText(data.usuario))) {
-    throw Object.assign(new Error("El usuario solo puede contener letras, números, punto, guion y guion bajo."), { status: 400 });
-  }
-  if (!userRoles.has(data.rol) || !userStates.has(data.estado)) {
-    throw Object.assign(new Error("El rol o estado del usuario no es válido."), { status: 400 });
-  }
-  if ((creating || data.password) && String(data.password || "").length < 6) {
-    throw Object.assign(new Error("La contraseña debe tener al menos 6 caracteres."), { status: 400 });
-  }
-}
-
-function validateCompanyPayload(data) {
-  requireFields(data, ["alias", "razon_social", "ruc", "estado_contrato"]);
-  if (cleanText(data.alias).length < 2 || cleanText(data.razon_social).length < 3) {
-    throw Object.assign(new Error("El alias y la razón social deben contener información válida."), { status: 400 });
-  }
-  if (!/^\d{11}$/.test(cleanText(data.ruc))) {
-    throw Object.assign(new Error("El RUC debe contener exactamente 11 dígitos."), { status: 400 });
-  }
-  if (!companyStates.has(data.estado_contrato)) {
-    throw Object.assign(new Error("El estado del contrato no es válido."), { status: 400 });
-  }
-  if (data.fecha_contrato && !isISODate(data.fecha_contrato)) {
-    throw Object.assign(new Error("La fecha del contrato no es válida."), { status: 400 });
-  }
-  if (data.correo_principal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.correo_principal)) {
-    throw Object.assign(new Error("El correo principal no es válido."), { status: 400 });
-  }
-}
-
-function validateAssignmentPayload(data) {
-  requireFields(data, ["usuario_ids", "empresa_id", "tarea_id", "fecha_meta"]);
-  if (!Array.isArray(data.usuario_ids) || !data.usuario_ids.length) {
-    throw Object.assign(new Error("Selecciona al menos un trabajador."), { status: 400 });
-  }
-  const usuarioIds = [...new Set(data.usuario_ids.map(Number))];
-  if (usuarioIds.some((id) => !Number.isInteger(id) || id < 1)) {
-    throw Object.assign(new Error("Uno de los trabajadores seleccionados no es válido."), { status: 400 });
-  }
-  const empresaId = Number(data.empresa_id);
-  const tareaId = Number(data.tarea_id);
-  const peso = Number(data.peso ?? 1);
-  if (!Number.isInteger(empresaId) || empresaId < 1 || !Number.isInteger(tareaId) || tareaId < 1) {
-    throw Object.assign(new Error("La empresa o tarea seleccionada no es válida."), { status: 400 });
-  }
-  if (!isISODate(data.fecha_meta)) {
-    throw Object.assign(new Error("La fecha meta no es válida."), { status: 400 });
-  }
-  if (!Number.isInteger(peso) || peso < 1 || peso > 10) {
-    throw Object.assign(new Error("El peso de la tarea debe estar entre 1 y 10."), { status: 400 });
-  }
-  return { usuarioIds, empresaId, tareaId, peso };
-}
-
-async function synchronizeOperationalStates(db = pool) {
-  const expired = await db.query(
-    "UPDATE asignaciones SET estado='vencida' WHERE estado='pendiente' AND fecha_meta<CURRENT_DATE",
-  );
-  const schedule = await db.query(`
-    UPDATE cronograma_pdt cp
-    SET asignado=EXISTS(
-      SELECT 1 FROM asignaciones a
-      WHERE a.empresa_id=cp.empresa_id
-        AND a.tarea_id=cp.tarea_id
-        AND a.fecha_meta=cp.fecha_vencimiento
-    )
-    WHERE cp.asignado IS DISTINCT FROM EXISTS(
-      SELECT 1 FROM asignaciones a
-      WHERE a.empresa_id=cp.empresa_id
-        AND a.tarea_id=cp.tarea_id
-        AND a.fecha_meta=cp.fecha_vencimiento
-    )`);
-  return { expired: expired.rowCount, schedule: schedule.rowCount };
-}
-
-async function ensureAssignmentReferences(client, data, normalized, excludedAssignmentId = null) {
-  const users = await client.query(
-    "SELECT id FROM usuarios WHERE id=ANY($1::int[]) AND rol='trabajador' AND estado='activo'",
-    [normalized.usuarioIds],
-  );
-  const company = await client.query(
-    "SELECT id FROM empresas WHERE id=$1 AND estado_contrato='Activo'",
-    [normalized.empresaId],
-  );
-  const task = await client.query("SELECT id FROM tareas WHERE id=$1", [normalized.tareaId]);
-  const duplicates = await client.query(`
-    SELECT usuario_id FROM asignaciones
-    WHERE usuario_id=ANY($1::int[]) AND empresa_id=$2 AND tarea_id=$3 AND fecha_meta=$4
-      AND ($5::int IS NULL OR id<>$5)`,
-  [normalized.usuarioIds, normalized.empresaId, normalized.tareaId, data.fecha_meta, excludedAssignmentId]);
-  if (users.rowCount !== normalized.usuarioIds.length) {
-    throw Object.assign(new Error("Todos los responsables deben ser trabajadores activos."), { status: 400 });
-  }
-  if (!company.rowCount) {
-    throw Object.assign(new Error("La empresa seleccionada no está activa o no existe."), { status: 400 });
-  }
-  if (!task.rowCount) {
-    throw Object.assign(new Error("La tarea seleccionada no existe."), { status: 400 });
-  }
-  if (duplicates.rowCount) {
-    throw Object.assign(new Error("Uno de los trabajadores ya tiene esta misma tarea asignada para esa fecha."), { status: 409 });
-  }
+  console.error(error);
+  return httpError("Ocurrió un error al acceder a la base de datos.", 500);
 }
 
 function jwtSecret() {
   const secret = process.env.JWT_SECRET;
   if (secret) return secret;
   if (process.env.CONTEXT === "production") {
-    throw Object.assign(new Error("Falta configurar JWT_SECRET en Netlify."), { status: 500 });
+    throw httpError("Falta configurar JWT_SECRET en Netlify.", 500);
   }
-  return "nexo-contable-development-secret-change-me";
+  return "asiste-development-secret-change-me";
 }
 
 function sessionCookie(token, event) {
   const isProduction = process.env.CONTEXT === "production" || event.headers["x-forwarded-proto"] === "https";
-  return serializeCookie("nexo_session", token, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 10,
+  return serializeCookie("asiste_session", token, {
+    httpOnly: true, secure: isProduction, sameSite: "lax", path: "/", maxAge: 60 * 60 * 10,
   });
 }
 
 function clearSessionCookie(event) {
   const isProduction = process.env.CONTEXT === "production" || event.headers["x-forwarded-proto"] === "https";
-  return serializeCookie("nexo_session", "", {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
+  return serializeCookie("asiste_session", "", {
+    httpOnly: true, secure: isProduction, sameSite: "lax", path: "/", maxAge: 0,
   });
 }
 
 function currentUser(event) {
   const cookies = parseCookie(event.headers.cookie || "");
   const bearer = event.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const token = cookies.nexo_session || bearer;
+  const token = cookies.asiste_session || bearer;
   if (!token) return null;
   try {
     return jwt.verify(token, jwtSecret());
@@ -240,52 +116,76 @@ function currentUser(event) {
   }
 }
 
-function ensureAuth(event, role) {
+function ensureAuth(event, roles) {
   const user = currentUser(event);
-  if (!user) throw Object.assign(new Error("Tu sesión expiró. Inicia sesión nuevamente."), { status: 401 });
-  if (role && user.rol !== role) {
-    throw Object.assign(new Error("No tienes permisos para realizar esta acción."), { status: 403 });
+  if (!user) throw httpError("Tu sesión expiró. Inicia sesión nuevamente.", 401);
+  if (roles) {
+    const allowed = Array.isArray(roles) ? roles : [roles];
+    if (!allowed.includes(user.rol)) throw httpError("No tienes permisos para realizar esta acción.", 403);
   }
   return user;
 }
 
-function encryptionKey() {
-  const value = process.env.CREDENTIALS_ENCRYPTION_KEY;
-  return value && /^[a-fA-F0-9]{64}$/.test(value) ? Buffer.from(value, "hex") : null;
+// ---------- Validación ----------
+
+function cleanUsuario(value) {
+  return cleanText(value).toLowerCase();
 }
 
-function encryptValue(value) {
-  if (!value || String(value).startsWith("enc:")) return value || "";
-  const key = encryptionKey();
-  if (!key) {
-    if (["production", "deploy-preview", "branch-deploy"].includes(process.env.CONTEXT)) {
-      throw Object.assign(new Error("Falta configurar CREDENTIALS_ENCRYPTION_KEY en Netlify."), { status: 500 });
-    }
-    return value;
+function validateUserPayload(data, creating = false) {
+  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado"]);
+  if (cleanText(data.nombres).length < 2 || cleanText(data.apellidos).length < 2) {
+    throw httpError("Los nombres y apellidos deben ser válidos.", 400);
   }
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `enc:${iv.toString("base64")}:${tag.toString("base64")}:${encrypted.toString("base64")}`;
+  if (!/^\d{8}$/.test(cleanText(data.dni))) {
+    throw httpError("El DNI debe tener 8 dígitos.", 400);
+  }
+  const usuario = cleanUsuario(data.usuario);
+  if (usuario.length < 3 || !/^[a-z0-9._-]+$/.test(usuario)) {
+    throw httpError("El usuario debe tener al menos 3 caracteres (letras, números, punto, guion).", 400);
+  }
+  if (data.telefono && !/^\d{9}$/.test(cleanText(data.telefono))) {
+    throw httpError("El teléfono debe tener 9 dígitos.", 400);
+  }
+  if (!userRoles.has(data.rol)) throw httpError("El rol no es válido.", 400);
+  if (!userStates.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  if (data.rol === "admin" && data.tienda_id) {
+    throw httpError("Un administrador no debe tener tienda asignada.", 400);
+  }
+  if (data.rol !== "admin" && !data.tienda_id) {
+    throw httpError("Selecciona la tienda del usuario.", 400);
+  }
+  if ((creating || data.password) && String(data.password || "").length < 6) {
+    throw httpError("La contraseña debe tener al menos 6 caracteres.", 400);
+  }
 }
 
-function decryptValue(value) {
-  if (!value || !String(value).startsWith("enc:")) return value || "";
-  const key = encryptionKey();
-  if (!key) return "";
-  try {
-    const [, iv, tag, encrypted] = value.split(":");
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"));
-    decipher.setAuthTag(Buffer.from(tag, "base64"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(encrypted, "base64")),
-      decipher.final(),
-    ]).toString("utf8");
-  } catch {
-    return "";
-  }
+function validateTiendaPayload(data) {
+  requireFields(data, ["nombre", "estado"]);
+  if (cleanText(data.nombre).length < 2) throw httpError("El nombre de la tienda no es válido.", 400);
+  if (!tiendaEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
 }
+
+function validateCursoPayload(data) {
+  requireFields(data, ["nombre", "competencia"]);
+  if (cleanText(data.nombre).length < 3) throw httpError("El nombre del curso no es válido.", 400);
+  if (cleanText(data.competencia).length < 2) throw httpError("La competencia no es válida.", 400);
+}
+
+function validateEncargadoPayload(data) {
+  requireFields(data, ["nombre"]);
+  if (cleanText(data.nombre).length < 2) throw httpError("El nombre del encargado no es válido.", 400);
+}
+
+function validIds(list) {
+  const ids = [...new Set((list || []).map(Number))];
+  if (ids.some((id) => !Number.isInteger(id) || id < 1)) {
+    throw httpError("Uno de los trabajadores seleccionados no es válido.", 400);
+  }
+  return ids;
+}
+
+// ---------- Autenticación ----------
 
 async function login(event) {
   const clientIp = event.headers["x-nf-client-connection-ip"]
@@ -297,1003 +197,901 @@ async function login(event) {
   }
   const { usuario, password } = bodyOf(event);
   requireFields({ usuario, password }, ["usuario", "password"]);
-  const result = await pool.query(
-    `SELECT id, nom_res, alias, usuario, password, rol, estado
-     FROM usuarios WHERE LOWER(usuario)=LOWER($1) LIMIT 1`,
-    [String(usuario).trim()],
-  );
-  const account = result.rows[0];
-  if (!account || account.estado !== "activo") {
+  const { data: account, error } = await supabase
+    .from("usuarios")
+    .select("id,nombres,apellidos,usuario,password,rol,estado,tienda_id")
+    .eq("usuario", cleanUsuario(usuario))
+    .maybeSingle();
+  if (error) throw dbError(error);
+
+  const fail = () => {
     const count = (attempt?.count || 0) + 1;
     loginAttempts.set(clientIp, { count, blockedUntil: count >= 5 ? Date.now() + 15 * 60_000 : 0 });
     return json(401, { error: "Usuario o contraseña incorrectos." });
-  }
-  const isHash = /^\$2[aby]\$/.test(account.password);
-  const storedPassword = Buffer.from(String(account.password));
-  const suppliedPassword = Buffer.from(String(password));
-  const valid = isHash
-    ? await bcrypt.compare(String(password), account.password)
-    : storedPassword.length === suppliedPassword.length
-      && crypto.timingSafeEqual(storedPassword, suppliedPassword);
-  if (!valid) {
-    const count = (attempt?.count || 0) + 1;
-    loginAttempts.set(clientIp, { count, blockedUntil: count >= 5 ? Date.now() + 15 * 60_000 : 0 });
-    return json(401, { error: "Usuario o contraseña incorrectos." });
-  }
+  };
+  if (!account || account.estado !== "activo") return fail();
+  const valid = await bcrypt.compare(String(password), account.password);
+  if (!valid) return fail();
 
   loginAttempts.delete(clientIp);
-  if (!isHash) {
-    const hash = await bcrypt.hash(String(password), 12);
-    await pool.query("UPDATE usuarios SET password=$1 WHERE id=$2", [hash, account.id]);
-  }
   const user = {
-    id: account.id,
-    nombre: account.nom_res,
-    alias: account.alias,
-    usuario: account.usuario,
-    rol: account.rol,
+    id: account.id, nombres: account.nombres, apellidos: account.apellidos,
+    usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
   };
   const token = jwt.sign(user, jwtSecret(), { expiresIn: "10h" });
   return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
 }
 
-async function getDashboard() {
-  await synchronizeOperationalStates();
-  const [summary, states, workload, companies, trend, regimes, projects, dueSoon] = await Promise.all([
-    pool.query(`
-      SELECT
-        (SELECT COUNT(*)::int FROM usuarios WHERE estado='activo') usuarios_activos,
-        (SELECT COUNT(*)::int FROM empresas WHERE estado_contrato='Activo') empresas_activas,
-        (SELECT COUNT(*)::int FROM asignaciones WHERE estado='pendiente') pendientes,
-        (SELECT COUNT(*)::int FROM asignaciones WHERE estado='completada') completadas,
-        (SELECT COUNT(*)::int FROM asignaciones WHERE estado='vencida') vencidas`),
-    pool.query("SELECT estado, COUNT(*)::int cantidad FROM asignaciones GROUP BY estado ORDER BY cantidad DESC"),
-    pool.query(`
-      SELECT u.alias nombre, COUNT(*)::int total,
-        COUNT(*) FILTER (WHERE a.estado='pendiente')::int pendientes,
-        COUNT(*) FILTER (WHERE a.estado='completada')::int completadas,
-        COUNT(*) FILTER (WHERE a.estado='vencida')::int vencidas
-      FROM asignaciones a JOIN usuarios u ON u.id=a.usuario_id
-      GROUP BY u.id, u.alias ORDER BY total DESC LIMIT 8`),
-    pool.query(`
-      SELECT e.alias empresa, COUNT(*)::int total,
-        COUNT(*) FILTER (WHERE a.estado='completada')::int completadas,
-        COUNT(*) FILTER (WHERE a.estado='pendiente')::int pendientes
-      FROM asignaciones a JOIN empresas e ON e.id=a.empresa_id
-      GROUP BY e.id, e.alias ORDER BY total DESC LIMIT 8`),
-    pool.query(`
-      SELECT TO_CHAR(fecha_meta,'YYYY-MM') mes, COUNT(*)::int completadas
-      FROM asignaciones WHERE estado='completada'
-      GROUP BY 1 ORDER BY 1 DESC LIMIT 12`),
-    pool.query(`
-      SELECT COALESCE(regimen_tributario,'Sin régimen') regimen, COUNT(*)::int cantidad
-      FROM empresas WHERE estado_contrato='Activo' GROUP BY 1 ORDER BY cantidad DESC`),
-    pool.query(`
-      SELECT p.nombre_proyecto proyecto, a.estado, COUNT(*)::int cantidad
-      FROM asignaciones a JOIN tareas t ON t.id=a.tarea_id
-      JOIN proyectos p ON p.id=t.proyecto_id
-      GROUP BY p.nombre_proyecto,a.estado ORDER BY proyecto`),
-    pool.query(`
-      SELECT u.alias usuario, e.alias empresa, t.nombre_tarea tarea, a.fecha_meta,
-        (a.fecha_meta-CURRENT_DATE)::int dias_restantes
-      FROM asignaciones a JOIN usuarios u ON u.id=a.usuario_id
-      JOIN empresas e ON e.id=a.empresa_id JOIN tareas t ON t.id=a.tarea_id
-      WHERE a.estado='pendiente' AND a.fecha_meta BETWEEN CURRENT_DATE AND CURRENT_DATE+15
-      ORDER BY a.fecha_meta LIMIT 20`),
-  ]);
-  return {
-    summary: summary.rows[0],
-    states: states.rows,
-    workload: workload.rows,
-    companies: companies.rows,
-    trend: trend.rows.reverse(),
-    regimes: regimes.rows,
-    projects: projects.rows,
-    dueSoon: dueSoon.rows,
-  };
+// ---------- Usuarios ----------
+
+function mapUserRow(row) {
+  const { tiendas, ...rest } = row;
+  return { ...rest, tienda_nombre: tiendas?.nombre || null };
 }
 
-async function getReferences() {
-  const [areas, subareas, projects, users, companies, tasks] = await Promise.all([
-    pool.query("SELECT id,nombre_area FROM areas ORDER BY nombre_area"),
-    pool.query("SELECT id,area_id,nombre_subarea FROM subareas ORDER BY nombre_subarea"),
-    pool.query("SELECT id,nombre_proyecto FROM proyectos ORDER BY nombre_proyecto"),
-    pool.query("SELECT id,nom_res,alias FROM usuarios WHERE estado='activo' AND rol='trabajador' ORDER BY nom_res"),
-    pool.query("SELECT id,razon_social,alias,ruc FROM empresas WHERE estado_contrato='Activo' ORDER BY razon_social"),
-    pool.query(`SELECT t.id,t.nombre_tarea,t.proyecto_id,p.nombre_proyecto
-      FROM tareas t JOIN proyectos p ON p.id=t.proyecto_id
-      ORDER BY p.nombre_proyecto,t.nombre_tarea`),
-  ]);
-  return {
-    areas: areas.rows,
-    subareas: subareas.rows,
-    projects: projects.rows,
-    users: users.rows,
-    companies: companies.rows,
-    tasks: tasks.rows,
-  };
+async function listUsers(actor) {
+  let request = supabase
+    .from("usuarios")
+    .select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .order("nombres");
+  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  return data.map(mapUserRow);
 }
 
-async function listUsers() {
-  const { rows } = await pool.query(`
-    SELECT u.id,u.nom_res,u.alias,u.usuario,u.rol,u.estado,u.fecha_creacion,
-      s.id subarea_id,s.nombre_subarea,s.area_id,a.nombre_area
-    FROM usuarios u LEFT JOIN subareas s ON s.id=u.subarea_id
-    LEFT JOIN areas a ON a.id=s.area_id ORDER BY u.id`);
-  return rows;
-}
-
-async function createUser(event) {
-  const data = bodyOf(event);
-  validateUserPayload(data, true);
-  const duplicate = await pool.query("SELECT 1 FROM usuarios WHERE LOWER(usuario)=LOWER($1)", [cleanText(data.usuario)]);
-  if (duplicate.rowCount) {
-    throw Object.assign(new Error("Ese nombre de usuario ya está registrado."), { status: 409 });
+async function ensureUniqueUser(usuario, dni, excludeId) {
+  let byUsuario = supabase.from("usuarios").select("id").eq("usuario", usuario);
+  let byDni = supabase.from("usuarios").select("id").eq("dni", dni);
+  if (excludeId) {
+    byUsuario = byUsuario.neq("id", excludeId);
+    byDni = byDni.neq("id", excludeId);
   }
+  const [usuarioResult, dniResult] = await Promise.all([byUsuario, byDni]);
+  if (usuarioResult.data?.length) throw httpError("Ese nombre de usuario ya está registrado.", 409);
+  if (dniResult.data?.length) throw httpError("Ese DNI ya está registrado.", 409);
+}
+
+async function ensureTiendaActiva(tiendaId) {
+  const { data: tienda } = await supabase.from("tiendas").select("id,estado").eq("id", tiendaId).maybeSingle();
+  if (!tienda) throw httpError("La tienda seleccionada no existe.", 400);
+  return tienda;
+}
+
+async function createUser(event, actor) {
+  const data = bodyOf(event);
+  if (actor.rol === "jefe_tienda") {
+    data.rol = "empleado";
+    data.tienda_id = actor.tienda_id;
+  }
+  validateUserPayload(data, true);
+  const usuario = cleanUsuario(data.usuario);
+  const dni = cleanText(data.dni);
+  await ensureUniqueUser(usuario, dni);
+  if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
   const password = await bcrypt.hash(String(data.password), 12);
-  const { rows } = await pool.query(
-    `INSERT INTO usuarios (nom_res,alias,usuario,password,subarea_id,rol,estado)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     RETURNING id,nom_res,alias,usuario,rol,estado,subarea_id`,
-    [cleanText(data.nom_res), cleanText(data.alias), cleanText(data.usuario), password,
-      data.subarea_id || null, data.rol, data.estado],
-  );
-  return rows[0];
+  const { data: created, error } = await supabase.from("usuarios").insert({
+    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
+    telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
+    tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
+  }).select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado").single();
+  if (error) throw dbError(error);
+  return created;
 }
 
 async function updateUser(event, id, actor) {
   const data = bodyOf(event);
+  const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id").eq("id", id).maybeSingle();
+  if (!current) throw httpError("Usuario no encontrado.", 404);
+  if (actor.rol === "jefe_tienda") {
+    if (current.tienda_id !== actor.tienda_id || current.rol !== "empleado") {
+      throw httpError("No puedes editar este usuario.", 403);
+    }
+    data.rol = "empleado";
+    data.tienda_id = actor.tienda_id;
+  }
   validateUserPayload(data);
   if (Number(id) === Number(actor.id) && (data.rol !== "admin" || data.estado !== "activo")) {
-    throw Object.assign(new Error("No puedes quitarte tu propio acceso de administrador."), { status: 400 });
+    throw httpError("No puedes quitarte tu propio acceso de administrador.", 400);
   }
-  const current = await pool.query("SELECT rol,estado FROM usuarios WHERE id=$1", [id]);
-  if (!current.rowCount) throw Object.assign(new Error("Usuario no encontrado."), { status: 404 });
-  if (current.rows[0].rol === "admin" && current.rows[0].estado === "activo"
+  if (current.rol === "admin" && current.estado === "activo"
       && (data.rol !== "admin" || data.estado !== "activo")) {
-    const admins = await pool.query("SELECT COUNT(*)::int count FROM usuarios WHERE rol='admin' AND estado='activo'");
-    if (admins.rows[0].count <= 1) {
-      throw Object.assign(new Error("Debe existir al menos un administrador activo."), { status: 400 });
-    }
+    const { count } = await supabase.from("usuarios").select("id", { count: "exact", head: true })
+      .eq("rol", "admin").eq("estado", "activo");
+    if ((count || 0) <= 1) throw httpError("Debe existir al menos un administrador activo.", 400);
   }
-  const duplicate = await pool.query(
-    "SELECT 1 FROM usuarios WHERE LOWER(usuario)=LOWER($1) AND id<>$2",
-    [cleanText(data.usuario), id],
-  );
-  if (duplicate.rowCount) {
-    throw Object.assign(new Error("Ese nombre de usuario ya está registrado."), { status: 409 });
-  }
-  const values = [cleanText(data.nom_res), cleanText(data.alias), cleanText(data.usuario),
-    data.subarea_id || null, data.rol, data.estado, id];
-  let query = `UPDATE usuarios SET nom_res=$1,alias=$2,usuario=$3,subarea_id=$4,rol=$5,estado=$6 WHERE id=$7`;
-  if (data.password) {
-    values.push(await bcrypt.hash(String(data.password), 12));
-    query = `UPDATE usuarios SET nom_res=$1,alias=$2,usuario=$3,subarea_id=$4,rol=$5,estado=$6,password=$8 WHERE id=$7`;
-  }
-  const result = await pool.query(query, values);
-  if (!result.rowCount) throw Object.assign(new Error("Usuario no encontrado."), { status: 404 });
-}
-
-async function listCompanies() {
-  const { rows } = await pool.query(`
-    SELECT id,alias,razon_social,ruc,regimen_tributario,regimen_laboral,
-      estado_contrato,correo_principal,giro_negocio,fecha_contrato,fecha_registro
-    FROM empresas ORDER BY razon_social`);
-  return rows;
-}
-
-async function companyDetail(id) {
-  const { rows } = await pool.query("SELECT * FROM empresas WHERE id=$1", [id]);
-  if (!rows[0]) throw Object.assign(new Error("Empresa no encontrada."), { status: 404 });
-  for (const field of secretCompanyFields) rows[0][field] = decryptValue(rows[0][field]);
-  return rows[0];
-}
-
-function companyValues(data) {
-  return companyFields.map((field) => {
-    const value = data[field] ?? null;
-    return secretCompanyFields.has(field) ? encryptValue(value) : value || null;
-  });
-}
-
-async function createCompany(event) {
-  const data = bodyOf(event);
-  validateCompanyPayload(data);
-  const normalized = {
-    ...data,
-    alias: cleanText(data.alias),
-    razon_social: cleanText(data.razon_social),
-    ruc: cleanText(data.ruc),
-    correo_principal: cleanText(data.correo_principal),
+  const usuario = cleanUsuario(data.usuario);
+  const dni = cleanText(data.dni);
+  await ensureUniqueUser(usuario, dni, id);
+  if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
+  const payload = {
+    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
+    telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
+    tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
   };
-  const columns = companyFields.join(",");
-  const placeholders = companyFields.map((_, i) => `$${i + 1}`).join(",");
-  const { rows } = await pool.query(
-    `INSERT INTO empresas (${columns}) VALUES (${placeholders})
-     RETURNING id,alias,razon_social,ruc,estado_contrato`,
-    companyValues(normalized),
-  );
-  return rows[0];
-}
-
-async function updateCompany(event, id) {
-  const data = bodyOf(event);
-  validateCompanyPayload(data);
-  const normalized = {
-    ...data,
-    alias: cleanText(data.alias),
-    razon_social: cleanText(data.razon_social),
-    ruc: cleanText(data.ruc),
-    correo_principal: cleanText(data.correo_principal),
-  };
-  const assignments = companyFields.map((field, i) => `${field}=$${i + 1}`).join(",");
-  const result = await pool.query(
-    `UPDATE empresas SET ${assignments} WHERE id=$${companyFields.length + 1}`,
-    [...companyValues(normalized), id],
-  );
-  if (!result.rowCount) throw Object.assign(new Error("Empresa no encontrada."), { status: 404 });
-}
-
-async function listTasks() {
-  const { rows } = await pool.query(`
-    SELECT t.id,t.nombre_tarea,t.proyecto_id,p.nombre_proyecto
-    FROM tareas t JOIN proyectos p ON p.id=t.proyecto_id
-    ORDER BY p.nombre_proyecto,t.nombre_tarea`);
-  return rows;
-}
-
-async function createTask(event) {
-  const data = bodyOf(event);
-  requireFields(data, ["nombre_tarea", "proyecto_id"]);
-  const name = cleanText(data.nombre_tarea);
-  const projectId = Number(data.proyecto_id);
-  if (name.length < 3 || !Number.isInteger(projectId) || projectId < 1) {
-    throw Object.assign(new Error("El nombre o proyecto de la tarea no es válido."), { status: 400 });
-  }
-  const duplicate = await pool.query(
-    "SELECT 1 FROM tareas WHERE proyecto_id=$1 AND LOWER(nombre_tarea)=LOWER($2)",
-    [projectId, name],
-  );
-  if (duplicate.rowCount) throw Object.assign(new Error("La tarea ya existe en ese proyecto."), { status: 409 });
-  const { rows } = await pool.query(
-    "INSERT INTO tareas (nombre_tarea,proyecto_id) VALUES ($1,$2) RETURNING *",
-    [name, projectId],
-  );
-  return rows[0];
-}
-
-async function updateTask(event, id) {
-  const data = bodyOf(event);
-  requireFields(data, ["nombre_tarea", "proyecto_id"]);
-  const name = cleanText(data.nombre_tarea);
-  const projectId = Number(data.proyecto_id);
-  if (name.length < 3 || !Number.isInteger(projectId) || projectId < 1) {
-    throw Object.assign(new Error("El nombre o proyecto de la tarea no es válido."), { status: 400 });
-  }
-  const duplicate = await pool.query(
-    "SELECT 1 FROM tareas WHERE proyecto_id=$1 AND LOWER(nombre_tarea)=LOWER($2) AND id<>$3",
-    [projectId, name, id],
-  );
-  if (duplicate.rowCount) throw Object.assign(new Error("La tarea ya existe en ese proyecto."), { status: 409 });
-  const result = await pool.query(
-    "UPDATE tareas SET nombre_tarea=$1,proyecto_id=$2 WHERE id=$3",
-    [name, projectId, id],
-  );
-  if (!result.rowCount) throw Object.assign(new Error("Tarea no encontrada."), { status: 404 });
-}
-
-async function listAssignments(event) {
-  await synchronizeOperationalStates();
-  const query = event.queryStringParameters || {};
-  const where = [];
-  const params = [];
-  if (query.month && query.year) {
-    params.push(query.month, query.year);
-    where.push(`EXTRACT(MONTH FROM a.fecha_meta)=$${params.length - 1} AND EXTRACT(YEAR FROM a.fecha_meta)=$${params.length}`);
-  }
-  if (query.status) {
-    params.push(query.status);
-    where.push(`a.estado=$${params.length}`);
-  }
-  const { rows } = await pool.query(`
-    SELECT a.id,a.usuario_id,u.nom_res trabajador,u.alias,e.razon_social empresa,
-      e.id empresa_id,t.nombre_tarea tarea,t.id tarea_id,p.nombre_proyecto proyecto,
-      a.fecha_meta,a.estado,a.fecha_creacion,a.peso,
-      (SELECT rt.fecha_realizada FROM registros_tareas rt
-       WHERE rt.asignacion_id=a.id AND rt.usuario_id=a.usuario_id
-       ORDER BY rt.id DESC LIMIT 1) fecha_realizada
-    FROM asignaciones a JOIN usuarios u ON u.id=a.usuario_id
-    JOIN empresas e ON e.id=a.empresa_id JOIN tareas t ON t.id=a.tarea_id
-    JOIN proyectos p ON p.id=t.proyecto_id
-    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-    ORDER BY a.fecha_meta DESC,a.id DESC,a.usuario_id`, params);
-  const groups = new Map();
-  for (const row of rows) {
-    if (!groups.has(row.id)) groups.set(row.id, {
-      id: row.id, empresa: row.empresa, empresa_id: row.empresa_id,
-      tarea: row.tarea, tarea_id: row.tarea_id, proyecto: row.proyecto,
-      fecha_meta: row.fecha_meta, estado: row.estado,
-      fecha_creacion: row.fecha_creacion, peso: row.peso, trabajadores: [],
-    });
-    groups.get(row.id).trabajadores.push({
-      usuario_id: row.usuario_id, trabajador: row.trabajador,
-      alias: row.alias, fecha_realizada: row.fecha_realizada,
-    });
-  }
-  return [...groups.values()];
-}
-
-async function createAssignment(event) {
-  const data = bodyOf(event);
-  const normalized = validateAssignmentPayload(data);
-  const requestedState = data.estado || "pendiente";
-  requireAssignmentState(requestedState);
-  if (requestedState === "completada") {
-    throw Object.assign(new Error("Una tarea debe completarse registrando también su fecha realizada."), { status: 400 });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await ensureAssignmentReferences(client, data, normalized);
-    const stateResult = await client.query(
-      "SELECT CASE WHEN $1::date<CURRENT_DATE AND $2='pendiente' THEN 'vencida' ELSE $2 END estado",
-      [data.fecha_meta, requestedState],
-    );
-    const state = stateResult.rows[0].estado;
-    const next = await client.query("SELECT get_next_asignacion_id() nuevo_id");
-    const id = next.rows[0].nuevo_id;
-    for (const userId of normalized.usuarioIds) {
-      await client.query(
-        `INSERT INTO asignaciones (id,usuario_id,empresa_id,tarea_id,fecha_meta,estado,peso)
-         OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [id, userId, normalized.empresaId, normalized.tareaId, data.fecha_meta, state, normalized.peso],
-      );
-    }
-    await synchronizeOperationalStates(client);
-    await client.query("COMMIT");
-    return { id, estado: state };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function updateAssignment(event, id) {
-  const data = bodyOf(event);
-  const normalized = validateAssignmentPayload(data);
-  requireAssignmentState(data.estado);
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const current = await client.query(
-      "SELECT usuario_id,empresa_id,tarea_id,fecha_meta,estado,peso FROM asignaciones WHERE id=$1 ORDER BY usuario_id",
-      [id],
-    );
-    if (!current.rowCount) throw Object.assign(new Error("Asignación no encontrada."), { status: 404 });
-    await ensureAssignmentReferences(client, data, normalized, id);
-    const existing = current.rows.map((row) => Number(row.usuario_id));
-    const wasCompleted = current.rows.every((row) => row.estado === "completada");
-    if (data.estado === "completada" && !wasCompleted) {
-      throw Object.assign(new Error("Completa la tarea desde el flujo de progreso para registrar la fecha realizada."), { status: 400 });
-    }
-    if (wasCompleted && data.estado === "completada") {
-      const first = current.rows[0];
-      const currentDate = new Date(first.fecha_meta).toISOString().slice(0, 10);
-      const sameUsers = existing.length === normalized.usuarioIds.length
-        && existing.every((userId) => normalized.usuarioIds.includes(userId));
-      if (!sameUsers || Number(first.empresa_id) !== normalized.empresaId
-          || Number(first.tarea_id) !== normalized.tareaId || currentDate !== data.fecha_meta) {
-        throw Object.assign(new Error("Reabre la tarea antes de cambiar responsables, empresa, tarea o fecha."), { status: 400 });
-      }
-    }
-    const stateResult = await client.query(
-      "SELECT CASE WHEN $1::date<CURRENT_DATE AND $2='pendiente' THEN 'vencida' ELSE $2 END estado",
-      [data.fecha_meta, data.estado],
-    );
-    const state = stateResult.rows[0].estado;
-    const remove = existing.filter((userId) => !normalized.usuarioIds.includes(userId));
-    const add = normalized.usuarioIds.filter((userId) => !existing.includes(userId));
-    if (wasCompleted && state !== "completada") {
-      await client.query("DELETE FROM registros_tareas WHERE asignacion_id=$1", [id]);
-    } else if (remove.length) {
-      await client.query(
-        "DELETE FROM registros_tareas WHERE asignacion_id=$1 AND usuario_id=ANY($2::int[])",
-        [id, remove],
-      );
-    }
-    await client.query(
-      "UPDATE asignaciones SET empresa_id=$1,tarea_id=$2,fecha_meta=$3,estado=$4,peso=$5 WHERE id=$6",
-      [normalized.empresaId, normalized.tareaId, data.fecha_meta, state, normalized.peso, id],
-    );
-    if (remove.length) await client.query("DELETE FROM asignaciones WHERE id=$1 AND usuario_id=ANY($2::int[])", [id, remove]);
-    for (const userId of add) {
-      await client.query(
-        `INSERT INTO asignaciones (id,usuario_id,empresa_id,tarea_id,fecha_meta,estado,peso)
-         OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [id, userId, normalized.empresaId, normalized.tareaId, data.fecha_meta, state, normalized.peso],
-      );
-    }
-    await synchronizeOperationalStates(client);
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function deleteAssignment(id) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const ref = await client.query(
-      "SELECT empresa_id,tarea_id,fecha_meta FROM asignaciones WHERE id=$1 LIMIT 1", [id],
-    );
-    if (!ref.rowCount) throw Object.assign(new Error("Asignación no encontrada."), { status: 404 });
-    await client.query("DELETE FROM asignaciones WHERE id=$1", [id]);
-    const item = ref.rows[0];
-    const another = await client.query(
-      "SELECT 1 FROM asignaciones WHERE empresa_id=$1 AND tarea_id=$2 AND fecha_meta=$3 LIMIT 1",
-      [item.empresa_id, item.tarea_id, item.fecha_meta],
-    );
-    if (!another.rowCount) {
-      await client.query(
-        "UPDATE cronograma_pdt SET asignado=false WHERE empresa_id=$1 AND tarea_id=$2 AND fecha_vencimiento=$3",
-        [item.empresa_id, item.tarea_id, item.fecha_meta],
-      );
-    }
-    await synchronizeOperationalStates(client);
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-const monthTokens = {
-  ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
-  jul: 7, ago: 8, set: 9, sep: 9, oct: 10, nov: 11, dic: 12,
-};
-const scheduleGroups = ["0", "1", "23", "45", "67", "89"];
-
-function dateISO(date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function parsePeriod(text, forcedYear) {
-  const normalized = text.toLowerCase().replace(/\*/g, "").trim();
-  const match = normalized.match(/\b(ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|set(?:iembre)?|sep(?:tiembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)(?:\s*[-/]\s*|\s+)?(\d{2,4})?\b/i);
-  if (!match) return null;
-  const month = monthTokens[match[1].slice(0, 3).toLowerCase()];
-  const rawYear = match[2] ? Number(match[2]) : forcedYear;
-  return { month, year: rawYear < 100 ? 2000 + rawYear : rawYear };
-}
-
-function parseDates(text, fallbackYear) {
-  const dates = [];
-  const regex = /\b(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|set|sep|oct|nov|dic)[a-záéíóúñ.]*\s*(\d{2,4})?\b/gi;
-  for (const match of text.matchAll(regex)) {
-    const day = Number(match[1]);
-    const month = monthTokens[match[2].slice(0, 3).toLowerCase()];
-    let year = match[3] ? Number(match[3]) : fallbackYear;
-    if (year < 100) year += 2000;
-    const date = new Date(Date.UTC(year, month - 1, day));
-    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) {
-      dates.push(dateISO(date));
-    }
-  }
-  return dates;
-}
-
-async function extractScheduleFromPdf(buffer, forcedYear) {
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const loadingTask = getDocument({
-    data: new Uint8Array(buffer),
-    disableWorker: true,
-    useSystemFonts: true,
-  });
-  const document = await loadingTask.promise;
-  const schedule = new Map();
-
-  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-    const page = await document.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const visualRows = [];
-    for (const item of content.items) {
-      const text = item.str?.replace(/\s+/g, " ").trim();
-      if (!text) continue;
-      const x = item.transform?.[4] || 0;
-      const y = item.transform?.[5] || 0;
-      let row = visualRows.find((candidate) => Math.abs(candidate.y - y) <= 3);
-      if (!row) {
-        row = { y, items: [] };
-        visualRows.push(row);
-      }
-      row.items.push({ x, text });
-    }
-    visualRows.sort((a, b) => b.y - a.y);
-    for (let index = 0; index < visualRows.length; index += 1) {
-      const row = visualRows[index];
-      const rowText = row.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(" ");
-      const period = parsePeriod(rowText, forcedYear);
-      if (!period || period.year !== Number(forcedYear)) continue;
-      const dueYear = period.month === 12 ? period.year + 1 : period.year;
-      let dates = parseDates(rowText, dueYear);
-
-      for (let offset = 1; dates.length < 6 && offset <= 2 && visualRows[index + offset]; offset += 1) {
-        const next = visualRows[index + offset];
-        if (row.y - next.y > 20) break;
-        const nextText = next.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(" ");
-        if (parsePeriod(nextText, forcedYear)) break;
-        dates = parseDates(`${rowText} ${nextText}`, dueYear);
-      }
-      if (dates.length < 6) continue;
-      schedule.set(`${period.year}-${period.month}`, Object.fromEntries(
-        scheduleGroups.map((group, groupIndex) => [group, dates[groupIndex]]),
-      ));
-    }
-  }
-  await document.cleanup();
-  await loadingTask.destroy();
-  return schedule;
-}
-
-function rucGroup(ruc) {
-  const digit = String(ruc || "").slice(-1);
-  if (digit === "0" || digit === "1") return digit;
-  if (digit === "2" || digit === "3") return "23";
-  if (digit === "4" || digit === "5") return "45";
-  if (digit === "6" || digit === "7") return "67";
-  if (digit === "8" || digit === "9") return "89";
-  return null;
-}
-
-function easterSunday(year) {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31);
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function peruHolidays(year) {
-  const fixed = [
-    [1, 1], [5, 1], [6, 7], [6, 29], [7, 23], [7, 28], [7, 29],
-    [8, 6], [8, 30], [10, 8], [11, 1], [12, 8], [12, 9], [12, 25],
-  ];
-  const values = new Set(fixed.map(([month, day]) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`));
-  const easter = easterSunday(year);
-  for (const daysBefore of [3, 2]) {
-    const holiday = new Date(easter);
-    holiday.setUTCDate(holiday.getUTCDate() - daysBefore);
-    values.add(dateISO(holiday));
-  }
-  return values;
-}
-
-function subtractBusinessDays(dateValue, daysBefore) {
-  const date = new Date(`${dateValue}T00:00:00Z`);
-  let remaining = Number(daysBefore);
-  while (remaining > 0) {
-    date.setUTCDate(date.getUTCDate() - 1);
-    const weekday = date.getUTCDay();
-    const holidays = peruHolidays(date.getUTCFullYear());
-    if (weekday !== 0 && weekday !== 6 && !holidays.has(dateISO(date))) remaining -= 1;
-  }
-  return dateISO(date);
-}
-
-async function previewPdfSchedule(event) {
-  const data = bodyOf(event);
-  requireFields(data, ["kind", "file_base64", "year", "months", "days_before"]);
-  if (!["pdt", "le"].includes(data.kind)) {
-    throw Object.assign(new Error("El tipo de cronograma no es válido."), { status: 400 });
-  }
-  if (!Array.isArray(data.months) || !data.months.length) {
-    throw Object.assign(new Error("Selecciona al menos un periodo."), { status: 400 });
-  }
-  const year = Number(data.year);
-  const months = [...new Set(data.months.map(Number))];
-  const daysBefore = Number(data.days_before);
-  if (!Number.isInteger(year) || year < 2024 || year > 2100) {
-    throw Object.assign(new Error("El año del cronograma no es válido."), { status: 400 });
-  }
-  if (months.some((month) => !Number.isInteger(month) || month < 1 || month > 12)) {
-    throw Object.assign(new Error("Uno de los periodos seleccionados no es válido."), { status: 400 });
-  }
-  if (!Number.isInteger(daysBefore) || daysBefore < 1 || daysBefore > 10) {
-    throw Object.assign(new Error("Los días hábiles deben estar entre 1 y 10."), { status: 400 });
-  }
-  const base64 = String(data.file_base64).replace(/^data:application\/pdf;base64,/, "");
-  const buffer = Buffer.from(base64, "base64");
-  if (!buffer.length || buffer.length > 4 * 1024 * 1024 || buffer.subarray(0, 4).toString() !== "%PDF") {
-    throw Object.assign(new Error("El PDF no es válido o supera el límite de 4 MB."), { status: 400 });
-  }
-  const parsed = await extractScheduleFromPdf(buffer, year);
-  if (!parsed.size) {
-    throw Object.assign(new Error("No se reconoció la tabla del cronograma. Verifica que sea el PDF oficial de SUNAT y que contenga texto seleccionable."), { status: 422 });
-  }
-
-  const taskSql = data.kind === "pdt"
-    ? `SELECT t.id,t.nombre_tarea,p.nombre_proyecto FROM tareas t
-       JOIN proyectos p ON p.id=t.proyecto_id
-       WHERE t.nombre_tarea ILIKE '%PDT%621%'
-       ORDER BY p.nombre_proyecto,t.nombre_tarea`
-    : `SELECT t.id,t.nombre_tarea,p.nombre_proyecto FROM tareas t
-       JOIN proyectos p ON p.id=t.proyecto_id
-       WHERE t.nombre_tarea ILIKE '%LE%V-C%VALIDACION%'
-          OR (t.nombre_tarea ILIKE '%LE%V-C%' AND t.nombre_tarea NOT ILIKE '%VALIDACION%')
-       ORDER BY CASE WHEN t.nombre_tarea ILIKE '%VALIDACION%' THEN 1 ELSE 2 END,t.nombre_tarea`;
-  const [tasksResult, companiesResult, existingResult] = await Promise.all([
-    pool.query(taskSql),
-    pool.query("SELECT id,alias,razon_social,ruc FROM empresas WHERE estado_contrato='Activo' ORDER BY razon_social"),
-    pool.query(
-      "SELECT empresa_id,tarea_id,periodo_anio,periodo_mes FROM cronograma_pdt WHERE periodo_anio=$1 AND periodo_mes=ANY($2::int[])",
-      [year, months],
-    ),
-  ]);
-  if (!tasksResult.rows.length) {
-    throw Object.assign(new Error(data.kind === "pdt"
-      ? "No se encontró una tarea PDT 621 en el catálogo."
-      : "No se encontraron las tareas LE V-C y LE V-C VALIDACION en el catálogo."), { status: 422 });
-  }
-  const existing = new Set(existingResult.rows.map((row) => `${row.empresa_id}-${row.tarea_id}-${row.periodo_anio}-${row.periodo_mes}`));
-  const rows = [];
-  for (const month of months.sort((a, b) => a - b)) {
-    const dates = parsed.get(`${year}-${month}`);
-    if (!dates) continue;
-    for (const company of companiesResult.rows) {
-      const sunatDate = dates[rucGroup(company.ruc)];
-      if (!sunatDate) continue;
-      for (const task of tasksResult.rows) {
-        const key = `${company.id}-${task.id}-${year}-${month}`;
-        rows.push({
-          empresa_id: company.id,
-          empresa: company.alias,
-          razon_social: company.razon_social,
-          ruc: company.ruc,
-          tarea_id: task.id,
-          tarea: task.nombre_tarea,
-          periodo_mes: month,
-          periodo_anio: year,
-          fecha_sunat: sunatDate,
-          fecha_vencimiento: subtractBusinessDays(sunatDate, daysBefore),
-          exists: existing.has(key),
-        });
-      }
-    }
-  }
-  return {
-    rows,
-    taskNames: tasksResult.rows.map((task) => task.nombre_tarea),
-    parsedPeriods: [...parsed.keys()],
-    newCount: rows.filter((row) => !row.exists).length,
-    existingCount: rows.filter((row) => row.exists).length,
-  };
-}
-
-async function listSchedule(event) {
-  await synchronizeOperationalStates();
-  const query = event.queryStringParameters || {};
-  const month = Number(query.month || new Date().getMonth() + 1);
-  const year = Number(query.year || new Date().getFullYear());
-  const { rows } = await pool.query(`
-    WITH pdf_rows AS (
-      SELECT cp.id::text id,cp.periodo_mes,cp.periodo_anio,cp.fecha_vencimiento,
-        EXISTS (
-          SELECT 1 FROM asignaciones a
-          WHERE a.empresa_id=cp.empresa_id AND a.tarea_id=cp.tarea_id
-            AND a.fecha_meta=cp.fecha_vencimiento
-        ) asignado,
-        e.id empresa_id,e.alias empresa,e.razon_social,e.ruc,
-        t.id tarea_id,t.nombre_tarea tarea,p.nombre_proyecto proyecto,'pdf' origen
-      FROM cronograma_pdt cp JOIN empresas e ON e.id=cp.empresa_id
-      JOIN tareas t ON t.id=cp.tarea_id JOIN proyectos p ON p.id=t.proyecto_id
-      WHERE cp.periodo_mes=$1 AND cp.periodo_anio=$2
-    ), manual_rows AS (
-      SELECT DISTINCT ON (a.id)
-        'manual_'||a.id::text id,
-        EXTRACT(MONTH FROM a.fecha_meta)::int periodo_mes,
-        EXTRACT(YEAR FROM a.fecha_meta)::int periodo_anio,
-        a.fecha_meta fecha_vencimiento,TRUE asignado,
-        e.id empresa_id,e.alias empresa,e.razon_social,e.ruc,
-        t.id tarea_id,t.nombre_tarea tarea,p.nombre_proyecto proyecto,'manual' origen
-      FROM asignaciones a JOIN empresas e ON e.id=a.empresa_id
-      JOIN tareas t ON t.id=a.tarea_id JOIN proyectos p ON p.id=t.proyecto_id
-      WHERE EXTRACT(MONTH FROM a.fecha_meta)=$1 AND EXTRACT(YEAR FROM a.fecha_meta)=$2
-        AND NOT EXISTS (
-          SELECT 1 FROM cronograma_pdt cp
-          WHERE cp.empresa_id=a.empresa_id AND cp.tarea_id=a.tarea_id
-            AND cp.fecha_vencimiento=a.fecha_meta
-        )
-      ORDER BY a.id,a.usuario_id
-    )
-    SELECT * FROM pdf_rows
-    UNION ALL
-    SELECT * FROM manual_rows
-    ORDER BY fecha_vencimiento,empresa`, [month, year]);
-  return rows;
-}
-
-async function importSchedule(event) {
-  const data = bodyOf(event);
-  if (!Array.isArray(data.rows) || !data.rows.length) {
-    throw Object.assign(new Error("No hay filas para importar."), { status: 400 });
-  }
-  if (data.rows.length > 5000) {
-    throw Object.assign(new Error("La importación supera el máximo de 5000 registros por operación."), { status: 400 });
-  }
-  const client = await pool.connect();
-  let inserted = 0;
-  try {
-    await client.query("BEGIN");
-    for (const row of data.rows) {
-      requireFields(row, ["tarea_id", "empresa_id", "periodo_mes", "periodo_anio", "fecha_vencimiento"]);
-      const tareaId = Number(row.tarea_id);
-      const empresaId = Number(row.empresa_id);
-      const month = Number(row.periodo_mes);
-      const year = Number(row.periodo_anio);
-      if (!Number.isInteger(tareaId) || tareaId < 1 || !Number.isInteger(empresaId) || empresaId < 1
-          || !Number.isInteger(month) || month < 1 || month > 12
-          || !Number.isInteger(year) || year < 2024 || year > 2100
-          || !isISODate(row.fecha_vencimiento)) {
-        throw Object.assign(new Error("Uno de los registros del cronograma contiene datos inválidos."), { status: 400 });
-      }
-      const result = await client.query(`
-        INSERT INTO cronograma_pdt (tarea_id,empresa_id,periodo_mes,periodo_anio,fecha_vencimiento)
-        SELECT $1,$2,$3,$4,$5
-        WHERE NOT EXISTS (
-          SELECT 1 FROM cronograma_pdt
-          WHERE tarea_id=$1 AND empresa_id=$2 AND periodo_mes=$3 AND periodo_anio=$4
-        )`, [tareaId, empresaId, month, year, row.fecha_vencimiento]);
-      inserted += result.rowCount;
-    }
-    await synchronizeOperationalStates(client);
-    await client.query("COMMIT");
-    return { inserted, skipped: data.rows.length - inserted };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function assignSchedule(event, scheduleId) {
-  const data = bodyOf(event);
-  requireFields(data, ["usuario_ids"]);
-  if (!Array.isArray(data.usuario_ids) || !data.usuario_ids.length) {
-    throw Object.assign(new Error("Selecciona al menos un trabajador."), { status: 400 });
-  }
-  const userIds = [...new Set(data.usuario_ids.map(Number))];
-  const weight = Number(data.peso ?? 1);
-  if (userIds.some((id) => !Number.isInteger(id) || id < 1)
-      || !Number.isInteger(weight) || weight < 1 || weight > 10) {
-    throw Object.assign(new Error("Los responsables o el peso de la tarea no son válidos."), { status: 400 });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const item = await client.query("SELECT * FROM cronograma_pdt WHERE id=$1 FOR UPDATE", [scheduleId]);
-    if (!item.rowCount) throw Object.assign(new Error("Registro de cronograma no encontrado."), { status: 404 });
-    const users = await client.query(
-      "SELECT id FROM usuarios WHERE id=ANY($1::int[]) AND rol='trabajador' AND estado='activo'",
-      [userIds],
-    );
-    if (users.rowCount !== userIds.length) {
-      throw Object.assign(new Error("Todos los responsables deben ser trabajadores activos."), { status: 400 });
-    }
-    const existing = await client.query(
-      "SELECT 1 FROM asignaciones WHERE empresa_id=$1 AND tarea_id=$2 AND fecha_meta=$3 LIMIT 1",
-      [item.rows[0].empresa_id, item.rows[0].tarea_id, item.rows[0].fecha_vencimiento],
-    );
-    if (existing.rowCount) {
-      throw Object.assign(new Error("Este vencimiento ya tiene responsables asignados."), { status: 409 });
-    }
-    const next = await client.query("SELECT get_next_asignacion_id() nuevo_id");
-    const id = next.rows[0].nuevo_id;
-    const stateResult = await client.query(
-      "SELECT CASE WHEN $1::date<CURRENT_DATE THEN 'vencida' ELSE 'pendiente' END estado",
-      [item.rows[0].fecha_vencimiento],
-    );
-    for (const userId of userIds) {
-      await client.query(
-        `INSERT INTO asignaciones (id,usuario_id,empresa_id,tarea_id,fecha_meta,estado,peso)
-         OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [id, userId, item.rows[0].empresa_id, item.rows[0].tarea_id,
-          item.rows[0].fecha_vencimiento, stateResult.rows[0].estado, weight],
-      );
-    }
-    await client.query("UPDATE cronograma_pdt SET asignado=true WHERE id=$1", [scheduleId]);
-    await synchronizeOperationalStates(client);
-    await client.query("COMMIT");
-    return { assignmentId: id };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function workerTasks(userId) {
-  await synchronizeOperationalStates();
-  const { rows } = await pool.query(`
-    SELECT a.id,t.nombre_tarea titulo,p.nombre_proyecto proyecto,a.fecha_meta fecha_limite,
-      a.estado,e.razon_social empresa,e.alias empresa_alias,a.peso,
-      rt.fecha_realizada,rt.rendimiento
-    FROM asignaciones a JOIN tareas t ON t.id=a.tarea_id
-    JOIN proyectos p ON p.id=t.proyecto_id JOIN empresas e ON e.id=a.empresa_id
-    LEFT JOIN LATERAL (
-      SELECT fecha_realizada,rendimiento FROM registros_tareas
-      WHERE asignacion_id=a.id AND usuario_id=a.usuario_id
-      ORDER BY id DESC LIMIT 1
-    ) rt ON TRUE
-    WHERE a.usuario_id=$1 ORDER BY
-      CASE WHEN a.estado='completada' THEN 1 ELSE 0 END,a.fecha_meta`, [userId]);
-  return rows;
-}
-
-async function workerTaskDetail(id, user) {
-  await synchronizeOperationalStates();
-  const params = [id];
-  let condition = "";
-  if (user.rol !== "admin") {
-    params.push(user.id);
-    condition = "AND a.usuario_id=$2";
-  }
-  const { rows } = await pool.query(`
-    SELECT a.id,a.fecha_meta,a.estado,a.peso,e.razon_social empresa,e.alias empresa_alias,
-      e.ruc,t.nombre_tarea tarea,p.nombre_proyecto proyecto,u.nom_res encargado,
-      a.usuario_id,a.tarea_id,a.empresa_id,rt.fecha_realizada,rt.rendimiento
-    FROM asignaciones a JOIN empresas e ON e.id=a.empresa_id
-    JOIN tareas t ON t.id=a.tarea_id JOIN proyectos p ON p.id=t.proyecto_id
-    JOIN usuarios u ON u.id=a.usuario_id
-    LEFT JOIN LATERAL (
-      SELECT fecha_realizada,rendimiento FROM registros_tareas
-      WHERE asignacion_id=a.id AND usuario_id=a.usuario_id
-      ORDER BY id DESC LIMIT 1
-    ) rt ON TRUE
-    WHERE a.id=$1 ${condition} LIMIT 1`, params);
-  if (!rows[0]) throw Object.assign(new Error("Tarea no encontrada."), { status: 404 });
-  return rows[0];
-}
-
-function performance(doneDate, dueDate) {
-  const normalize = (value) => value instanceof Date
-    ? value.toISOString().slice(0, 10)
-    : String(value).slice(0, 10);
-  const doneParts = normalize(doneDate).split("-").map(Number);
-  const dueParts = normalize(dueDate).split("-").map(Number);
-  const done = Date.UTC(doneParts[0], doneParts[1] - 1, doneParts[2]);
-  const due = Date.UTC(dueParts[0], dueParts[1] - 1, dueParts[2]);
-  const days = Math.round((done - due) / 86_400_000);
-  return days <= 0 ? "OPTIMO" : days <= 3 ? "MEDIO" : "BAJO";
-}
-
-async function updateWorkerTask(event, id, user) {
-  const data = bodyOf(event);
-  requireFields(data, ["estado"]);
-  requireAssignmentState(data.estado);
-  if (data.estado === "completada" && !isISODate(data.fecha_realizada)) {
-    throw Object.assign(new Error("Indica una fecha realizada válida para completar la tarea."), { status: 400 });
-  }
-  const detail = await workerTaskDetail(id, user);
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    let rating = null;
-    if (data.estado === "completada") {
-      const futureDate = await client.query("SELECT $1::date>CURRENT_DATE future", [data.fecha_realizada]);
-      if (futureDate.rows[0].future) {
-        throw Object.assign(new Error("La fecha realizada no puede estar en el futuro."), { status: 400 });
-      }
-      const group = await client.query(
-          "SELECT id,usuario_id FROM asignaciones WHERE tarea_id=$1 AND empresa_id=$2 AND fecha_meta=$3",
-          [detail.tarea_id, detail.empresa_id, detail.fecha_meta],
-      );
-      rating = performance(data.fecha_realizada, detail.fecha_meta);
-      for (const row of group.rows) {
-        const existing = await client.query(
-          "SELECT id FROM registros_tareas WHERE asignacion_id=$1 AND usuario_id=$2 ORDER BY id DESC LIMIT 1",
-          [row.id, row.usuario_id],
-        );
-        if (existing.rowCount) {
-          await client.query(
-            "UPDATE registros_tareas SET fecha_realizada=$1,rendimiento=$2 WHERE id=$3",
-            [data.fecha_realizada, rating, existing.rows[0].id],
-          );
-        } else {
-          await client.query(
-            "INSERT INTO registros_tareas (asignacion_id,usuario_id,fecha_realizada,rendimiento) VALUES ($1,$2,$3,$4)",
-            [row.id, row.usuario_id, data.fecha_realizada, rating],
-          );
-        }
-      }
-      await client.query(
-        "UPDATE asignaciones SET estado='completada' WHERE tarea_id=$1 AND empresa_id=$2 AND fecha_meta=$3",
-        [detail.tarea_id, detail.empresa_id, detail.fecha_meta],
-      );
-    } else {
-      await client.query(`
-        DELETE FROM registros_tareas rt
-        USING asignaciones a
-        WHERE rt.asignacion_id=a.id AND rt.usuario_id=a.usuario_id
-          AND a.tarea_id=$1 AND a.empresa_id=$2 AND a.fecha_meta=$3`,
-      [detail.tarea_id, detail.empresa_id, detail.fecha_meta]);
-      await client.query(
-        "UPDATE asignaciones SET estado=$1 WHERE tarea_id=$2 AND empresa_id=$3 AND fecha_meta=$4",
-        [data.estado, detail.tarea_id, detail.empresa_id, detail.fecha_meta],
-      );
-    }
-    await synchronizeOperationalStates(client);
-    await client.query("COMMIT");
-    return { rendimiento: rating };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function getProfile(userId) {
-  await synchronizeOperationalStates();
-  const [profile, stats] = await Promise.all([
-    pool.query(`
-      SELECT u.id,u.nom_res,u.alias,u.usuario,u.rol,u.estado,u.fecha_creacion,
-        a.nombre_area,s.nombre_subarea
-      FROM usuarios u LEFT JOIN subareas s ON s.id=u.subarea_id
-      LEFT JOIN areas a ON a.id=s.area_id WHERE u.id=$1`, [userId]),
-    pool.query(`
-      SELECT COUNT(*)::int total,
-        COUNT(*) FILTER (WHERE a.estado='completada')::int completadas,
-        COUNT(*) FILTER (WHERE a.estado<>'completada')::int pendientes,
-        COUNT(*) FILTER (WHERE a.estado='vencida')::int vencidas,
-        COUNT(*) FILTER (WHERE a.estado='completada' AND rt.rendimiento='OPTIMO')::int optimas
-      FROM asignaciones a LEFT JOIN registros_tareas rt
-        ON rt.asignacion_id=a.id AND rt.usuario_id=a.usuario_id
-      WHERE a.usuario_id=$1`, [userId]),
-  ]);
-  return { profile: profile.rows[0], stats: stats.rows[0] };
+  if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
+  const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
+  if (error) throw dbError(error);
 }
 
 async function deleteUser(id, actor) {
-  if (Number(id) === Number(actor.id)) {
-    throw Object.assign(new Error("No puedes eliminar tu propia cuenta mientras estás conectado."), { status: 400 });
+  const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
+  if (error) throw dbError(error);
+  if (!target) throw httpError("Usuario no encontrado.", 404);
+  if (actor.rol === "jefe_tienda" && (target.tienda_id !== actor.tienda_id || target.rol !== "empleado")) {
+    throw httpError("No puedes eliminar este usuario.", 403);
   }
-  const target = await pool.query("SELECT rol,estado FROM usuarios WHERE id=$1", [id]);
-  if (!target.rowCount) throw Object.assign(new Error("Usuario no encontrado."), { status: 404 });
-  if (target.rows[0].rol === "admin" && target.rows[0].estado === "activo") {
-    const admins = await pool.query("SELECT COUNT(*)::int count FROM usuarios WHERE rol='admin' AND estado='activo'");
-    if (admins.rows[0].count <= 1) {
-      throw Object.assign(new Error("Debe existir al menos un administrador activo."), { status: 400 });
-    }
+  if (Number(id) === Number(actor.id)) throw httpError("No puedes eliminarte a ti mismo.", 400);
+  const [asistenciasCheck, progresoCheck] = await Promise.all([
+    supabase.from("asistencias").select("id", { count: "exact", head: true }).eq("usuario_id", id),
+    supabase.from("capacitacion_progreso").select("id", { count: "exact", head: true }).eq("usuario_id", id),
+  ]);
+  const tieneHistorial = (asistenciasCheck.count || 0) > 0 || (progresoCheck.count || 0) > 0;
+  if (tieneHistorial) {
+    const { error: updateError } = await supabase.from("usuarios").update({ estado: "inactivo" }).eq("id", id);
+    if (updateError) throw dbError(updateError);
+    return { eliminado: false, inhabilitado: true };
   }
-  await pool.query("DELETE FROM usuarios WHERE id=$1", [id]);
+  const { error: deleteError } = await supabase.from("usuarios").delete().eq("id", id);
+  if (deleteError) throw dbError(deleteError);
+  return { eliminado: true, inhabilitado: false };
 }
 
-async function removeRecord(table, id) {
-  const allowed = new Set(["empresas", "tareas"]);
-  if (!allowed.has(table)) throw Object.assign(new Error("Recurso inválido."), { status: 400 });
-  const result = await pool.query(`DELETE FROM ${table} WHERE id=$1`, [id]);
-  if (!result.rowCount) throw Object.assign(new Error("Registro no encontrado."), { status: 404 });
+// ---------- Tiendas ----------
+
+async function listTiendas() {
+  const { data, error } = await supabase
+    .from("tiendas")
+    .select("id,nombre,direccion,estado,fecha_creacion,jefe_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos)")
+    .order("nombre");
+  if (error) throw dbError(error);
+  return data.map((row) => ({
+    ...row,
+    jefe: undefined,
+    jefe_nombre: row.jefe ? `${row.jefe.nombres} ${row.jefe.apellidos}` : null,
+  }));
 }
+
+async function syncJefe(tiendaId, jefeId) {
+  const { data: jefe } = await supabase.from("usuarios").select("id,rol,tienda_id,estado").eq("id", jefeId).maybeSingle();
+  if (!jefe || jefe.estado !== "activo") throw httpError("El usuario seleccionado como jefe no existe o está inactivo.", 400);
+  if (jefe.rol !== "jefe_tienda" || jefe.tienda_id !== tiendaId) {
+    const { error } = await supabase.from("usuarios").update({ rol: "jefe_tienda", tienda_id: tiendaId }).eq("id", jefeId);
+    if (error) throw dbError(error);
+  }
+}
+
+async function createTienda(event) {
+  const data = bodyOf(event);
+  validateTiendaPayload(data);
+  const { data: created, error } = await supabase.from("tiendas")
+    .insert({
+      nombre: cleanText(data.nombre),
+      direccion: data.direccion ? cleanText(data.direccion) : null,
+      estado: data.estado,
+    })
+    .select("id").single();
+  if (error) throw dbError(error);
+  if (data.jefe_id) {
+    await syncJefe(created.id, Number(data.jefe_id));
+    const { error: linkError } = await supabase.from("tiendas").update({ jefe_id: Number(data.jefe_id) }).eq("id", created.id);
+    if (linkError) throw dbError(linkError);
+  }
+  return created;
+}
+
+async function updateTienda(event, id) {
+  const data = bodyOf(event);
+  validateTiendaPayload(data);
+  const jefeId = data.jefe_id ? Number(data.jefe_id) : null;
+  if (jefeId) await syncJefe(Number(id), jefeId);
+  const { error } = await supabase.from("tiendas").update({
+    nombre: cleanText(data.nombre),
+    direccion: data.direccion ? cleanText(data.direccion) : null,
+    estado: data.estado,
+    jefe_id: jefeId,
+  }).eq("id", id);
+  if (error) throw dbError(error);
+}
+
+// ---------- Asistencias ----------
+
+async function listAsistenciasDia(event, user) {
+  const query = event.queryStringParameters || {};
+  const tiendaId = user.rol === "admin" ? Number(query.tienda_id) : user.tienda_id;
+  if (!tiendaId) throw httpError("Selecciona una tienda.", 400);
+  const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
+  let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado")
+    .eq("tienda_id", tiendaId).in("rol", ["empleado", "jefe_tienda"]).order("nombres");
+  if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
+  const [{ data: empleados, error: e1 }, { data: registros, error: e2 }] = await Promise.all([
+    empleadosQuery,
+    supabase.from("asistencias").select("*").eq("tienda_id", tiendaId).eq("fecha", fecha),
+  ]);
+  if (e1) throw dbError(e1);
+  if (e2) throw dbError(e2);
+  const byUser = new Map(registros.map((row) => [row.usuario_id, row]));
+  return {
+    fecha,
+    empleados: empleados.map((emp) => ({
+      usuario_id: emp.id, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado,
+      registro: byUser.get(emp.id) || null,
+    })),
+  };
+}
+
+async function guardarAsistenciasLote(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["fecha", "marcas"]);
+  if (!isISODate(data.fecha)) throw httpError("La fecha no es válida.", 400);
+  if (!Array.isArray(data.marcas) || !data.marcas.length) throw httpError("No hay marcas para guardar.", 400);
+  const usuarioIds = validIds(data.marcas.map((marca) => marca.usuario_id));
+  const { data: empleados, error: eError } = await supabase.from("usuarios")
+    .select("id,tienda_id").in("id", usuarioIds);
+  if (eError) throw dbError(eError);
+  if (empleados.length !== usuarioIds.length || empleados.some((emp) => emp.tienda_id !== user.tienda_id)) {
+    throw httpError("Uno de los trabajadores seleccionados no pertenece a tu tienda.", 400);
+  }
+  const tiendaByUser = new Map(empleados.map((emp) => [emp.id, emp.tienda_id]));
+
+  const { data: existentes, error: exError } = await supabase.from("asistencias")
+    .select("usuario_id,estado,observaciones").eq("fecha", data.fecha).in("usuario_id", usuarioIds);
+  if (exError) throw dbError(exError);
+  const existenteByUser = new Map(existentes.map((row) => [row.usuario_id, row]));
+
+  const upserts = [];
+  const logs = [];
+  for (const marca of data.marcas) {
+    const usuarioId = Number(marca.usuario_id);
+    if (!asistenciaEstados.has(marca.estado)) throw httpError("Uno de los estados marcados no es válido.", 400);
+    const observaciones = marca.observaciones ? cleanText(marca.observaciones).slice(0, 500) : null;
+    const existente = existenteByUser.get(usuarioId);
+    if (existente && existente.estado === marca.estado && (existente.observaciones || null) === observaciones) continue;
+    const tiendaId = tiendaByUser.get(usuarioId);
+    upserts.push({
+      usuario_id: usuarioId, tienda_id: tiendaId, fecha: data.fecha, estado: marca.estado,
+      observaciones, registrado_por: user.id,
+    });
+    logs.push({
+      usuario_id: usuarioId, tienda_id: tiendaId, fecha: data.fecha,
+      operacion: existente ? "edicion" : "creacion",
+      estado_anterior: existente ? existente.estado : null, estado_nuevo: marca.estado,
+      realizado_por: user.id,
+    });
+  }
+  if (upserts.length) {
+    const { error } = await supabase.from("asistencias").upsert(upserts, { onConflict: "usuario_id,fecha" });
+    if (error) throw dbError(error);
+    const { error: logError } = await supabase.from("log_asistencias").insert(logs);
+    if (logError) throw dbError(logError);
+  }
+  return { actualizados: upserts.length };
+}
+
+async function eliminarAsistencia(id, user) {
+  const { data: existente, error } = await supabase.from("asistencias")
+    .select("id,usuario_id,tienda_id,fecha,estado").eq("id", id).maybeSingle();
+  if (error) throw dbError(error);
+  if (!existente || existente.tienda_id !== user.tienda_id) throw httpError("Registro no encontrado.", 404);
+  const { error: deleteError } = await supabase.from("asistencias").delete().eq("id", id);
+  if (deleteError) throw dbError(deleteError);
+  const { error: logError } = await supabase.from("log_asistencias").insert({
+    usuario_id: existente.usuario_id, tienda_id: existente.tienda_id, fecha: existente.fecha,
+    operacion: "eliminacion", estado_anterior: existente.estado, estado_nuevo: null, realizado_por: user.id,
+  });
+  if (logError) throw dbError(logError);
+}
+
+async function listAsistenciasHistorial(event, user) {
+  const query = event.queryStringParameters || {};
+  const tiendaId = user.rol === "admin" ? (query.tienda_id ? Number(query.tienda_id) : null) : user.tienda_id;
+  const desde = query.desde && isISODate(query.desde) ? query.desde : `${todayISO().slice(0, 7)}-01`;
+  const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
+  const ascending = query.orden === "asc";
+  let request = supabase.from("asistencias")
+    .select("*, usuarios!asistencias_usuario_id_fkey!inner(nombres,apellidos,usuario,estado)")
+    .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending });
+  if (tiendaId) request = request.eq("tienda_id", tiendaId);
+  if (query.estado_usuario === "activo" || query.estado_usuario === "inactivo") {
+    request = request.eq("usuarios.estado", query.estado_usuario);
+  }
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  return data.map((row) => ({
+    ...row, usuarios: undefined,
+    nombre: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "",
+    usuario: row.usuarios?.usuario || "",
+  }));
+}
+
+async function listLogAsistencias(event, user) {
+  const query = event.queryStringParameters || {};
+  const desde = query.desde && isISODate(query.desde) ? query.desde : `${todayISO().slice(0, 7)}-01`;
+  const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
+  let request = supabase.from("log_asistencias")
+    .select("id,fecha,operacion,estado_anterior,estado_nuevo,created_at,"
+      + "usuarios!log_asistencias_usuario_id_fkey(nombres,apellidos),"
+      + "realizador:usuarios!log_asistencias_realizado_por_fkey(nombres,apellidos)")
+    .eq("tienda_id", user.tienda_id)
+    .gte("created_at", `${desde}T00:00:00`).lte("created_at", `${hasta}T23:59:59`)
+    .order("created_at", { ascending: false });
+  if (operacionesLog.has(query.operacion)) request = request.eq("operacion", query.operacion);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  return data.map((row) => ({
+    id: row.id, fecha: row.fecha, operacion: row.operacion, created_at: row.created_at,
+    estado_anterior: row.estado_anterior ? (estadoLabels[row.estado_anterior] || row.estado_anterior) : null,
+    estado_nuevo: row.estado_nuevo ? (estadoLabels[row.estado_nuevo] || row.estado_nuevo) : null,
+    trabajador: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "",
+    realizado_por: row.realizador ? `${row.realizador.nombres} ${row.realizador.apellidos}` : "",
+  }));
+}
+
+async function misAsistencias(event, user) {
+  const query = event.queryStringParameters || {};
+  const desde = query.desde && isISODate(query.desde) ? query.desde : `${todayISO().slice(0, 7)}-01`;
+  const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
+  const { data, error } = await supabase.from("asistencias").select("*")
+    .eq("usuario_id", user.id).gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false });
+  if (error) throw dbError(error);
+  return data;
+}
+
+// ---------- Cursos y Encargados (catálogo, solo admin) ----------
+
+async function listCursos() {
+  const { data, error } = await supabase.from("cursos").select("*").order("nombre");
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function createCurso(event) {
+  const data = bodyOf(event);
+  validateCursoPayload(data);
+  const { data: created, error } = await supabase.from("cursos")
+    .insert({ nombre: cleanText(data.nombre), competencia: cleanText(data.competencia), activo: data.activo !== false })
+    .select().single();
+  if (error) throw dbError(error);
+  return created;
+}
+
+async function updateCurso(event, id) {
+  const data = bodyOf(event);
+  validateCursoPayload(data);
+  const { error } = await supabase.from("cursos")
+    .update({ nombre: cleanText(data.nombre), competencia: cleanText(data.competencia), activo: !!data.activo })
+    .eq("id", id);
+  if (error) throw dbError(error);
+}
+
+async function deleteCurso(id) {
+  const { count, error: countError } = await supabase.from("capacitacion_progreso")
+    .select("id", { count: "exact", head: true }).eq("curso_id", id);
+  if (countError) throw dbError(countError);
+  if (count) {
+    const { error } = await supabase.from("cursos").update({ activo: false }).eq("id", id);
+    if (error) throw dbError(error);
+    return { eliminado: false, inhabilitado: true };
+  }
+  const { error } = await supabase.from("cursos").delete().eq("id", id);
+  if (error) throw dbError(error);
+  return { eliminado: true, inhabilitado: false };
+}
+
+async function listEncargados() {
+  const { data, error } = await supabase.from("encargados").select("*").order("nombre");
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function createEncargado(event) {
+  const data = bodyOf(event);
+  validateEncargadoPayload(data);
+  const { data: created, error } = await supabase.from("encargados")
+    .insert({ nombre: cleanText(data.nombre), activo: data.activo !== false }).select().single();
+  if (error) throw dbError(error);
+  return created;
+}
+
+async function updateEncargado(event, id) {
+  const data = bodyOf(event);
+  validateEncargadoPayload(data);
+  const { error } = await supabase.from("encargados")
+    .update({ nombre: cleanText(data.nombre), activo: !!data.activo }).eq("id", id);
+  if (error) throw dbError(error);
+}
+
+// ---------- Capacitaciones (progreso por trabajador, jefe de tienda) ----------
+
+async function listTrabajadores(event, user) {
+  const query = event.queryStringParameters || {};
+  let request = supabase.from("usuarios")
+    .select("id,nombres,apellidos,usuario,rol,estado")
+    .eq("tienda_id", user.tienda_id).in("rol", ["empleado", "jefe_tienda"]).order("nombres");
+  if (query.estado === "activo" || query.estado === "inactivo") request = request.eq("estado", query.estado);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  if (!query.curso_id) return data;
+  const cursoId = Number(query.curso_id);
+  const ids = data.map((t) => t.id);
+  const { data: progreso, error: pError } = await supabase.from("capacitacion_progreso")
+    .select("usuario_id,estado").eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]);
+  if (pError) throw dbError(pError);
+  const byUser = new Map(progreso.map((row) => [row.usuario_id, row.estado]));
+  return data.map((t) => ({ ...t, progreso_estado: byUser.get(t.id) || "pendiente" }));
+}
+
+async function getTrabajadorPerfil(id, user) {
+  const { data: trabajador, error } = await supabase.from("usuarios")
+    .select("id,nombres,apellidos,usuario,rol,estado,tienda_id").eq("id", id).maybeSingle();
+  if (error) throw dbError(error);
+  if (!trabajador || trabajador.tienda_id !== user.tienda_id) throw httpError("Trabajador no encontrado.", 404);
+
+  const { data: progresoRows, error: progresoError } = await supabase.from("capacitacion_progreso")
+    .select("curso_id,estado,duracion_horas,encargado_id,fecha_finalizacion,encargados(id,nombre,activo)")
+    .eq("usuario_id", id);
+  if (progresoError) throw dbError(progresoError);
+  const progresoByCurso = new Map(progresoRows.map((row) => [row.curso_id, row]));
+
+  const cursoIdsConHistorial = [...progresoByCurso.keys()];
+  let cursosQuery = supabase.from("cursos").select("*");
+  cursosQuery = cursoIdsConHistorial.length
+    ? cursosQuery.or(`activo.eq.true,id.in.(${cursoIdsConHistorial.join(",")})`)
+    : cursosQuery.eq("activo", true);
+  const { data: cursos, error: cursosError } = await cursosQuery.order("nombre");
+  if (cursosError) throw dbError(cursosError);
+
+  const items = cursos.map((curso) => {
+    const progreso = progresoByCurso.get(curso.id);
+    return {
+      curso_id: curso.id, titulo: curso.nombre, competencia: curso.competencia, curso_activo: curso.activo,
+      estado: progreso?.estado || "pendiente",
+      duracion_horas: progreso?.duracion_horas ?? null,
+      encargado_id: progreso?.encargado_id ?? null,
+      encargado_nombre: progreso?.encargados
+        ? `${progreso.encargados.nombre}${progreso.encargados.activo ? "" : " (inactivo)"}` : null,
+      fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
+    };
+  });
+  const completados = items.filter((item) => item.estado === "completado").length;
+  return {
+    trabajador: {
+      id: trabajador.id, nombres: trabajador.nombres, apellidos: trabajador.apellidos,
+      usuario: trabajador.usuario, rol: trabajador.rol, estado: trabajador.estado,
+    },
+    resumen: { completados, total: items.length },
+    cursos: items,
+  };
+}
+
+async function guardarProgreso(event, usuarioId, cursoId, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["estado", "encargado_id"]);
+  if (!progresoEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  const { data: trabajador, error: tError } = await supabase.from("usuarios")
+    .select("id,tienda_id").eq("id", usuarioId).maybeSingle();
+  if (tError) throw dbError(tError);
+  if (!trabajador || trabajador.tienda_id !== user.tienda_id) throw httpError("Trabajador no encontrado.", 404);
+  const { data: encargado, error: eError } = await supabase.from("encargados")
+    .select("id").eq("id", data.encargado_id).maybeSingle();
+  if (eError) throw dbError(eError);
+  if (!encargado) throw httpError("El encargado seleccionado no existe.", 400);
+  const payload = {
+    curso_id: Number(cursoId), usuario_id: Number(usuarioId), tienda_id: trabajador.tienda_id,
+    estado: data.estado, duracion_horas: data.duracion_horas ? Number(data.duracion_horas) : null,
+    encargado_id: Number(data.encargado_id),
+    fecha_finalizacion: data.estado === "completado" ? todayISO() : null,
+    actualizado_por: user.id, updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from("capacitacion_progreso").upsert(payload, { onConflict: "curso_id,usuario_id" });
+  if (error) throw dbError(error);
+}
+
+async function getResumenCurso(event, user) {
+  const query = event.queryStringParameters || {};
+  const cursoId = Number(query.curso_id);
+  if (!Number.isInteger(cursoId) || cursoId < 1) throw httpError("Selecciona un curso.", 400);
+  const tiendaId = user.rol === "admin" ? (query.tienda_id ? Number(query.tienda_id) : null) : user.tienda_id;
+
+  let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol")
+    .eq("estado", "activo").in("rol", ["empleado", "jefe_tienda"]);
+  if (tiendaId) trabajadoresQuery = trabajadoresQuery.eq("tienda_id", tiendaId);
+  const { data: trabajadores, error: tError } = await trabajadoresQuery;
+  if (tError) throw dbError(tError);
+
+  const ids = trabajadores.map((t) => t.id);
+  const { data: progresoRows, error: pError } = await supabase.from("capacitacion_progreso")
+    .select("usuario_id,estado,duracion_horas,fecha_finalizacion,encargados(nombre)")
+    .eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]);
+  if (pError) throw dbError(pError);
+  const byUser = new Map(progresoRows.map((row) => [row.usuario_id, row]));
+
+  const grupos = { completado: [], en_curso: [], pendiente: [] };
+  for (const trabajador of trabajadores) {
+    const progreso = byUser.get(trabajador.id);
+    const estado = progreso?.estado || "pendiente";
+    grupos[estado].push({
+      usuario_id: trabajador.id, nombre: `${trabajador.nombres} ${trabajador.apellidos}`,
+      usuario: trabajador.usuario, rol: trabajador.rol, estado,
+      duracion_horas: progreso?.duracion_horas ?? null,
+      encargado_nombre: progreso?.encargados?.nombre || null,
+      fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
+    });
+  }
+  const total = trabajadores.length;
+  return {
+    total, completados: grupos.completado.length, en_curso: grupos.en_curso.length, pendientes: grupos.pendiente.length,
+    porcentaje: total ? Math.round((grupos.completado.length / total) * 100) : 0,
+    grupos,
+  };
+}
+
+async function asignarLote(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["curso_id", "estado", "encargado_id", "usuario_ids"]);
+  if (!progresoEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  const cursoId = Number(data.curso_id);
+  const encargadoId = Number(data.encargado_id);
+  const ids = validIds(data.usuario_ids);
+  if (!ids.length) throw httpError("Selecciona al menos un trabajador.", 400);
+  const { data: encargado, error: eError } = await supabase.from("encargados")
+    .select("id").eq("id", encargadoId).maybeSingle();
+  if (eError) throw dbError(eError);
+  if (!encargado) throw httpError("El encargado seleccionado no existe.", 400);
+  const { data: trabajadores, error: tError } = await supabase.from("usuarios")
+    .select("id,tienda_id").in("id", ids);
+  if (tError) throw dbError(tError);
+  if (trabajadores.length !== ids.length || trabajadores.some((t) => t.tienda_id !== user.tienda_id)) {
+    throw httpError("Uno de los trabajadores seleccionados no pertenece a tu tienda.", 400);
+  }
+  const fechaFinalizacion = data.estado === "completado" ? todayISO() : null;
+  const rows = ids.map((usuario_id) => {
+    const row = {
+      curso_id: cursoId, usuario_id, tienda_id: user.tienda_id, estado: data.estado,
+      encargado_id: encargadoId, fecha_finalizacion: fechaFinalizacion,
+      actualizado_por: user.id, updated_at: new Date().toISOString(),
+    };
+    if (data.duracion_horas) row.duracion_horas = Number(data.duracion_horas);
+    return row;
+  });
+  const { error } = await supabase.from("capacitacion_progreso").upsert(rows, { onConflict: "curso_id,usuario_id" });
+  if (error) throw dbError(error);
+  return { actualizados: ids.length };
+}
+
+async function misCapacitaciones(user) {
+  const { data: progresoRows, error } = await supabase.from("capacitacion_progreso")
+    .select("curso_id,estado,duracion_horas,fecha_finalizacion,encargados(nombre,activo),cursos(id,nombre,competencia,activo)")
+    .eq("usuario_id", user.id);
+  if (error) throw dbError(error);
+  const progresoByCurso = new Map(progresoRows.filter((row) => row.cursos).map((row) => [row.curso_id, row]));
+  const { data: cursosActivos, error: cError } = await supabase.from("cursos").select("id,nombre,competencia,activo").eq("activo", true);
+  if (cError) throw dbError(cError);
+  const allCursos = new Map();
+  for (const curso of cursosActivos) allCursos.set(curso.id, curso);
+  for (const row of progresoRows) if (row.cursos) allCursos.set(row.cursos.id, row.cursos);
+  return [...allCursos.values()].map((curso) => {
+    const progreso = progresoByCurso.get(curso.id);
+    return {
+      curso_id: curso.id, titulo: curso.nombre, competencia: curso.competencia,
+      estado: progreso?.estado || "pendiente",
+      duracion_horas: progreso?.duracion_horas ?? null,
+      encargado_nombre: progreso?.encargados
+        ? `${progreso.encargados.nombre}${progreso.encargados.activo ? "" : " (inactivo)"}` : null,
+      fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
+    };
+  }).sort((a, b) => a.titulo.localeCompare(b.titulo));
+}
+
+// ---------- Perfil ----------
+
+async function getPerfil(user) {
+  const { data, error } = await supabase.from("usuarios")
+    .select("id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_creacion,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .eq("id", user.id).single();
+  if (error) throw dbError(error);
+  const monthStart = `${todayISO().slice(0, 7)}-01`;
+  const today = todayISO();
+  const { data: mes } = await supabase.from("asistencias").select("estado")
+    .eq("usuario_id", user.id).gte("fecha", monthStart).lte("fecha", today);
+  const total = mes?.length || 0;
+  const presentes = mes?.filter((row) => presenteEstados.has(row.estado)).length || 0;
+  return {
+    ...data, tiendas: undefined, tienda_nombre: data.tiendas?.nombre || null,
+    asistencia_mes: total ? Math.round((presentes / total) * 100) : null,
+    dias_registrados_mes: total,
+  };
+}
+
+// ---------- Dashboard ----------
+
+async function countRows(table, build) {
+  let request = supabase.from(table).select("id", { count: "exact", head: true });
+  if (build) request = build(request);
+  const { count, error } = await request;
+  if (error) throw dbError(error);
+  return count || 0;
+}
+
+async function getSummary(tiendaFilter, today, monthStart) {
+  const [tiendasActivas, usuariosActivos, hoyPresentes, mesTotal, mesPresentes, cursosEnCurso] = await Promise.all([
+    tiendaFilter ? Promise.resolve(null) : countRows("tiendas", (q) => q.eq("estado", "activo")),
+    countRows("usuarios", (q) => {
+      const scoped = q.eq("estado", "activo").in("rol", ["jefe_tienda", "empleado"]);
+      return tiendaFilter ? scoped.eq("tienda_id", tiendaFilter) : scoped;
+    }),
+    countRows("asistencias", (q) => {
+      const scoped = q.eq("fecha", today).in("estado", [...presenteEstados]);
+      return tiendaFilter ? scoped.eq("tienda_id", tiendaFilter) : scoped;
+    }),
+    countRows("asistencias", (q) => {
+      const scoped = q.gte("fecha", monthStart).lte("fecha", today);
+      return tiendaFilter ? scoped.eq("tienda_id", tiendaFilter) : scoped;
+    }),
+    countRows("asistencias", (q) => {
+      const scoped = q.gte("fecha", monthStart).lte("fecha", today).in("estado", [...presenteEstados]);
+      return tiendaFilter ? scoped.eq("tienda_id", tiendaFilter) : scoped;
+    }),
+    countRows("capacitacion_progreso", (q) => {
+      const scoped = q.eq("estado", "en_curso");
+      return tiendaFilter ? scoped.eq("tienda_id", tiendaFilter) : scoped;
+    }),
+  ]);
+  return {
+    tiendas_activas: tiendasActivas,
+    usuarios_activos: usuariosActivos,
+    asistencias_hoy: hoyPresentes,
+    tasa_asistencia_mes: mesTotal ? Math.round((mesPresentes / mesTotal) * 100) : 0,
+    cursos_en_curso: cursosEnCurso,
+  };
+}
+
+async function getStates(tiendaFilter, monthStart, today) {
+  let request = supabase.from("asistencias").select("estado").gte("fecha", monthStart).lte("fecha", today);
+  if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const counts = {};
+  for (const row of data) counts[row.estado] = (counts[row.estado] || 0) + 1;
+  return Object.entries(counts).map(([estado, cantidad]) => ({ estado, cantidad })).sort((a, b) => b.cantidad - a.cantidad);
+}
+
+async function getTrend(tiendaFilter, todayStr) {
+  const months = [];
+  const cursor = new Date(`${todayStr}T00:00:00Z`);
+  cursor.setUTCDate(1);
+  for (let i = 0; i < 12; i += 1) {
+    const year = cursor.getUTCFullYear();
+    const month = cursor.getUTCMonth();
+    const start = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+    const naturalEnd = new Date(Date.UTC(year, month + 1, 0));
+    const cap = new Date(`${todayStr}T00:00:00Z`);
+    const end = (naturalEnd > cap ? cap : naturalEnd).toISOString().slice(0, 10);
+    months.unshift({ label: start.slice(0, 7), start, end });
+    cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+  }
+  return Promise.all(months.map(async ({ label, start, end }) => {
+    let request = supabase.from("asistencias").select("estado").gte("fecha", start).lte("fecha", end);
+    if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
+    const { data } = await request;
+    const total = data?.length || 0;
+    const presentes = data?.filter((row) => presenteEstados.has(row.estado)).length || 0;
+    return { mes: label, tasa: total ? Math.round((presentes / total) * 100) : 0 };
+  }));
+}
+
+async function getWorkload(tiendaFilter, monthStart, today) {
+  let request = supabase.from("asistencias").select("usuario_id,tienda_id,estado").gte("fecha", monthStart).lte("fecha", today);
+  if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const groupKey = tiendaFilter ? "usuario_id" : "tienda_id";
+  const groups = new Map();
+  for (const row of data) {
+    const key = row[groupKey];
+    if (!groups.has(key)) groups.set(key, { presentes: 0, otros: 0, faltas: 0, total: 0 });
+    const group = groups.get(key);
+    group.total += 1;
+    if (presenteEstados.has(row.estado)) group.presentes += 1;
+    else if (row.estado === "falta") group.faltas += 1;
+    else group.otros += 1;
+  }
+  const ids = [...groups.keys()];
+  if (!ids.length) return [];
+  const names = new Map();
+  if (tiendaFilter) {
+    const { data: users } = await supabase.from("usuarios").select("id,nombres,apellidos").in("id", ids);
+    for (const user of users || []) names.set(user.id, `${user.nombres} ${user.apellidos}`.trim());
+  } else {
+    const { data: tiendas } = await supabase.from("tiendas").select("id,nombre").in("id", ids);
+    for (const tienda of tiendas || []) names.set(tienda.id, tienda.nombre);
+  }
+  return [...groups.entries()]
+    .map(([id, group]) => ({ nombre: names.get(id) || `#${id}`, ...group }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 8);
+}
+
+async function getCourseProgress(tiendaFilter) {
+  const { data: cursos, error: cError } = await supabase.from("cursos").select("id,nombre").eq("activo", true).order("nombre");
+  if (cError) throw dbError(cError);
+  if (!cursos.length) return [];
+  const cursoIds = cursos.map((curso) => curso.id);
+
+  let progresoQuery = supabase.from("capacitacion_progreso").select("curso_id,estado").in("curso_id", cursoIds);
+  if (tiendaFilter) progresoQuery = progresoQuery.eq("tienda_id", tiendaFilter);
+  const { data: progreso, error: pError } = await progresoQuery;
+  if (pError) throw dbError(pError);
+
+  let trabajadoresQuery = supabase.from("usuarios").select("id", { count: "exact", head: true })
+    .eq("estado", "activo").in("rol", ["empleado", "jefe_tienda"]);
+  if (tiendaFilter) trabajadoresQuery = trabajadoresQuery.eq("tienda_id", tiendaFilter);
+  const { count: totalTrabajadores, error: tError } = await trabajadoresQuery;
+  if (tError) throw dbError(tError);
+
+  const counts = new Map(cursos.map((curso) => [curso.id, { completados: 0, en_curso: 0 }]));
+  for (const row of progreso) {
+    const bucket = counts.get(row.curso_id);
+    if (!bucket) continue;
+    if (row.estado === "completado") bucket.completados += 1;
+    else if (row.estado === "en_curso") bucket.en_curso += 1;
+  }
+  return cursos
+    .map((curso) => {
+      const bucket = counts.get(curso.id);
+      const pendientes = Math.max((totalTrabajadores || 0) - bucket.completados - bucket.en_curso, 0);
+      return { titulo: curso.nombre, completados: bucket.completados, en_curso: bucket.en_curso, pendientes };
+    })
+    .sort((a, b) => b.pendientes - a.pendientes)
+    .slice(0, 6);
+}
+
+async function getDashboard(user) {
+  const tiendaFilter = user.rol === "admin" ? null : user.tienda_id;
+  const today = todayISO();
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const [summary, states, trend, workload, progresoCursos] = await Promise.all([
+    getSummary(tiendaFilter, today, monthStart),
+    getStates(tiendaFilter, monthStart, today),
+    getTrend(tiendaFilter, today),
+    getWorkload(tiendaFilter, monthStart, today),
+    getCourseProgress(tiendaFilter),
+  ]);
+  return { summary, states, trend, workload, progresoCursos };
+}
+
+// ---------- Documentos (Excel) ----------
+
+function excelSheetName(name) {
+  return String(name || "Hoja").replace(/[\\/?*[\]:]/g, "").slice(0, 31) || "Hoja";
+}
+
+function styleHeader(worksheet) {
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF172235" } };
+  worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: worksheet.columns.length } };
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+}
+
+async function fetchAsistenciasExport(tiendaId, desde, hasta) {
+  let request = supabase.from("asistencias")
+    .select("fecha,estado,observaciones,usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)")
+    .order("fecha", { ascending: false });
+  if (tiendaId) request = request.eq("tienda_id", tiendaId);
+  if (desde && isISODate(desde)) request = request.gte("fecha", desde);
+  if (hasta && isISODate(hasta)) request = request.lte("fecha", hasta);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  return data.map((row) => ({
+    fecha: row.fecha, empleado: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(),
+    dni: row.usuarios?.dni || "", estado: estadoLabels[row.estado] || row.estado,
+    observaciones: row.observaciones || "",
+  }));
+}
+
+async function fetchCapacitacionesExport(tiendaId, desde, hasta) {
+  let request = supabase.from("capacitacion_progreso")
+    .select("estado,duracion_horas,fecha_finalizacion,updated_at,cursos(nombre,competencia),encargados(nombre),usuarios!capacitacion_progreso_usuario_id_fkey(nombres,apellidos,usuario)")
+    .order("updated_at", { ascending: false });
+  if (tiendaId) request = request.eq("tienda_id", tiendaId);
+  if (desde && isISODate(desde)) request = request.gte("updated_at", `${desde}T00:00:00`);
+  if (hasta && isISODate(hasta)) request = request.lte("updated_at", `${hasta}T23:59:59`);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  return data.map((row) => ({
+    curso: row.cursos?.nombre || "", competencia: row.cursos?.competencia || "",
+    empleado: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(),
+    usuario: row.usuarios?.usuario || "",
+    estado: progresoLabels[row.estado] || row.estado,
+    duracion_horas: row.duracion_horas || "",
+    encargado: row.encargados?.nombre || "",
+    fecha_finalizacion: row.fecha_finalizacion || "",
+  }));
+}
+
+function addAsistenciasSheet(workbook, sheetName, rows) {
+  const sheet = workbook.addWorksheet(excelSheetName(sheetName));
+  sheet.columns = [
+    { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Empleado", key: "empleado", width: 28 },
+    { header: "DNI", key: "dni", width: 12 },
+    { header: "Estado", key: "estado", width: 14 },
+    { header: "Observaciones", key: "observaciones", width: 30 },
+  ];
+  sheet.addRows(rows);
+  styleHeader(sheet);
+}
+
+function addCapacitacionesSheet(workbook, sheetName, rows) {
+  const sheet = workbook.addWorksheet(excelSheetName(sheetName));
+  sheet.columns = [
+    { header: "Curso", key: "curso", width: 26 },
+    { header: "Competencia", key: "competencia", width: 20 },
+    { header: "Empleado", key: "empleado", width: 28 },
+    { header: "Usuario", key: "usuario", width: 16 },
+    { header: "Estado", key: "estado", width: 14 },
+    { header: "Duración (h)", key: "duracion_horas", width: 14 },
+    { header: "Encargado", key: "encargado", width: 20 },
+    { header: "Fecha finalización", key: "fecha_finalizacion", width: 16 },
+  ];
+  sheet.addRows(rows);
+  styleHeader(sheet);
+}
+
+async function excelResponse(workbook, filename) {
+  const buffer = await workbook.xlsx.writeBuffer();
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
+    body: Buffer.from(buffer).toString("base64"),
+    isBase64Encoded: true,
+  };
+}
+
+async function exportTiendaExcel(event, id) {
+  const query = event.queryStringParameters || {};
+  const { data: tienda } = await supabase.from("tiendas").select("nombre").eq("id", id).maybeSingle();
+  if (!tienda) throw httpError("Tienda no encontrada.", 404);
+  const workbook = new ExcelJS.Workbook();
+  const [asistencias, capacitaciones] = await Promise.all([
+    fetchAsistenciasExport(id, query.desde, query.hasta),
+    fetchCapacitacionesExport(id, query.desde, query.hasta),
+  ]);
+  addAsistenciasSheet(workbook, "Asistencias", asistencias);
+  addCapacitacionesSheet(workbook, "Capacitaciones", capacitaciones);
+  return excelResponse(workbook, `${excelSheetName(tienda.nombre)}.xlsx`);
+}
+
+async function exportMiHistorialExcel(event, user) {
+  const query = event.queryStringParameters || {};
+  const rows = await fetchAsistenciasExport(user.tienda_id, query.desde, query.hasta);
+  const workbook = new ExcelJS.Workbook();
+  addAsistenciasSheet(workbook, "Asistencias", rows);
+  return excelResponse(workbook, "mi-tienda-asistencias.xlsx");
+}
+
+async function exportTodoExcel(event) {
+  const query = event.queryStringParameters || {};
+  const tipo = query.tipo === "capacitaciones" ? "capacitaciones" : "asistencias";
+  const { data: tiendas, error } = await supabase.from("tiendas").select("id,nombre").order("nombre");
+  if (error) throw dbError(error);
+  const workbook = new ExcelJS.Workbook();
+  for (const tienda of tiendas) {
+    const rows = tipo === "capacitaciones"
+      ? await fetchCapacitacionesExport(tienda.id, query.desde, query.hasta)
+      : await fetchAsistenciasExport(tienda.id, query.desde, query.hasta);
+    if (tipo === "capacitaciones") addCapacitacionesSheet(workbook, tienda.nombre, rows);
+    else addAsistenciasSheet(workbook, tienda.nombre, rows);
+  }
+  return excelResponse(workbook, `todas-las-tiendas-${tipo}.xlsx`);
+}
+
+// ---------- Router ----------
 
 export async function handler(event) {
   const method = event.httpMethod;
@@ -1301,10 +1099,11 @@ export async function handler(event) {
   try {
     if (method === "OPTIONS") return { statusCode: 204, headers };
     if (path === "/health" && method === "GET") {
-      await pool.query("SELECT 1");
+      const { error } = await supabase.from("tiendas").select("id", { head: true, count: "exact" });
+      if (error) throw dbError(error);
       return json(200, { ok: true, database: "connected" });
     }
-    if (path === "/auth/login" && method === "POST") return login(event);
+    if (path === "/auth/login" && method === "POST") return await login(event);
     if (path === "/auth/logout" && method === "POST") {
       return json(200, { ok: true }, { "Set-Cookie": clearSessionCookie(event) });
     }
@@ -1314,83 +1113,137 @@ export async function handler(event) {
     }
 
     const user = ensureAuth(event);
-    if (path === "/profile" && method === "GET") return json(200, await getProfile(user.id));
-    if (path === "/worker/tasks" && method === "GET") return json(200, await workerTasks(user.id));
-    const workerTaskMatch = path.match(/^\/worker\/tasks\/(\d+)$/);
-    if (workerTaskMatch && method === "GET") return json(200, await workerTaskDetail(Number(workerTaskMatch[1]), user));
-    if (workerTaskMatch && method === "PUT") return json(200, await updateWorkerTask(event, Number(workerTaskMatch[1]), user));
 
-    ensureAuth(event, "admin");
-    if (path === "/dashboard" && method === "GET") return json(200, await getDashboard());
-    if (path === "/references" && method === "GET") return json(200, await getReferences());
+    if (path === "/perfil" && method === "GET") return json(200, await getPerfil(user));
+    if (path === "/mis-asistencias" && method === "GET") return json(200, await misAsistencias(event, user));
+    if (path === "/mis-capacitaciones" && method === "GET") return json(200, await misCapacitaciones(user));
 
-    if (path === "/users" && method === "GET") return json(200, await listUsers());
-    if (path === "/users" && method === "POST") return json(201, await createUser(event));
-    const userMatch = path.match(/^\/users\/(\d+)$/);
+    if (path === "/dashboard" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await getDashboard(user));
+    }
+
+    if (path === "/usuarios" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await listUsers(user));
+    }
+    if (path === "/usuarios" && method === "POST") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(201, await createUser(event, user));
+    }
+    const userMatch = path.match(/^\/usuarios\/(\d+)$/);
     if (userMatch && method === "PUT") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
       await updateUser(event, Number(userMatch[1]), user);
       return json(200, { ok: true });
     }
     if (userMatch && method === "DELETE") {
-      await deleteUser(Number(userMatch[1]), user);
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await deleteUser(Number(userMatch[1]), user));
+    }
+
+    if (path === "/tiendas" && method === "GET") { ensureAuth(event, "admin"); return json(200, await listTiendas()); }
+    if (path === "/tiendas" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createTienda(event)); }
+    const tiendaMatch = path.match(/^\/tiendas\/(\d+)$/);
+    if (tiendaMatch && method === "PUT") {
+      ensureAuth(event, "admin");
+      await updateTienda(event, Number(tiendaMatch[1]));
       return json(200, { ok: true });
     }
 
-    if (path === "/companies" && method === "GET") return json(200, await listCompanies());
-    if (path === "/companies" && method === "POST") return json(201, await createCompany(event));
-    const companyMatch = path.match(/^\/companies\/(\d+)$/);
-    if (companyMatch && method === "GET") return json(200, await companyDetail(Number(companyMatch[1])));
-    if (companyMatch && method === "PUT") {
-      await updateCompany(event, Number(companyMatch[1]));
+    if (path === "/cursos" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await listCursos());
+    }
+    if (path === "/cursos" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createCurso(event)); }
+    const cursoMatch = path.match(/^\/cursos\/(\d+)$/);
+    if (cursoMatch && method === "PUT") {
+      ensureAuth(event, "admin");
+      await updateCurso(event, Number(cursoMatch[1]));
       return json(200, { ok: true });
     }
-    if (companyMatch && method === "DELETE") {
-      await removeRecord("empresas", Number(companyMatch[1]));
+    if (cursoMatch && method === "DELETE") {
+      ensureAuth(event, "admin");
+      return json(200, await deleteCurso(Number(cursoMatch[1])));
+    }
+
+    if (path === "/encargados" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await listEncargados());
+    }
+    if (path === "/encargados" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createEncargado(event)); }
+    const encargadoMatch = path.match(/^\/encargados\/(\d+)$/);
+    if (encargadoMatch && method === "PUT") {
+      ensureAuth(event, "admin");
+      await updateEncargado(event, Number(encargadoMatch[1]));
       return json(200, { ok: true });
     }
 
-    if (path === "/tasks" && method === "GET") return json(200, await listTasks());
-    if (path === "/tasks" && method === "POST") return json(201, await createTask(event));
-    const taskMatch = path.match(/^\/tasks\/(\d+)$/);
-    if (taskMatch && method === "PUT") {
-      await updateTask(event, Number(taskMatch[1]));
+    if (path === "/asistencias" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await listAsistenciasDia(event, user));
+    }
+    if (path === "/asistencias/lote" && method === "PUT") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await guardarAsistenciasLote(event, user));
+    }
+    const asistenciaMatch = path.match(/^\/asistencias\/(\d+)$/);
+    if (asistenciaMatch && method === "DELETE") {
+      ensureAuth(event, "jefe_tienda");
+      await eliminarAsistencia(Number(asistenciaMatch[1]), user);
       return json(200, { ok: true });
     }
-    if (taskMatch && method === "DELETE") {
-      await removeRecord("tareas", Number(taskMatch[1]));
-      return json(200, { ok: true });
+    if (path === "/asistencias/historial" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await listAsistenciasHistorial(event, user));
+    }
+    if (path === "/asistencias/log" && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await listLogAsistencias(event, user));
+    }
+    if (path === "/asistencias/historial/export.xlsx" && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return await exportMiHistorialExcel(event, user);
     }
 
-    if (path === "/assignments" && method === "GET") return json(200, await listAssignments(event));
-    if (path === "/assignments" && method === "POST") return json(201, await createAssignment(event));
-    const assignmentMatch = path.match(/^\/assignments\/(\d+)$/);
-    if (assignmentMatch && method === "PUT") {
-      await updateAssignment(event, Number(assignmentMatch[1]));
+    if (path === "/capacitaciones/trabajadores" && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await listTrabajadores(event, user));
+    }
+    const trabajadorMatch = path.match(/^\/capacitaciones\/trabajadores\/(\d+)$/);
+    if (trabajadorMatch && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await getTrabajadorPerfil(Number(trabajadorMatch[1]), user));
+    }
+    const progresoMatch = path.match(/^\/capacitaciones\/trabajadores\/(\d+)\/cursos\/(\d+)$/);
+    if (progresoMatch && method === "PUT") {
+      ensureAuth(event, "jefe_tienda");
+      await guardarProgreso(event, Number(progresoMatch[1]), Number(progresoMatch[2]), user);
       return json(200, { ok: true });
     }
-    if (assignmentMatch && method === "DELETE") {
-      await deleteAssignment(Number(assignmentMatch[1]));
-      return json(200, { ok: true });
+    if (path === "/capacitaciones/resumen" && method === "GET") {
+      ensureAuth(event, ["admin", "jefe_tienda"]);
+      return json(200, await getResumenCurso(event, user));
+    }
+    if (path === "/capacitaciones/asignar" && method === "PUT") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await asignarLote(event, user));
     }
 
-    if (path === "/schedule" && method === "GET") return json(200, await listSchedule(event));
-    if (path === "/schedule/preview-pdf" && method === "POST") return json(200, await previewPdfSchedule(event));
-    if (path === "/schedule/import" && method === "POST") return json(200, await importSchedule(event));
-    const scheduleAssignMatch = path.match(/^\/schedule\/(\d+)\/assign$/);
-    if (scheduleAssignMatch && method === "POST") {
-      return json(201, await assignSchedule(event, Number(scheduleAssignMatch[1])));
+    if (path === "/documentos/todo.xlsx" && method === "GET") {
+      ensureAuth(event, "admin");
+      return await exportTodoExcel(event);
     }
+    const tiendaExportMatch = path.match(/^\/documentos\/tiendas\/(\d+)\.xlsx$/);
+    if (tiendaExportMatch && method === "GET") {
+      ensureAuth(event, "admin");
+      return await exportTiendaExcel(event, Number(tiendaExportMatch[1]));
+    }
+
     return json(404, { error: "Ruta no encontrada." });
   } catch (error) {
-    const code = error.code === "23505" ? 409
-      : error.code === "23503" ? 409
-      : error.status || 500;
-    if (code >= 500) console.error(error);
-    const message = error.code === "23505"
-      ? "Ya existe un registro con esos datos."
-      : error.code === "23503"
-        ? "No se puede eliminar porque el registro está siendo utilizado."
-        : error.message || "Ocurrió un error inesperado.";
-    return json(code, { error: message });
+    const status = error.status || 500;
+    if (status >= 500) console.error(error);
+    return json(status, { error: error.message || "Ocurrió un error inesperado." });
   }
 }

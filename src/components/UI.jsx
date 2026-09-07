@@ -13,9 +13,9 @@ export function PageHeader({ eyebrow, title, subtitle, action }) {
   );
 }
 
-export function StatusBadge({ value }) {
+export function StatusBadge({ value, label }) {
   const key = String(value || "").toLowerCase().replace(/\s+/g, "-");
-  return <span className={`status status--${key}`}><i />{value || "Sin estado"}</span>;
+  return <span className={`status status--${key}`}><i />{label ?? (value || "Sin estado")}</span>;
 }
 
 export function Modal({ open, title, subtitle, children, onClose, wide = false }) {
@@ -50,11 +50,11 @@ export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy }
   );
 }
 
-export function SearchInput({ value, onChange, placeholder = "Buscar…" }) {
+export function SearchInput({ value, onChange, placeholder = "Buscar…", ...rest }) {
   return (
     <label className="search-input">
       <Search size={18} />
-      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} {...rest} />
     </label>
   );
 }

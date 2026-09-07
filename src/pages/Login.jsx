@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, BarChart3, Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, CalendarCheck2, Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 import { api } from "../lib/api";
 import { Notice } from "../components/UI";
 
@@ -25,17 +25,17 @@ export default function Login({ onLogin }) {
     <main className="login-page">
       <section className="login-story">
         <div className="login-story__mesh" />
-        <div className="login-brand"><span className="brand__mark">N</span><strong>Nexo</strong></div>
+        <div className="login-brand"><span className="brand__mark">A</span><strong>Asiste</strong></div>
         <div className="login-story__content">
-          <span className="eyebrow eyebrow--light">Tu operación, en armonía</span>
-          <h1>El trabajo contable<br />se siente más claro.</h1>
-          <p>Organiza clientes, responsabilidades y vencimientos desde un espacio diseñado para avanzar sin ruido.</p>
+          <span className="eyebrow eyebrow--light">Tus tiendas, en un solo lugar</span>
+          <h1>Asistencias y capacitaciones<br />sin perder el control.</h1>
+          <p>Gestiona el personal de cada tienda, registra su asistencia diaria y sus capacitaciones desde un espacio pensado para avanzar sin ruido.</p>
           <div className="login-features">
-            <div><BarChart3 size={20} /><span><strong>Visibilidad inmediata</strong><small>Indicadores y prioridades siempre a mano.</small></span></div>
+            <div><CalendarCheck2 size={20} /><span><strong>Registro diario</strong><small>Asistencia y capacitaciones al día, por tienda.</small></span></div>
             <div><ShieldCheck size={20} /><span><strong>Acceso protegido</strong><small>Información aislada por roles y permisos.</small></span></div>
           </div>
         </div>
-        <small className="login-story__footer">Nexo Contable · Sistema de gestión operativa</small>
+        <small className="login-story__footer">Asiste · Gestión de tiendas</small>
       </section>
       <section className="login-form-side">
         <video
