@@ -28,9 +28,8 @@ from runtime_config import finalizar_proceso
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "dashboard-web" / "public" / "assets" / "data"
-REQUIRED_FILES = (
+CORE_FILES = (
     "dashboard.json",
-    "dashboard-daily.json",
     "dashboard-sellers.json",
     "dashboard-brand.json",
     "dashboard-predictive.json",
@@ -272,15 +271,23 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         control_session(base_url, api_key, access_token, "claim")
         publisher_session = True
 
-    missing = [name for name in REQUIRED_FILES if not (DATA_DIR / name).is_file()]
+    daily_files = tuple(sorted(path.name for path in DATA_DIR.glob("dashboard-daily-????-??.json")))
+    # Compatibilidad de publicación con una salida antigua mientras se regenera
+    # por primera vez. Las nuevas versiones siempre prefieren las particiones.
+    if not daily_files and (DATA_DIR / "dashboard-daily.json").is_file():
+        daily_files = ("dashboard-daily.json",)
+    required_files = (*CORE_FILES, *daily_files)
+    missing = [name for name in CORE_FILES if not (DATA_DIR / name).is_file()]
+    if not daily_files:
+        missing.append("dashboard-daily-AAAA-MM.json")
     if missing:
         raise PublishError(f"Faltan archivos del dashboard: {', '.join(missing)}")
 
     metadata = parse_metadata()
-    checksums = {name: sha256_file(DATA_DIR / name) for name in REQUIRED_FILES}
-    total_bytes = sum((DATA_DIR / name).stat().st_size for name in REQUIRED_FILES)
+    checksums = {name: sha256_file(DATA_DIR / name) for name in required_files}
+    total_bytes = sum((DATA_DIR / name).stat().st_size for name in required_files)
     combined = hashlib.sha256(
-        "".join(f"{name}:{checksums[name]}" for name in REQUIRED_FILES).encode("utf-8")
+        "".join(f"{name}:{checksums[name]}" for name in required_files).encode("utf-8")
     ).hexdigest()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     version = f"{timestamp}-{combined[:12]}"
@@ -331,7 +338,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
     try:
         file_rows = []
         manifest: dict[str, Any] = {}
-        for name in REQUIRED_FILES:
+        for name in required_files:
             path = DATA_DIR / name
             previous = reusable.get(name)
             unchanged = bool(

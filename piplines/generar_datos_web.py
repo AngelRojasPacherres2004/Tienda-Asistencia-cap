@@ -882,9 +882,18 @@ def generar() -> dict:
 
 def escribir(resultado: dict) -> None:
     SALIDA_PUBLICA.parent.mkdir(parents=True, exist_ok=True)
-    # dashboard-stock.json fue reemplazado por dos archivos de carga diferida.
-    # Eliminar únicamente esta salida regenerable evita duplicar ~60 MB en dist/portable.
-    for obsoleto in (SALIDA_PUBLICA.parent / "dashboard-stock.json", SALIDA_COMPILADA.parent / "dashboard-stock.json"):
+    # Los archivos grandes se sirven por demanda. El diario histórico único fue
+    # reemplazado por particiones mensuales para que elegir un día no descargue
+    # más de 500 MB antes de recalcular los indicadores.
+    obsoletos = [
+        SALIDA_PUBLICA.parent / "dashboard-stock.json",
+        SALIDA_COMPILADA.parent / "dashboard-stock.json",
+        SALIDA_PUBLICA.parent / "dashboard-daily.json",
+        SALIDA_COMPILADA.parent / "dashboard-daily.json",
+        *SALIDA_PUBLICA.parent.glob("dashboard-daily-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
+    ]
+    for obsoleto in obsoletos:
         obsoleto.unlink(missing_ok=True)
     resumen_marca: dict[tuple[int, str, str], dict] = {}
     for registro in resultado["monthlyBrand"]:
@@ -906,8 +915,14 @@ def escribir(resultado: dict) -> None:
             for registro in resultado["monthlySubline"]
         }
     )
+    diario_por_mes: dict[str, list[dict]] = {}
+    for registro in resultado["dailyStore"]:
+        periodo = int(registro["periodId"])
+        nombre = f"dashboard-daily-{periodo // 100:04d}-{periodo % 100:02d}.json"
+        diario_por_mes.setdefault(nombre, []).append(registro)
+
     archivos = {
-        "dashboard-daily.json": {"dailyStore": resultado["dailyStore"]},
+        **{nombre: {"dailyStore": filas_mes} for nombre, filas_mes in sorted(diario_por_mes.items())},
         # El detalle por vendedor se descarga únicamente al abrir Talento.
         "dashboard-sellers.json": {"sellerPerformance": resultado["sellerPerformance"]},
         "dashboard-brand.json": {"monthlyBrand": resultado["monthlyBrand"]},

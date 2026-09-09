@@ -302,6 +302,8 @@ export class App implements OnInit {
   readonly predictiveMermaPct = signal(2);
   readonly dayFilterEnabled = computed(() => this.selectedMonths().length === 1);
   readonly dateRangeActive = computed(() => !!this.fromDate() || !!this.toDate());
+  readonly dayFilterLoading = signal(false);
+  readonly dayFilterError = signal('');
   private shortDay(iso: string): string {
     const [, month, day] = iso.split('-');
     return month && day ? `${day}/${month}` : iso;
@@ -351,10 +353,21 @@ export class App implements OnInit {
   });
 
   async onCalendarDayClick(dateStr: string): Promise<void> {
-    if (!dateStr || !this.dayFilterEnabled()) return;
+    if (!dateStr || !this.dayFilterEnabled() || this.dayFilterLoading()) return;
     const range = this.nextDayRange(dateStr);
-    await this.ensureDailyDetail(range.from, range.to);
-    this.fromDate.set(range.from); this.toDate.set(range.to === range.from ? '' : range.to);
+    this.dayFilterLoading.set(true);
+    this.dayFilterError.set('');
+    try {
+      await this.ensureDailyDetail(range.from, range.to);
+      const month = this.selectedMonths()[0];
+      const expectedPrefix = `${this.year()}-${String(month).padStart(2, '0')}`;
+      if (!range.from.startsWith(expectedPrefix)) return;
+      this.fromDate.set(range.from); this.toDate.set(range.to === range.from ? '' : range.to);
+    } catch {
+      this.dayFilterError.set('No se pudo cargar ese día. Intenta nuevamente.');
+    } finally {
+      this.dayFilterLoading.set(false);
+    }
   }
 
   toggleCalendar(): void {
@@ -715,26 +728,40 @@ export class App implements OnInit {
   }
 
   private async ensureDailyDetail(from: string, to: string): Promise<void> {
-    const key = `${from}|${to}`;
+    const key = from.slice(0, 7);
     if (this.dailyDetailLoaded() && this.dailyDetailRange === key) return;
     if (this.dailyDetailPromise && this.dailyDetailRange === key) return this.dailyDetailPromise;
     this.dailyDetailLoaded.set(false);
     this.dailyDetailRange = key;
-    this.dailyDetailPromise = (async () => {
-      try {
-        const response = await fetch(`/api/dashboard/daily?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { cache: 'no-store' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const detail = await response.json() as { dailyStore?: Monthly[] };
-        this.dailyStoreRows = detail.dailyStore || [];
-      } catch {
-        // Compatibilidad para la publicación estática: conserva el archivo
-        // histórico como último recurso si aún no existe el endpoint local.
-        const detail = await this.loadDetail<{ dailyStore: Monthly[] }>('dashboard-daily.json');
-        this.dailyStoreRows = (detail.dailyStore || []).filter(row => !!row.date && row.date >= from && row.date <= to);
+    const [year, month] = key.split('-').map(Number);
+    const monthFrom = `${key}-01`;
+    const monthTo = `${key}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`;
+    const promise = (async () => {
+      let detail: { dailyStore?: Monthly[] } | undefined;
+      if (!this.cloud.remoteEnabled()) {
+        try {
+          const response = await fetch(`/api/dashboard/daily?from=${encodeURIComponent(monthFrom)}&to=${encodeURIComponent(monthTo)}`, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          detail = await response.json() as { dailyStore?: Monthly[] };
+        } catch {
+          // El servidor local es opcional; los archivos mensuales también sirven
+          // para npm start y para la versión portátil.
+        }
       }
+      if (!detail) {
+        try {
+          detail = await this.loadDetail<{ dailyStore: Monthly[] }>(`dashboard-daily-${key}.json`);
+        } catch {
+          // Permite abrir una publicación anterior durante la transición.
+          detail = await this.loadDetail<{ dailyStore: Monthly[] }>('dashboard-daily.json');
+        }
+      }
+      if (this.dailyDetailRange !== key) return;
+      this.dailyStoreRows = (detail.dailyStore || []).filter(row => !!row.date && row.date >= monthFrom && row.date <= monthTo);
       this.dailyDetailLoaded.set(true);
     })();
-    try { await this.dailyDetailPromise; } finally { this.dailyDetailPromise = undefined; }
+    this.dailyDetailPromise = promise;
+    try { await promise; } finally { if (this.dailyDetailPromise === promise) this.dailyDetailPromise = undefined; }
   }
 
   private salesRows(fromPeriod: number, toPeriod: number): Monthly[] {

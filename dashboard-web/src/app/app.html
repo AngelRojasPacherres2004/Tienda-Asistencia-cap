@@ -71,7 +71,7 @@
                             [class.in-range]="!!fromDate() && !!toDate() && d.date >= fromDate() && d.date <= toDate()"
                             [class.range-start]="d.date === fromDate() && !!toDate()"
                             [class.range-end]="d.date === toDate()"
-                            [disabled]="d.disabled"
+                            [disabled]="d.disabled || dayFilterLoading()"
                             (click)="onCalendarDayClick(d.date)">
                       {{ d.day }}
                     </button>
@@ -79,7 +79,7 @@
                 }
               </div>
               <div class="calendar-footer">
-                <small>{{ dateRangeActive() ? dayFilterLabel() : '' }}</small>
+                <small [class.calendar-error]="dayFilterError()">{{ dayFilterLoading() ? 'Cargando ventas del mes…' : (dayFilterError() || (dateRangeActive() ? dayFilterLabel() : '')) }}</small>
                 <div class="calendar-actions">
                   @if (dateRangeActive()) {
                     <button type="button" class="calendar-clear-btn" (click)="clearDateRange()">Limpiar día</button>
