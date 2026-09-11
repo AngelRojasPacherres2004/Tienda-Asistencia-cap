@@ -96,21 +96,23 @@ export default function Cursos() {
 
       {tab === "cursos" ? (
         !cursos ? <Loading /> : cursos.length ? (
-          <div className="table-panel">
-            <div className="data-table data-table--cursos">
-              <div className="data-table__head"><span>Curso</span><span>Competencia</span><span>Estado</span><span /></div>
-              {cursos.map((curso) => (
-                <div className="data-table__row" key={curso.id}>
-                  <span className="cell-primary">{curso.nombre}</span>
-                  <span>{curso.competencia}</span>
-                  <span><StatusBadge value={curso.activo ? "activo" : "inactivo"} /></span>
-                  <div className="row-actions">
-                    <button onClick={() => { setCursoError(""); setEditingCurso({ ...curso }); }} aria-label="Editar"><Pencil size={15} /></button>
-                    <button className="danger" onClick={() => deleteCurso(curso)} aria-label="Eliminar"><Trash2 size={15} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="course-catalog-grid">
+            {cursos.map((curso) => (
+              <article className="course-catalog-card" key={curso.id}>
+                <header>
+                  <span className="course-catalog-card__icon"><GraduationCap size={19} /></span>
+                  <div><small>Programa de capacitación</small><h3>{curso.nombre}</h3></div>
+                </header>
+                <dl>
+                  <div><dt>Competencia</dt><dd>{curso.competencia}</dd></div>
+                  <div><dt>Estado</dt><dd><StatusBadge value={curso.activo ? "activo" : "inactivo"} /></dd></div>
+                </dl>
+                <footer>
+                  <button className="button button--ghost" onClick={() => { setCursoError(""); setEditingCurso({ ...curso }); }}><Pencil size={15} />Editar</button>
+                  <button className="button button--danger" onClick={() => deleteCurso(curso)}><Trash2 size={15} />Eliminar</button>
+                </footer>
+              </article>
+            ))}
           </div>
         ) : <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos en el catálogo." />
       ) : (

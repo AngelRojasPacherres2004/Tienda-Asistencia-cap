@@ -20,13 +20,13 @@ CREATE TABLE usuarios (
   usuario VARCHAR(40) NOT NULL,
   password TEXT NOT NULL,
   telefono VARCHAR(9),
-  rol TEXT NOT NULL CHECK (rol IN ('admin', 'jefe_tienda', 'empleado')),
+  rol TEXT NOT NULL CHECK (rol IN ('admin', 'jefe_zonal', 'administrador_tienda', 'jefe_tienda', 'empleado')),
   tienda_id INTEGER REFERENCES tiendas (id),
   estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'inactivo')),
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT usuarios_tienda_rol_check CHECK (
-    (rol = 'admin' AND tienda_id IS NULL) OR
-    (rol IN ('jefe_tienda', 'empleado') AND tienda_id IS NOT NULL)
+    (rol IN ('admin', 'jefe_zonal') AND tienda_id IS NULL) OR
+    (rol IN ('administrador_tienda', 'jefe_tienda', 'empleado') AND tienda_id IS NOT NULL)
   )
 );
 CREATE UNIQUE INDEX usuarios_usuario_lower_ux ON usuarios (LOWER(usuario));

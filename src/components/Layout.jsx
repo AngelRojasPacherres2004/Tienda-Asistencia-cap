@@ -1,6 +1,6 @@
 import {
-  BarChart3, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
-  LogOut, Menu, PanelLeftClose, UserCircle2, Users, X,
+  BarChart3, Bell, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
+  FileSearch, FileText, LogOut, Menu, PanelLeftClose, ShieldAlert, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -24,13 +24,26 @@ const navByRole = {
     { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
+  seguridad: [
+    { id: "incidentes", label: "Incidentes", icon: ShieldAlert },
+    { id: "profile", label: "Mi perfil", icon: UserCircle2 },
+  ],
 };
-const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
+const roleLabels = { admin: "Administrador", jefe_zonal: "Administrador zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", gerente: "Gerente", seguridad: "Seguridad" };
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
-  const items = navByRole[user.rol] || [];
+  const items = [
+    ...(navByRole[user.rol] || []),
+    ...(user.rol_db === "gerente" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
+    ...(user.rol_db === "administrador_tienda"
+      ? [
+        { id: "consultas", label: "Consultas", icon: FileSearch },
+        { id: "documentos-legales", label: "Documentos legales", icon: FileText },
+      ]
+      : []),
+  ];
   useEffect(() => setMobileOpen(false), [page]);
 
   return (
@@ -53,7 +66,7 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
         <div className="sidebar__footer">
           <div className="user-chip">
             <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>
-            <div><strong>{user.nombres} {user.apellidos}</strong><small>{roleLabels[user.rol] || user.rol}</small></div>
+            <div><strong>{user.nombres} {user.apellidos}</strong><small>{roleLabels[user.rol_db || user.rol] || user.rol_db || user.rol}</small></div>
           </div>
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>

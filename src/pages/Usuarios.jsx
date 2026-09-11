@@ -6,10 +6,26 @@ import {
   ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
+const roleLabels = { admin: "Administrador", jefe_zonal: "Administrador zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Líder de equipo", empleado: "Empleado", vendedor: "Vendedor", seguridad: "Seguridad" };
+const personalRoleLabels = { administrador: "Administrador", operante: "Operante", lider_equipo: "Líder de equipo", otros: "Otros" };
+const databaseRoleLabels = { jefe_zonal: "Administrador zonal", administrador_tienda: "Administrador de tienda" };
+const personalRoleByAccessRole = { admin: "administrador", jefe_zonal: "administrador", administrador_tienda: "administrador", jefe_tienda: "lider_equipo", empleado: "operante" };
 const blank = {
-  nombres: "", apellidos: "", dni: "", usuario: "", password: "",
-  telefono: "", rol: "empleado", tienda_id: "", estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
+  nombres: "", apellidos: "", dni: "", usuario: "", password: "", codigo_vendedor: "",
+  telefono: "", rol: "jefe_zonal", tienda_id: "", estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "", motivo_salida: "",
+  fecha_nacimiento: "", sueldo: "", rol_personal: "administrador", sexo: "no_especificado",
+  telefono_emergencia: "", distrito: "", direccion: "", grado_academico: "sin_especificar",
+  ciclo_semestre: "", estado_civil: "sin_especificar", numero_hijos: 0,
+  talla_zapatillas: "", talla_polo: "sin_especificar", condicion_salud: "",
+};
+
+const calculateAge = (birthDate) => {
+  if (!birthDate) return "";
+  const birth = new Date(`${birthDate}T00:00:00`);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  if (now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())) age -= 1;
+  return age >= 0 ? age : "";
 };
 
 const excelFields = {
@@ -25,6 +41,8 @@ const excelDate = (value) => {
 
 export default function Usuarios({ user }) {
   const isAdmin = user?.rol === "admin";
+  const isGerente = user?.rol_db === "gerente";
+  const isStoreAdmin = user?.rol_db === "administrador_tienda";
   const [items, setItems] = useState(null);
   const [tiendas, setTiendas] = useState([]);
   const [search, setSearch] = useState("");
@@ -52,8 +70,22 @@ export default function Usuarios({ user }) {
 
   const clearErrors = () => { setFormError(""); setFieldErrors({}); };
   const closeEditor = () => { setEditing(null); clearErrors(); };
-  const openNew = () => { clearErrors(); setEditing({ ...blank, fecha_ingreso: todayISO() }); };
-  const openEdit = (item) => { clearErrors(); setEditing({ ...item, tienda_id: item.tienda_id || "", password: "" }); };
+  const openNew = () => {
+    clearErrors();
+    setEditing({
+      ...blank, fecha_ingreso: todayISO(),
+      rol: isGerente ? "jefe_zonal" : isStoreAdmin ? "empleado" : "administrador_tienda",
+      rol_personal: isStoreAdmin ? "operante" : "administrador",
+      tienda_id: isStoreAdmin ? user.tienda_id : "",
+    });
+  };
+  const openEdit = (item) => {
+    clearErrors();
+    setEditing({
+      ...blank, ...item, tienda_id: item.tienda_id || "", password: "",
+      rol_personal: item.rol_personal || personalRoleByAccessRole[item.rol] || "otros",
+    });
+  };
   const set = (field, value) => {
     setEditing((current) => ({ ...current, [field]: value }));
     setFieldErrors((current) => ({ ...current, [field]: "" }));
@@ -67,17 +99,25 @@ export default function Usuarios({ user }) {
       if (!String(editing[field] ?? "").trim()) errors[field] = "Este campo es obligatorio.";
     }
     if (!editing.id && editing.rol !== "empleado" && !editing.password) errors.password = "Este campo es obligatorio para este rol.";
-    if (editing.rol !== "admin" && !editing.tienda_id) errors.tienda_id = "Selecciona una tienda.";
+    if (editing.rol !== "admin" && editing.rol !== "jefe_zonal" && !editing.tienda_id) errors.tienda_id = "Selecciona una tienda.";
     if (editing.nombres && editing.nombres.trim().length < 2) errors.nombres = "Ingresa al menos 2 caracteres.";
     if (editing.apellidos && editing.apellidos.trim().length < 2) errors.apellidos = "Ingresa al menos 2 caracteres.";
     if (editing.dni && !/^\d{8}$/.test(editing.dni)) errors.dni = "Debe tener exactamente 8 dígitos.";
     if (editing.telefono && !/^\d{9}$/.test(editing.telefono)) errors.telefono = "Debe tener exactamente 9 dígitos.";
-    if (editing.usuario && (editing.usuario.trim().length < 3 || !/^[a-z0-9._-]+$/i.test(editing.usuario.trim()))) errors.usuario = "Usa al menos 3 caracteres: letras, números, punto o guion.";
+    if (editing.telefono_emergencia && !/^\d{9}$/.test(editing.telefono_emergencia)) errors.telefono_emergencia = "Debe tener exactamente 9 dígitos.";
+    const usuario = editing.usuario?.trim() || "";
+    const isUserName = usuario.length >= 3 && /^[a-z0-9._-]+$/i.test(usuario);
+    const isEmail = usuario.length <= 100 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usuario);
+    if (usuario && !isUserName && !isEmail) errors.usuario = "Ingresa un usuario válido o un correo electrónico.";
+    if (editing.fecha_nacimiento && editing.fecha_nacimiento > todayISO()) errors.fecha_nacimiento = "La fecha no puede ser futura.";
+    if (editing.sueldo !== "" && Number(editing.sueldo) < 0) errors.sueldo = "Debe ser igual o mayor que cero.";
+    if (editing.numero_hijos !== "" && (!Number.isInteger(Number(editing.numero_hijos)) || Number(editing.numero_hijos) < 0)) errors.numero_hijos = "Ingresa un número entero igual o mayor que cero.";
+    if (["administrador_tienda", "vendedor"].includes(editing.rol) && !editing.codigo_vendedor?.trim()) errors.codigo_vendedor = "Este campo es obligatorio.";
     if (editing.password && editing.password.length < 6) errors.password = "Debe tener al menos 6 caracteres.";
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
     setBusy(true);
     try {
-      const payload = { ...editing, tienda_id: editing.rol === "admin" ? null : Number(editing.tienda_id) || null };
+      const payload = { ...editing, tienda_id: editing.rol === "admin" || editing.rol === "jefe_zonal" ? null : Number(editing.tienda_id) || null };
       if (!payload.password) delete payload.password;
       await api(editing.id ? `/usuarios/${editing.id}` : "/usuarios", {
         method: editing.id ? "PUT" : "POST", body: payload,
@@ -206,7 +246,7 @@ export default function Usuarios({ user }) {
       <PageHeader
         eyebrow={isAdmin ? "Equipo" : "Mi tienda"}
         title={isAdmin ? "Usuarios" : "Mi equipo"}
-        subtitle={isAdmin ? "Administradores, jefes de tienda y empleados con acceso al sistema." : "Empleados de tu tienda con acceso al sistema."}
+        subtitle={isAdmin ? (isGerente ? "Administradores zonales con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
         action={<div className="header-actions">
           {isAdmin ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
@@ -233,7 +273,7 @@ export default function Usuarios({ user }) {
           <div className={`data-table ${isAdmin ? "data-table--usuarios" : "data-table--usuarios-tienda"}`}>
             <div className="data-table__head">
               <span>Persona</span><span>DNI</span><span>Usuario</span><span>Teléfono</span>
-              {isAdmin && <><span>Rol</span><span>Tienda</span></>}
+              {isAdmin ? <><span>Rol</span><span>Tienda</span></> : <span>Rol en tienda</span>}
               <span>Estado</span><span />
             </div>
             {filtered.map((item) => (
@@ -246,9 +286,10 @@ export default function Usuarios({ user }) {
                 <span className="cell-primary">{item.usuario}</span>
                 <span>{item.telefono || "—"}</span>
                 {isAdmin && <>
-                  <span className={`role role--${item.rol}`}>{roleLabels[item.rol]}</span>
+                  <span className={`role role--${item.rol}`}>{databaseRoleLabels[item.rol] || personalRoleLabels[item.rol_personal] || roleLabels[item.rol] || item.rol}</span>
                   <span>{item.tienda_nombre || "—"}</span>
                 </>}
+                {!isAdmin && <span className={`role role--${item.rol}`}>{roleLabels[item.rol] || item.rol}</span>}
                 <span><StatusBadge value={item.estado} /></span>
                 <div className="row-actions">
                   <button onClick={() => openEdit(item)} aria-label="Editar"><Edit3 size={15} /></button>
@@ -267,46 +308,105 @@ export default function Usuarios({ user }) {
         title={editing?.id ? "Editar usuario" : "Nuevo usuario"}
         subtitle="Los campos marcados son obligatorios."
         onClose={closeEditor}
+        wide
       >
         {editing && (
           <form className="form-grid" onSubmit={save} noValidate>
             {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
+            <h3 className="form-section-title span-2">Acceso e identificación</h3>
             <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
             <Field label="Apellidos" error={fieldErrors.apellidos}><input required value={editing.apellidos} onChange={(e) => set("apellidos", e.target.value)} /></Field>
-            <Field label="DNI" error={fieldErrors.dni}><input required maxLength={8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
-            <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
-            <Field label="Usuario" error={fieldErrors.usuario}><input required value={editing.usuario} onChange={(e) => set("usuario", e.target.value)} /></Field>
+            <Field label="Usuario o correo" error={fieldErrors.usuario}><input required type="text" autoComplete="username" maxLength={100} value={editing.usuario} onChange={(e) => set("usuario", e.target.value)} /></Field>
             <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual o agrega una para habilitar el acceso." : editing.rol === "empleado" ? "Opcional. Sin contraseña, el empleado no podrá iniciar sesión." : "Obligatoria para este rol; mínimo 6 caracteres."}>
-              <input required={!editing.id && editing.rol !== "empleado"} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
+              <input required={!editing.id && editing.rol !== "empleado"} type="password" autoComplete="new-password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
-            <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
+            <Field label="DNI" error={fieldErrors.dni}><input required inputMode="numeric" maxLength={8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
+            {["administrador_tienda", "vendedor"].includes(editing.rol) && <Field label="Código de vendedor" error={fieldErrors.codigo_vendedor}><input required maxLength={50} value={editing.codigo_vendedor || ""} onChange={(e) => set("codigo_vendedor", e.target.value)} /></Field>}
+            <Field label="Activo">
+              <select value={editing.estado} onChange={(e) => set("estado", e.target.value)}>
+                <option value="activo">Sí</option>
+                <option value="inactivo">No</option>
+              </select>
+            </Field>
+
+            <h3 className="form-section-title span-2">Datos laborales</h3>
+            <Field label="Fecha de ingreso *" error={fieldErrors.fecha_ingreso} hint="Viene con la fecha de hoy; cámbiala si el ingreso real fue otro día."><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
             <Field label="Fecha de salida" error={fieldErrors.fecha_salida} hint="Se deja en blanco al crear el usuario."><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>
+            <Field label="Motivo de salida">
+              <select disabled={!editing.id || !editing.fecha_salida} value={editing.motivo_salida || ""} onChange={(e) => set("motivo_salida", e.target.value)}>
+                <option value="">Sin especificar</option><option value="Apoyo vacacional">Apoyo vacacional</option>
+                <option value="Ausentismo">Ausentismo</option><option value="Personal">Personal</option>
+                <option value="Temas de estudios">Temas de estudios</option><option value="Salud">Salud</option>
+                <option value="Mejor oferta">Mejor oferta</option><option value="Cambio de área">Cambio de área</option>
+                <option value="Deserción">Deserción</option><option value="Estudios">Estudios</option>
+                <option value="Mejor oportunidad">Mejor oportunidad</option><option value="Otro">Otro</option>
+              </select>
+            </Field>
+            <Field label="Sueldo" error={fieldErrors.sueldo}><input type="number" min="0" step="0.01" inputMode="decimal" value={editing.sueldo ?? ""} onChange={(e) => set("sueldo", e.target.value)} /></Field>
+            {isStoreAdmin && <Field label="Rol en tienda" error={fieldErrors.rol}>
+              <select required value={editing.rol} onChange={(e) => set("rol", e.target.value)}>
+                <option value="empleado">Empleado</option>
+                <option value="vendedor">Vendedor</option>
+                <option value="seguridad">Seguridad</option>
+              </select>
+            </Field>}
             {isAdmin && (
               <>
                 <Field label="Rol">
-                  <select value={editing.rol} onChange={(e) => set("rol", e.target.value)}>
-                    <option value="empleado">Empleado</option>
-                    <option value="jefe_tienda">Jefe de tienda</option>
-                    <option value="admin">Administrador</option>
-                  </select>
+                  <input readOnly value={roleLabels[editing.rol] || editing.rol} />
                 </Field>
-                <Field label="Tienda" error={fieldErrors.tienda_id} hint={editing.rol === "admin" ? "No aplica para administradores." : undefined}>
-                  <select required={editing.rol !== "admin"} disabled={editing.rol === "admin"} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
+                <Field label="Tienda" error={fieldErrors.tienda_id} hint={editing.rol === "admin" || editing.rol === "jefe_zonal" ? "No aplica para administradores zonales." : undefined}>
+                  <select required={editing.rol !== "admin" && editing.rol !== "jefe_zonal"} disabled={editing.rol === "admin" || editing.rol === "jefe_zonal"} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
                     <option value="">Selecciona una tienda</option>
                     {tiendaOptions.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
                   </select>
                 </Field>
               </>
             )}
-            <Field label="Estado" className="span-2">
-              <select value={editing.estado} onChange={(e) => set("estado", e.target.value)}>
-                <option value="activo">Activo</option>
-                <option value="inactivo">Inactivo</option>
+
+            <h3 className="form-section-title span-2">Datos personales y contacto</h3>
+            <Field label="Fecha de nacimiento" error={fieldErrors.fecha_nacimiento}><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
+            <Field label="Edad" hint="Se calcula según la fecha de nacimiento."><input readOnly tabIndex={-1} value={calculateAge(editing.fecha_nacimiento)} placeholder="—" /></Field>
+            <Field label="Sexo">
+              <select value={editing.sexo} onChange={(e) => set("sexo", e.target.value)}>
+                <option value="hombre">Hombre</option>
+                <option value="mujer">Mujer</option>
+                <option value="no_especificado">No especificado</option>
               </select>
             </Field>
+            <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input inputMode="tel" maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
+            <Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia} hint="9 dígitos, opcional"><input inputMode="tel" maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field>
+            <Field label="Distrito"><input maxLength={100} value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)} /></Field>
+            <Field label="Dirección" className="span-2"><input maxLength={250} value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} /></Field>
+
+            <h3 className="form-section-title span-2">Formación y datos complementarios</h3>
+            <Field label="Grado académico">
+              <select value={editing.grado_academico} onChange={(e) => set("grado_academico", e.target.value)}>
+                <option value="sin_especificar">Sin especificar</option>
+                <option value="primaria">Primaria</option><option value="secundaria">Secundaria</option>
+                <option value="tecnico">Técnico</option><option value="universitario">Universitario</option><option value="postgrado">Postgrado</option>
+              </select>
+            </Field>
+            <Field label="Ciclo / semestre"><input maxLength={50} value={editing.ciclo_semestre || ""} onChange={(e) => set("ciclo_semestre", e.target.value)} /></Field>
+            <Field label="Estado civil">
+              <select value={editing.estado_civil} onChange={(e) => set("estado_civil", e.target.value)}>
+                <option value="sin_especificar">Sin especificar</option><option value="soltero">Soltero(a)</option>
+                <option value="casado">Casado(a)</option><option value="conviviente">Conviviente</option>
+                <option value="divorciado">Divorciado(a)</option><option value="viudo">Viudo(a)</option>
+              </select>
+            </Field>
+            <Field label="Número de hijos" error={fieldErrors.numero_hijos}><input type="number" min="0" step="1" value={editing.numero_hijos ?? 0} onChange={(e) => set("numero_hijos", e.target.value)} /></Field>
+            <Field label="Talla de zapatillas"><input maxLength={10} value={editing.talla_zapatillas || ""} onChange={(e) => set("talla_zapatillas", e.target.value)} /></Field>
+            <Field label="Talla de polo">
+              <select value={editing.talla_polo} onChange={(e) => set("talla_polo", e.target.value)}>
+                <option value="sin_especificar">Sin especificar</option><option value="s">S</option><option value="m">M</option>
+                <option value="l">L</option><option value="xl">XL</option><option value="xxl">XXL</option>
+              </select>
+            </Field>
+            <Field label="Condición de salud" className="span-2"><textarea rows={2} maxLength={500} value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} /></Field>
             <div className="form-actions span-2">
               <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>
-              <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
+              <button className="button button--primary" disabled={busy}>{busy ? "Creando usuario…" : editing.id ? "Guardar cambios" : "Crear usuario"}</button>
             </div>
           </form>
         )}

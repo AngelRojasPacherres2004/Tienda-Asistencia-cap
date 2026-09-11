@@ -3,7 +3,7 @@ import { Building2, CalendarCheck2, UserCircle2 } from "lucide-react";
 import { api, formatDate } from "../lib/api";
 import { Loading, Notice, PageHeader, StatusBadge } from "../components/UI";
 
-const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
+const roleLabels = { admin: "Administrador", jefe_zonal: "Administrador zonal", jefe_tienda: "Jefe de tienda", empleado: "Empleado", gerente: "Gerente", seguridad: "Seguridad" };
 
 export default function Profile() {
   const [profile, setProfile] = useState(null);

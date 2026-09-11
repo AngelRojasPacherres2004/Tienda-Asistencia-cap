@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./lib/api";
 import Layout from "./components/Layout";
-import { Loading, SaveSuccessDialog } from "./components/UI";
+import { Loading } from "./components/UI";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -14,20 +14,17 @@ const Capacitaciones = lazy(() => import("./pages/Capacitaciones"));
 const MiAsistencia = lazy(() => import("./pages/MiAsistencia"));
 const MisCapacitaciones = lazy(() => import("./pages/MisCapacitaciones"));
 const Profile = lazy(() => import("./pages/Profile"));
+const Incidentes = lazy(() => import("./pages/Incidentes"));
+const DocumentosLegales = lazy(() => import("./pages/DocumentosLegales"));
+const Consultas = lazy(() => import("./pages/Consultas"));
+const NotificacionesAsistencia = lazy(() => import("./pages/NotificacionesAsistencia"));
 
-const homePageByRole = { admin: "dashboard", jefe_tienda: "dashboard", empleado: "mi-asistencia" };
+const homePageByRole = { admin: "dashboard", jefe_tienda: "dashboard", empleado: "mi-asistencia", seguridad: "incidentes" };
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [page, setPage] = useState("dashboard");
-  const [saveFeedback, setSaveFeedback] = useState(null);
-
-  useEffect(() => {
-    const handleSave = (event) => setSaveFeedback(event.detail);
-    window.addEventListener("asiste:save-success", handleSave);
-    return () => window.removeEventListener("asiste:save-success", handleSave);
-  }, []);
 
   useEffect(() => {
     api("/auth/me")
@@ -62,14 +59,15 @@ export default function App() {
     "mi-asistencia": <MiAsistencia />,
     "mis-capacitaciones": <MisCapacitaciones />,
     profile: <Profile />,
+    incidentes: <Incidentes />,
+    "documentos-legales": <DocumentosLegales user={user} />,
+    consultas: <Consultas user={user} />,
+    "notificaciones-asistencia": <NotificacionesAsistencia user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (
-    <>
-      <SaveSuccessDialog open={!!saveFeedback} action={saveFeedback?.action} onContinue={() => setSaveFeedback(null)} />
-      <Layout user={user} page={page} onNavigate={setPage} onLogout={logout}>
-        <Suspense fallback={<Loading />}>{content}</Suspense>
-      </Layout>
-    </>
+    <Layout user={user} page={page} onNavigate={setPage} onLogout={logout}>
+      <Suspense fallback={<Loading />}>{content}</Suspense>
+    </Layout>
   );
 }

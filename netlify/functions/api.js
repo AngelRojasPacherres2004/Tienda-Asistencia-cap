@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import ExcelJS from "exceljs";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
+import { sendAttendanceEmail } from "./lib/attendance-email.js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -13,7 +14,17 @@ const headers = {
   "Cache-Control": "no-store",
 };
 const loginAttempts = new Map();
-const userRoles = new Set(["admin", "jefe_tienda", "empleado"]);
+const userRoles = new Set(["admin", "jefe_zonal", "jefe_tienda", "empleado", "vendedor", "seguridad", "administrador_tienda"]);
+const accessRoleByStoredRole = { gerente: "admin", jefe_zonal: "admin", administrador_tienda: "jefe_tienda", vendedor: "empleado" };
+const storeUserRoles = new Set(["empleado", "vendedor", "seguridad"]);
+const personalRoles = new Set(["administrador", "operante", "lider_equipo", "otros"]);
+const personalRoleToAccessRole = {
+  administrador: "administrador_tienda", operante: "empleado", lider_equipo: "jefe_tienda", otros: "empleado",
+};
+const sexos = new Set(["hombre", "mujer", "no_especificado"]);
+const gradosAcademicos = new Set(["sin_especificar", "primaria", "secundaria", "tecnico", "universitario", "postgrado"]);
+const estadosCiviles = new Set(["sin_especificar", "soltero", "casado", "conviviente", "divorciado", "viudo"]);
+const tallasPolo = new Set(["sin_especificar", "s", "m", "l", "xl", "xxl"]);
 const userStates = new Set(["activo", "inactivo"]);
 const tiendaEstados = new Set(["activo", "inactivo"]);
 const asistenciaEstados = new Set([
@@ -111,7 +122,13 @@ function currentUser(event) {
   const token = cookies.asiste_session || bearer;
   if (!token) return null;
   try {
-    return jwt.verify(token, jwtSecret());
+    const decoded = jwt.verify(token, jwtSecret());
+    const storedRole = decoded.rol_db || decoded.rol;
+    return {
+      ...decoded,
+      rol_db: storedRole,
+      rol: accessRoleByStoredRole[storedRole] || decoded.rol,
+    };
   } catch {
     return null;
   }
@@ -133,6 +150,46 @@ function cleanUsuario(value) {
   return cleanText(value).toLowerCase();
 }
 
+function ensureGerente(user) {
+  if (user.rol_db !== "gerente") throw httpError("Solo el gerente puede gestionar las notificaciones de asistencia.", 403);
+}
+
+function personalRoleFromAccessRole(role) {
+  return { admin: "administrador", jefe_zonal: "administrador", administrador_tienda: "administrador", jefe_tienda: "lider_equipo", empleado: "operante" }[role] || "otros";
+}
+
+function normalizePersonalRole(data) {
+  if (data.rol === "jefe_zonal" || data.rol === "administrador_tienda") {
+    data.rol_personal = "administrador";
+    return;
+  }
+  const rolPersonal = data.rol_personal || personalRoleFromAccessRole(data.rol);
+  if (!personalRoles.has(rolPersonal)) throw httpError("El rol no es válido.", 400);
+  data.rol_personal = rolPersonal;
+  data.rol = personalRoleToAccessRole[rolPersonal];
+}
+
+function personalUserPayload(data) {
+  return {
+    fecha_nacimiento: data.fecha_nacimiento || null,
+    sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
+    rol_personal: data.rol_personal,
+    sexo: data.sexo || "no_especificado",
+    telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
+    distrito: data.distrito ? cleanText(data.distrito) : null,
+    direccion: data.direccion ? cleanText(data.direccion) : null,
+    grado_academico: data.grado_academico || "sin_especificar",
+    ciclo_semestre: data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
+    puesto: data.codigo_vendedor ? cleanText(data.codigo_vendedor) : null,
+    estado_civil: data.estado_civil || "sin_especificar",
+    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? 0 : Number(data.numero_hijos),
+    talla_zapatillas: data.talla_zapatillas ? cleanText(data.talla_zapatillas) : null,
+    talla_polo: data.talla_polo || "sin_especificar",
+    alergia: data.motivo_salida ? cleanText(data.motivo_salida) : null,
+    condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
+  };
+}
+
 function validateUserPayload(data, creating = false) {
   requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso", ...(creating && data.rol !== "empleado" ? ["password"] : [])]);
   if (cleanText(data.nombres).length < 2 || cleanText(data.apellidos).length < 2) {
@@ -142,11 +199,33 @@ function validateUserPayload(data, creating = false) {
     throw httpError("El DNI debe tener 8 dígitos.", 400);
   }
   const usuario = cleanUsuario(data.usuario);
-  if (usuario.length < 3 || !/^[a-z0-9._-]+$/.test(usuario)) {
-    throw httpError("El usuario debe tener al menos 3 caracteres (letras, números, punto, guion).", 400);
+  const isUserName = usuario.length >= 3 && /^[a-z0-9._-]+$/.test(usuario);
+  const isEmail = usuario.length <= 100 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usuario);
+  if (!isUserName && !isEmail) {
+    throw httpError("Ingresa un usuario válido o un correo electrónico.", 400);
   }
   if (data.telefono && !/^\d{9}$/.test(cleanText(data.telefono))) {
     throw httpError("El teléfono debe tener 9 dígitos.", 400);
+  }
+  if (data.telefono_emergencia && !/^\d{9}$/.test(cleanText(data.telefono_emergencia))) {
+    throw httpError("El teléfono de emergencia debe tener 9 dígitos.", 400);
+  }
+  if (data.fecha_nacimiento && (!isISODate(data.fecha_nacimiento) || data.fecha_nacimiento > new Date().toISOString().slice(0, 10))) {
+    throw httpError("La fecha de nacimiento no es válida.", 400);
+  }
+  if (data.sueldo !== "" && data.sueldo != null && (!Number.isFinite(Number(data.sueldo)) || Number(data.sueldo) < 0)) {
+    throw httpError("El sueldo no es válido.", 400);
+  }
+  if (!sexos.has(data.sexo || "no_especificado")) throw httpError("El sexo no es válido.", 400);
+  if (!gradosAcademicos.has(data.grado_academico || "sin_especificar")) throw httpError("El grado académico no es válido.", 400);
+  if (!estadosCiviles.has(data.estado_civil || "sin_especificar")) throw httpError("El estado civil no es válido.", 400);
+  if (!tallasPolo.has(data.talla_polo || "sin_especificar")) throw httpError("La talla de polo no es válida.", 400);
+  if (data.numero_hijos !== "" && data.numero_hijos != null
+      && (!Number.isInteger(Number(data.numero_hijos)) || Number(data.numero_hijos) < 0)) {
+    throw httpError("El número de hijos debe ser un entero igual o mayor que cero.", 400);
+  }
+  if (["administrador_tienda", "vendedor"].includes(data.rol) && !cleanText(data.codigo_vendedor)) {
+    throw httpError("El código de vendedor es obligatorio para este rol.", 400);
   }
   if (!userRoles.has(data.rol)) throw httpError("El rol no es válido.", 400);
   if (!userStates.has(data.estado)) throw httpError("El estado no es válido.", 400);
@@ -156,10 +235,10 @@ function validateUserPayload(data, creating = false) {
   if (data.fecha_salida && data.fecha_salida < data.fecha_ingreso) {
     throw httpError("La fecha de salida no puede ser anterior a la fecha de ingreso.", 400);
   }
-  if (data.rol === "admin" && data.tienda_id) {
+  if ((data.rol === "admin" || data.rol === "jefe_zonal") && data.tienda_id) {
     throw httpError("Un administrador no debe tener tienda asignada.", 400);
   }
-  if (data.rol !== "admin" && !data.tienda_id) {
+  if (data.rol !== "admin" && data.rol !== "jefe_zonal" && !data.tienda_id) {
     throw httpError("Selecciona la tienda del usuario.", 400);
   }
   if (data.password && String(data.password).length < 6) {
@@ -226,9 +305,11 @@ async function login(event) {
   if (!valid) return fail();
 
   loginAttempts.delete(clientIp);
+  const storedRole = account.rol;
   const user = {
     id: account.id, nombres: account.nombres, apellidos: account.apellidos,
-    usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
+    usuario: account.usuario, rol: accessRoleByStoredRole[storedRole] || storedRole,
+    rol_db: storedRole, tienda_id: account.tienda_id,
   };
   const token = jwt.sign(user, jwtSecret(), { expiresIn: "10h" });
   return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
@@ -238,17 +319,22 @@ async function login(event) {
 
 function mapUserRow(row) {
   const { tiendas, ...rest } = row;
-  return { ...rest, tienda_nombre: tiendas?.nombre || null };
+  return { ...rest, codigo_vendedor: row.puesto || "", motivo_salida: row.alergia || "", tienda_nombre: tiendas?.nombre || null };
 }
 
 async function listUsers(actor, storeId = null) {
   let request = supabase
     .from("usuarios")
-    .select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,fecha_nacimiento,sueldo,rol_personal,sexo,telefono_emergencia,distrito,direccion,grado_academico,ciclo_semestre,puesto,estado_civil,numero_hijos,talla_zapatillas,talla_polo,alergia,condicion_salud,tiendas!usuarios_tienda_id_fkey(nombre)")
     .order("nombres");
-  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
+  if (actor.rol_db === "administrador_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", [...storeUserRoles]);
+  else if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
   if (actor.rol === "admin" && storeId) request = request.eq("tienda_id", storeId);
-  if (actor.rol === "admin" && !storeId) request = request.eq("rol", "jefe_tienda");
+  if (actor.rol === "admin" && !storeId) {
+    if (actor.rol_db === "gerente") request = request.eq("rol", "jefe_zonal");
+    else if (actor.rol_db === "jefe_zonal") request = request.eq("rol", "administrador_tienda");
+    else request = request.in("rol", ["jefe_zonal", "administrador_tienda"]);
+  }
   const { data, error } = await request;
   if (error) throw dbError(error);
   return data.map(mapUserRow);
@@ -274,22 +360,35 @@ async function ensureTiendaActiva(tiendaId) {
 
 async function createUser(event, actor) {
   const data = bodyOf(event);
-  if (actor.rol === "jefe_tienda") {
-    data.rol = "empleado";
+  if (actor.rol_db === "administrador_tienda") {
+    if (!storeUserRoles.has(data.rol)) throw httpError("Selecciona un rol en tienda válido.", 400);
+    data.rol_personal = data.rol === "seguridad" ? "otros" : "operante";
     data.tienda_id = actor.tienda_id;
-  }
+  } else if (actor.rol === "jefe_tienda") {
+    data.rol = "empleado";
+    data.rol_personal = "operante";
+    data.tienda_id = actor.tienda_id;
+  } else if (actor.rol_db === "gerente") {
+    data.rol = "jefe_zonal";
+    data.rol_personal = "administrador";
+    data.tienda_id = null;
+  } else if (actor.rol_db === "jefe_zonal") {
+    data.rol = "administrador_tienda";
+    data.rol_personal = "administrador";
+  } else normalizePersonalRole(data);
   validateUserPayload(data, true);
   const usuario = cleanUsuario(data.usuario);
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni);
-  if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
+  if (data.rol !== "admin" && data.rol !== "jefe_zonal") await ensureTiendaActiva(data.tienda_id);
   const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
-    tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: data.rol === "admin" || data.rol === "jefe_zonal" ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
-  }).select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida").single();
+    ...personalUserPayload(data),
+  }).select("id,nombres,apellidos,dni,usuario,telefono,rol,rol_personal,tienda_id,estado,fecha_ingreso,fecha_salida").single();
   if (error) throw dbError(error);
   return created;
 }
@@ -351,13 +450,19 @@ async function updateUser(event, id, actor) {
   const data = bodyOf(event);
   const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id,password").eq("id", id).maybeSingle();
   if (!current) throw httpError("Usuario no encontrado.", 404);
-  if (actor.rol === "jefe_tienda") {
-    if (current.tienda_id !== actor.tienda_id || current.rol !== "empleado") {
+  if (actor.rol_db === "administrador_tienda") {
+    if (current.tienda_id !== actor.tienda_id || !storeUserRoles.has(current.rol)) {
       throw httpError("No puedes editar este usuario.", 403);
     }
-    data.rol = "empleado";
+    if (!storeUserRoles.has(data.rol)) throw httpError("Selecciona un rol en tienda válido.", 400);
+    data.rol_personal = data.rol === "seguridad" ? "otros" : "operante";
     data.tienda_id = actor.tienda_id;
-  }
+  } else if (actor.rol === "jefe_tienda") {
+    if (current.tienda_id !== actor.tienda_id || current.rol !== "empleado") throw httpError("No puedes editar este usuario.", 403);
+    data.rol = "empleado";
+    data.rol_personal = "operante";
+    data.tienda_id = actor.tienda_id;
+  } else normalizePersonalRole(data);
   validateUserPayload(data);
   if (data.rol !== "empleado" && (!current.password || current.password === disabledPassword) && !data.password) {
     throw httpError("Asigna una contraseña antes de otorgar este rol.", 400);
@@ -374,12 +479,13 @@ async function updateUser(event, id, actor) {
   const usuario = cleanUsuario(data.usuario);
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni, id);
-  if (data.rol !== "admin") await ensureTiendaActiva(data.tienda_id);
+  if (data.rol !== "admin" && data.rol !== "jefe_zonal") await ensureTiendaActiva(data.tienda_id);
   const payload = {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
-    tienda_id: data.rol === "admin" ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: data.rol === "admin" || data.rol === "jefe_zonal" ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
+    ...personalUserPayload(data),
   };
   if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
   const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
@@ -390,7 +496,10 @@ async function deleteUser(id, actor) {
   const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
   if (!target) throw httpError("Usuario no encontrado.", 404);
-  if (actor.rol === "jefe_tienda" && (target.tienda_id !== actor.tienda_id || target.rol !== "empleado")) {
+  if (actor.rol_db === "administrador_tienda" && (target.tienda_id !== actor.tienda_id || !storeUserRoles.has(target.rol))) {
+    throw httpError("No puedes eliminar este usuario.", 403);
+  }
+  if (actor.rol === "jefe_tienda" && actor.rol_db !== "administrador_tienda" && (target.tienda_id !== actor.tienda_id || target.rol !== "empleado")) {
     throw httpError("No puedes eliminar este usuario.", 403);
   }
   if (Number(id) === Number(actor.id)) throw httpError("No puedes eliminarte a ti mismo.", 400);
@@ -407,6 +516,206 @@ async function deleteUser(id, actor) {
   const { error: deleteError } = await supabase.from("usuarios").delete().eq("id", id);
   if (deleteError) throw dbError(deleteError);
   return { eliminado: true, inhabilitado: false };
+}
+
+// ---------- Incidentes (seguridad) ----------
+
+async function listIncidentes() {
+  const { data, error } = await supabase.from("incidentes")
+    .select("id,titulo,descripcion,fecha_creacion,reportado_por,reportero:usuarios!incidentes_reportado_por_fkey(nombres,apellidos)")
+    .order("fecha_creacion", { ascending: false });
+  if (error) throw dbError(error);
+  return data.map(({ reportero, ...row }) => ({
+    ...row,
+    reportado_por_nombre: reportero ? `${reportero.nombres} ${reportero.apellidos}`.trim() : "",
+  }));
+}
+
+async function createIncidente(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["titulo", "descripcion"]);
+  const titulo = cleanText(data.titulo);
+  const descripcion = cleanText(data.descripcion);
+  if (titulo.length < 3 || titulo.length > 150) throw httpError("El título debe tener entre 3 y 150 caracteres.", 400);
+  if (descripcion.length < 5 || descripcion.length > 3000) throw httpError("La descripción debe tener entre 5 y 3000 caracteres.", 400);
+  const { data: created, error } = await supabase.from("incidentes")
+    .insert({ titulo, descripcion, reportado_por: user.id })
+    .select("id,titulo,descripcion,fecha_creacion,reportado_por").single();
+  if (error) throw dbError(error);
+  return created;
+}
+
+// ---------- Documentos legales de tienda ----------
+
+const legalDocumentsBucket = "documentos-legales-tienda";
+
+function ensureAdministradorTienda(user) {
+  if (user.rol_db !== "administrador_tienda" || !user.tienda_id) {
+    throw httpError("Solo el administrador de tienda puede gestionar los documentos legales de su tienda.", 403);
+  }
+}
+
+function estadoDocumento(fechaVencimiento) {
+  if (!fechaVencimiento) return "sin_vencimiento";
+  const hoy = new Date(`${todayISO()}T00:00:00Z`);
+  const vencimiento = new Date(`${fechaVencimiento}T00:00:00Z`);
+  if (vencimiento < hoy) return "vencido";
+  const limite = new Date(hoy);
+  limite.setUTCDate(limite.getUTCDate() + 30);
+  return vencimiento <= limite ? "por_vencer" : "vigente";
+}
+
+async function listDocumentosLegales(user) {
+  ensureAdministradorTienda(user);
+  const [documentosResult, tiendaResult] = await Promise.all([
+    supabase.from("documentos_legales_tienda")
+      .select("id,documento,referencia,fecha_emision,fecha_vencimiento,archivo_nombre,fecha_creacion")
+      .eq("tienda_id", user.tienda_id)
+      .order("fecha_creacion", { ascending: false }),
+    supabase.from("tiendas").select("nombre").eq("id", user.tienda_id).maybeSingle(),
+  ]);
+  if (documentosResult.error) throw dbError(documentosResult.error);
+  if (tiendaResult.error) throw dbError(tiendaResult.error);
+  return {
+    tienda: tiendaResult.data?.nombre || "Mi tienda",
+    documentos: documentosResult.data.map((row) => ({ ...row, estado: estadoDocumento(row.fecha_vencimiento) })),
+  };
+}
+
+async function createDocumentoLegal(event, user) {
+  ensureAdministradorTienda(user);
+  const data = bodyOf(event);
+  requireFields(data, ["documento", "referencia", "fecha_emision", "archivo_nombre", "archivo_base64"]);
+  const documento = cleanText(data.documento);
+  const referencia = cleanText(data.referencia);
+  const fechaVencimiento = data.fecha_vencimiento || null;
+  if (documento.length < 3 || documento.length > 160) throw httpError("El nombre del documento debe tener entre 3 y 160 caracteres.", 400);
+  if (referencia.length < 2 || referencia.length > 100) throw httpError("El número o referencia debe tener entre 2 y 100 caracteres.", 400);
+  if (!isISODate(data.fecha_emision)) throw httpError("La fecha de emisión no es válida.", 400);
+  if (fechaVencimiento && (!isISODate(fechaVencimiento) || fechaVencimiento < data.fecha_emision)) {
+    throw httpError("La fecha de vencimiento debe ser igual o posterior a la fecha de emisión.", 400);
+  }
+  const archivoNombre = cleanText(data.archivo_nombre);
+  if (!archivoNombre.toLowerCase().endsWith(".pdf")) throw httpError("Solo se permiten archivos PDF.", 400);
+  let archivo;
+  try { archivo = Buffer.from(String(data.archivo_base64), "base64"); } catch { throw httpError("El archivo PDF no es válido.", 400); }
+  if (!archivo.length || archivo.length > 4 * 1024 * 1024) throw httpError("El PDF debe pesar como máximo 4 MB.", 400);
+  if (archivo.subarray(0, 5).toString() !== "%PDF-") throw httpError("El archivo seleccionado no es un PDF válido.", 400);
+  const safeName = archivoNombre.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-100);
+  const archivoPath = `${user.tienda_id}/${Date.now()}-${user.id}-${safeName}`;
+  const { error: uploadError } = await supabase.storage.from(legalDocumentsBucket)
+    .upload(archivoPath, archivo, { contentType: "application/pdf", upsert: false });
+  if (uploadError) throw httpError("No se pudo almacenar el PDF. Verifica que la base de datos esté actualizada.", 500);
+  const { data: created, error } = await supabase.from("documentos_legales_tienda").insert({
+    tienda_id: user.tienda_id,
+    documento,
+    referencia,
+    fecha_emision: data.fecha_emision,
+    fecha_vencimiento: fechaVencimiento,
+    archivo_path: archivoPath,
+    archivo_nombre: archivoNombre,
+    subido_por: user.id,
+  }).select("id,documento,referencia,fecha_emision,fecha_vencimiento,archivo_nombre,fecha_creacion").single();
+  if (error) {
+    await supabase.storage.from(legalDocumentsBucket).remove([archivoPath]);
+    throw dbError(error);
+  }
+  return { ...created, estado: estadoDocumento(created.fecha_vencimiento) };
+}
+
+async function getDocumentoLegalUrl(id, user) {
+  ensureAdministradorTienda(user);
+  const { data, error } = await supabase.from("documentos_legales_tienda")
+    .select("archivo_path").eq("id", id).eq("tienda_id", user.tienda_id).maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("Documento no encontrado.", 404);
+  const { data: signed, error: signedError } = await supabase.storage.from(legalDocumentsBucket)
+    .createSignedUrl(data.archivo_path, 300);
+  if (signedError) throw httpError("No se pudo abrir el documento.", 500);
+  return { url: signed.signedUrl };
+}
+
+// ---------- Consultas de tienda (solo lectura) ----------
+
+async function listConsultas(user) {
+  ensureAdministradorTienda(user);
+  const { data, error } = await supabase.from("consultas_tienda")
+    .select("id,tipo,codigo,descripcion,rubro,estado,fuente,fecha_actualizacion")
+    .or(`tienda_id.is.null,tienda_id.eq.${Number(user.tienda_id)}`)
+    .order("tipo").order("codigo");
+  if (error) throw dbError(error);
+  return data;
+}
+
+// ---------- Notificaciones de asistencia (gerente) ----------
+
+function validateNotification(data) {
+  requireFields(data, ["nombre", "hora", "asunto", "destinatarios", "alcance"]);
+  const destinatarios = Array.isArray(data.destinatarios) ? [...new Set(data.destinatarios.map((email) => cleanText(email).toLowerCase()).filter(Boolean))] : [];
+  if (cleanText(data.nombre).length < 3 || cleanText(data.nombre).length > 120) throw httpError("El nombre debe tener entre 3 y 120 caracteres.", 400);
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(data.hora)) throw httpError("La hora de envío no es válida.", 400);
+  if (cleanText(data.asunto).length < 3 || cleanText(data.asunto).length > 200) throw httpError("El asunto no es válido.", 400);
+  if (!destinatarios.length || destinatarios.length > 20 || destinatarios.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw httpError("Ingresa entre 1 y 20 correos válidos.", 400);
+  if (!["todos", "especificos"].includes(data.alcance)) throw httpError("El alcance no es válido.", 400);
+  const usuarioIds = [...new Set((data.usuario_ids || []).map(Number).filter(Number.isInteger))];
+  if (data.alcance === "especificos" && !usuarioIds.length) throw httpError("Selecciona al menos un trabajador.", 400);
+  return { nombre: cleanText(data.nombre), hora: data.hora, asunto: cleanText(data.asunto), destinatarios, alcance: data.alcance, usuario_ids: data.alcance === "todos" ? [] : usuarioIds, activo: data.activo !== false };
+}
+
+async function notificationOverview(user) {
+  ensureGerente(user);
+  const [schedulesResult, sendsResult, workersResult] = await Promise.all([
+    supabase.from("notificaciones_asistencia").select("id,nombre,hora,asunto,destinatarios,alcance,usuario_ids,activo,fecha_creacion").is("eliminado_at", null).order("fecha_creacion", { ascending: false }),
+    supabase.from("notificaciones_asistencia_envios").select("id,programacion_id,fecha_reporte,tipo,estado,destinatarios,asistentes,ausentes,intentos,error,fecha_creacion,fecha_envio").order("fecha_creacion", { ascending: false }).limit(50),
+    supabase.from("usuarios").select("id,nombres,apellidos,dni,rol,tiendas!usuarios_tienda_id_fkey(nombre)").eq("estado", "activo").in("rol", ["empleado", "vendedor", "seguridad", "jefe_tienda"]).order("nombres"),
+  ]);
+  if (schedulesResult.error) throw dbError(schedulesResult.error);
+  if (sendsResult.error) throw dbError(sendsResult.error);
+  if (workersResult.error) throw dbError(workersResult.error);
+  return { programaciones: schedulesResult.data, envios: sendsResult.data, trabajadores: workersResult.data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || "—" })) };
+}
+
+async function createNotification(event, user) {
+  ensureGerente(user);
+  const payload = validateNotification(bodyOf(event));
+  const { data, error } = await supabase.from("notificaciones_asistencia").insert({ ...payload, creado_por: user.id }).select().single();
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function updateNotification(event, id, user) {
+  ensureGerente(user);
+  const payload = validateNotification(bodyOf(event));
+  const { data, error } = await supabase.from("notificaciones_asistencia").update({ ...payload, fecha_actualizacion: new Date().toISOString() }).eq("id", id).is("eliminado_at", null).select().maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("Programación no encontrada.", 404);
+  return data;
+}
+
+async function deleteNotification(id, user) {
+  ensureGerente(user);
+  const { error } = await supabase.from("notificaciones_asistencia").update({ eliminado_at: new Date().toISOString(), activo: false }).eq("id", id).is("eliminado_at", null);
+  if (error) throw dbError(error);
+  return { ok: true };
+}
+
+async function sendNotificationNow(event, id, user) {
+  ensureGerente(user);
+  const { fecha } = bodyOf(event);
+  if (!isISODate(fecha)) throw httpError("Selecciona una fecha válida.", 400);
+  const { data: schedule, error } = await supabase.from("notificaciones_asistencia").select("*").eq("id", id).is("eliminado_at", null).maybeSingle();
+  if (error) throw dbError(error);
+  if (!schedule) throw httpError("Programación no encontrada.", 404);
+  const { data: log, error: logError } = await supabase.from("notificaciones_asistencia_envios").insert({ programacion_id: id, fecha_reporte: fecha, tipo: "manual", estado: "procesando", destinatarios: schedule.destinatarios }).select("id").single();
+  if (logError) throw dbError(logError);
+  try {
+    const report = await sendAttendanceEmail(supabase, schedule, fecha);
+    await supabase.from("notificaciones_asistencia_envios").update({ estado: "enviado", asistentes: report.attended, ausentes: report.absent, fecha_envio: new Date().toISOString() }).eq("id", log.id);
+    return { ok: true, asistentes: report.attended, ausentes: report.absent };
+  } catch (sendError) {
+    await supabase.from("notificaciones_asistencia_envios").update({ estado: "error", error: String(sendError.message || sendError).slice(0, 1000) }).eq("id", log.id);
+    throw httpError(`No se pudo enviar el correo: ${sendError.message}`, 502);
+  }
 }
 
 async function importUsersAdmin(event, actor) {
@@ -1065,7 +1374,8 @@ async function getCourseProgress(tiendaFilter) {
 
 async function getRotation(tiendaFilter, desde, hasta) {
   const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id").in("rol", ["empleado", "jefe_tienda"]);
+  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id")
+    .in("rol", ["empleado", "jefe_tienda", "vendedor", "administrador_tienda", "asistente", "seguridad"]);
   if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
   const { data, error } = await request;
   if (error) throw dbError(error);
@@ -1088,6 +1398,21 @@ async function getRotation(tiendaFilter, desde, hasta) {
   return months;
 }
 
+async function getExitReasons(tiendaFilter, desde, hasta) {
+  let request = supabase.from("usuarios").select("alergia,fecha_salida,tienda_id")
+    .not("fecha_salida", "is", null).gte("fecha_salida", desde).lte("fecha_salida", hasta)
+    .in("rol", ["empleado", "jefe_tienda", "vendedor", "administrador_tienda", "asistente", "seguridad"]);
+  if (tiendaFilter) request = request.eq("tienda_id", tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const counts = new Map();
+  for (const row of data || []) {
+    const motivo = cleanText(row.alergia) || "Sin especificar";
+    counts.set(motivo, (counts.get(motivo) || 0) + 1);
+  }
+  return [...counts.entries()].map(([motivo, cantidad]) => ({ motivo, cantidad })).sort((a, b) => b.cantidad - a.cantidad);
+}
+
 async function getDashboard(user, event) {
   const query = event.queryStringParameters || {};
   const today = todayISO();
@@ -1098,15 +1423,16 @@ async function getDashboard(user, event) {
   const rotationDesde = `${rotationYear}-01-01`;
   const rotationHasta = `${rotationYear}-12-31`;
   const tiendaFilter = user.rol === "admin" ? Number(query.tienda_id) || null : user.tienda_id;
-  const [summary, states, trend, workload, progresoCursos, rotation] = await Promise.all([
+  const [summary, states, trend, workload, progresoCursos, rotation, exitReasons] = await Promise.all([
     getSummary(tiendaFilter, hasta, desde),
     getStates(tiendaFilter, desde, hasta),
     getTrend(tiendaFilter, rotationYear),
     getWorkload(tiendaFilter, desde, hasta),
     getCourseProgress(tiendaFilter),
     getRotation(tiendaFilter, rotationDesde, rotationHasta),
+    getExitReasons(tiendaFilter, rotationDesde, rotationHasta),
   ]);
-  return { summary, states, trend, workload, progresoCursos, rotation, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
+  return { summary, states, trend, workload, progresoCursos, rotation, exitReasons, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
 }
 
 // ---------- Documentos (Excel) ----------
@@ -1319,6 +1645,34 @@ export async function handler(event) {
     const user = ensureAuth(event);
 
     if (path === "/perfil" && method === "GET") return json(200, await getPerfil(user));
+    if (path === "/incidentes" && method === "GET") {
+      ensureAuth(event, ["seguridad", "admin"]);
+      return json(200, await listIncidentes());
+    }
+    if (path === "/incidentes" && method === "POST") {
+      ensureAuth(event, "seguridad");
+      return json(201, await createIncidente(event, user));
+    }
+    if (path === "/documentos-legales" && method === "GET") {
+      return json(200, await listDocumentosLegales(user));
+    }
+    if (path === "/documentos-legales" && method === "POST") {
+      return json(201, await createDocumentoLegal(event, user));
+    }
+    const documentoLegalArchivoMatch = path.match(/^\/documentos-legales\/(\d+)\/archivo$/);
+    if (documentoLegalArchivoMatch && method === "GET") {
+      return json(200, await getDocumentoLegalUrl(Number(documentoLegalArchivoMatch[1]), user));
+    }
+    if (path === "/consultas" && method === "GET") {
+      return json(200, await listConsultas(user));
+    }
+    if (path === "/notificaciones/asistencia" && method === "GET") return json(200, await notificationOverview(user));
+    if (path === "/notificaciones/asistencia" && method === "POST") return json(201, await createNotification(event, user));
+    const notificationSendMatch = path.match(/^\/notificaciones\/asistencia\/(\d+)\/enviar$/);
+    if (notificationSendMatch && method === "POST") return json(200, await sendNotificationNow(event, Number(notificationSendMatch[1]), user));
+    const notificationItemMatch = path.match(/^\/notificaciones\/asistencia\/(\d+)$/);
+    if (notificationItemMatch && method === "PUT") return json(200, await updateNotification(event, Number(notificationItemMatch[1]), user));
+    if (notificationItemMatch && method === "DELETE") return json(200, await deleteNotification(Number(notificationItemMatch[1]), user));
     if (path === "/mis-asistencias" && method === "GET") return json(200, await misAsistencias(event, user));
     if (path === "/mis-capacitaciones" && method === "GET") return json(200, await misCapacitaciones(user));
 
