@@ -8,7 +8,7 @@ const documentLabels = { carta_amonestacion: "Carta de amonestación", memorandu
 const roleLabels = { jefe_zonal: "Jefe zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", seguridad: "Seguridad" };
 
 export default function ErroresAmonestaciones({ user }) {
-  const isMainAdmin = user?.rol_db === "admin";
+  const isGerente = user?.rol_db === "gerente";
   const isStoreAdmin = user?.rol_db === "administrador_tienda";
   const [section, setSection] = useState(isStoreAdmin ? "amonestaciones" : "errores");
   const [mode, setMode] = useState("registrar");
@@ -23,10 +23,10 @@ export default function ErroresAmonestaciones({ user }) {
   const [success, setSuccess] = useState(null);
 
   const load = useCallback(() => Promise.all([isStoreAdmin ? Promise.resolve([]) : api("/incidentes"), api("/amonestaciones"), api("/usuarios")])
-    .then(([incidentRows, warningRows, users]) => { setErrores(incidentRows); setAmonestaciones(warningRows); setPersonal(users.filter((person) => person.rol === (isMainAdmin ? "jefe_zonal" : "administrador_tienda"))); })
-    .catch((error) => setNotice({ type: "error", text: error.message })), [isMainAdmin, isStoreAdmin]);
+    .then(([incidentRows, warningRows, users]) => { setErrores(incidentRows); setAmonestaciones(warningRows); setPersonal(users.filter((person) => person.rol === (isGerente ? "jefe_zonal" : "administrador_tienda"))); })
+    .catch((error) => setNotice({ type: "error", text: error.message })), [isGerente, isStoreAdmin]);
   useEffect(() => { load(); }, [load]);
-  const scopedPersonal = useMemo(() => personal.filter((person) => isStoreAdmin ? ["empleado", "vendedor", "seguridad", "jefe_tienda"].includes(person.rol) : person.rol === (isMainAdmin ? "jefe_zonal" : "administrador_tienda")), [personal, isMainAdmin, isStoreAdmin]);
+  const scopedPersonal = useMemo(() => personal.filter((person) => isStoreAdmin ? ["empleado", "vendedor", "seguridad"].includes(person.rol) : person.rol === (isGerente ? "jefe_zonal" : "administrador_tienda")), [personal, isGerente, isStoreAdmin]);
   const summary = useMemo(() => scopedPersonal.map((person) => ({ ...person, cantidad: (amonestaciones || []).filter((item) => Number(item.usuario_id) === Number(person.id)).length })), [scopedPersonal, amonestaciones]);
 
   const save = async (event) => {

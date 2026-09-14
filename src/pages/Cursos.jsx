@@ -82,7 +82,7 @@ export default function Cursos({ user }) {
       <PageHeader
         eyebrow="Catálogo"
         title="Capacitaciones y Encargados"
-        subtitle={isCoach ? "Crea capacitaciones para los Jefes zonales." : isZonal ? "Crea capacitaciones para los administradores de tienda y gestiona sus encargados." : "Capacitaciones disponibles y encargados que se pueden asignar."}
+        subtitle={isCoach ? "Crea capacitaciones para el Gerente comercial y los Jefes zonales." : isZonal ? "Crea capacitaciones para los administradores de tienda y gestiona sus encargados." : "Capacitaciones disponibles y encargados que se pueden asignar."}
         action={
           tab === "cursos"
             ? <button className="button button--primary" onClick={() => { setCursoError(""); setEditingCurso({ ...blankCurso }); }}>Nueva capacitación</button>

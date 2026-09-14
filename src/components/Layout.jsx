@@ -5,7 +5,7 @@ import {
 import { useEffect, useState } from "react";
 
 const navByRole = {
-  admin: [
+  gerente: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
     { id: "usuarios", label: "Zonales y Coaches", icon: Users },
@@ -44,14 +44,14 @@ const navByRole = {
     { id: "documentos", label: "Reporte", icon: FileSpreadsheet },
   ],
 };
-const roleLabels = { admin: "Administrador", jefe_zonal: "Jefe zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", seguridad: "Seguridad", coach: "Coach" };
+const roleLabels = { gerente: "Gerente comercial", jefe_zonal: "Jefe zonal", administrador_tienda: "Administrador de tienda", empleado: "Empleado", vendedor: "Vendedor", seguridad: "Seguridad", coach: "Coach" };
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const items = [
     ...(navByRole[user.rol_db] || navByRole[user.rol] || []),
-    ...(user.rol_db === "admin" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
+    ...(user.rol_db === "gerente" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
     ...(user.rol_db === "administrador_tienda"
       ? [
         { id: "errores-amonestaciones", label: "Amonestaciones", icon: ShieldAlert },

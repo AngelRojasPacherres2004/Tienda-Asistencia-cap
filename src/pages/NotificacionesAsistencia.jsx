@@ -17,7 +17,7 @@ export default function NotificacionesAsistencia({ user }) {
   const load = () => api("/notificaciones/asistencia").then(setData).catch((error) => setNotice({ type: "error", text: error.message }));
   useEffect(() => { load(); }, []);
   const schedulesById = useMemo(() => new Map((data?.programaciones || []).map((item) => [item.id, item.nombre])), [data]);
-  if (user.rol_db !== "admin") return <Notice type="error">Solo el administrador puede acceder a esta sección.</Notice>;
+  if (user.rol_db !== "gerente") return <Notice type="error">Solo el gerente comercial puede acceder a esta sección.</Notice>;
 
   const openEdit = (item = blank) => setEditing({ ...item, destinatarios_texto: (item.destinatarios || []).join("\n"), usuario_ids: item.usuario_ids || [] });
   const payload = (item) => ({ ...item, destinatarios: item.destinatarios_texto.split(/[\n,;]+/).map((email) => email.trim()).filter(Boolean) });
