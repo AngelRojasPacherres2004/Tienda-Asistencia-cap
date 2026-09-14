@@ -1,5 +1,26 @@
 BEGIN;
 
+ALTER TABLE public.tiendas
+  ADD COLUMN IF NOT EXISTS zonal_id INTEGER;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tiendas_zonal_id_fkey'
+      AND conrelid = 'public.tiendas'::regclass
+  ) THEN
+    ALTER TABLE public.tiendas
+      ADD CONSTRAINT tiendas_zonal_id_fkey
+      FOREIGN KEY (zonal_id) REFERENCES public.usuarios(id) ON DELETE SET NULL;
+  END IF;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS tiendas_zonal_id_idx
+  ON public.tiendas (zonal_id);
+
 ALTER TABLE public.usuarios
   DROP CONSTRAINT IF EXISTS usuarios_rol_check,
   DROP CONSTRAINT IF EXISTS usuarios_tienda_rol_check;
