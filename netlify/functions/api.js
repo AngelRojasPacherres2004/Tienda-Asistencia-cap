@@ -331,7 +331,7 @@ async function listUsers(actor, storeId = null) {
   else if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
   if (actor.rol === "admin" && storeId) request = request.eq("tienda_id", storeId);
   if (actor.rol === "admin" && !storeId) {
-    if (actor.rol_db === "gerente") request = request.in("rol", ["jefe_zonal", "coach"]);
+    if (actor.rol_db === "gerente") request = request.eq("rol", "jefe_zonal");
     else if (actor.rol_db === "jefe_zonal") {
       const { data: assignedStores, error: assignedError } = await supabase.from("tiendas").select("id").eq("zonal_id", actor.id);
       if (assignedError) throw dbError(assignedError);
@@ -374,8 +374,8 @@ async function createUser(event, actor) {
     data.rol_personal = "operante";
     data.tienda_id = actor.tienda_id;
   } else if (actor.rol_db === "gerente") {
-    if (!["jefe_zonal", "coach"].includes(data.rol)) throw httpError("El administrador solo puede crear jefes zonales o coaches.", 400);
-    data.rol_personal = data.rol === "coach" ? "otros" : "administrador";
+    data.rol = "jefe_zonal";
+    data.rol_personal = "administrador";
     data.tienda_id = null;
   } else if (actor.rol_db === "jefe_zonal") {
     data.rol = "administrador_tienda";
@@ -471,8 +471,9 @@ async function updateUser(event, id, actor) {
     data.rol_personal = "operante";
     data.tienda_id = actor.tienda_id;
   } else if (actor.rol_db === "gerente") {
-    if (!["jefe_zonal", "coach"].includes(current.rol) || !["jefe_zonal", "coach"].includes(data.rol)) throw httpError("No puedes editar este usuario.", 403);
-    data.rol_personal = data.rol === "coach" ? "otros" : "administrador";
+    if (current.rol !== "jefe_zonal") throw httpError("Solo puedes editar jefes zonales.", 403);
+    data.rol = "jefe_zonal";
+    data.rol_personal = "administrador";
     data.tienda_id = null;
   } else if (actor.rol_db === "jefe_zonal") {
     if (current.rol !== "administrador_tienda" || data.rol !== "administrador_tienda") throw httpError("Solo puedes editar administradores de tienda.", 403);
@@ -514,6 +515,9 @@ async function deleteUser(id, actor) {
   const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
   if (!target) throw httpError("Usuario no encontrado.", 404);
+  if (actor.rol_db === "gerente" && target.rol !== "jefe_zonal") {
+    throw httpError("Solo puedes eliminar jefes zonales.", 403);
+  }
   if (actor.rol_db === "jefe_zonal" && target.rol !== "administrador_tienda") {
     throw httpError("Solo puedes eliminar administradores de tienda.", 403);
   }
@@ -899,6 +903,23 @@ async function updateTienda(event, id, user) {
     zonal_id: zonalId,
   }).eq("id", id);
   if (error) throw dbError(error);
+}
+
+async function deleteTienda(id, user) {
+  if (user.rol_db !== "gerente") throw httpError("Solo el gerente comercial puede eliminar tiendas.", 403);
+  const { data: tienda, error } = await supabase.from("tiendas").select("id").eq("id", id).maybeSingle();
+  if (error) throw dbError(error);
+  if (!tienda) throw httpError("Tienda no encontrada.", 404);
+  const { count, error: usersError } = await supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", id);
+  if (usersError) throw dbError(usersError);
+  if ((count || 0) > 0) {
+    const { error: updateError } = await supabase.from("tiendas").update({ estado: "inactivo" }).eq("id", id);
+    if (updateError) throw dbError(updateError);
+    return { eliminado: false, inhabilitado: true };
+  }
+  const { error: deleteError } = await supabase.from("tiendas").delete().eq("id", id);
+  if (deleteError) throw dbError(deleteError);
+  return { eliminado: true, inhabilitado: false };
 }
 
 // ---------- Asistencias ----------
@@ -1833,6 +1854,10 @@ export async function handler(event) {
       ensureAuth(event, "admin");
       await updateTienda(event, Number(tiendaMatch[1]), user);
       return json(200, { ok: true });
+    }
+    if (tiendaMatch && method === "DELETE") {
+      ensureAuth(event, "admin");
+      return json(200, await deleteTienda(Number(tiendaMatch[1]), user));
     }
 
     if (path === "/cursos" && method === "GET") {

@@ -1,5 +1,5 @@
 import {
-  BarChart3, Bell, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
+  BarChart3, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
   FileSearch, FileText, LogOut, Menu, PanelLeftClose, ShieldAlert, TrafficCone, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -8,10 +8,10 @@ const navByRole = {
   gerente: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "usuarios", label: "Zonales y Coaches", icon: Users },
-    { id: "documentos", label: "Reportes", icon: FileSpreadsheet },
-    { id: "cursos", label: "Capacitaciones", icon: GraduationCap },
+    { id: "usuarios", label: "Jefes zonales", icon: Users },
     { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
+    { id: "reportes", label: "Reporte", icon: BarChart3 },
+    { id: "documentos", label: "Documentos", icon: FileSpreadsheet },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
@@ -51,7 +51,6 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [compact, setCompact] = useState(false);
   const items = [
     ...(navByRole[user.rol_db] || navByRole[user.rol] || []),
-    ...(user.rol_db === "gerente" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
     ...(user.rol_db === "administrador_tienda"
       ? [
         { id: "errores-amonestaciones", label: "Amonestaciones", icon: ShieldAlert },

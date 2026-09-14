@@ -246,7 +246,7 @@ export default function Usuarios({ user }) {
       <PageHeader
         eyebrow={isAdmin ? "Equipo" : "Mi tienda"}
         title={isAdmin ? "Usuarios" : "Mi equipo"}
-        subtitle={isAdmin ? (isGerente ? "Jefes zonales y Coaches con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
+        subtitle={isAdmin ? (isGerente ? "Crea y administra los Jefes zonales con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
         action={<div className="header-actions">
           {isAdmin ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
@@ -353,7 +353,7 @@ export default function Usuarios({ user }) {
             {isAdmin && (
               <>
                 <Field label="Rol">
-                  {isGerente ? <select value={editing.rol} onChange={(e) => set("rol", e.target.value)}><option value="jefe_zonal">Jefe zonal</option><option value="coach">Coach</option></select> : <input readOnly value={roleLabels[editing.rol] || editing.rol} />}
+                  {isGerente ? <input readOnly value="Jefe zonal" /> : <input readOnly value={roleLabels[editing.rol] || editing.rol} />}
                 </Field>
                 <Field label="Tienda" error={fieldErrors.tienda_id} hint={["gerente", "jefe_zonal", "coach"].includes(editing.rol) ? "Este rol no requiere una tienda asignada." : undefined}>
                   <select required={!['gerente', 'jefe_zonal', 'coach'].includes(editing.rol)} disabled={['gerente', 'jefe_zonal', 'coach'].includes(editing.rol)} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>

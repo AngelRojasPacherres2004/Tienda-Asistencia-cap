@@ -53,6 +53,7 @@ export default function App() {
   const content = {
     dashboard: <Dashboard user={user} />,
     documentos: <Documentos />,
+    reportes: <Documentos variant="reportes" />,
     usuarios: <Usuarios user={user} />,
     tiendas: <Tiendas />,
     cursos: <Cursos user={user} />,

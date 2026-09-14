@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Crown, Pencil, UsersRound, X } from "lucide-react";
+import { Building2, Crown, Pencil, Trash2, UsersRound, X } from "lucide-react";
 import { api } from "../lib/api";
 import {
-  EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
+  ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
 const blank = { nombre: "", direccion: "", jefe_id: "", zonal_id: "", estado: "activo" };
@@ -18,6 +18,7 @@ export default function Tiendas() {
   const [storeUsers, setStoreUsers] = useState(null);
   const [formError, setFormError] = useState("");
   const [success, setSuccess] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const load = () => api("/tiendas").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
@@ -56,6 +57,16 @@ export default function Tiendas() {
       setBusy(false);
     }
   };
+  const remove = async () => {
+    if (!deleting) return;
+    setBusy(true); setNotice(null);
+    try {
+      const result = await api(`/tiendas/${deleting.id}`, { method: "DELETE" });
+      setDeleting(null); await load();
+      setSuccess({ title: result.inhabilitado ? "Tienda inhabilitada" : "Tienda eliminada", message: result.inhabilitado ? "La tienda tiene usuarios vinculados, por eso fue marcada como inactiva." : "La tienda fue eliminada correctamente." });
+    } catch (err) { setNotice({ type: "error", text: err.message }); }
+    finally { setBusy(false); }
+  };
 
   return (
     <>
@@ -88,6 +99,7 @@ export default function Tiendas() {
               <div className="company-card__footer">
                 <button onClick={() => openUsers(item)}><UsersRound size={14} />Usuarios</button>
                 <button onClick={() => openEdit(item)}><Pencil size={14} />Editar</button>
+                <button onClick={() => setDeleting(item)}><Trash2 size={14} />Eliminar</button>
               </div>
             </article>
           ))}
@@ -139,6 +151,7 @@ export default function Tiendas() {
         </div>}
       </Modal>
       <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
+      <ConfirmDialog open={!!deleting} title="Eliminar tienda" message={`¿Seguro que quieres eliminar ${deleting?.nombre || "esta tienda"}?`} busy={busy} onConfirm={remove} onClose={() => setDeleting(null)} />
     </>
   );
 }

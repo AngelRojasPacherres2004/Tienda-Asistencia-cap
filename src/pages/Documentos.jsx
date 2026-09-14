@@ -3,7 +3,7 @@ import { Building2, Download, FileSpreadsheet } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
 import { EmptyState, Loading, Notice, PageHeader, SearchInput } from "../components/UI";
 
-export default function Documentos() {
+export default function Documentos({ variant = "documentos" }) {
   const [tiendas, setTiendas] = useState(null);
   const [search, setSearch] = useState("");
   const [tipo, setTipo] = useState("asistencias");
@@ -53,9 +53,9 @@ export default function Documentos() {
   return (
     <>
       <PageHeader
-        eyebrow="Reportes"
-        title="Documentos"
-        subtitle="Descarga Excel de asistencias y capacitaciones por tienda."
+        eyebrow={variant === "reportes" ? "Análisis" : "Documentos"}
+        title={variant === "reportes" ? "Reporte" : "Documentos"}
+        subtitle={variant === "reportes" ? "Genera reportes de asistencias y capacitaciones por tienda y periodo." : "Descarga los documentos consolidados de asistencias y capacitaciones."}
         action={
           <div className="header-actions">
             <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
