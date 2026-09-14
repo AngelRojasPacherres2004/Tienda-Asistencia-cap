@@ -15,7 +15,7 @@ export default function MisCapacitaciones() {
 
   return (
     <>
-      <PageHeader eyebrow="Mi desarrollo" title="Mis capacitaciones" subtitle="Tu progreso en cada curso del catálogo." />
+      <PageHeader eyebrow="Mi desarrollo" title="Mis capacitaciones" subtitle="Tu progreso en cada capacitación del catálogo." />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       {!items ? <Loading /> : items.length ? (
@@ -37,7 +37,7 @@ export default function MisCapacitaciones() {
           ))}
         </div>
       ) : (
-        <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos disponibles en el catálogo." />
+        <EmptyState icon={GraduationCap} title="Sin capacitaciones" text="Todavía no hay capacitaciones disponibles en el catálogo." />
       )}
     </>
   );

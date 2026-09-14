@@ -8,7 +8,9 @@ import {
 const blankCurso = { nombre: "", competencia: "", activo: true };
 const blankEncargado = { nombre: "", activo: true };
 
-export default function Cursos() {
+export default function Cursos({ user }) {
+  const isCoach = user?.rol === "coach";
+  const isZonal = user?.rol_db === "jefe_zonal";
   const [tab, setTab] = useState("cursos");
   const [cursos, setCursos] = useState(null);
   const [encargados, setEncargados] = useState(null);
@@ -33,7 +35,7 @@ export default function Cursos() {
       });
       setEditingCurso(null);
       await loadCursos();
-      setSuccess({ title: editingCurso.id ? "Curso actualizado" : "Curso creado", message: "La información del curso se guardó correctamente." });
+      setSuccess({ title: editingCurso.id ? "Capacitación actualizada" : "Capacitación creada", message: "La información de la capacitación se guardó correctamente." });
     } catch (err) {
       setCursoError(err.message);
     } finally {
@@ -42,7 +44,7 @@ export default function Cursos() {
   };
 
   const deleteCurso = async (curso) => {
-    if (!window.confirm(`¿Eliminar el curso "${curso.nombre}"?`)) return;
+    if (!window.confirm(`¿Eliminar la capacitación "${curso.nombre}"?`)) return;
     setNotice(null);
     try {
       const result = await api(`/cursos/${curso.id}`, { method: "DELETE" });
@@ -50,8 +52,8 @@ export default function Cursos() {
       setNotice({
         type: "success",
         text: result.inhabilitado
-          ? "Ese curso ya tiene progreso registrado por trabajadores, así que se inhabilitó en vez de eliminarse."
-          : "Curso eliminado.",
+          ? "Esa capacitación ya tiene progreso registrado, así que se inhabilitó en vez de eliminarse."
+          : "Capacitación eliminada.",
       });
     } catch (err) {
       setNotice({ type: "error", text: err.message });
@@ -79,18 +81,18 @@ export default function Cursos() {
     <>
       <PageHeader
         eyebrow="Catálogo"
-        title="Cursos y Encargados"
-        subtitle="Cursos disponibles y encargados que se pueden asignar en cualquier tienda."
+        title="Capacitaciones y Encargados"
+        subtitle={isCoach ? "Crea capacitaciones para Gerentes comerciales y Jefes zonales." : isZonal ? "Crea capacitaciones para los administradores de tienda y gestiona sus encargados." : "Capacitaciones disponibles y encargados que se pueden asignar."}
         action={
           tab === "cursos"
-            ? <button className="button button--primary" onClick={() => { setCursoError(""); setEditingCurso({ ...blankCurso }); }}>Nuevo curso</button>
+            ? <button className="button button--primary" onClick={() => { setCursoError(""); setEditingCurso({ ...blankCurso }); }}>Nueva capacitación</button>
             : <button className="button button--primary" onClick={() => { setEncargadoError(""); setEditingEncargado({ ...blankEncargado }); }}>Nuevo encargado</button>
         }
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="segmented">
-        <button className={tab === "cursos" ? "active" : ""} onClick={() => setTab("cursos")}>Cursos</button>
+        <button className={tab === "cursos" ? "active" : ""} onClick={() => setTab("cursos")}>Capacitaciones</button>
         <button className={tab === "encargados" ? "active" : ""} onClick={() => setTab("encargados")}>Encargados</button>
       </div>
 
@@ -114,7 +116,7 @@ export default function Cursos() {
               </article>
             ))}
           </div>
-        ) : <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos en el catálogo." />
+        ) : <EmptyState icon={GraduationCap} title="Sin capacitaciones" text="Todavía no hay capacitaciones en el catálogo." />
       ) : (
         !encargados ? <Loading /> : encargados.length ? (
           <div className="table-panel">
@@ -134,11 +136,11 @@ export default function Cursos() {
         ) : <EmptyState icon={UserRound} title="Sin encargados" text="Todavía no hay encargados en el catálogo." />
       )}
 
-      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar curso" : "Nuevo curso"} onClose={() => { setEditingCurso(null); setCursoError(""); }}>
+      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar capacitación" : "Nueva capacitación"} onClose={() => { setEditingCurso(null); setCursoError(""); }}>
         {editingCurso && (
           <form className="form-grid" onSubmit={saveCurso}>
             {cursoError && <div className="span-2"><Notice type="error" onClose={() => setCursoError("")}>{cursoError}</Notice></div>}
-            <Field label="Curso" className="span-2">
+            <Field label="Capacitación" className="span-2">
               <input required value={editingCurso.nombre} onChange={(e) => setEditingCurso({ ...editingCurso, nombre: e.target.value })} />
             </Field>
             <Field label="Competencia" className="span-2">

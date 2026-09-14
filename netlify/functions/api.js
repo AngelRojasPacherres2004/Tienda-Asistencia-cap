@@ -14,7 +14,7 @@ const headers = {
   "Cache-Control": "no-store",
 };
 const loginAttempts = new Map();
-const userRoles = new Set(["admin", "jefe_zonal", "jefe_tienda", "empleado", "vendedor", "seguridad", "administrador_tienda"]);
+const userRoles = new Set(["admin", "jefe_zonal", "jefe_tienda", "empleado", "vendedor", "seguridad", "administrador_tienda", "coach"]);
 const accessRoleByStoredRole = { gerente: "admin", jefe_zonal: "admin", administrador_tienda: "jefe_tienda", vendedor: "empleado" };
 const storeUserRoles = new Set(["empleado", "vendedor", "seguridad"]);
 const personalRoles = new Set(["administrador", "operante", "lider_equipo", "otros"]);
@@ -235,10 +235,10 @@ function validateUserPayload(data, creating = false) {
   if (data.fecha_salida && data.fecha_salida < data.fecha_ingreso) {
     throw httpError("La fecha de salida no puede ser anterior a la fecha de ingreso.", 400);
   }
-  if ((data.rol === "admin" || data.rol === "jefe_zonal") && data.tienda_id) {
+  if (["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) && data.tienda_id) {
     throw httpError("Un administrador no debe tener tienda asignada.", 400);
   }
-  if (data.rol !== "admin" && data.rol !== "jefe_zonal" && !data.tienda_id) {
+  if (!["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) && !data.tienda_id) {
     throw httpError("Selecciona la tienda del usuario.", 400);
   }
   if (data.password && String(data.password).length < 6) {
@@ -331,8 +331,13 @@ async function listUsers(actor, storeId = null) {
   else if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
   if (actor.rol === "admin" && storeId) request = request.eq("tienda_id", storeId);
   if (actor.rol === "admin" && !storeId) {
-    if (actor.rol_db === "gerente") request = request.eq("rol", "jefe_zonal");
-    else if (actor.rol_db === "jefe_zonal") request = request.eq("rol", "administrador_tienda");
+    if (actor.rol_db === "gerente") request = request.in("rol", ["jefe_zonal", "coach"]);
+    else if (actor.rol_db === "jefe_zonal") {
+      const { data: assignedStores, error: assignedError } = await supabase.from("tiendas").select("id").eq("zonal_id", actor.id);
+      if (assignedError) throw dbError(assignedError);
+      if (!assignedStores?.length) return [];
+      request = request.eq("rol", "administrador_tienda").in("tienda_id", assignedStores.map((item) => item.id));
+    }
     else request = request.in("rol", ["jefe_zonal", "administrador_tienda"]);
   }
   const { data, error } = await request;
@@ -369,23 +374,26 @@ async function createUser(event, actor) {
     data.rol_personal = "operante";
     data.tienda_id = actor.tienda_id;
   } else if (actor.rol_db === "gerente") {
-    data.rol = "jefe_zonal";
-    data.rol_personal = "administrador";
+    if (!["jefe_zonal", "coach"].includes(data.rol)) throw httpError("El gerente solo puede crear jefes zonales o coaches.", 400);
+    data.rol_personal = data.rol === "coach" ? "otros" : "administrador";
     data.tienda_id = null;
   } else if (actor.rol_db === "jefe_zonal") {
     data.rol = "administrador_tienda";
     data.rol_personal = "administrador";
+    const { data: assignedStore, error: assignedError } = await supabase.from("tiendas").select("id").eq("id", Number(data.tienda_id)).eq("zonal_id", actor.id).maybeSingle();
+    if (assignedError) throw dbError(assignedError);
+    if (!assignedStore) throw httpError("Solo puedes crear administradores en tus tiendas asignadas.", 403);
   } else normalizePersonalRole(data);
   validateUserPayload(data, true);
   const usuario = cleanUsuario(data.usuario);
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni);
-  if (data.rol !== "admin" && data.rol !== "jefe_zonal") await ensureTiendaActiva(data.tienda_id);
+  if (!["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol)) await ensureTiendaActiva(data.tienda_id);
   const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
-    tienda_id: data.rol === "admin" || data.rol === "jefe_zonal" ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: ["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     ...personalUserPayload(data),
   }).select("id,nombres,apellidos,dni,usuario,telefono,rol,rol_personal,tienda_id,estado,fecha_ingreso,fecha_salida").single();
@@ -462,6 +470,16 @@ async function updateUser(event, id, actor) {
     data.rol = "empleado";
     data.rol_personal = "operante";
     data.tienda_id = actor.tienda_id;
+  } else if (actor.rol_db === "gerente") {
+    if (!["jefe_zonal", "coach"].includes(current.rol) || !["jefe_zonal", "coach"].includes(data.rol)) throw httpError("No puedes editar este usuario.", 403);
+    data.rol_personal = data.rol === "coach" ? "otros" : "administrador";
+    data.tienda_id = null;
+  } else if (actor.rol_db === "jefe_zonal") {
+    if (current.rol !== "administrador_tienda" || data.rol !== "administrador_tienda") throw httpError("Solo puedes editar administradores de tienda.", 403);
+    const { data: assignedStore, error: assignedError } = await supabase.from("tiendas").select("id").eq("id", current.tienda_id).eq("zonal_id", actor.id).maybeSingle();
+    if (assignedError) throw dbError(assignedError);
+    if (!assignedStore || Number(data.tienda_id) !== Number(current.tienda_id)) throw httpError("Este administrador no pertenece a una de tus tiendas asignadas.", 403);
+    data.rol_personal = "administrador";
   } else normalizePersonalRole(data);
   validateUserPayload(data);
   if (data.rol !== "empleado" && (!current.password || current.password === disabledPassword) && !data.password) {
@@ -479,11 +497,11 @@ async function updateUser(event, id, actor) {
   const usuario = cleanUsuario(data.usuario);
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni, id);
-  if (data.rol !== "admin" && data.rol !== "jefe_zonal") await ensureTiendaActiva(data.tienda_id);
+  if (!["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol)) await ensureTiendaActiva(data.tienda_id);
   const payload = {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
-    tienda_id: data.rol === "admin" || data.rol === "jefe_zonal" ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: ["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     ...personalUserPayload(data),
   };
@@ -496,6 +514,14 @@ async function deleteUser(id, actor) {
   const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
   if (!target) throw httpError("Usuario no encontrado.", 404);
+  if (actor.rol_db === "jefe_zonal" && target.rol !== "administrador_tienda") {
+    throw httpError("Solo puedes eliminar administradores de tienda.", 403);
+  }
+  if (actor.rol_db === "jefe_zonal") {
+    const { data: assignedStore, error: assignedError } = await supabase.from("tiendas").select("id").eq("id", target.tienda_id).eq("zonal_id", actor.id).maybeSingle();
+    if (assignedError) throw dbError(assignedError);
+    if (!assignedStore) throw httpError("Este administrador no pertenece a una de tus tiendas asignadas.", 403);
+  }
   if (actor.rol_db === "administrador_tienda" && (target.tienda_id !== actor.tienda_id || !storeUserRoles.has(target.rol))) {
     throw httpError("No puedes eliminar este usuario.", 403);
   }
@@ -543,6 +569,51 @@ async function createIncidente(event, user) {
     .select("id,titulo,descripcion,fecha_creacion,reportado_por").single();
   if (error) throw dbError(error);
   return created;
+}
+
+async function listAmonestaciones(user) {
+  if (!["gerente", "jefe_zonal"].includes(user.rol_db)) throw httpError("No tienes permiso para consultar amonestaciones.", 403);
+  const targetRole = user.rol_db === "gerente" ? "jefe_zonal" : "administrador_tienda";
+  const { data, error } = await supabase.from("amonestaciones")
+    .select("id,tipo_documento,descripcion,fecha,usuario_id,usuario:usuarios!amonestaciones_usuario_id_fkey!inner(nombres,apellidos,usuario,rol),creador:usuarios!amonestaciones_creado_por_fkey(nombres,apellidos)")
+    .eq("usuario.rol", targetRole)
+    .order("fecha", { ascending: false });
+  if (error) throw dbError(error);
+  return (data || []).map(({ usuario, creador, ...row }) => ({
+    ...row,
+    usuario_nombre: usuario ? `${usuario.nombres} ${usuario.apellidos}`.trim() : "",
+    usuario_acceso: usuario?.usuario || "",
+    creado_por_nombre: creador ? `${creador.nombres} ${creador.apellidos}`.trim() : "",
+  }));
+}
+
+async function createAmonestacion(event, user) {
+  if (!["gerente", "jefe_zonal"].includes(user.rol_db)) throw httpError("No tienes permiso para registrar amonestaciones.", 403);
+  const data = bodyOf(event);
+  requireFields(data, ["usuario_id", "tipo_documento", "descripcion", "fecha"]);
+  if (!isISODate(data.fecha)) throw httpError("La fecha no es válida.", 400);
+  const tipoDocumento = cleanText(data.tipo_documento).toLowerCase();
+  const descripcion = cleanText(data.descripcion);
+  if (!["carta_amonestacion", "memorandum", "verbal"].includes(tipoDocumento)) throw httpError("Selecciona un tipo de documento válido.", 400);
+  if (descripcion.length < 5 || descripcion.length > 3000) throw httpError("La descripción debe tener entre 5 y 3000 caracteres.", 400);
+  const targetRole = user.rol_db === "gerente" ? "jefe_zonal" : "administrador_tienda";
+  const { data: target, error: targetError } = await supabase.from("usuarios").select("id").eq("id", Number(data.usuario_id)).eq("rol", targetRole).maybeSingle();
+  if (targetError) throw dbError(targetError);
+  if (!target) throw httpError("Selecciona un usuario válido dentro de tu alcance.", 400);
+  const { data: created, error } = await supabase.from("amonestaciones").insert({ usuario_id: target.id, tipo_documento: tipoDocumento, descripcion, fecha: data.fecha, creado_por: user.id }).select("id").single();
+  if (error) throw dbError(error);
+  return created;
+}
+
+async function deleteAmonestacion(id, user) {
+  if (!["gerente", "jefe_zonal"].includes(user.rol_db)) throw httpError("No tienes permiso para eliminar amonestaciones.", 403);
+  const targetRole = user.rol_db === "gerente" ? "jefe_zonal" : "administrador_tienda";
+  const { data: current, error: currentError } = await supabase.from("amonestaciones").select("id,usuario:usuarios!amonestaciones_usuario_id_fkey(rol)").eq("id", id).maybeSingle();
+  if (currentError) throw dbError(currentError);
+  if (!current || current.usuario?.rol !== targetRole) throw httpError("Amonestación no encontrada.", 404);
+  const { data, error } = await supabase.from("amonestaciones").delete().eq("id", id).select("id").maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("Amonestación no encontrada.", 404);
 }
 
 // ---------- Documentos legales de tienda ----------
@@ -770,16 +841,20 @@ async function exportUsersExcelAdmin(actor, template = false) {
 
 // ---------- Tiendas ----------
 
-async function listTiendas() {
-  const { data, error } = await supabase
+async function listTiendas(user) {
+  let request = supabase
     .from("tiendas")
-    .select("id,nombre,direccion,estado,fecha_creacion,jefe_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos)")
+    .select("id,nombre,direccion,estado,fecha_creacion,jefe_id,zonal_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos),zonal:usuarios!tiendas_zonal_id_fkey(id,nombres,apellidos)")
     .order("nombre");
+  if (user?.rol_db === "jefe_zonal") request = request.eq("zonal_id", user.id);
+  const { data, error } = await request;
   if (error) throw dbError(error);
   return data.map((row) => ({
     ...row,
     jefe: undefined,
+    zonal: undefined,
     jefe_nombre: row.jefe ? `${row.jefe.nombres} ${row.jefe.apellidos}` : null,
+    zonal_nombre: row.zonal ? `${row.zonal.nombres} ${row.zonal.apellidos}` : null,
   }));
 }
 
@@ -792,14 +867,25 @@ async function syncJefe(tiendaId, jefeId) {
   }
 }
 
-async function createTienda(event) {
+async function validateZonal(zonalId) {
+  if (!zonalId) return null;
+  const { data, error } = await supabase.from("usuarios").select("id,estado").eq("id", Number(zonalId)).eq("rol", "jefe_zonal").maybeSingle();
+  if (error) throw dbError(error);
+  if (!data || data.estado !== "activo") throw httpError("Selecciona un jefe zonal activo.", 400);
+  return data.id;
+}
+
+async function createTienda(event, user) {
+  if (user.rol_db !== "gerente" && user.rol_db !== "admin") throw httpError("Solo el gerente comercial puede crear tiendas.", 403);
   const data = bodyOf(event);
   validateTiendaPayload(data);
+  const zonalId = await validateZonal(data.zonal_id);
   const { data: created, error } = await supabase.from("tiendas")
     .insert({
       nombre: cleanText(data.nombre),
       direccion: data.direccion ? cleanText(data.direccion) : null,
       estado: data.estado,
+      zonal_id: zonalId,
     })
     .select("id").single();
   if (error) throw dbError(error);
@@ -811,9 +897,11 @@ async function createTienda(event) {
   return created;
 }
 
-async function updateTienda(event, id) {
+async function updateTienda(event, id, user) {
+  if (user.rol_db !== "gerente" && user.rol_db !== "admin") throw httpError("Solo el gerente comercial puede editar tiendas.", 403);
   const data = bodyOf(event);
   validateTiendaPayload(data);
+  const zonalId = await validateZonal(data.zonal_id);
   const jefeId = data.jefe_id ? Number(data.jefe_id) : null;
   if (jefeId) await syncJefe(Number(id), jefeId);
   const { error } = await supabase.from("tiendas").update({
@@ -821,6 +909,7 @@ async function updateTienda(event, id) {
     direccion: data.direccion ? cleanText(data.direccion) : null,
     estado: data.estado,
     jefe_id: jefeId,
+    zonal_id: zonalId,
   }).eq("id", id);
   if (error) throw dbError(error);
 }
@@ -1037,8 +1126,12 @@ async function updateEncargado(event, id) {
 async function listTrabajadores(event, user) {
   const query = event.queryStringParameters || {};
   let request = supabase.from("usuarios")
-    .select("id,nombres,apellidos,usuario,rol,estado")
-    .eq("tienda_id", user.tienda_id).in("rol", ["empleado", "jefe_tienda"]).order("nombres");
+    .select("id,nombres,apellidos,usuario,rol,estado").order("nombres");
+  request = user.rol === "coach"
+    ? request.in("rol", ["gerente", "jefe_zonal"])
+    : user.rol_db === "jefe_zonal"
+      ? request.eq("rol", "administrador_tienda")
+    : request.eq("tienda_id", user.tienda_id).in("rol", ["empleado", "jefe_tienda"]);
   if (query.estado === "activo" || query.estado === "inactivo") request = request.eq("estado", query.estado);
   const { data, error } = await request;
   if (error) throw dbError(error);
@@ -1056,7 +1149,12 @@ async function getTrabajadorPerfil(id, user) {
   const { data: trabajador, error } = await supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
-  if (!trabajador || trabajador.tienda_id !== user.tienda_id) throw httpError("Trabajador no encontrado.", 404);
+  const targetAllowed = user.rol === "coach"
+    ? ["gerente", "jefe_zonal"].includes(trabajador?.rol)
+    : user.rol_db === "jefe_zonal"
+      ? trabajador?.rol === "administrador_tienda"
+    : trabajador?.tienda_id === user.tienda_id;
+  if (!trabajador || !targetAllowed) throw httpError("Persona no encontrada.", 404);
 
   const { data: progresoRows, error: progresoError } = await supabase.from("capacitacion_progreso")
     .select("curso_id,estado,duracion_horas,encargado_id,fecha_finalizacion,encargados(id,nombre,activo)")
@@ -1100,9 +1198,14 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
   requireFields(data, ["estado", "encargado_id"]);
   if (!progresoEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
   const { data: trabajador, error: tError } = await supabase.from("usuarios")
-    .select("id,tienda_id").eq("id", usuarioId).maybeSingle();
+    .select("id,tienda_id,rol").eq("id", usuarioId).maybeSingle();
   if (tError) throw dbError(tError);
-  if (!trabajador || trabajador.tienda_id !== user.tienda_id) throw httpError("Trabajador no encontrado.", 404);
+  const targetAllowed = user.rol === "coach"
+    ? ["gerente", "jefe_zonal"].includes(trabajador?.rol)
+    : user.rol_db === "jefe_zonal"
+      ? trabajador?.rol === "administrador_tienda"
+    : trabajador?.tienda_id === user.tienda_id;
+  if (!trabajador || !targetAllowed) throw httpError("Persona no encontrada.", 404);
   const { data: encargado, error: eError } = await supabase.from("encargados")
     .select("id").eq("id", data.encargado_id).maybeSingle();
   if (eError) throw dbError(eError);
@@ -1124,8 +1227,12 @@ async function getResumenCurso(event, user) {
   if (!Number.isInteger(cursoId) || cursoId < 1) throw httpError("Selecciona un curso.", 400);
   const tiendaId = user.rol === "admin" ? (query.tienda_id ? Number(query.tienda_id) : null) : user.tienda_id;
 
-  let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol")
-    .eq("estado", "activo").in("rol", ["empleado", "jefe_tienda"]);
+  let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol").eq("estado", "activo");
+  trabajadoresQuery = user.rol === "coach"
+    ? trabajadoresQuery.in("rol", ["gerente", "jefe_zonal"])
+    : user.rol_db === "jefe_zonal"
+      ? trabajadoresQuery.eq("rol", "administrador_tienda")
+    : trabajadoresQuery.in("rol", ["empleado", "jefe_tienda"]);
   if (tiendaId) trabajadoresQuery = trabajadoresQuery.eq("tienda_id", tiendaId);
   const { data: trabajadores, error: tError } = await trabajadoresQuery;
   if (tError) throw dbError(tError);
@@ -1170,15 +1277,20 @@ async function asignarLote(event, user) {
   if (eError) throw dbError(eError);
   if (!encargado) throw httpError("El encargado seleccionado no existe.", 400);
   const { data: trabajadores, error: tError } = await supabase.from("usuarios")
-    .select("id,tienda_id").in("id", ids);
+    .select("id,tienda_id,rol").in("id", ids);
   if (tError) throw dbError(tError);
-  if (trabajadores.length !== ids.length || trabajadores.some((t) => t.tienda_id !== user.tienda_id)) {
-    throw httpError("Uno de los trabajadores seleccionados no pertenece a tu tienda.", 400);
+  const invalidTarget = user.rol === "coach"
+    ? trabajadores.some((t) => !["gerente", "jefe_zonal"].includes(t.rol))
+    : user.rol_db === "jefe_zonal"
+      ? trabajadores.some((t) => t.rol !== "administrador_tienda")
+    : trabajadores.some((t) => t.tienda_id !== user.tienda_id);
+  if (trabajadores.length !== ids.length || invalidTarget) {
+    throw httpError("Una de las personas seleccionadas está fuera de tu alcance.", 400);
   }
   const fechaFinalizacion = data.estado === "completado" ? todayISO() : null;
   const rows = ids.map((usuario_id) => {
     const row = {
-      curso_id: cursoId, usuario_id, tienda_id: user.tienda_id, estado: data.estado,
+      curso_id: cursoId, usuario_id, tienda_id: trabajadores.find((item) => item.id === usuario_id)?.tienda_id || null, estado: data.estado,
       encargado_id: encargadoId, fecha_finalizacion: fechaFinalizacion,
       actualizado_por: user.id, updated_at: new Date().toISOString(),
     };
@@ -1650,8 +1762,16 @@ export async function handler(event) {
       return json(200, await listIncidentes());
     }
     if (path === "/incidentes" && method === "POST") {
-      ensureAuth(event, "seguridad");
+      ensureAuth(event, ["seguridad", "admin"]);
+      if (user.rol === "admin" && user.rol_db !== "gerente") throw httpError("No tienes permisos para registrar errores.", 403);
       return json(201, await createIncidente(event, user));
+    }
+    if (path === "/amonestaciones" && method === "GET") return json(200, await listAmonestaciones(user));
+    if (path === "/amonestaciones" && method === "POST") return json(201, await createAmonestacion(event, user));
+    const amonestacionMatch = path.match(/^\/amonestaciones\/(\d+)$/);
+    if (amonestacionMatch && method === "DELETE") {
+      await deleteAmonestacion(Number(amonestacionMatch[1]), user);
+      return json(200, { ok: true });
     }
     if (path === "/documentos-legales" && method === "GET") {
       return json(200, await listDocumentosLegales(user));
@@ -1714,44 +1834,44 @@ export async function handler(event) {
       return json(200, await deleteUser(Number(userMatch[1]), user));
     }
 
-    if (path === "/tiendas" && method === "GET") { ensureAuth(event, "admin"); return json(200, await listTiendas()); }
+    if (path === "/tiendas" && method === "GET") { ensureAuth(event, "admin"); return json(200, await listTiendas(user)); }
     const tiendaUsersMatch = path.match(/^\/tiendas\/(\d+)\/usuarios$/);
     if (tiendaUsersMatch && method === "GET") {
       ensureAuth(event, "admin");
       return json(200, await listUsers(user, Number(tiendaUsersMatch[1])));
     }
-    if (path === "/tiendas" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createTienda(event)); }
+    if (path === "/tiendas" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createTienda(event, user)); }
     const tiendaMatch = path.match(/^\/tiendas\/(\d+)$/);
     if (tiendaMatch && method === "PUT") {
       ensureAuth(event, "admin");
-      await updateTienda(event, Number(tiendaMatch[1]));
+      await updateTienda(event, Number(tiendaMatch[1]), user);
       return json(200, { ok: true });
     }
 
     if (path === "/cursos" && method === "GET") {
-      ensureAuth(event, ["admin", "jefe_tienda"]);
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       return json(200, await listCursos());
     }
-    if (path === "/cursos" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createCurso(event)); }
+    if (path === "/cursos" && method === "POST") { ensureAuth(event, ["admin", "coach"]); return json(201, await createCurso(event)); }
     const cursoMatch = path.match(/^\/cursos\/(\d+)$/);
     if (cursoMatch && method === "PUT") {
-      ensureAuth(event, "admin");
+      ensureAuth(event, ["admin", "coach"]);
       await updateCurso(event, Number(cursoMatch[1]));
       return json(200, { ok: true });
     }
     if (cursoMatch && method === "DELETE") {
-      ensureAuth(event, "admin");
+      ensureAuth(event, ["admin", "coach"]);
       return json(200, await deleteCurso(Number(cursoMatch[1])));
     }
 
     if (path === "/encargados" && method === "GET") {
-      ensureAuth(event, ["admin", "jefe_tienda"]);
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       return json(200, await listEncargados());
     }
-    if (path === "/encargados" && method === "POST") { ensureAuth(event, "admin"); return json(201, await createEncargado(event)); }
+    if (path === "/encargados" && method === "POST") { ensureAuth(event, ["admin", "coach"]); return json(201, await createEncargado(event)); }
     const encargadoMatch = path.match(/^\/encargados\/(\d+)$/);
     if (encargadoMatch && method === "PUT") {
-      ensureAuth(event, "admin");
+      ensureAuth(event, ["admin", "coach"]);
       await updateEncargado(event, Number(encargadoMatch[1]));
       return json(200, { ok: true });
     }
@@ -1784,26 +1904,26 @@ export async function handler(event) {
     }
 
     if (path === "/capacitaciones/trabajadores" && method === "GET") {
-      ensureAuth(event, "jefe_tienda");
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       return json(200, await listTrabajadores(event, user));
     }
     const trabajadorMatch = path.match(/^\/capacitaciones\/trabajadores\/(\d+)$/);
     if (trabajadorMatch && method === "GET") {
-      ensureAuth(event, "jefe_tienda");
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       return json(200, await getTrabajadorPerfil(Number(trabajadorMatch[1]), user));
     }
     const progresoMatch = path.match(/^\/capacitaciones\/trabajadores\/(\d+)\/cursos\/(\d+)$/);
     if (progresoMatch && method === "PUT") {
-      ensureAuth(event, "jefe_tienda");
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       await guardarProgreso(event, Number(progresoMatch[1]), Number(progresoMatch[2]), user);
       return json(200, { ok: true });
     }
     if (path === "/capacitaciones/resumen" && method === "GET") {
-      ensureAuth(event, ["admin", "jefe_tienda"]);
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       return json(200, await getResumenCurso(event, user));
     }
     if (path === "/capacitaciones/asignar" && method === "PUT") {
-      ensureAuth(event, "jefe_tienda");
+      ensureAuth(event, ["admin", "jefe_tienda", "coach"]);
       return json(200, await asignarLote(event, user));
     }
 

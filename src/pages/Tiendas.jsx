@@ -5,7 +5,7 @@ import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const blank = { nombre: "", direccion: "", jefe_id: "", estado: "activo" };
+const blank = { nombre: "", direccion: "", jefe_id: "", zonal_id: "", estado: "activo" };
 
 export default function Tiendas() {
   const [items, setItems] = useState(null);
@@ -27,7 +27,7 @@ export default function Tiendas() {
     [item.nombre, item.direccion, item.jefe_nombre].join(" ").toLowerCase().includes(search.toLowerCase()),
   ), [items, search]);
 
-  const jefeOptions = usuarios.filter((u) => u.estado === "activo" && (u.rol === "jefe_tienda" || u.rol === "empleado"));
+  const zonalOptions = usuarios.filter((u) => u.estado === "activo" && u.rol === "jefe_zonal");
 
   const openUsers = (item) => {
     setViewing(item);
@@ -36,14 +36,14 @@ export default function Tiendas() {
   };
   const closeEditor = () => { setEditing(null); setFormError(""); };
   const openNew = () => { setFormError(""); setEditing({ ...blank }); };
-  const openEdit = (item) => { setFormError(""); setEditing({ ...item, jefe_id: item.jefe_id || "" }); };
+  const openEdit = (item) => { setFormError(""); setEditing({ ...item, jefe_id: item.jefe_id || "", zonal_id: item.zonal_id || "" }); };
   const set = (field, value) => setEditing((current) => ({ ...current, [field]: value }));
 
   const save = async (event) => {
     event.preventDefault();
     setBusy(true); setFormError("");
     try {
-      const payload = { ...editing, jefe_id: editing.jefe_id ? Number(editing.jefe_id) : null };
+      const payload = { ...editing, jefe_id: editing.jefe_id ? Number(editing.jefe_id) : null, zonal_id: editing.zonal_id ? Number(editing.zonal_id) : null };
       await api(editing.id ? `/tiendas/${editing.id}` : "/tiendas", {
         method: editing.id ? "PUT" : "POST", body: payload,
       });
@@ -82,7 +82,7 @@ export default function Tiendas() {
               <h3>{item.nombre}</h3>
               <p>{item.direccion || "Sin dirección registrada"}</p>
               <dl>
-                <div><dt>Jefe de tienda</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div>
+                <div><dt>Jefe zonal</dt><dd>{item.zonal_nombre || "Sin asignar"}</dd></div>
                 <div><dt>Creada</dt><dd>{new Date(item.fecha_creacion).toLocaleDateString("es-PE")}</dd></div>
               </dl>
               <div className="company-card__footer">
@@ -109,10 +109,10 @@ export default function Tiendas() {
             <Field label="Dirección" className="span-2">
               <input value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} placeholder="Av. Ejemplo 123, distrito" />
             </Field>
-            <Field label="Jefe de tienda" hint="Solo usuarios activos.">
-              <select value={editing.jefe_id} onChange={(e) => set("jefe_id", e.target.value)}>
+            <Field label="Jefe zonal" hint="Solo jefes zonales activos.">
+              <select value={editing.zonal_id} onChange={(e) => set("zonal_id", e.target.value)}>
                 <option value="">Sin asignar</option>
-                {jefeOptions.map((u) => <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>)}
+                {zonalOptions.map((u) => <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>)}
               </select>
             </Field>
             <Field label="Estado">

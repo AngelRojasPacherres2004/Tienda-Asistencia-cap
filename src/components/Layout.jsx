@@ -1,6 +1,6 @@
 import {
   BarChart3, Bell, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
-  FileSearch, FileText, LogOut, Menu, PanelLeftClose, ShieldAlert, UserCircle2, Users, X,
+  FileSearch, FileText, LogOut, Menu, PanelLeftClose, ShieldAlert, TrafficCone, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -10,7 +10,7 @@ const navByRole = {
     { id: "documentos", label: "Documentos", icon: FileSpreadsheet },
     { id: "usuarios", label: "Usuarios", icon: Users },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "cursos", label: "Cursos", icon: GraduationCap },
+    { id: "cursos", label: "Capacitaciones", icon: GraduationCap },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
@@ -25,17 +25,38 @@ const navByRole = {
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
   seguridad: [
-    { id: "incidentes", label: "Incidentes", icon: ShieldAlert },
+    { id: "incidentes", label: "Incidencias", icon: ShieldAlert },
+    { id: "trafico", label: "Tráfico", icon: TrafficCone },
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
+  coach: [
+    { id: "cursos", label: "Capacitaciones", icon: GraduationCap },
+    { id: "capacitaciones", label: "Seguimiento", icon: Users },
+    { id: "profile", label: "Mi perfil", icon: UserCircle2 },
+  ],
+  jefe_zonal: [
+    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "usuarios", label: "Personal", icon: Users },
+    { id: "cursos", label: "Capacitaciones", icon: GraduationCap },
+    { id: "capacitaciones", label: "Seguimiento", icon: CalendarCheck2 },
+    { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
+    { id: "documentos", label: "Reporte", icon: FileSpreadsheet },
+  ],
+  gerente: [
+    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "tiendas", label: "Tiendas", icon: Building2 },
+    { id: "usuarios", label: "Zonales y Coaches", icon: Users },
+    { id: "documentos", label: "Reportes", icon: FileSpreadsheet },
+    { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
+  ],
 };
-const roleLabels = { admin: "Administrador", jefe_zonal: "Administrador zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", gerente: "Gerente", seguridad: "Seguridad" };
+const roleLabels = { admin: "Administrador", jefe_zonal: "Jefe zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", gerente: "Gerente comercial", seguridad: "Seguridad", coach: "Coach" };
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const items = [
-    ...(navByRole[user.rol] || []),
+    ...(navByRole[user.rol_db] || navByRole[user.rol] || []),
     ...(user.rol_db === "gerente" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
     ...(user.rol_db === "administrador_tienda"
       ? [

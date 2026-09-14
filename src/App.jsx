@@ -18,8 +18,10 @@ const Incidentes = lazy(() => import("./pages/Incidentes"));
 const DocumentosLegales = lazy(() => import("./pages/DocumentosLegales"));
 const Consultas = lazy(() => import("./pages/Consultas"));
 const NotificacionesAsistencia = lazy(() => import("./pages/NotificacionesAsistencia"));
+const ErroresAmonestaciones = lazy(() => import("./pages/ErroresAmonestaciones"));
+const Trafico = lazy(() => import("./pages/Trafico"));
 
-const homePageByRole = { admin: "dashboard", jefe_tienda: "dashboard", empleado: "mi-asistencia", seguridad: "incidentes" };
+const homePageByRole = { admin: "dashboard", jefe_tienda: "dashboard", empleado: "mi-asistencia", seguridad: "incidentes", coach: "cursos" };
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -53,9 +55,9 @@ export default function App() {
     documentos: <Documentos />,
     usuarios: <Usuarios user={user} />,
     tiendas: <Tiendas />,
-    cursos: <Cursos />,
+    cursos: <Cursos user={user} />,
     asistencias: <Asistencias />,
-    capacitaciones: <Capacitaciones />,
+    capacitaciones: <Capacitaciones user={user} />,
     "mi-asistencia": <MiAsistencia />,
     "mis-capacitaciones": <MisCapacitaciones />,
     profile: <Profile />,
@@ -63,6 +65,8 @@ export default function App() {
     "documentos-legales": <DocumentosLegales user={user} />,
     consultas: <Consultas user={user} />,
     "notificaciones-asistencia": <NotificacionesAsistencia user={user} />,
+    "errores-amonestaciones": <ErroresAmonestaciones user={user} />,
+    trafico: <Trafico />,
   }[page] || <Dashboard user={user} />;
 
   return (

@@ -7,7 +7,7 @@ import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
+const roleLabels = { gerente: "Gerente comercial", jefe_zonal: "Jefe zonal", admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
 const estadoPalette = { completado: "#2f9e78", en_curso: "#df9f39", pendiente: "#d9635f" };
 
 function Metric({ icon: Icon, label, value, note, tone }) {
@@ -19,7 +19,9 @@ function Metric({ icon: Icon, label, value, note, tone }) {
   );
 }
 
-export default function Capacitaciones() {
+export default function Capacitaciones({ user }) {
+  const isCoach = user?.rol === "coach";
+  const isZonal = user?.rol_db === "jefe_zonal";
   const [trabajadores, setTrabajadores] = useState(null);
   const [showInactivos, setShowInactivos] = useState(false);
   const [perfilId, setPerfilId] = useState(null);
@@ -45,7 +47,7 @@ export default function Capacitaciones() {
         <TrabajadorPerfilView id={perfilId} onBack={() => setPerfilId(null)} onSaved={loadTrabajadores} />
       ) : (
         <>
-          <PageHeader eyebrow="Mi tienda" title="Capacitaciones por trabajador" subtitle="Selecciona a alguien para ver y editar su progreso." />
+          <PageHeader eyebrow={isCoach ? "Equipo comercial" : isZonal ? "Gestión zonal" : "Mi tienda"} title="Capacitaciones por persona" subtitle={isCoach ? "Controla el avance de Gerentes comerciales y Jefes zonales." : isZonal ? "Asigna y controla las capacitaciones de los administradores de tienda." : "Selecciona a alguien para ver y editar su progreso."} />
           <div className="toolbar">
             <span>{visibles.length} trabajadores</span>
             <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
@@ -83,7 +85,7 @@ export default function Capacitaciones() {
           ? <ResumenPanel cursos={cursos} />
           : <AsignarPanel cursos={cursos} onAssigned={loadTrabajadores} />
       ) : (
-        <EmptyState icon={GraduationCap} title="Sin cursos activos" text="Pide al administrador que dé de alta un curso en el catálogo." />
+        <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que registre una capacitación en el catálogo." />
       )}
     </>
   );
@@ -145,7 +147,7 @@ function TrabajadorPerfilView({ id, onBack }) {
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
       <section className="profile-hero">
         <span className="profile-avatar">{trabajador.nombres.charAt(0).toUpperCase()}</span>
-        <div><StatusBadge value={trabajador.estado} /><h2>{resumen.completados} de {resumen.total}</h2><p>cursos completados</p></div>
+        <div><StatusBadge value={trabajador.estado} /><h2>{resumen.completados} de {resumen.total}</h2><p>capacitaciones completadas</p></div>
         <div className="profile-completion"><strong>{porcentaje}%</strong><span>Completado</span></div>
       </section>
       <div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${porcentaje}%` }} /></div>
@@ -192,7 +194,7 @@ function TrabajadorPerfilView({ id, onBack }) {
           })}
         </div>
       ) : (
-        <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos en el catálogo." />
+        <EmptyState icon={GraduationCap} title="Sin capacitaciones" text="Todavía no hay capacitaciones en el catálogo." />
       )}
       <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
@@ -225,7 +227,7 @@ function ResumenPanel({ cursos }) {
   return (
     <>
       <div className="toolbar">
-        <span>Curso</span>
+        <span>Capacitación</span>
         <select value={cursoId} onChange={(e) => setCursoId(e.target.value)}>
           {cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}
         </select>

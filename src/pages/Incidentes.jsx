@@ -39,7 +39,7 @@ export default function Incidentes() {
     <>
       <PageHeader
         eyebrow="Seguridad"
-        title="Incidentes"
+        title="Incidencias"
         subtitle="Registra y consulta los incidentes ocurridos en la operación."
         action={<button className="button button--primary" onClick={() => { setErrors({}); setEditing({ ...blank }); }}><Plus size={16} />Nuevo incidente</button>}
       />
