@@ -41,7 +41,7 @@ const excelDate = (value) => {
 
 export default function Usuarios({ user }) {
   const isAdmin = user?.rol === "admin";
-  const isGerente = user?.rol_db === "gerente";
+  const isMainAdmin = user?.rol_db === "admin";
   const isStoreAdmin = user?.rol_db === "administrador_tienda";
   const [items, setItems] = useState(null);
   const [tiendas, setTiendas] = useState([]);
@@ -74,7 +74,7 @@ export default function Usuarios({ user }) {
     clearErrors();
     setEditing({
       ...blank, fecha_ingreso: todayISO(),
-      rol: isGerente ? "jefe_zonal" : isStoreAdmin ? "empleado" : "administrador_tienda",
+      rol: isMainAdmin ? "jefe_zonal" : isStoreAdmin ? "empleado" : "administrador_tienda",
       rol_personal: isStoreAdmin ? "operante" : "administrador",
       tienda_id: isStoreAdmin ? user.tienda_id : "",
     });
@@ -99,7 +99,7 @@ export default function Usuarios({ user }) {
       if (!String(editing[field] ?? "").trim()) errors[field] = "Este campo es obligatorio.";
     }
     if (!editing.id && editing.rol !== "empleado" && !editing.password) errors.password = "Este campo es obligatorio para este rol.";
-    if (!["admin", "gerente", "jefe_zonal", "coach"].includes(editing.rol) && !editing.tienda_id) errors.tienda_id = "Selecciona una tienda.";
+    if (!["admin", "jefe_zonal", "coach"].includes(editing.rol) && !editing.tienda_id) errors.tienda_id = "Selecciona una tienda.";
     if (editing.nombres && editing.nombres.trim().length < 2) errors.nombres = "Ingresa al menos 2 caracteres.";
     if (editing.apellidos && editing.apellidos.trim().length < 2) errors.apellidos = "Ingresa al menos 2 caracteres.";
     if (editing.dni && !/^\d{8}$/.test(editing.dni)) errors.dni = "Debe tener exactamente 8 dígitos.";
@@ -117,7 +117,7 @@ export default function Usuarios({ user }) {
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
     setBusy(true);
     try {
-      const payload = { ...editing, tienda_id: ["admin", "gerente", "jefe_zonal", "coach"].includes(editing.rol) ? null : Number(editing.tienda_id) || null };
+      const payload = { ...editing, tienda_id: ["admin", "jefe_zonal", "coach"].includes(editing.rol) ? null : Number(editing.tienda_id) || null };
       if (!payload.password) delete payload.password;
       await api(editing.id ? `/usuarios/${editing.id}` : "/usuarios", {
         method: editing.id ? "PUT" : "POST", body: payload,
@@ -246,7 +246,7 @@ export default function Usuarios({ user }) {
       <PageHeader
         eyebrow={isAdmin ? "Equipo" : "Mi tienda"}
         title={isAdmin ? "Usuarios" : "Mi equipo"}
-        subtitle={isAdmin ? (isGerente ? "Administradores zonales con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
+        subtitle={isAdmin ? (isMainAdmin ? "Jefes zonales y Coaches con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
         action={<div className="header-actions">
           {isAdmin ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
@@ -353,10 +353,10 @@ export default function Usuarios({ user }) {
             {isAdmin && (
               <>
                 <Field label="Rol">
-                  {isGerente ? <select value={editing.rol} onChange={(e) => set("rol", e.target.value)}><option value="jefe_zonal">Jefe zonal</option><option value="coach">Coach</option></select> : <input readOnly value={roleLabels[editing.rol] || editing.rol} />}
+                  {isMainAdmin ? <select value={editing.rol} onChange={(e) => set("rol", e.target.value)}><option value="jefe_zonal">Jefe zonal</option><option value="coach">Coach</option></select> : <input readOnly value={roleLabels[editing.rol] || editing.rol} />}
                 </Field>
-                <Field label="Tienda" error={fieldErrors.tienda_id} hint={["admin", "gerente", "jefe_zonal", "coach"].includes(editing.rol) ? "Este rol no requiere una tienda asignada." : undefined}>
-                  <select required={!['admin', 'gerente', 'jefe_zonal', 'coach'].includes(editing.rol)} disabled={['admin', 'gerente', 'jefe_zonal', 'coach'].includes(editing.rol)} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
+                <Field label="Tienda" error={fieldErrors.tienda_id} hint={["admin", "jefe_zonal", "coach"].includes(editing.rol) ? "Este rol no requiere una tienda asignada." : undefined}>
+                  <select required={!['admin', 'jefe_zonal', 'coach'].includes(editing.rol)} disabled={['admin', 'jefe_zonal', 'coach'].includes(editing.rol)} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
                     <option value="">Selecciona una tienda</option>
                     {tiendaOptions.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
                   </select>

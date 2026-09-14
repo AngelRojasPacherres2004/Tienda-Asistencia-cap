@@ -7,7 +7,7 @@ import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const roleLabels = { gerente: "Gerente comercial", jefe_zonal: "Jefe zonal", admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
+const roleLabels = { jefe_zonal: "Jefe zonal", admin: "Administrador", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", seguridad: "Seguridad" };
 const estadoPalette = { completado: "#2f9e78", en_curso: "#df9f39", pendiente: "#d9635f" };
 
 function Metric({ icon: Icon, label, value, note, tone }) {
@@ -47,7 +47,7 @@ export default function Capacitaciones({ user }) {
         <TrabajadorPerfilView id={perfilId} onBack={() => setPerfilId(null)} onSaved={loadTrabajadores} />
       ) : (
         <>
-          <PageHeader eyebrow={isCoach ? "Equipo comercial" : isZonal ? "Gestión zonal" : "Mi tienda"} title="Capacitaciones por persona" subtitle={isCoach ? "Controla el avance de Gerentes comerciales y Jefes zonales." : isZonal ? "Asigna y controla las capacitaciones de los administradores de tienda." : "Selecciona a alguien para ver y editar su progreso."} />
+          <PageHeader eyebrow={isCoach ? "Equipo zonal" : isZonal ? "Gestión zonal" : "Mi tienda"} title="Capacitaciones por persona" subtitle={isCoach ? "Controla el avance de los Jefes zonales." : isZonal ? "Asigna y controla las capacitaciones de los administradores de tienda." : "Selecciona a alguien para ver y editar su progreso."} />
           <div className="toolbar">
             <span>{visibles.length} trabajadores</span>
             <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>

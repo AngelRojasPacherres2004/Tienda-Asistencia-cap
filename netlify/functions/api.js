@@ -15,7 +15,7 @@ const headers = {
 };
 const loginAttempts = new Map();
 const userRoles = new Set(["admin", "jefe_zonal", "jefe_tienda", "empleado", "vendedor", "seguridad", "administrador_tienda", "coach"]);
-const accessRoleByStoredRole = { gerente: "admin", jefe_zonal: "admin", administrador_tienda: "jefe_tienda", vendedor: "empleado" };
+const accessRoleByStoredRole = { jefe_zonal: "admin", administrador_tienda: "jefe_tienda", vendedor: "empleado" };
 const storeUserRoles = new Set(["empleado", "vendedor", "seguridad"]);
 const personalRoles = new Set(["administrador", "operante", "lider_equipo", "otros"]);
 const personalRoleToAccessRole = {
@@ -150,8 +150,8 @@ function cleanUsuario(value) {
   return cleanText(value).toLowerCase();
 }
 
-function ensureGerente(user) {
-  if (user.rol_db !== "gerente") throw httpError("Solo el gerente puede gestionar las notificaciones de asistencia.", 403);
+function ensureAdministrador(user) {
+  if (user.rol_db !== "admin") throw httpError("Solo el administrador puede gestionar las notificaciones de asistencia.", 403);
 }
 
 function personalRoleFromAccessRole(role) {
@@ -235,10 +235,10 @@ function validateUserPayload(data, creating = false) {
   if (data.fecha_salida && data.fecha_salida < data.fecha_ingreso) {
     throw httpError("La fecha de salida no puede ser anterior a la fecha de ingreso.", 400);
   }
-  if (["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) && data.tienda_id) {
+  if (["admin", "jefe_zonal", "coach"].includes(data.rol) && data.tienda_id) {
     throw httpError("Un administrador no debe tener tienda asignada.", 400);
   }
-  if (!["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) && !data.tienda_id) {
+  if (!["admin", "jefe_zonal", "coach"].includes(data.rol) && !data.tienda_id) {
     throw httpError("Selecciona la tienda del usuario.", 400);
   }
   if (data.password && String(data.password).length < 6) {
@@ -331,7 +331,7 @@ async function listUsers(actor, storeId = null) {
   else if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
   if (actor.rol === "admin" && storeId) request = request.eq("tienda_id", storeId);
   if (actor.rol === "admin" && !storeId) {
-    if (actor.rol_db === "gerente") request = request.in("rol", ["jefe_zonal", "coach"]);
+    if (actor.rol_db === "admin") request = request.in("rol", ["jefe_zonal", "coach"]);
     else if (actor.rol_db === "jefe_zonal") {
       const { data: assignedStores, error: assignedError } = await supabase.from("tiendas").select("id").eq("zonal_id", actor.id);
       if (assignedError) throw dbError(assignedError);
@@ -373,8 +373,8 @@ async function createUser(event, actor) {
     data.rol = "empleado";
     data.rol_personal = "operante";
     data.tienda_id = actor.tienda_id;
-  } else if (actor.rol_db === "gerente") {
-    if (!["jefe_zonal", "coach"].includes(data.rol)) throw httpError("El gerente solo puede crear jefes zonales o coaches.", 400);
+  } else if (actor.rol_db === "admin") {
+    if (!["jefe_zonal", "coach"].includes(data.rol)) throw httpError("El administrador solo puede crear jefes zonales o coaches.", 400);
     data.rol_personal = data.rol === "coach" ? "otros" : "administrador";
     data.tienda_id = null;
   } else if (actor.rol_db === "jefe_zonal") {
@@ -388,12 +388,12 @@ async function createUser(event, actor) {
   const usuario = cleanUsuario(data.usuario);
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni);
-  if (!["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol)) await ensureTiendaActiva(data.tienda_id);
+  if (!["admin", "jefe_zonal", "coach"].includes(data.rol)) await ensureTiendaActiva(data.tienda_id);
   const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
-    tienda_id: ["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: ["admin", "jefe_zonal", "coach"].includes(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     ...personalUserPayload(data),
   }).select("id,nombres,apellidos,dni,usuario,telefono,rol,rol_personal,tienda_id,estado,fecha_ingreso,fecha_salida").single();
@@ -470,7 +470,7 @@ async function updateUser(event, id, actor) {
     data.rol = "empleado";
     data.rol_personal = "operante";
     data.tienda_id = actor.tienda_id;
-  } else if (actor.rol_db === "gerente") {
+  } else if (actor.rol_db === "admin") {
     if (!["jefe_zonal", "coach"].includes(current.rol) || !["jefe_zonal", "coach"].includes(data.rol)) throw httpError("No puedes editar este usuario.", 403);
     data.rol_personal = data.rol === "coach" ? "otros" : "administrador";
     data.tienda_id = null;
@@ -497,11 +497,11 @@ async function updateUser(event, id, actor) {
   const usuario = cleanUsuario(data.usuario);
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni, id);
-  if (!["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol)) await ensureTiendaActiva(data.tienda_id);
+  if (!["admin", "jefe_zonal", "coach"].includes(data.rol)) await ensureTiendaActiva(data.tienda_id);
   const payload = {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
-    tienda_id: ["admin", "gerente", "jefe_zonal", "coach"].includes(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: ["admin", "jefe_zonal", "coach"].includes(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     ...personalUserPayload(data),
   };
@@ -572,12 +572,13 @@ async function createIncidente(event, user) {
 }
 
 async function listAmonestaciones(user) {
-  if (!["gerente", "jefe_zonal"].includes(user.rol_db)) throw httpError("No tienes permiso para consultar amonestaciones.", 403);
-  const targetRole = user.rol_db === "gerente" ? "jefe_zonal" : "administrador_tienda";
-  const { data, error } = await supabase.from("amonestaciones")
+  if (!["admin", "jefe_zonal", "administrador_tienda"].includes(user.rol_db)) throw httpError("No tienes permiso para consultar amonestaciones.", 403);
+  const targetRoles = user.rol_db === "admin" ? ["jefe_zonal"] : user.rol_db === "jefe_zonal" ? ["administrador_tienda"] : ["empleado", "vendedor", "seguridad", "jefe_tienda"];
+  let request = supabase.from("amonestaciones")
     .select("id,tipo_documento,descripcion,fecha,usuario_id,usuario:usuarios!amonestaciones_usuario_id_fkey!inner(nombres,apellidos,usuario,rol),creador:usuarios!amonestaciones_creado_por_fkey(nombres,apellidos)")
-    .eq("usuario.rol", targetRole)
-    .order("fecha", { ascending: false });
+    .in("usuario.rol", targetRoles).order("fecha", { ascending: false });
+  if (user.rol_db === "administrador_tienda") request = request.eq("usuario.tienda_id", user.tienda_id);
+  const { data, error } = await request;
   if (error) throw dbError(error);
   return (data || []).map(({ usuario, creador, ...row }) => ({
     ...row,
@@ -588,7 +589,7 @@ async function listAmonestaciones(user) {
 }
 
 async function createAmonestacion(event, user) {
-  if (!["gerente", "jefe_zonal"].includes(user.rol_db)) throw httpError("No tienes permiso para registrar amonestaciones.", 403);
+  if (!["admin", "jefe_zonal", "administrador_tienda"].includes(user.rol_db)) throw httpError("No tienes permiso para registrar amonestaciones.", 403);
   const data = bodyOf(event);
   requireFields(data, ["usuario_id", "tipo_documento", "descripcion", "fecha"]);
   if (!isISODate(data.fecha)) throw httpError("La fecha no es válida.", 400);
@@ -596,8 +597,10 @@ async function createAmonestacion(event, user) {
   const descripcion = cleanText(data.descripcion);
   if (!["carta_amonestacion", "memorandum", "verbal"].includes(tipoDocumento)) throw httpError("Selecciona un tipo de documento válido.", 400);
   if (descripcion.length < 5 || descripcion.length > 3000) throw httpError("La descripción debe tener entre 5 y 3000 caracteres.", 400);
-  const targetRole = user.rol_db === "gerente" ? "jefe_zonal" : "administrador_tienda";
-  const { data: target, error: targetError } = await supabase.from("usuarios").select("id").eq("id", Number(data.usuario_id)).eq("rol", targetRole).maybeSingle();
+  const targetRoles = user.rol_db === "admin" ? ["jefe_zonal"] : user.rol_db === "jefe_zonal" ? ["administrador_tienda"] : ["empleado", "vendedor", "seguridad", "jefe_tienda"];
+  let targetRequest = supabase.from("usuarios").select("id").eq("id", Number(data.usuario_id)).in("rol", targetRoles);
+  if (user.rol_db === "administrador_tienda") targetRequest = targetRequest.eq("tienda_id", user.tienda_id);
+  const { data: target, error: targetError } = await targetRequest.maybeSingle();
   if (targetError) throw dbError(targetError);
   if (!target) throw httpError("Selecciona un usuario válido dentro de tu alcance.", 400);
   const { data: created, error } = await supabase.from("amonestaciones").insert({ usuario_id: target.id, tipo_documento: tipoDocumento, descripcion, fecha: data.fecha, creado_por: user.id }).select("id").single();
@@ -606,11 +609,11 @@ async function createAmonestacion(event, user) {
 }
 
 async function deleteAmonestacion(id, user) {
-  if (!["gerente", "jefe_zonal"].includes(user.rol_db)) throw httpError("No tienes permiso para eliminar amonestaciones.", 403);
-  const targetRole = user.rol_db === "gerente" ? "jefe_zonal" : "administrador_tienda";
-  const { data: current, error: currentError } = await supabase.from("amonestaciones").select("id,usuario:usuarios!amonestaciones_usuario_id_fkey(rol)").eq("id", id).maybeSingle();
+  if (!["admin", "jefe_zonal", "administrador_tienda"].includes(user.rol_db)) throw httpError("No tienes permiso para eliminar amonestaciones.", 403);
+  const targetRoles = user.rol_db === "admin" ? ["jefe_zonal"] : user.rol_db === "jefe_zonal" ? ["administrador_tienda"] : ["empleado", "vendedor", "seguridad", "jefe_tienda"];
+  const { data: current, error: currentError } = await supabase.from("amonestaciones").select("id,usuario:usuarios!amonestaciones_usuario_id_fkey(rol,tienda_id)").eq("id", id).maybeSingle();
   if (currentError) throw dbError(currentError);
-  if (!current || current.usuario?.rol !== targetRole) throw httpError("Amonestación no encontrada.", 404);
+  if (!current || !targetRoles.includes(current.usuario?.rol) || (user.rol_db === "administrador_tienda" && current.usuario?.tienda_id !== user.tienda_id)) throw httpError("Amonestación no encontrada.", 404);
   const { data, error } = await supabase.from("amonestaciones").delete().eq("id", id).select("id").maybeSingle();
   if (error) throw dbError(error);
   if (!data) throw httpError("Amonestación no encontrada.", 404);
@@ -718,7 +721,7 @@ async function listConsultas(user) {
   return data;
 }
 
-// ---------- Notificaciones de asistencia (gerente) ----------
+// ---------- Notificaciones de asistencia (administrador) ----------
 
 function validateNotification(data) {
   requireFields(data, ["nombre", "hora", "asunto", "destinatarios", "alcance"]);
@@ -734,7 +737,7 @@ function validateNotification(data) {
 }
 
 async function notificationOverview(user) {
-  ensureGerente(user);
+  ensureAdministrador(user);
   const [schedulesResult, sendsResult, workersResult] = await Promise.all([
     supabase.from("notificaciones_asistencia").select("id,nombre,hora,asunto,destinatarios,alcance,usuario_ids,activo,fecha_creacion").is("eliminado_at", null).order("fecha_creacion", { ascending: false }),
     supabase.from("notificaciones_asistencia_envios").select("id,programacion_id,fecha_reporte,tipo,estado,destinatarios,asistentes,ausentes,intentos,error,fecha_creacion,fecha_envio").order("fecha_creacion", { ascending: false }).limit(50),
@@ -747,7 +750,7 @@ async function notificationOverview(user) {
 }
 
 async function createNotification(event, user) {
-  ensureGerente(user);
+  ensureAdministrador(user);
   const payload = validateNotification(bodyOf(event));
   const { data, error } = await supabase.from("notificaciones_asistencia").insert({ ...payload, creado_por: user.id }).select().single();
   if (error) throw dbError(error);
@@ -755,7 +758,7 @@ async function createNotification(event, user) {
 }
 
 async function updateNotification(event, id, user) {
-  ensureGerente(user);
+  ensureAdministrador(user);
   const payload = validateNotification(bodyOf(event));
   const { data, error } = await supabase.from("notificaciones_asistencia").update({ ...payload, fecha_actualizacion: new Date().toISOString() }).eq("id", id).is("eliminado_at", null).select().maybeSingle();
   if (error) throw dbError(error);
@@ -764,14 +767,14 @@ async function updateNotification(event, id, user) {
 }
 
 async function deleteNotification(id, user) {
-  ensureGerente(user);
+  ensureAdministrador(user);
   const { error } = await supabase.from("notificaciones_asistencia").update({ eliminado_at: new Date().toISOString(), activo: false }).eq("id", id).is("eliminado_at", null);
   if (error) throw dbError(error);
   return { ok: true };
 }
 
 async function sendNotificationNow(event, id, user) {
-  ensureGerente(user);
+  ensureAdministrador(user);
   const { fecha } = bodyOf(event);
   if (!isISODate(fecha)) throw httpError("Selecciona una fecha válida.", 400);
   const { data: schedule, error } = await supabase.from("notificaciones_asistencia").select("*").eq("id", id).is("eliminado_at", null).maybeSingle();
@@ -876,7 +879,7 @@ async function validateZonal(zonalId) {
 }
 
 async function createTienda(event, user) {
-  if (user.rol_db !== "gerente" && user.rol_db !== "admin") throw httpError("Solo el gerente comercial puede crear tiendas.", 403);
+  if (user.rol_db !== "admin") throw httpError("Solo el administrador puede crear tiendas.", 403);
   const data = bodyOf(event);
   validateTiendaPayload(data);
   const zonalId = await validateZonal(data.zonal_id);
@@ -898,7 +901,7 @@ async function createTienda(event, user) {
 }
 
 async function updateTienda(event, id, user) {
-  if (user.rol_db !== "gerente" && user.rol_db !== "admin") throw httpError("Solo el gerente comercial puede editar tiendas.", 403);
+  if (user.rol_db !== "admin") throw httpError("Solo el administrador puede editar tiendas.", 403);
   const data = bodyOf(event);
   validateTiendaPayload(data);
   const zonalId = await validateZonal(data.zonal_id);
@@ -1128,10 +1131,10 @@ async function listTrabajadores(event, user) {
   let request = supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado").order("nombres");
   request = user.rol === "coach"
-    ? request.in("rol", ["gerente", "jefe_zonal"])
+    ? request.eq("rol", "jefe_zonal")
     : user.rol_db === "jefe_zonal"
       ? request.eq("rol", "administrador_tienda")
-    : request.eq("tienda_id", user.tienda_id).in("rol", ["empleado", "jefe_tienda"]);
+    : request.eq("tienda_id", user.tienda_id).in("rol", user.rol_db === "administrador_tienda" ? ["empleado", "vendedor", "seguridad", "jefe_tienda"] : ["empleado", "jefe_tienda"]);
   if (query.estado === "activo" || query.estado === "inactivo") request = request.eq("estado", query.estado);
   const { data, error } = await request;
   if (error) throw dbError(error);
@@ -1150,10 +1153,10 @@ async function getTrabajadorPerfil(id, user) {
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
   const targetAllowed = user.rol === "coach"
-    ? ["gerente", "jefe_zonal"].includes(trabajador?.rol)
+    ? trabajador?.rol === "jefe_zonal"
     : user.rol_db === "jefe_zonal"
       ? trabajador?.rol === "administrador_tienda"
-    : trabajador?.tienda_id === user.tienda_id;
+    : trabajador?.tienda_id === user.tienda_id && (user.rol_db !== "administrador_tienda" || ["empleado", "vendedor", "seguridad", "jefe_tienda"].includes(trabajador?.rol));
   if (!trabajador || !targetAllowed) throw httpError("Persona no encontrada.", 404);
 
   const { data: progresoRows, error: progresoError } = await supabase.from("capacitacion_progreso")
@@ -1201,10 +1204,10 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
     .select("id,tienda_id,rol").eq("id", usuarioId).maybeSingle();
   if (tError) throw dbError(tError);
   const targetAllowed = user.rol === "coach"
-    ? ["gerente", "jefe_zonal"].includes(trabajador?.rol)
+    ? trabajador?.rol === "jefe_zonal"
     : user.rol_db === "jefe_zonal"
       ? trabajador?.rol === "administrador_tienda"
-    : trabajador?.tienda_id === user.tienda_id;
+    : trabajador?.tienda_id === user.tienda_id && (user.rol_db !== "administrador_tienda" || ["empleado", "vendedor", "seguridad", "jefe_tienda"].includes(trabajador?.rol));
   if (!trabajador || !targetAllowed) throw httpError("Persona no encontrada.", 404);
   const { data: encargado, error: eError } = await supabase.from("encargados")
     .select("id").eq("id", data.encargado_id).maybeSingle();
@@ -1229,10 +1232,10 @@ async function getResumenCurso(event, user) {
 
   let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol").eq("estado", "activo");
   trabajadoresQuery = user.rol === "coach"
-    ? trabajadoresQuery.in("rol", ["gerente", "jefe_zonal"])
+    ? trabajadoresQuery.eq("rol", "jefe_zonal")
     : user.rol_db === "jefe_zonal"
       ? trabajadoresQuery.eq("rol", "administrador_tienda")
-    : trabajadoresQuery.in("rol", ["empleado", "jefe_tienda"]);
+    : trabajadoresQuery.in("rol", user.rol_db === "administrador_tienda" ? ["empleado", "vendedor", "seguridad", "jefe_tienda"] : ["empleado", "jefe_tienda"]);
   if (tiendaId) trabajadoresQuery = trabajadoresQuery.eq("tienda_id", tiendaId);
   const { data: trabajadores, error: tError } = await trabajadoresQuery;
   if (tError) throw dbError(tError);
@@ -1280,10 +1283,10 @@ async function asignarLote(event, user) {
     .select("id,tienda_id,rol").in("id", ids);
   if (tError) throw dbError(tError);
   const invalidTarget = user.rol === "coach"
-    ? trabajadores.some((t) => !["gerente", "jefe_zonal"].includes(t.rol))
+    ? trabajadores.some((t) => t.rol !== "jefe_zonal")
     : user.rol_db === "jefe_zonal"
       ? trabajadores.some((t) => t.rol !== "administrador_tienda")
-    : trabajadores.some((t) => t.tienda_id !== user.tienda_id);
+    : trabajadores.some((t) => t.tienda_id !== user.tienda_id || (user.rol_db === "administrador_tienda" && !["empleado", "vendedor", "seguridad", "jefe_tienda"].includes(t.rol)));
   if (trabajadores.length !== ids.length || invalidTarget) {
     throw httpError("Una de las personas seleccionadas está fuera de tu alcance.", 400);
   }
@@ -1763,7 +1766,7 @@ export async function handler(event) {
     }
     if (path === "/incidentes" && method === "POST") {
       ensureAuth(event, ["seguridad", "admin"]);
-      if (user.rol === "admin" && user.rol_db !== "gerente") throw httpError("No tienes permisos para registrar errores.", 403);
+      if (user.rol === "admin" && user.rol_db !== "admin") throw httpError("No tienes permisos para registrar errores.", 403);
       return json(201, await createIncidente(event, user));
     }
     if (path === "/amonestaciones" && method === "GET") return json(200, await listAmonestaciones(user));

@@ -7,10 +7,11 @@ import { useEffect, useState } from "react";
 const navByRole = {
   admin: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
-    { id: "documentos", label: "Documentos", icon: FileSpreadsheet },
-    { id: "usuarios", label: "Usuarios", icon: Users },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
+    { id: "usuarios", label: "Zonales y Coaches", icon: Users },
+    { id: "documentos", label: "Reportes", icon: FileSpreadsheet },
     { id: "cursos", label: "Capacitaciones", icon: GraduationCap },
+    { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
@@ -42,24 +43,18 @@ const navByRole = {
     { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
     { id: "documentos", label: "Reporte", icon: FileSpreadsheet },
   ],
-  gerente: [
-    { id: "dashboard", label: "Resumen", icon: BarChart3 },
-    { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "usuarios", label: "Zonales y Coaches", icon: Users },
-    { id: "documentos", label: "Reportes", icon: FileSpreadsheet },
-    { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
-  ],
 };
-const roleLabels = { admin: "Administrador", jefe_zonal: "Jefe zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", gerente: "Gerente comercial", seguridad: "Seguridad", coach: "Coach" };
+const roleLabels = { admin: "Administrador", jefe_zonal: "Jefe zonal", administrador_tienda: "Administrador de tienda", jefe_tienda: "Jefe de tienda", empleado: "Empleado", vendedor: "Vendedor", seguridad: "Seguridad", coach: "Coach" };
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const items = [
     ...(navByRole[user.rol_db] || navByRole[user.rol] || []),
-    ...(user.rol_db === "gerente" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
+    ...(user.rol_db === "admin" ? [{ id: "notificaciones-asistencia", label: "Notificaciones", icon: Bell }] : []),
     ...(user.rol_db === "administrador_tienda"
       ? [
+        { id: "errores-amonestaciones", label: "Amonestaciones", icon: ShieldAlert },
         { id: "consultas", label: "Consultas", icon: FileSearch },
         { id: "documentos-legales", label: "Documentos legales", icon: FileText },
       ]
