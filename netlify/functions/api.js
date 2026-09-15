@@ -253,6 +253,24 @@ async function zonalStoreIds(userId) {
   return (data || []).map((row) => row.id);
 }
 
+async function resolveStoreScope(user, requestedStoreId = null) {
+  const requestedId = requestedStoreId ? Number(requestedStoreId) : null;
+  if (requestedId && (!Number.isInteger(requestedId) || requestedId < 1)) {
+    throw httpError("La tienda seleccionada no es válida.", 400);
+  }
+  if (["gerencia_general", "gerente_comercial", "coach"].includes(user.rol)) return requestedId || null;
+  if (user.rol === "jefe_zonal") {
+    const ids = await zonalStoreIds(user.id);
+    if (requestedId && !ids.includes(requestedId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
+    return requestedId || ids;
+  }
+  if (storeManagementRoles.has(user.rol)) {
+    if (requestedId && Number(user.tienda_id) !== requestedId) throw httpError("Solo puedes consultar los datos de tu tienda.", 403);
+    return user.tienda_id;
+  }
+  return user.tienda_id || null;
+}
+
 function allowedCreatedRoles(actor) {
   if (actor.rol === "gerencia_general") return new Set(["gerente_comercial", "coach"]);
   if (actor.rol === "gerente_comercial") return new Set(["jefe_zonal"]);
@@ -695,15 +713,17 @@ async function updateTienda(event, id) {
 
 async function listAsistenciasDia(event, user) {
   const query = event.queryStringParameters || {};
-  const tiendaId = oversightRoles.has(user.rol) ? Number(query.tienda_id) : user.tienda_id;
-  if (!tiendaId) throw httpError("Selecciona una tienda.", 400);
+  const tiendaScope = await resolveStoreScope(user, query.tienda_id);
   const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
   let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado")
-    .eq("tienda_id", tiendaId).in("rol", ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"]).order("nombres");
+    .in("rol", ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"]).order("nombres");
+  empleadosQuery = applyStoreScope(empleadosQuery, tiendaScope);
   if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
+  let registrosQuery = supabase.from("asistencias").select("*").eq("fecha", fecha);
+  registrosQuery = applyStoreScope(registrosQuery, tiendaScope);
   const [{ data: empleados, error: e1 }, { data: registros, error: e2 }] = await Promise.all([
     empleadosQuery,
-    supabase.from("asistencias").select("*").eq("tienda_id", tiendaId).eq("fecha", fecha),
+    registrosQuery,
   ]);
   if (e1) throw dbError(e1);
   if (e2) throw dbError(e2);
@@ -781,14 +801,14 @@ async function eliminarAsistencia(id, user) {
 
 async function listAsistenciasHistorial(event, user) {
   const query = event.queryStringParameters || {};
-  const tiendaId = oversightRoles.has(user.rol) ? (query.tienda_id ? Number(query.tienda_id) : null) : user.tienda_id;
+  const tiendaScope = await resolveStoreScope(user, query.tienda_id);
   const desde = query.desde && isISODate(query.desde) ? query.desde : `${todayISO().slice(0, 7)}-01`;
   const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
   const ascending = query.orden === "asc";
   let request = supabase.from("asistencias")
     .select("*, usuarios!asistencias_usuario_id_fkey!inner(nombres,apellidos,usuario,estado)")
     .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending });
-  if (tiendaId) request = request.eq("tienda_id", tiendaId);
+  request = applyStoreScope(request, tiendaScope);
   if (query.estado_usuario === "activo" || query.estado_usuario === "inactivo") {
     request = request.eq("usuarios.estado", query.estado_usuario);
   }
@@ -901,8 +921,7 @@ async function updateEncargado(event, id) {
 // ---------- Capacitaciones (progreso por trabajador, jefe de tienda) ----------
 
 function trainingTargetRoles(role) {
-  if (role === "gerencia_general") return ["gerente_comercial", "coach"];
-  if (role === "gerente_comercial") return ["jefe_zonal"];
+  if (["gerencia_general", "gerente_comercial"].includes(role)) return ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"];
   if (role === "coach") return ["gerente_comercial"];
   if (role === "jefe_zonal") return ["jefe_tienda"];
   if (role === "jefe_tienda") return ["asistente_tienda", "trabajador", "seguridad"];
@@ -1522,7 +1541,7 @@ async function exportTodoExcel(event) {
 
 // ---------- Gestión operativa por tienda ----------
 
-async function resolveStoreScope(user, requestedId) {
+async function resolveOperationalStoreScope(user, requestedId) {
   const storeId = Number(requestedId || user.tienda_id);
   if (!storeId) throw httpError("Selecciona una tienda.", 400);
   if (user.tienda_id && Number(user.tienda_id) !== storeId) throw httpError("Solo puedes acceder a tu tienda asignada.", 403);
@@ -1534,7 +1553,7 @@ async function resolveStoreScope(user, requestedId) {
 }
 
 function operationalStoreId(event, user) {
-  return resolveStoreScope(user, event.queryStringParameters?.tienda_id || bodyOf(event).tienda_id);
+  return resolveOperationalStoreScope(user, event.queryStringParameters?.tienda_id || bodyOf(event).tienda_id);
 }
 
 async function listOperational(table, event, user, select = "*") {
@@ -1555,7 +1574,7 @@ async function saveTraffic(event, user) {
   const data = bodyOf(event);
   requireFields(data, ["fecha", "cantidad"]);
   if (!isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha y cantidad válidas.", 400);
-  const tiendaId = await resolveStoreScope(user, data.tienda_id);
+  const tiendaId = await resolveOperationalStoreScope(user, data.tienda_id);
   const { data: row, error } = await supabase.from("trafico_tienda").upsert({
     tienda_id: tiendaId, fecha: data.fecha, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null,
     registrado_por: user.id, updated_at: new Date().toISOString(),
@@ -1597,7 +1616,7 @@ async function notifyIncident(incident, storeName) {
 async function createIncident(event, user) {
   const data = bodyOf(event);
   requireFields(data, ["asunto", "descripcion", "gravedad"]);
-  const storeId = await resolveStoreScope(user, data.tienda_id);
+  const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
   const { data: incident, error } = await supabase.from("incidencias").insert({
     tienda_id: storeId, asunto: cleanText(data.asunto), tipo: data.tipo || "otro", area: data.area || "otro",
     descripcion: cleanText(data.descripcion), gravedad: data.gravedad, estado: "abierta",
@@ -1634,7 +1653,7 @@ async function createDisciplinary(event, user, table) {
   const data = bodyOf(event);
   const isWarning = table === "amonestaciones";
   requireFields(data, isWarning ? ["usuario_id", "tipo", "motivo", "fecha"] : ["usuario_id", "categoria", "descripcion", "fecha"]);
-  const storeId = await resolveStoreScope(user, data.tienda_id);
+  const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
   await ensureDisciplinaryTarget(user, Number(data.usuario_id), storeId);
   const payload = isWarning
     ? { tienda_id: storeId, usuario_id: Number(data.usuario_id), tipo: data.tipo, motivo: cleanText(data.motivo), fecha: data.fecha, registrado_por: user.id }
@@ -1648,7 +1667,7 @@ async function createStoreDocument(event, user) {
   const data = bodyOf(event);
   requireFields(data, ["nombre", "fecha_vencimiento"]);
   if (!isISODate(data.fecha_vencimiento)) throw httpError("La fecha de vencimiento no es válida.", 400);
-  const storeId = await resolveStoreScope(user, data.tienda_id);
+  const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
   const { data: row, error } = await supabase.from("documentos_tienda").insert({
     tienda_id: storeId, nombre: cleanText(data.nombre), numero: cleanText(data.numero) || null,
     entidad_emisora: cleanText(data.entidad_emisora) || null, fecha_emision: data.fecha_emision || null,

@@ -24,8 +24,8 @@ export default function Capacitaciones({ user }) {
   const zonal = user?.rol === "jefe_zonal";
   const central = ["gerencia_general", "gerente_comercial", "coach"].includes(user?.rol);
   const supervisedLabels = {
-    gerencia_general: "gerentes comerciales y coaches",
-    gerente_comercial: "jefes zonales",
+    gerencia_general: "todo el personal operativo",
+    gerente_comercial: "todo el personal operativo",
     coach: "gerentes comerciales",
     jefe_zonal: "jefes de tienda",
     jefe_tienda: "asistentes, trabajadores y seguridad",

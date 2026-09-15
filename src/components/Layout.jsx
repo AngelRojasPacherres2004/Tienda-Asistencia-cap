@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, BarChart3, Building2, CalendarCheck2, FileClock, FileSpreadsheet, GraduationCap,
+  AlertTriangle, BarChart3, Building2, CalendarCheck2, FileClock, GraduationCap,
   LogOut, Menu, PanelLeftClose, ShieldCheck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -7,11 +7,9 @@ import { useEffect, useState } from "react";
 const navByRole = {
   gerencia_general: [
     { id: "dashboard", label: "Inicio", icon: BarChart3 },
-    { id: "mi-tienda", label: "Mi tienda", icon: Building2 },
-    { id: "documentos", label: "Documentos", icon: FileSpreadsheet },
     { id: "usuarios", label: "Usuarios", icon: Users },
+    { id: "clusters", label: "Clústeres", icon: Building2 },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
     { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   gerente_comercial: [
