@@ -20,8 +20,13 @@ const Consultas = lazy(() => import("./pages/Consultas"));
 const NotificacionesAsistencia = lazy(() => import("./pages/NotificacionesAsistencia"));
 const ErroresAmonestaciones = lazy(() => import("./pages/ErroresAmonestaciones"));
 const Trafico = lazy(() => import("./pages/Trafico"));
+const MiTienda = lazy(() => import("./pages/MiTienda"));
+const ModuloProximo = lazy(() => import("./pages/ModuloProximo"));
+const SeguridadInicio = lazy(() => import("./pages/SeguridadInicio"));
+const PersonalGeneral = lazy(() => import("./pages/PersonalGeneral"));
+const Metas = lazy(() => import("./pages/Metas"));
 
-const homePageByRole = { admin: "dashboard", jefe_tienda: "dashboard", empleado: "mi-asistencia", seguridad: "incidentes", coach: "cursos" };
+const homePageByRole = { admin: "dashboard", jefe_tienda: "dashboard", empleado: "mi-asistencia", seguridad: "seguridad-inicio", coach: "cursos" };
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -62,12 +67,19 @@ export default function App() {
     "mi-asistencia": <MiAsistencia />,
     "mis-capacitaciones": <MisCapacitaciones />,
     profile: <Profile />,
-    incidentes: <Incidentes />,
+    incidentes: <Incidentes user={user} />,
     "documentos-legales": <DocumentosLegales user={user} />,
     consultas: <Consultas user={user} />,
     "notificaciones-asistencia": <NotificacionesAsistencia user={user} />,
     "errores-amonestaciones": <ErroresAmonestaciones user={user} />,
     trafico: <Trafico />,
+    "mi-tienda": <MiTienda user={user} onNavigate={setPage} />,
+    tareas: <ModuloProximo title="Tareas" />,
+    controles: <ModuloProximo title="Controles" />,
+    "seguridad-inicio": <SeguridadInicio onNavigate={setPage} />,
+    zonas: <Usuarios user={user} variant="zonas" />,
+    "personal-general": <PersonalGeneral />,
+    metas: <Metas />,
   }[page] || <Dashboard user={user} />;
 
   return (

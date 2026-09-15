@@ -22,6 +22,7 @@ function Metric({ icon: Icon, label, value, note, tone }) {
 export default function Capacitaciones({ user }) {
   const isCoach = user?.rol === "coach";
   const isZonal = user?.rol_db === "jefe_zonal";
+  const isGerente = user?.rol_db === "gerente";
   const [trabajadores, setTrabajadores] = useState(null);
   const [showInactivos, setShowInactivos] = useState(false);
   const [perfilId, setPerfilId] = useState(null);
@@ -47,7 +48,7 @@ export default function Capacitaciones({ user }) {
         <TrabajadorPerfilView id={perfilId} onBack={() => setPerfilId(null)} onSaved={loadTrabajadores} />
       ) : (
         <>
-          <PageHeader eyebrow={isCoach ? "Equipo comercial" : isZonal ? "Gestión zonal" : "Mi tienda"} title="Capacitaciones por persona" subtitle={isCoach ? "Controla el avance del Gerente comercial y los Jefes zonales." : isZonal ? "Asigna y controla las capacitaciones de los administradores de tienda." : "Selecciona a alguien para ver y editar su progreso."} />
+          <PageHeader eyebrow={isGerente ? "Consulta comercial" : isCoach ? "Equipo comercial" : isZonal ? "Gestión zonal" : "Mi tienda"} title="Capacitaciones por persona" subtitle={isGerente ? "Consulta cumplimiento, pendientes, vencimientos y resultados de toda la organización." : isCoach ? "Controla el avance del Gerente comercial y los Jefes zonales." : isZonal ? "Asigna y controla las capacitaciones de los administradores de tienda." : "Selecciona a alguien para ver y editar su progreso."} />
           <div className="toolbar">
             <span>{visibles.length} trabajadores</span>
             <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
@@ -59,7 +60,7 @@ export default function Capacitaciones({ user }) {
               <div className="data-table data-table--trabajadores">
                 <div className="data-table__head"><span>Nombre</span><span>Usuario</span><span>Rol</span><span>Activo</span></div>
                 {visibles.map((t) => (
-                  <div className="data-table__row" key={t.id} onClick={() => setPerfilId(t.id)}>
+                  <div className="data-table__row" key={t.id} onClick={() => !isGerente && setPerfilId(t.id)}>
                     <div className="person-cell">
                       <span className="avatar">{t.nombres.charAt(0).toUpperCase()}</span>
                       <div><strong>{t.nombres} {t.apellidos}</strong></div>

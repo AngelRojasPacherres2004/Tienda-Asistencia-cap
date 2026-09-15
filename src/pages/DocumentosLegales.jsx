@@ -20,7 +20,7 @@ function fileToBase64(file) {
   });
 }
 
-export default function DocumentosLegales({ user }) {
+export default function DocumentosLegales({ user, embedded = false }) {
   const [data, setData] = useState(null);
   const [editing, setEditing] = useState(null);
   const [estado, setEstado] = useState("todos");
@@ -80,12 +80,12 @@ export default function DocumentosLegales({ user }) {
 
   return (
     <>
-      <PageHeader
+      {!embedded && <PageHeader
         eyebrow="Documentos"
         title="Documentos legales de tienda"
         subtitle="Sube y controla las licencias, certificados y permisos de tu tienda."
         action={<button className="button button--primary" onClick={() => { setErrors({}); setEditing({ ...blank }); }}><Plus size={16} />Subir documento</button>}
-      />
+      />}
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
       {!data ? <Loading label="Cargando documentos legales…" /> : <>
         <div className="legal-docs-filters">

@@ -13,9 +13,12 @@ const headers = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
-const loginAttempts = new Map();
 const userRoles = new Set(["gerente", "jefe_zonal", "empleado", "vendedor", "seguridad", "administrador_tienda", "coach"]);
 const accessRoleByStoredRole = { gerente: "admin", jefe_zonal: "admin", administrador_tienda: "jefe_tienda", vendedor: "empleado" };
+const currentRoleByLegacyRole = {
+  gerente_comercial: "gerente", gerencia_general: "gerente", jefe_tienda: "administrador_tienda",
+  trabajador: "empleado", asistente_tienda: "empleado",
+};
 const storeUserRoles = new Set(["empleado", "vendedor", "seguridad"]);
 const personalRoles = new Set(["administrador", "operante", "lider_equipo", "otros"]);
 const personalRoleToAccessRole = {
@@ -123,7 +126,8 @@ function currentUser(event) {
   if (!token) return null;
   try {
     const decoded = jwt.verify(token, jwtSecret());
-    const storedRole = decoded.rol_db || decoded.rol;
+    const rawStoredRole = decoded.rol_db || decoded.rol;
+    const storedRole = currentRoleByLegacyRole[rawStoredRole] || rawStoredRole;
     return {
       ...decoded,
       rol_db: storedRole,
@@ -278,13 +282,6 @@ function validIds(list) {
 // ---------- Autenticación ----------
 
 async function login(event) {
-  const clientIp = event.headers["x-nf-client-connection-ip"]
-    || event.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-    || "local";
-  const attempt = loginAttempts.get(clientIp);
-  if (attempt?.blockedUntil > Date.now()) {
-    return json(429, { error: "Demasiados intentos. Espera unos minutos antes de volver a intentar." });
-  }
   const { usuario, password } = bodyOf(event);
   requireFields({ usuario, password }, ["usuario", "password"]);
   const { data: account, error } = await supabase
@@ -295,8 +292,6 @@ async function login(event) {
   if (error) throw dbError(error);
 
   const fail = () => {
-    const count = (attempt?.count || 0) + 1;
-    loginAttempts.set(clientIp, { count, blockedUntil: count >= 5 ? Date.now() + 15 * 60_000 : 0 });
     return json(401, { error: "Usuario o contraseña incorrectos." });
   };
   if (!account || account.estado !== "activo") return fail();
@@ -304,8 +299,7 @@ async function login(event) {
   const valid = await bcrypt.compare(String(password), account.password);
   if (!valid) return fail();
 
-  loginAttempts.delete(clientIp);
-  const storedRole = account.rol;
+  const storedRole = currentRoleByLegacyRole[account.rol] || account.rol;
   const user = {
     id: account.id, nombres: account.nombres, apellidos: account.apellidos,
     usuario: account.usuario, rol: accessRoleByStoredRole[storedRole] || storedRole,
@@ -322,7 +316,7 @@ function mapUserRow(row) {
   return { ...rest, codigo_vendedor: row.puesto || "", motivo_salida: row.alergia || "", tienda_nombre: tiendas?.nombre || null };
 }
 
-async function listUsers(actor, storeId = null) {
+async function listUsers(actor, storeId = null, fullOrganization = false) {
   let request = supabase
     .from("usuarios")
     .select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,fecha_nacimiento,sueldo,rol_personal,sexo,telefono_emergencia,distrito,direccion,grado_academico,ciclo_semestre,puesto,estado_civil,numero_hijos,talla_zapatillas,talla_polo,alergia,condicion_salud,tiendas!usuarios_tienda_id_fkey(nombre)")
@@ -330,7 +324,7 @@ async function listUsers(actor, storeId = null) {
   if (actor.rol_db === "administrador_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", [...storeUserRoles]);
   else if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).eq("rol", "empleado");
   if (actor.rol === "admin" && storeId) request = request.eq("tienda_id", storeId);
-  if (actor.rol === "admin" && !storeId) {
+  if (actor.rol === "admin" && !storeId && !fullOrganization) {
     if (actor.rol_db === "gerente") request = request.eq("rol", "jefe_zonal");
     else if (actor.rol_db === "jefe_zonal") {
       const { data: assignedStores, error: assignedError } = await supabase.from("tiendas").select("id").eq("zonal_id", actor.id);
@@ -548,12 +542,52 @@ async function deleteUser(id, actor) {
   return { eliminado: true, inhabilitado: false };
 }
 
+async function listMetas(user) {
+  if (user.rol_db !== "gerente") throw httpError("Solo el Gerente comercial puede gestionar metas.", 403);
+  const { data, error } = await supabase.from("metas_comerciales")
+    .select("id,tienda_id,periodo,nombre,objetivo,resultado,estado,fecha_creacion,tienda:tiendas(nombre)")
+    .order("periodo", { ascending: false }).order("fecha_creacion", { ascending: false });
+  if (error) throw dbError(error);
+  return (data || []).map(({ tienda, ...row }) => ({ ...row, tienda_nombre: tienda?.nombre || "" }));
+}
+
+async function saveMeta(event, user, id = null) {
+  if (user.rol_db !== "gerente") throw httpError("Solo el Gerente comercial puede gestionar metas.", 403);
+  const data = bodyOf(event);
+  requireFields(data, ["tienda_id", "periodo", "nombre", "objetivo", "estado"]);
+  if (!/^\d{4}-\d{2}$/.test(data.periodo)) throw httpError("El periodo no es válido.", 400);
+  if (!Number.isFinite(Number(data.objetivo)) || Number(data.objetivo) < 0) throw httpError("El objetivo no es válido.", 400);
+  const payload = { tienda_id: Number(data.tienda_id), periodo: data.periodo, nombre: cleanText(data.nombre), objetivo: Number(data.objetivo), resultado: Number(data.resultado) || 0, estado: ["pendiente", "aprobada", "cumplida"].includes(data.estado) ? data.estado : "pendiente" };
+  const request = id ? supabase.from("metas_comerciales").update(payload).eq("id", id) : supabase.from("metas_comerciales").insert({ ...payload, creado_por: user.id });
+  const { data: saved, error } = await request.select("id").single();
+  if (error) throw dbError(error);
+  return saved;
+}
+
+async function deleteMeta(id, user) {
+  if (user.rol_db !== "gerente") throw httpError("Solo el Gerente comercial puede gestionar metas.", 403);
+  const { data, error } = await supabase.from("metas_comerciales").delete().eq("id", id).select("id").maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("Meta no encontrada.", 404);
+}
+
 // ---------- Incidentes (seguridad) ----------
 
-async function listIncidentes() {
-  const { data, error } = await supabase.from("incidentes")
-    .select("id,titulo,descripcion,fecha_creacion,reportado_por,reportero:usuarios!incidentes_reportado_por_fkey(nombres,apellidos)")
+async function listIncidentes(user) {
+  let request = supabase.from("incidentes")
+    .select("id,codigo,titulo,tipo,area,severidad,estado,fecha,hora,descripcion,intervencion,detencion,productos,personas,evidencias,fecha_creacion,reportado_por,reportero:usuarios!incidentes_reportado_por_fkey!inner(nombres,apellidos,tienda_id)")
     .order("fecha_creacion", { ascending: false });
+  if (["administrador_tienda", "seguridad"].includes(user.rol_db)) request = request.eq("reportero.tienda_id", user.tienda_id);
+  let { data, error } = await request;
+  if (error && ["42703", "PGRST204"].includes(error.code)) {
+    let legacy = supabase.from("incidentes")
+      .select("id,titulo,descripcion,fecha_creacion,reportado_por,reportero:usuarios!incidentes_reportado_por_fkey!inner(nombres,apellidos,tienda_id)")
+      .not("titulo", "like", "[TRAFICO]%").order("fecha_creacion", { ascending: false });
+    if (["administrador_tienda", "seguridad"].includes(user.rol_db)) legacy = legacy.eq("reportero.tienda_id", user.tienda_id);
+    const legacyResult = await legacy;
+    data = (legacyResult.data || []).map((row) => ({ ...row, codigo: `INC-${new Date(row.fecha_creacion).getFullYear()}-${String(row.id).padStart(4, "0")}`, tipo: row.titulo, area: "", severidad: "media", estado: "abierta", fecha: String(row.fecha_creacion).slice(0, 10), hora: new Date(row.fecha_creacion).toLocaleTimeString("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" }), productos: [], personas: [], evidencias: [] }));
+    error = legacyResult.error;
+  }
   if (error) throw dbError(error);
   return data.map(({ reportero, ...row }) => ({
     ...row,
@@ -568,11 +602,86 @@ async function createIncidente(event, user) {
   const descripcion = cleanText(data.descripcion);
   if (titulo.length < 3 || titulo.length > 150) throw httpError("El título debe tener entre 3 y 150 caracteres.", 400);
   if (descripcion.length < 5 || descripcion.length > 3000) throw httpError("La descripción debe tener entre 5 y 3000 caracteres.", 400);
+  const severidad = ["baja", "media", "alta", "critica"].includes(data.severidad) ? data.severidad : "media";
+  const estado = data.borrador ? "borrador" : "abierta";
+  const productos = Array.isArray(data.productos) ? data.productos.slice(0, 30) : [];
+  const personas = Array.isArray(data.personas) ? data.personas.slice(0, 20) : [];
+  const evidencias = Array.isArray(data.evidencias) ? data.evidencias.slice(0, 6) : [];
+  if (evidencias.some((item) => !cleanText(item?.nombre) || !String(item?.data_url || "").startsWith("data:"))) throw httpError("Una de las evidencias no es válida.", 400);
+  if (evidencias.reduce((sum, item) => sum + String(item.data_url).length, 0) > 4_500_000) throw httpError("Las evidencias superan el tamaño permitido.", 400);
+  const codigo = `INC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
   const { data: created, error } = await supabase.from("incidentes")
-    .insert({ titulo, descripcion, reportado_por: user.id })
-    .select("id,titulo,descripcion,fecha_creacion,reportado_por").single();
+    .insert({ codigo, titulo, descripcion, reportado_por: user.id, tienda_id: user.tienda_id || null,
+      tipo: cleanText(data.tipo || titulo), area: cleanText(data.area || ""), severidad, estado,
+      fecha: isISODate(data.fecha) ? data.fecha : todayISO(), hora: cleanText(data.hora || new Date().toLocaleTimeString("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })),
+      intervencion: Boolean(data.intervencion), detencion: Boolean(data.detencion),
+      productos, personas, evidencias,
+    })
+    .select("id,codigo,titulo,tipo,area,severidad,estado,fecha,hora,descripcion,productos,personas,evidencias,fecha_creacion,reportado_por").single();
+  if (error && ["42703", "PGRST204"].includes(error.code)) {
+    const legacy = await supabase.from("incidentes").insert({ titulo, descripcion, reportado_por: user.id }).select("id,titulo,descripcion,fecha_creacion,reportado_por").single();
+    if (legacy.error) throw dbError(legacy.error);
+    return legacy.data;
+  }
   if (error) throw dbError(error);
   return created;
+}
+
+async function updateIncidente(event, id, user) {
+  const { data: current, error: findError } = await supabase.from("incidentes")
+    .select("id,tienda_id,reportado_por,estado").eq("id", id).maybeSingle();
+  if (findError) throw dbError(findError);
+  if (!current || (["seguridad", "administrador_tienda"].includes(user.rol_db) && current.tienda_id !== user.tienda_id)) throw httpError("Incidencia no encontrada.", 404);
+  if (!["seguridad", "administrador_tienda"].includes(user.rol_db)) throw httpError("No tienes permiso para actualizar incidencias.", 403);
+  const body = bodyOf(event);
+  const changes = {};
+  if (body.estado !== undefined) {
+    if (!["borrador", "abierta", "revision", "cerrada"].includes(body.estado)) throw httpError("El estado no es válido.", 400);
+    changes.estado = body.estado;
+  }
+  if (body.evidencias !== undefined) {
+    if (!Array.isArray(body.evidencias) || body.evidencias.length > 20) throw httpError("Las evidencias no son válidas.", 400);
+    changes.evidencias = body.evidencias;
+  }
+  if (!Object.keys(changes).length) throw httpError("No hay cambios para guardar.", 400);
+  const { data, error } = await supabase.from("incidentes").update(changes).eq("id", id)
+    .select("id,codigo,estado,evidencias").single();
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function listTrafico(user) {
+  if (user.rol_db !== "seguridad" || !user.tienda_id) throw httpError("Solo Seguridad puede gestionar el tráfico de su tienda.", 403);
+  const { data, error } = await supabase.from("trafico_tienda")
+    .select("id,fecha,cantidad,observaciones,created_at")
+    .eq("tienda_id", user.tienda_id).order("fecha", { ascending: false });
+  if (error) throw dbError(error);
+  return (data || []).map((row) => {
+    let meta = {};
+    try { meta = JSON.parse(row.observaciones || "{}"); } catch { meta = { observacion: row.observaciones }; }
+    return { id: row.id, fecha: row.fecha, hora: meta.hora || new Date(row.created_at).toLocaleTimeString("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" }), momento: meta.momento || "jornada", visitantes: row.cantidad, estado: "registrado", observacion: meta.observacion || "", fecha_creacion: row.created_at };
+  });
+}
+
+async function createTrafico(event, user) {
+  if (user.rol_db !== "seguridad" || !user.tienda_id) throw httpError("Solo Seguridad puede registrar el tráfico de su tienda.", 403);
+  const data = bodyOf(event);
+  const visitantes = data.visitantes === "" || data.visitantes == null ? null : Number(data.visitantes);
+  if (visitantes !== null && (!Number.isInteger(visitantes) || visitantes < 0)) throw httpError("La cantidad de visitantes no es válida.", 400);
+  const momento = ["apertura", "media_jornada", "cierre", "jornada"].includes(data.momento) ? data.momento : "jornada";
+  const fecha = isISODate(data.fecha) ? data.fecha : todayISO();
+  const observacion = cleanText(data.observacion || "");
+  const hora = cleanText(data.hora || "00:00");
+  const base = { tienda_id: user.tienda_id, fecha, cantidad: visitantes, observaciones: JSON.stringify({ hora, momento, observacion }), registrado_por: user.id };
+  const existing = await supabase.from("trafico_tienda").select("id").eq("tienda_id", user.tienda_id).eq("fecha", fecha).order("id", { ascending: false }).limit(1);
+  if (existing.error) throw dbError(existing.error);
+  const existingRow = existing.data?.[0];
+  const result = existingRow
+    ? await supabase.from("trafico_tienda").update({ ...base, updated_at: new Date().toISOString() }).eq("id", existingRow.id).select("id,fecha,cantidad,observaciones,created_at").single()
+    : await supabase.from("trafico_tienda").insert(base).select("id,fecha,cantidad,observaciones,created_at").single();
+  const { data: created, error } = result;
+  if (error) throw dbError(error);
+  return { id: created.id, fecha: created.fecha, hora, momento, visitantes: created.cantidad, estado: "registrado", observacion, fecha_creacion: created.created_at };
 }
 
 async function listAmonestaciones(user) {
@@ -1135,7 +1244,9 @@ async function listTrabajadores(event, user) {
   const query = event.queryStringParameters || {};
   let request = supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado").order("nombres");
-  request = user.rol === "coach"
+  request = user.rol_db === "gerente"
+    ? request.in("rol", ["jefe_zonal", "jefe_tienda", "administrador_tienda", "trabajador", "empleado", "vendedor", "seguridad"])
+    : user.rol === "coach"
     ? request.in("rol", ["gerente", "jefe_zonal"])
     : user.rol_db === "jefe_zonal"
       ? request.eq("rol", "administrador_tienda")
@@ -1157,7 +1268,9 @@ async function getTrabajadorPerfil(id, user) {
   const { data: trabajador, error } = await supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
-  const targetAllowed = user.rol === "coach"
+  const targetAllowed = user.rol_db === "gerente"
+    ? ["jefe_zonal", "jefe_tienda", "administrador_tienda", "trabajador", "empleado", "vendedor", "seguridad"].includes(trabajador?.rol)
+    : user.rol === "coach"
     ? ["gerente", "jefe_zonal"].includes(trabajador?.rol)
     : user.rol_db === "jefe_zonal"
       ? trabajador?.rol === "administrador_tienda"
@@ -1518,6 +1631,28 @@ async function getRotation(tiendaFilter, desde, hasta) {
   return months;
 }
 
+async function getMiTienda(user) {
+  ensureAdministradorTienda(user);
+  const [tiendaResult, documentosResult] = await Promise.all([
+    supabase.from("tiendas")
+      .select("id,nombre,direccion,estado,fecha_creacion,zonal:usuarios!tiendas_zonal_id_fkey(nombres,apellidos)")
+      .eq("id", user.tienda_id).maybeSingle(),
+    supabase.from("documentos_legales_tienda").select("fecha_vencimiento").eq("tienda_id", user.tienda_id),
+  ]);
+  if (tiendaResult.error) throw dbError(tiendaResult.error);
+  if (documentosResult.error) throw dbError(documentosResult.error);
+  if (!tiendaResult.data) throw httpError("La tienda asignada no existe.", 404);
+  const resumen = { vigentes: 0, por_vencer: 0, vencidos: 0 };
+  for (const item of documentosResult.data || []) {
+    const estado = estadoDocumento(item.fecha_vencimiento);
+    if (estado === "vigente" || estado === "sin_vencimiento") resumen.vigentes += 1;
+    else if (estado === "por_vencer") resumen.por_vencer += 1;
+    else resumen.vencidos += 1;
+  }
+  const { zonal, ...tienda } = tiendaResult.data;
+  return { ...tienda, zonal_nombre: zonal ? `${zonal.nombres} ${zonal.apellidos}`.trim() : null, documentos: resumen };
+}
+
 async function getExitReasons(tiendaFilter, desde, hasta) {
   let request = supabase.from("usuarios").select("alergia,fecha_salida,tienda_id")
     .not("fecha_salida", "is", null).gte("fecha_salida", desde).lte("fecha_salida", hasta)
@@ -1765,15 +1900,19 @@ export async function handler(event) {
     const user = ensureAuth(event);
 
     if (path === "/perfil" && method === "GET") return json(200, await getPerfil(user));
+    if (path === "/mi-tienda" && method === "GET") return json(200, await getMiTienda(user));
     if (path === "/incidentes" && method === "GET") {
-      ensureAuth(event, ["seguridad", "admin"]);
-      return json(200, await listIncidentes());
+      ensureAuth(event, ["seguridad", "admin", "jefe_tienda"]);
+      return json(200, await listIncidentes(user));
     }
     if (path === "/incidentes" && method === "POST") {
-      ensureAuth(event, ["seguridad", "admin"]);
-      if (user.rol === "admin" && user.rol_db !== "gerente") throw httpError("No tienes permisos para registrar errores.", 403);
+      ensureAuth(event, ["seguridad", "jefe_tienda"]);
       return json(201, await createIncidente(event, user));
     }
+    const incidenteMatch = path.match(/^\/incidentes\/(\d+)$/);
+    if (incidenteMatch && method === "PATCH") return json(200, await updateIncidente(event, Number(incidenteMatch[1]), user));
+    if (path === "/trafico" && method === "GET") return json(200, await listTrafico(user));
+    if (path === "/trafico" && method === "POST") return json(201, await createTrafico(event, user));
     if (path === "/amonestaciones" && method === "GET") return json(200, await listAmonestaciones(user));
     if (path === "/amonestaciones" && method === "POST") return json(201, await createAmonestacion(event, user));
     const amonestacionMatch = path.match(/^\/amonestaciones\/(\d+)$/);
@@ -1811,7 +1950,8 @@ export async function handler(event) {
 
     if (path === "/usuarios" && method === "GET") {
       ensureAuth(event, ["admin", "jefe_tienda"]);
-      return json(200, await listUsers(user));
+      const query = event.queryStringParameters || {};
+      return json(200, await listUsers(user, null, user.rol_db === "gerente" && query.alcance === "organizacion"));
     }
     if (path === "/usuarios" && method === "POST") {
       ensureAuth(event, ["admin", "jefe_tienda"]);
@@ -1855,6 +1995,11 @@ export async function handler(event) {
       await updateTienda(event, Number(tiendaMatch[1]), user);
       return json(200, { ok: true });
     }
+    if (path === "/metas" && method === "GET") return json(200, await listMetas(user));
+    if (path === "/metas" && method === "POST") return json(201, await saveMeta(event, user));
+    const metaMatch = path.match(/^\/metas\/(\d+)$/);
+    if (metaMatch && method === "PUT") return json(200, await saveMeta(event, user, Number(metaMatch[1])));
+    if (metaMatch && method === "DELETE") { await deleteMeta(Number(metaMatch[1]), user); return json(200, { ok: true }); }
     if (tiendaMatch && method === "DELETE") {
       ensureAuth(event, "admin");
       return json(200, await deleteTienda(Number(tiendaMatch[1]), user));

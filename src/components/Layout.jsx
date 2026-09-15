@@ -1,17 +1,18 @@
 import {
   BarChart3, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
-  FileSearch, FileText, LogOut, Menu, PanelLeftClose, ShieldAlert, TrafficCone, UserCircle2, Users, X,
+  ClipboardCheck, FileSearch, ListChecks, LogOut, MapPinned, Menu, PanelLeftClose, ShieldAlert, Store, Target, TrafficCone, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const navByRole = {
   gerente: [
-    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "zonas", label: "Zonas", icon: MapPinned },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "usuarios", label: "Jefes zonales", icon: Users },
-    { id: "errores-amonestaciones", label: "Errores y amonestaciones", icon: ShieldAlert },
-    { id: "reportes", label: "Reporte", icon: BarChart3 },
-    { id: "documentos", label: "Documentos", icon: FileSpreadsheet },
+    { id: "personal-general", label: "Personal", icon: Users },
+    { id: "metas", label: "Metas", icon: Target },
+    { id: "incidentes", label: "Incidencias", icon: ShieldAlert },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen", icon: BarChart3 },
@@ -25,9 +26,22 @@ const navByRole = {
     { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
-  seguridad: [
+  administrador_tienda: [
+    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "mi-tienda", label: "Mi tienda", icon: Store },
+    { id: "usuarios", label: "Personal", icon: Users },
+    { id: "asistencias", label: "Asistencia", icon: CalendarCheck2 },
+    { id: "tareas", label: "Tareas", icon: ListChecks },
+    { id: "controles", label: "Controles", icon: ClipboardCheck },
     { id: "incidentes", label: "Incidencias", icon: ShieldAlert },
+    { id: "errores-amonestaciones", label: "Amonestaciones", icon: ShieldAlert },
+    { id: "consultas", label: "Consultas", icon: FileSearch },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+  ],
+  seguridad: [
+    { id: "seguridad-inicio", label: "Inicio", icon: BarChart3 },
     { id: "trafico", label: "Tráfico", icon: TrafficCone },
+    { id: "incidentes", label: "Incidencias", icon: ShieldAlert },
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
   coach: [
@@ -49,16 +63,7 @@ const roleLabels = { gerente: "Gerente comercial", jefe_zonal: "Jefe zonal", adm
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
-  const items = [
-    ...(navByRole[user.rol_db] || navByRole[user.rol] || []),
-    ...(user.rol_db === "administrador_tienda"
-      ? [
-        { id: "errores-amonestaciones", label: "Amonestaciones", icon: ShieldAlert },
-        { id: "consultas", label: "Consultas", icon: FileSearch },
-        { id: "documentos-legales", label: "Documentos legales", icon: FileText },
-      ]
-      : []),
-  ];
+  const items = navByRole[user.rol_db] || navByRole[user.rol] || [];
   useEffect(() => setMobileOpen(false), [page]);
 
   return (

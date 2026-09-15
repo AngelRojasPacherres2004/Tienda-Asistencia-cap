@@ -39,7 +39,7 @@ const excelDate = (value) => {
   return String(value || "").trim().slice(0, 10);
 };
 
-export default function Usuarios({ user }) {
+export default function Usuarios({ user, variant }) {
   const isAdmin = user?.rol === "admin";
   const isGerente = user?.rol_db === "gerente";
   const isStoreAdmin = user?.rol_db === "administrador_tienda";
@@ -245,8 +245,8 @@ export default function Usuarios({ user }) {
     <>
       <PageHeader
         eyebrow={isAdmin ? "Equipo" : "Mi tienda"}
-        title={isAdmin ? "Usuarios" : "Mi equipo"}
-        subtitle={isAdmin ? (isGerente ? "Crea y administra los Jefes zonales con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
+        title={variant === "zonas" ? "Zonas y Jefes zonales" : isAdmin ? "Usuarios" : "Mi equipo"}
+        subtitle={variant === "zonas" ? "Crea y administra los Jefes zonales que serán asignados a las tiendas." : isAdmin ? (isGerente ? "Crea y administra los Jefes zonales con acceso al sistema." : "Administradores de tienda con acceso al sistema.") : "Empleados, vendedores y personal de seguridad de tu tienda."}
         action={<div className="header-actions">
           {isAdmin ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
