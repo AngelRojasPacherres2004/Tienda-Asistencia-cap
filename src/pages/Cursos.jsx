@@ -4,11 +4,13 @@ import { api } from "../lib/api";
 import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge, SuccessDialog,
 } from "../components/UI";
+import { AsignarPanel } from "./Capacitaciones";
 
 const blankCurso = { nombre: "", competencia: "", activo: true };
 const blankEncargado = { nombre: "", activo: true };
 
-export default function Cursos() {
+export default function Cursos({ user }) {
+  const esGerenteComercial = user?.rol === "gerente_comercial";
   const [tab, setTab] = useState("cursos");
   const [cursos, setCursos] = useState(null);
   const [encargados, setEncargados] = useState(null);
@@ -22,7 +24,10 @@ export default function Cursos() {
 
   const loadCursos = () => api("/cursos").then(setCursos).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadEncargados = () => api("/encargados").then(setEncargados).catch((err) => setNotice({ type: "error", text: err.message }));
-  useEffect(() => { loadCursos(); loadEncargados(); }, []);
+  useEffect(() => {
+    loadCursos();
+    if (!esGerenteComercial) loadEncargados();
+  }, [esGerenteComercial]);
 
   const saveCurso = async (event) => {
     event.preventDefault();
@@ -33,7 +38,7 @@ export default function Cursos() {
       });
       setEditingCurso(null);
       await loadCursos();
-      setSuccess({ title: editingCurso.id ? "Curso actualizado" : "Curso creado", message: "La información del curso se guardó correctamente." });
+      setSuccess({ title: editingCurso.id ? "Capacitación actualizada" : "Capacitación creada", message: "La información de la capacitación se guardó correctamente." });
     } catch (err) {
       setCursoError(err.message);
     } finally {
@@ -79,26 +84,26 @@ export default function Cursos() {
     <>
       <PageHeader
         eyebrow="Catálogo"
-        title="Cursos y Encargados"
-        subtitle="Cursos disponibles y encargados que se pueden asignar en cualquier tienda."
+        title={esGerenteComercial ? "Capacitaciones y cambio de estado" : "Capacitaciones y Encargados"}
+        subtitle={esGerenteComercial ? "Administra los cursos y asígnalos a los trabajadores bajo tu supervisión." : "Cursos disponibles y encargados que se pueden asignar en cualquier tienda."}
         action={
           tab === "cursos"
-            ? <button className="button button--primary" onClick={() => { setCursoError(""); setEditingCurso({ ...blankCurso }); }}>Nuevo curso</button>
-            : <button className="button button--primary" onClick={() => { setEncargadoError(""); setEditingEncargado({ ...blankEncargado }); }}>Nuevo encargado</button>
+            ? <button className="button button--primary" onClick={() => { setCursoError(""); setEditingCurso({ ...blankCurso }); }}>Nueva capacitación</button>
+            : !esGerenteComercial && <button className="button button--primary" onClick={() => { setEncargadoError(""); setEditingEncargado({ ...blankEncargado }); }}>Nuevo encargado</button>
         }
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       <div className="segmented">
-        <button className={tab === "cursos" ? "active" : ""} onClick={() => setTab("cursos")}>Cursos</button>
-        <button className={tab === "encargados" ? "active" : ""} onClick={() => setTab("encargados")}>Encargados</button>
+        <button className={tab === "cursos" ? "active" : ""} onClick={() => setTab("cursos")}>Capacitaciones</button>
+        <button className={tab === "encargados" ? "active" : ""} onClick={() => setTab("encargados")}>{esGerenteComercial ? "Cambio de estado" : "Encargados"}</button>
       </div>
 
       {tab === "cursos" ? (
         !cursos ? <Loading /> : cursos.length ? (
           <div className="table-panel">
             <div className="data-table data-table--cursos">
-              <div className="data-table__head"><span>Curso</span><span>Competencia</span><span>Estado</span><span /></div>
+              <div className="data-table__head"><span>Capacitación</span><span>Competencia</span><span>Estado</span><span /></div>
               {cursos.map((curso) => (
                 <div className="data-table__row" key={curso.id}>
                   <span className="cell-primary">{curso.nombre}</span>
@@ -112,7 +117,13 @@ export default function Cursos() {
               ))}
             </div>
           </div>
-        ) : <EmptyState icon={GraduationCap} title="Sin cursos" text="Todavía no hay cursos en el catálogo." />
+        ) : <EmptyState icon={GraduationCap} title="Sin capacitaciones" text="Todavía no hay capacitaciones en el catálogo." />
+      ) : esGerenteComercial ? (
+        cursos ? (
+          cursos.filter((curso) => curso.activo).length
+            ? <AsignarPanel cursos={cursos.filter((curso) => curso.activo)} estadosPermitidos={["en_curso", "completado"]} restringirTransiciones={false} />
+            : <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Activa o crea una capacitación antes de cambiar estados." />
+        ) : <Loading />
       ) : (
         !encargados ? <Loading /> : encargados.length ? (
           <div className="table-panel">
@@ -132,11 +143,11 @@ export default function Cursos() {
         ) : <EmptyState icon={UserRound} title="Sin encargados" text="Todavía no hay encargados en el catálogo." />
       )}
 
-      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar curso" : "Nuevo curso"} onClose={() => { setEditingCurso(null); setCursoError(""); }}>
+      <Modal open={!!editingCurso} title={editingCurso?.id ? "Editar capacitación" : "Nueva capacitación"} onClose={() => { setEditingCurso(null); setCursoError(""); }}>
         {editingCurso && (
           <form className="form-grid" onSubmit={saveCurso}>
             {cursoError && <div className="span-2"><Notice type="error" onClose={() => setCursoError("")}>{cursoError}</Notice></div>}
-            <Field label="Curso" className="span-2">
+            <Field label="Capacitación" className="span-2">
               <input required value={editingCurso.nombre} onChange={(e) => setEditingCurso({ ...editingCurso, nombre: e.target.value })} />
             </Field>
             <Field label="Competencia" className="span-2">

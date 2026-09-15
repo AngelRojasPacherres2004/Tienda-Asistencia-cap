@@ -5,11 +5,13 @@ import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const blank = { nombre: "", direccion: "", jefe_id: "", estado: "activo" };
+const blank = { nombre: "", direccion: "", jefe_id: "", cluster_id: "", estado: "activo" };
 
-export default function Tiendas() {
+export default function Tiendas({ user }) {
+  const canEdit = user?.rol === "gerente_comercial";
   const [items, setItems] = useState(null);
   const [usuarios, setUsuarios] = useState([]);
+  const [clusters, setClusters] = useState([]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -21,13 +23,13 @@ export default function Tiendas() {
 
   const load = () => api("/tiendas").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
-  useEffect(() => { load(); loadUsuarios(); }, []);
+  useEffect(() => { load(); loadUsuarios(); if (canEdit) api("/clusters").then(setClusters).catch(() => {}); }, [canEdit]);
 
   const filtered = useMemo(() => (items || []).filter((item) =>
     [item.nombre, item.direccion, item.jefe_nombre].join(" ").toLowerCase().includes(search.toLowerCase()),
   ), [items, search]);
 
-  const jefeOptions = usuarios.filter((u) => u.estado === "activo" && (u.rol === "jefe_tienda" || u.rol === "empleado"));
+  const jefeOptions = usuarios.filter((u) => u.estado === "activo" && u.rol === "jefe_tienda");
 
   const openUsers = (item) => {
     setViewing(item);
@@ -43,7 +45,7 @@ export default function Tiendas() {
     event.preventDefault();
     setBusy(true); setFormError("");
     try {
-      const payload = { ...editing, jefe_id: editing.jefe_id ? Number(editing.jefe_id) : null };
+      const payload = { ...editing, jefe_id: editing.jefe_id ? Number(editing.jefe_id) : null, cluster_id: editing.cluster_id ? Number(editing.cluster_id) : null };
       await api(editing.id ? `/tiendas/${editing.id}` : "/tiendas", {
         method: editing.id ? "PUT" : "POST", body: payload,
       });
@@ -63,7 +65,7 @@ export default function Tiendas() {
         eyebrow="Operación"
         title="Tiendas"
         subtitle="Crea tiendas, asígnales un jefe y administra su estado."
-        action={<button className="button button--primary" onClick={openNew}>Nueva tienda</button>}
+        action={canEdit ? <button className="button button--primary" onClick={openNew}>Nueva tienda</button> : null}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
       <div className="toolbar">
@@ -82,12 +84,13 @@ export default function Tiendas() {
               <h3>{item.nombre}</h3>
               <p>{item.direccion || "Sin dirección registrada"}</p>
               <dl>
+                <div><dt>Clúster</dt><dd>{item.cluster_nombre || "Sin asignar"}</dd></div>
                 <div><dt>Jefe de tienda</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div>
                 <div><dt>Creada</dt><dd>{new Date(item.fecha_creacion).toLocaleDateString("es-PE")}</dd></div>
               </dl>
               <div className="company-card__footer">
                 <button onClick={() => openUsers(item)}><UsersRound size={14} />Usuarios</button>
-                <button onClick={() => openEdit(item)}><Pencil size={14} />Editar</button>
+                {canEdit && <button onClick={() => openEdit(item)}><Pencil size={14} />Editar</button>}
               </div>
             </article>
           ))}
@@ -115,6 +118,12 @@ export default function Tiendas() {
                 {jefeOptions.map((u) => <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>)}
               </select>
             </Field>
+            <Field label="Clúster">
+              <select required value={editing.cluster_id || ""} onChange={(e) => set("cluster_id", e.target.value)}>
+                <option value="">Selecciona un clúster</option>
+                {clusters.filter((c) => c.estado === "activo" || String(c.id) === String(editing.cluster_id)).map((c) => <option value={c.id} key={c.id}>{c.nombre}</option>)}
+              </select>
+            </Field>
             <Field label="Estado">
               <select value={editing.estado} onChange={(e) => set("estado", e.target.value)}>
                 <option value="activo">Activo</option>
@@ -135,7 +144,7 @@ export default function Tiendas() {
             <div><span>Jefe de tienda</span><strong>{viewing?.jefe_nombre || "Sin jefe asignado"}</strong><small>Responsable de la operación de esta tienda</small></div>
           </section>
           <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{storeUsers.filter((item) => item.rol !== "jefe_tienda").length} usuarios</h3></div><button className="icon-button" onClick={() => setViewing(null)} aria-label="Cerrar"><X size={17} /></button></div>
-          {storeUsers.length ? <div className="store-users__list">{storeUsers.filter((item) => item.rol !== "jefe_tienda").map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>@{item.usuario} · {item.fecha_ingreso || "Sin fecha de ingreso"}</small></div><StatusBadge value={item.estado} /></div>)}</div> : <EmptyState icon={UsersRound} title="Sin usuarios operativos" text="Esta tienda todavía no tiene empleados registrados." />}
+          {storeUsers.length ? <div className="store-users__list">{storeUsers.filter((item) => item.rol !== "jefe_tienda").map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>@{item.usuario} · {item.fecha_ingreso || "Sin fecha de ingreso"}</small></div><StatusBadge value={item.estado} /></div>)}</div> : <EmptyState icon={UsersRound} title="Sin usuarios operativos" text="Esta tienda todavía no tiene personal registrado." />}
         </div>}
       </Modal>
       <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />

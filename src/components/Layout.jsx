@@ -1,31 +1,72 @@
 import {
-  BarChart3, Building2, CalendarCheck2, FileSpreadsheet, GraduationCap,
-  LogOut, Menu, PanelLeftClose, UserCircle2, Users, X,
+  AlertTriangle, BarChart3, Building2, CalendarCheck2, FileClock, FileSpreadsheet, GraduationCap,
+  LogOut, Menu, PanelLeftClose, ShieldCheck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const navByRole = {
-  admin: [
-    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+  gerencia_general: [
+    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "mi-tienda", label: "Mi tienda", icon: Building2 },
     { id: "documentos", label: "Documentos", icon: FileSpreadsheet },
     { id: "usuarios", label: "Usuarios", icon: Users },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "cursos", label: "Cursos", icon: GraduationCap },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
+  ],
+  gerente_comercial: [
+    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
+    { id: "usuarios", label: "Equipo de gestión", icon: Users },
+    { id: "clusters", label: "Clústeres", icon: Building2 },
+    { id: "tiendas", label: "Tiendas", icon: Building2 },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
+  ],
+  coach: [
+    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "tiendas", label: "Tiendas", icon: Building2 },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "gestion", label: "Seguimiento", icon: AlertTriangle },
+  ],
+  jefe_zonal: [
+    { id: "dashboard", label: "Resumen zonal", icon: BarChart3 },
+    { id: "usuarios", label: "Administradores", icon: Users },
+    { id: "tiendas", label: "Tiendas asignadas", icon: Building2 },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   jefe_tienda: [
-    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
+    { id: "gestion", label: "Controles", icon: FileClock },
+    { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "usuarios", label: "Mi equipo", icon: Users },
-    { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
-  empleado: [
+  asistente_tienda: [
+    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "usuarios", label: "Personal", icon: Users },
+    { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
+    { id: "gestion", label: "Controles", icon: FileClock },
+    { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+  ],
+  trabajador: [
     { id: "mi-asistencia", label: "Mi asistencia", icon: CalendarCheck2 },
     { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
+  seguridad: [
+    { id: "seguridad", label: "Inicio", icon: BarChart3 },
+    { id: "seguridad-trafico", label: "Tráfico", icon: Users },
+    { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
+  ],
 };
-const roleLabels = { admin: "Administrador", jefe_tienda: "Jefe de tienda", empleado: "Empleado" };
+const roleLabels = {
+  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach",
+  jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda",
+  trabajador: "Trabajador", seguridad: "Seguridad",
+};
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);

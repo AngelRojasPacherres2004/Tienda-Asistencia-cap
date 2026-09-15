@@ -56,7 +56,7 @@ function RotationPanel({ rows, totals, year }) {
 }
 
 export default function Dashboard({ user }) {
-  const isAdmin = user?.rol === "admin";
+  const isAdmin = ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(user?.rol);
   const today = todayISO();
   const currentMonth = today.slice(0, 7);
   const currentYear = today.slice(0, 4);
@@ -103,7 +103,7 @@ export default function Dashboard({ user }) {
       <StatePeriodPanel rows={data.states} periodLabel={periodLabel} />
       <WorkloadPanel rows={data.workload} total={workloadTotal} isAdmin={isAdmin} periodLabel={periodLabel} />
       <RotationPanel rows={data.rotation} totals={rotationTotals} year={filters.anio} />
-      <article className="panel"><header className="panel__header"><div><h2>Progreso de capacitaciones</h2><p>Cursos con mas pendientes</p></div></header><div className="due-list">{data.progresoCursos.length ? data.progresoCursos.map((item, index) => { const total = item.completados + item.en_curso + item.pendientes; const porcentaje = total ? Math.round((item.completados / total) * 100) : 0; return <div key={`${item.titulo}-${index}`}><span className={`due-days ${item.pendientes > 0 ? "urgent" : ""}`}>{porcentaje}%</span><div><strong>{item.titulo}</strong><small>{item.completados} completados · {item.en_curso} en curso · {item.pendientes} pendientes</small></div></div>; }) : <div className="panel-empty"><CheckCircle2 size={24} /><span>Todavia no hay cursos en el catalogo.</span></div>}</div></article>
+      <article className="panel"><header className="panel__header"><div><h2>Progreso de capacitaciones</h2><p>Capacitaciones con más pendientes</p></div></header><div className="due-list">{data.progresoCursos.length ? data.progresoCursos.map((item, index) => { const total = item.completados + item.en_curso + item.pendientes; const porcentaje = total ? Math.round((item.completados / total) * 100) : 0; return <div key={`${item.titulo}-${index}`}><span className={`due-days ${item.pendientes > 0 ? "urgent" : ""}`}>{porcentaje}%</span><div><strong>{item.titulo}</strong><small>{item.completados} completados · {item.en_curso} en curso · {item.pendientes} pendientes</small></div></div>; }) : <div className="panel-empty"><CheckCircle2 size={24} /><span>Todavía no hay capacitaciones en el catálogo.</span></div>}</div></article>
     </section>
   </>;
 }
