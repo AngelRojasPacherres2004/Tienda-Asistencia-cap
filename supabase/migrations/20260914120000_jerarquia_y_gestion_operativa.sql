@@ -39,7 +39,7 @@ CREATE TABLE incidencias (
   fecha TIMESTAMPTZ NOT NULL DEFAULT now(),
   asunto TEXT NOT NULL,
   tipo TEXT NOT NULL DEFAULT 'otro' CHECK (tipo IN ('robo', 'robo_frustrado', 'accidente', 'dano', 'conflicto', 'otro')),
-  area TEXT NOT NULL DEFAULT 'otro' CHECK (area IN ('piso_venta', 'caja', 'almacen', 'ingreso', 'exterior', 'otro')),
+  area TEXT NOT NULL DEFAULT 'otro' CHECK (area IN ('piso_venta', 'textil', 'calzado', 'caja', 'almacen', 'ingreso', 'exterior', 'otro')),
   descripcion TEXT NOT NULL,
   gravedad TEXT NOT NULL DEFAULT 'media' CHECK (gravedad IN ('baja', 'media', 'alta', 'critica')),
   estado TEXT NOT NULL DEFAULT 'abierta' CHECK (estado IN ('abierta', 'en_revision', 'cerrada')),

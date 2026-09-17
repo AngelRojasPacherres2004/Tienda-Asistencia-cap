@@ -81,6 +81,12 @@ function dbError(error) {
   if (error.code === "23503") {
     return httpError("La operación no es válida porque hace referencia a un registro inexistente o en uso.", 409);
   }
+  if (error.code === "23514") {
+    return httpError("La base de datos rechazó uno de los valores. Ejecuta las migraciones pendientes y vuelve a intentarlo.", 400);
+  }
+  if (["42P01", "42703", "PGRST204", "PGRST205"].includes(error.code)) {
+    return httpError("La estructura de la base de datos no está actualizada. Ejecuta las migraciones pendientes.", 500);
+  }
   console.error(error);
   return httpError("Ocurrió un error al acceder a la base de datos.", 500);
 }
@@ -128,6 +134,13 @@ function ensureAuth(event, roles) {
     if (!allowed.includes(user.rol)) throw httpError("No tienes permisos para realizar esta acción.", 403);
   }
   return user;
+}
+
+async function withStoreName(user) {
+  if (!user.tienda_id) return { ...user, tienda_nombre: null };
+  const { data: store, error } = await supabase.from("tiendas").select("nombre").eq("id", user.tienda_id).maybeSingle();
+  if (error) throw dbError(error);
+  return { ...user, tienda_nombre: store?.nombre || null };
 }
 
 // ---------- Validación ----------
@@ -229,11 +242,12 @@ async function login(event) {
   if (!valid) return fail();
 
   loginAttempts.delete(clientIp);
-  const user = {
+  const sessionUser = {
     id: account.id, nombres: account.nombres, apellidos: account.apellidos,
     usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
   };
-  const token = jwt.sign(user, jwtSecret(), { expiresIn: "10h" });
+  const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
+  const user = await withStoreName(sessionUser);
   return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
 }
 
@@ -1575,8 +1589,11 @@ async function saveTraffic(event, user) {
   requireFields(data, ["fecha", "cantidad"]);
   if (!isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha y cantidad válidas.", 400);
   const tiendaId = await resolveOperationalStoreScope(user, data.tienda_id);
+  const hora = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).format(new Date());
   const { data: row, error } = await supabase.from("trafico_tienda").upsert({
-    tienda_id: tiendaId, fecha: data.fecha, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null,
+    tienda_id: tiendaId, fecha: data.fecha, hora, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null,
     registrado_por: user.id, updated_at: new Date().toISOString(),
   }, { onConflict: "tienda_id,fecha" }).select().single();
   if (error) throw dbError(error);
@@ -1615,20 +1632,136 @@ async function notifyIncident(incident, storeName) {
 
 async function createIncident(event, user) {
   const data = bodyOf(event);
-  requireFields(data, ["asunto", "descripcion", "gravedad"]);
+  requireFields(data, ["descripcion", "gravedad", "tipo"]);
+  if (user.rol === "seguridad" && !["robo", "robo_frustrado"].includes(data.tipo)) {
+    throw httpError("El tipo de incidencia debe ser robo o robo frustrado.", 400);
+  }
+  if (!["piso_venta", "textil", "calzado", "caja", "almacen", "ingreso", "exterior", "otro"].includes(data.area || "otro")) {
+    throw httpError("Selecciona un área o ubicación válida.", 400);
+  }
   const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
   const { data: incident, error } = await supabase.from("incidencias").insert({
-    tienda_id: storeId, asunto: cleanText(data.asunto), tipo: data.tipo || "otro", area: data.area || "otro",
+    tienda_id: storeId, asunto: data.tipo === "robo_frustrado" ? "Robo frustrado" : "Robo", tipo: data.tipo, area: data.area || "otro",
     descripcion: cleanText(data.descripcion), gravedad: data.gravedad, estado: "abierta",
     intervencion: Boolean(data.intervencion), detencion: Boolean(data.detencion),
     fecha: data.fecha || new Date().toISOString(), registrado_por: user.id,
   }).select().single();
   if (error) throw dbError(error);
+  try {
+    for (const item of Array.isArray(data.productos) ? data.productos : []) {
+      const marcaNombre = cleanText(item.marca);
+      const producto = cleanText(item.producto);
+      if (!marcaNombre || !producto || !Number.isInteger(Number(item.cantidad)) || Number(item.cantidad) < 1 || item.valor === "" || !Number.isFinite(Number(item.valor)) || Number(item.valor) < 0) {
+        throw httpError("Revisa los datos de los productos involucrados.", 400);
+      }
+      const brandLookup = await supabase.from("marcas").select("id,nombre");
+      if (brandLookup.error) throw dbError(brandLookup.error);
+      let marca = (brandLookup.data || []).find((item) => item.nombre.trim().toLocaleLowerCase("es") === marcaNombre.toLocaleLowerCase("es"));
+      if (!marca) {
+        const created = await supabase.from("marcas").insert({ nombre: marcaNombre }).select("id").single();
+        if (created.error) {
+          const existing = await supabase.from("marcas").select("id,nombre");
+          marca = (existing.data || []).find((item) => item.nombre.trim().toLocaleLowerCase("es") === marcaNombre.toLocaleLowerCase("es"));
+          if (existing.error || !marca) throw dbError(created.error);
+        } else marca = created.data;
+      }
+      const inserted = await supabase.from("incidencia_productos").insert({
+        incidencia_id: incident.id, marca_id: marca.id,
+        producto, cantidad: Number(item.cantidad), valor: Number(item.valor || 0), recuperado: Boolean(item.recuperado),
+      });
+      if (inserted.error) throw dbError(inserted.error);
+    }
+    const personas = (Array.isArray(data.personas) ? data.personas : []).filter((item) => cleanText(item.nombre));
+    if (personas.length) {
+      const inserted = await supabase.from("incidencia_personas").insert(personas.map((item) => ({
+        incidencia_id: incident.id, nombre: cleanText(item.nombre), rol: cleanText(item.rol) || "Testigo",
+        documento: cleanText(item.documento) || null, observacion: cleanText(item.observacion) || null,
+      })));
+      if (inserted.error) throw dbError(inserted.error);
+    }
+  } catch (detailError) {
+    await supabase.from("incidencias").delete().eq("id", incident.id);
+    throw detailError;
+  }
   const { data: store } = await supabase.from("tiendas").select("nombre").eq("id", storeId).single();
   const notification = await notifyIncident(incident, store?.nombre || `Tienda ${storeId}`).catch((err) => ({ estado: "error", detalle: err.message }));
   await supabase.from("incidencias").update({ notificacion_estado: notification.estado, notificacion_detalle: notification.detalle }).eq("id", incident.id);
   return { ...incident, notificacion_estado: notification.estado, notificacion_detalle: notification.detalle };
 }
+
+async function listBrands() {
+  const { data, error } = await supabase.from("marcas").select("id,nombre").order("nombre");
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function exportIncidentsExcel(event, user) {
+  const rows = await listOperational("incidencias", event, user,
+    "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Asiste";
+  workbook.created = new Date();
+
+  const incidents = workbook.addWorksheet("Incidencias");
+  incidents.columns = [
+    { header: "Código", key: "codigo", width: 14 }, { header: "Tienda", key: "tienda", width: 24 },
+    { header: "Fecha", key: "fecha", width: 14 }, { header: "Hora", key: "hora", width: 10 },
+    { header: "Tipo", key: "tipo", width: 18 },
+    { header: "Área / ubicación", key: "area", width: 20 }, { header: "Severidad", key: "gravedad", width: 14 },
+    { header: "Estado", key: "estado", width: 15 }, { header: "Descripción", key: "descripcion", width: 55 },
+    { header: "Intervención", key: "intervencion", width: 14 }, { header: "Detención", key: "detencion", width: 12 },
+    { header: "Registrado por", key: "registrado_por", width: 28 }, { header: "Cantidad de productos", key: "productos", width: 20 },
+    { header: "Valor involucrado", key: "valor", width: 19 }, { header: "Valor recuperado", key: "recuperado", width: 18 },
+    { header: "Personas involucradas", key: "personas", width: 20 },
+  ];
+  incidents.addRows(rows.map((row) => ({
+    codigo: incidentCode(row), tienda: row.tiendas?.nombre || "", fecha: formatLimaDate(row.fecha), hora: formatLimaTime(row.fecha), tipo: humanize(row.tipo), area: humanize(row.area),
+    gravedad: humanize(row.gravedad), estado: humanize(row.estado || "abierta"), descripcion: row.descripcion,
+    intervencion: row.intervencion ? "Sí" : "No", detencion: row.detencion ? "Sí" : "No",
+    registrado_por: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos} (@${row.usuarios.usuario})` : row.registrado_por,
+    productos: row.incidencia_productos?.length || 0,
+    valor: (row.incidencia_productos || []).reduce((sum, item) => sum + Number(item.valor) * Number(item.cantidad), 0),
+    recuperado: (row.incidencia_productos || []).filter((item) => item.recuperado).reduce((sum, item) => sum + Number(item.valor) * Number(item.cantidad), 0),
+    personas: row.incidencia_personas?.length || 0,
+  })));
+  incidents.getColumn("valor").numFmt = '"S/ "#,##0.00';
+  incidents.getColumn("recuperado").numFmt = '"S/ "#,##0.00';
+  incidents.getColumn("descripcion").alignment = { vertical: "top", wrapText: true };
+  styleHeader(incidents);
+
+  const products = workbook.addWorksheet("Productos");
+  products.columns = [
+    { header: "Código de incidencia", key: "codigo", width: 20 }, { header: "Tienda", key: "tienda", width: 24 },
+    { header: "Producto", key: "producto", width: 30 }, { header: "Marca", key: "marca", width: 24 },
+    { header: "Cantidad", key: "cantidad", width: 12 }, { header: "Valor unitario", key: "valor", width: 18 },
+    { header: "Valor total", key: "total", width: 18 }, { header: "Recuperado", key: "recuperado", width: 14 },
+  ];
+  for (const row of rows) for (const item of row.incidencia_productos || []) products.addRow({
+    codigo: incidentCode(row), tienda: row.tiendas?.nombre || "", producto: item.producto, marca: item.marcas?.nombre || "",
+    cantidad: item.cantidad, valor: Number(item.valor), total: Number(item.valor) * Number(item.cantidad), recuperado: item.recuperado ? "Sí" : "No",
+  });
+  products.getColumn("valor").numFmt = '"S/ "#,##0.00'; products.getColumn("total").numFmt = '"S/ "#,##0.00'; styleHeader(products);
+
+  const people = workbook.addWorksheet("Personas involucradas");
+  people.columns = [
+    { header: "Código de incidencia", key: "codigo", width: 20 }, { header: "Tienda", key: "tienda", width: 24 },
+    { header: "Nombre", key: "nombre", width: 30 }, { header: "Rol", key: "rol", width: 20 },
+    { header: "Documento", key: "documento", width: 18 }, { header: "Observación", key: "observacion", width: 45 },
+  ];
+  for (const row of rows) for (const person of row.incidencia_personas || []) people.addRow({
+    codigo: incidentCode(row), tienda: row.tiendas?.nombre || "", nombre: person.nombre, rol: person.rol,
+    documento: person.documento || "", observacion: person.observacion || "",
+  });
+  people.getColumn("observacion").alignment = { vertical: "top", wrapText: true }; styleHeader(people);
+  const nowParts = limaDateParts(new Date());
+  return excelResponse(workbook, `${nowParts.month}-${nowParts.day}-incidentes.xlsx`);
+}
+
+function incidentCode(row) { return row.codigo || `INC-${String(row.id).padStart(4, "0")}`; }
+function humanize(value) { return value ? String(value).replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase()) : ""; }
+function formatLimaDate(value) { return new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value)); }
+function formatLimaTime(value) { return new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)); }
+function limaDateParts(value) { const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Lima", month: "2-digit", day: "2-digit" }).formatToParts(value); return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); }
 
 async function ensureWorkerInStore(userId, storeId) {
   const { data } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", userId).maybeSingle();
@@ -1708,7 +1841,7 @@ export async function handler(event) {
       return json(200, { ok: true }, { "Set-Cookie": clearSessionCookie(event) });
     }
     if (path === "/auth/me" && method === "GET") {
-      const user = ensureAuth(event);
+      const user = await withStoreName(ensureAuth(event));
       return json(200, { user });
     }
 
@@ -1870,11 +2003,20 @@ export async function handler(event) {
     }
     if (path === "/incidencias" && method === "GET") {
       ensureAuth(event, operationalReaders);
-      return json(200, await listOperational("incidencias", event, user));
+      return json(200, await listOperational("incidencias", event, user,
+        "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)"));
     }
     if (path === "/incidencias" && method === "POST") {
       ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
       return json(201, await createIncident(event, user));
+    }
+    if (path === "/incidencias/export.xlsx" && method === "GET") {
+      ensureAuth(event, operationalReaders);
+      return await exportIncidentsExcel(event, user);
+    }
+    if (path === "/marcas" && method === "GET") {
+      ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
+      return json(200, await listBrands());
     }
     if (path === "/amonestaciones" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda"]);

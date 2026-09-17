@@ -1,0 +1,14 @@
+BEGIN;
+
+ALTER TABLE trafico_tienda
+  ADD COLUMN IF NOT EXISTS hora TIME(0) WITHOUT TIME ZONE;
+
+UPDATE trafico_tienda
+SET hora = (created_at AT TIME ZONE 'America/Lima')::TIME(0)
+WHERE hora IS NULL;
+
+ALTER TABLE trafico_tienda
+  ALTER COLUMN hora SET DEFAULT ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::TIME(0)),
+  ALTER COLUMN hora SET NOT NULL;
+
+COMMIT;
