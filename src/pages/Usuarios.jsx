@@ -6,8 +6,8 @@ import {
   ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", trabajador: "Trabajador", seguridad: "Seguridad" };
-const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "trabajador", "seguridad"], asistente_tienda: ["trabajador", "seguridad"] };
+const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", seguridad: "Seguridad", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
+const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"], asistente_tienda: ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"] };
 const blank = {
   nombres: "", apellidos: "", dni: "", usuario: "", password: "",
   telefono: "", email: "", rol: "trabajador", tienda_id: "", tienda_ids: [], estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
@@ -74,7 +74,7 @@ export default function Usuarios({ user }) {
     for (const field of ["nombres", "apellidos", "dni", "usuario", "fecha_ingreso"]) {
       if (!String(editing[field] ?? "").trim()) errors[field] = "Este campo es obligatorio.";
     }
-    if (!editing.id && !["trabajador", "seguridad"].includes(editing.rol) && !editing.password) errors.password = "Este campo es obligatorio para este rol.";
+    if (!editing.id && !["trabajador", "vendedor", "asistente", "seguridad", "jefe_seguridad"].includes(editing.rol) && !editing.password) errors.password = "Este campo es obligatorio para este rol.";
     if (!["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(editing.rol) && !editing.tienda_id && isCentral) errors.tienda_id = "Selecciona una tienda.";
     if (user?.rol === "gerente_comercial" && editing.rol === "jefe_zonal" && !editing.cluster_id) errors.cluster_id = "Selecciona un clúster.";
     if (editing.nombres && editing.nombres.trim().length < 2) errors.nombres = "Ingresa al menos 2 caracteres.";
@@ -292,7 +292,7 @@ export default function Usuarios({ user }) {
             <Field label="Correo" hint="Se usa para notificaciones de incidencias"><input type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
             <Field label="Usuario" error={fieldErrors.usuario}><input required value={editing.usuario} onChange={(e) => set("usuario", e.target.value)} /></Field>
             <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual." : "Obligatoria para roles de gestión; mínimo 6 caracteres."}>
-              <input required={!editing.id && !["trabajador", "seguridad"].includes(editing.rol)} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
+              <input required={!editing.id && !["trabajador", "vendedor", "asistente", "seguridad", "jefe_seguridad"].includes(editing.rol)} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
             <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
             <Field label="Fecha de salida" error={fieldErrors.fecha_salida} hint="Se deja en blanco al crear el usuario."><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>

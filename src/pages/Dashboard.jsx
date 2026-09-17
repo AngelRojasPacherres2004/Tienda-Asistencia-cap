@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Building2, CheckCircle2, Clock3, Filter, GraduationCap, RotateCcw, UsersRound, X } from "lucide-react";
-import { api, estadoAsistenciaLabels, todayISO } from "../lib/api";
+import { AlertTriangle, Building2, CheckCircle2, Clock3, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, UsersRound, X } from "lucide-react";
+import { api, estadoAsistenciaLabels, formatDate, todayISO } from "../lib/api";
 import { Loading, Notice, PageHeader } from "../components/UI";
 
 const palette = { presente: "#2f9e78", tardanza: "#c9932f", medio_turno: "#df9f39", apoyo: "#4f8dc9", falta: "#d9635f", permiso: "#7668ba", descanso_medico: "#8d96a3", suspension: "#a54f4f" };
@@ -55,6 +55,40 @@ function RotationPanel({ rows, totals, year }) {
   </article>;
 }
 
+function ErrorsByResponsiblePanel({ rows, periodLabel }) {
+  const [expanded, setExpanded] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const maximum = Math.max(...rows.map((item) => item.value), 1);
+
+  useEffect(() => {
+    if (!expanded && !selected) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      if (selected) setSelected(null);
+      else setExpanded(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", closeOnEscape); };
+  }, [expanded, selected]);
+
+  return <>
+    <article className={`panel dashboard-error-panel ${expanded ? "dashboard-card--expanded" : ""}`}>
+      <header className="panel__header"><div><span className="dashboard-section-kicker">Calidad operativa</span><h2>Errores por Usuario o Área · {periodLabel}</h2><p>Errores agrupados por la persona responsable y su categoría.</p></div><div className="dashboard-card-tools"><span className="panel-tag">{rows.reduce((sum, item) => sum + item.value, 0)} errores</span><button className="icon-button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Cerrar vista ampliada" : "Ampliar gráfica"}>{expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></header>
+      {rows.length ? <div className="dashboard-horizontal-bars">
+        {rows.map((item, index) => <button key={item.name} className="dashboard-horizontal-bar" onClick={() => setSelected(item)} title="Haz clic para ver el detalle">
+          <span className="dashboard-horizontal-rank">{String(index + 1).padStart(2, "0")}</span>
+          <span className="dashboard-horizontal-label"><strong>{item.name}</strong><small>{item.area}</small></span>
+          <span className="dashboard-horizontal-track"><i style={{ width: `${(item.value / maximum) * 100}%`, "--bar-index": index }} /></span>
+          <strong className="dashboard-horizontal-value">{item.value}</strong>
+        </button>)}
+      </div> : <div className="panel-empty dashboard-error-empty"><CheckCircle2 size={24} /><span>No hay errores registrados en {periodLabel.toLowerCase()}.</span></div>}
+    </article>
+    {selected && <div className="dashboard-detail-modal" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><section><header><div><span className="dashboard-section-kicker">{selected.area}</span><h2>{selected.name}</h2><p>{selected.value} error(es) en {periodLabel.toLowerCase()}</p></div><button className="icon-button" onClick={() => setSelected(null)} aria-label="Cerrar"><X size={17} /></button></header><div className="dashboard-error-detail-list">{selected.rows.map((row) => <article key={row.id}><span><AlertTriangle size={15} /></span><div><strong>{row.categoria}</strong><p>{row.descripcion}</p><small>{row.tienda} · {formatDate(row.fecha)}{row.accion_correctiva ? ` · Acción: ${row.accion_correctiva}` : ""}</small></div></article>)}</div></section></div>}
+  </>;
+}
+
 export default function Dashboard({ user }) {
   const isAdmin = ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(user?.rol);
   const today = todayISO();
@@ -67,7 +101,8 @@ export default function Dashboard({ user }) {
   const [error, setError] = useState("");
   const yearOptions = Array.from({ length: Number(currentYear) - 1999 }, (_, index) => String(Number(currentYear) - index));
   const monthOptions = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-  const daysInSelectedMonth = new Date(Number(filters.anio), Number(filters.mes), 0).getDate();
+  const availableMonths = filters.anio === currentYear ? monthOptions.slice(0, Number(today.slice(5, 7))) : monthOptions;
+  const daysInSelectedMonth = filters.anio === currentYear && filters.mes === today.slice(5, 7) ? Number(today.slice(8, 10)) : new Date(Number(filters.anio), Number(filters.mes), 0).getDate();
   useEffect(() => { if (isAdmin) api("/tiendas").then(setTiendas).catch(() => {}); }, [isAdmin]);
   const selectedRange = useMemo(() => {
     const prefix = `${filters.anio}-${filters.mes}`;
@@ -96,13 +131,14 @@ export default function Dashboard({ user }) {
   return <>
     <PageHeader eyebrow="Centro de control" title="Buenos dias" subtitle="Una lectura clara de lo que esta ocurriendo hoy." />
     {isAdmin && <button className={`dashboard-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((open) => !open)}><Filter size={17} /><span>{filtersOpen ? "Ocultar" : "Filtros"}</span></button>}
-    {isAdmin && filtersOpen && <aside className="dashboard-filter-popover"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Vista global</span><h2>Periodo y tienda</h2><small>{selectedStore ? selectedStore.nombre : "Todas las tiendas"}</small></div><button className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={17} /></button></div><label className="field"><span>Tienda</span><select value={filters.tienda_id} onChange={(e) => updateFilter("tienda_id", e.target.value)}><option value="">Todas las tiendas</option>{tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label><div className="dashboard-filter-selectors"><label className="field"><span>Año</span><select value={filters.anio} onChange={(e) => setFilters((current) => ({ ...current, anio: e.target.value, dia: "" }))}>{yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}</select></label><label className="field"><span>Mes</span><select value={filters.mes} onChange={(e) => setFilters((current) => ({ ...current, mes: e.target.value, dia: "" }))}>{monthOptions.map((month, index) => <option key={month} value={String(index + 1).padStart(2, "0")}>{month}</option>)}</select></label><label className="field"><span>Día</span><select value={filters.dia} onChange={(e) => updateFilter("dia", e.target.value)}><option value="">Todo el mes</option>{Array.from({ length: daysInSelectedMonth }, (_, index) => String(index + 1).padStart(2, "0")).map((day) => <option key={day} value={day}>{Number(day)}</option>)}</select></label></div><small className="dashboard-filter-summary">Desde {selectedRange.desde} hasta {selectedRange.hasta}</small><button className="button button--ghost button--small" onClick={resetFilters}><RotateCcw size={14} />Mes actual</button></aside>}
+    {isAdmin && filtersOpen && <aside className="dashboard-filter-popover"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Vista global</span><h2>Periodo y tienda</h2><small>{selectedStore ? selectedStore.nombre : "Todas las tiendas"}</small></div><button className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={17} /></button></div><label className="field"><span>Tienda</span><select value={filters.tienda_id} onChange={(e) => updateFilter("tienda_id", e.target.value)}><option value="">Todas las tiendas</option>{tiendas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label><div className="dashboard-filter-selectors"><label className="field"><span>Año</span><select value={filters.anio} onChange={(e) => setFilters((current) => ({ ...current, anio: e.target.value, mes: e.target.value === currentYear && Number(current.mes) > Number(today.slice(5, 7)) ? today.slice(5, 7) : current.mes, dia: "" }))}>{yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}</select></label><label className="field"><span>Mes</span><select value={filters.mes} onChange={(e) => setFilters((current) => ({ ...current, mes: e.target.value, dia: "" }))}>{availableMonths.map((month, index) => <option key={month} value={String(index + 1).padStart(2, "0")}>{month}</option>)}</select></label><label className="field"><span>Día</span><select value={filters.dia} onChange={(e) => updateFilter("dia", e.target.value)}><option value="">Todo el mes</option>{Array.from({ length: daysInSelectedMonth }, (_, index) => String(index + 1).padStart(2, "0")).map((day) => <option key={day} value={day}>{Number(day)}</option>)}</select></label></div><small className="dashboard-filter-summary">Desde {selectedRange.desde} hasta {selectedRange.hasta}</small><button className="button button--ghost button--small" onClick={resetFilters}><RotateCcw size={14} />Mes actual</button></aside>}
     <section className="metrics-grid">{isAdmin && <Metric icon={Building2} label="Tiendas" value={data.summary.tiendas_activas} note="Activas" tone="violet" />}<Metric icon={UsersRound} label={isAdmin ? "Equipo activo" : "Mi equipo"} value={data.summary.usuarios_activos} note="Usuarios habilitados" tone="blue" /><Metric icon={CheckCircle2} label="Presentes hoy" value={data.summary.asistencias_hoy} note="Registrados como presente" tone="green" /><Metric icon={Clock3} label="Asistencia del periodo" value={`${data.summary.tasa_asistencia_mes}%`} note="Tasa de presentes" tone="amber" /><Metric icon={GraduationCap} label="Capacitaciones" value={data.summary.cursos_en_curso} note="En curso" tone="red" /></section>
     <section className="dashboard-grid">
       <AttendanceTrendPanel rows={data.trend} year={filters.anio} />
       <StatePeriodPanel rows={data.states} periodLabel={periodLabel} />
       <WorkloadPanel rows={data.workload} total={workloadTotal} isAdmin={isAdmin} periodLabel={periodLabel} />
       <RotationPanel rows={data.rotation} totals={rotationTotals} year={filters.anio} />
+      <ErrorsByResponsiblePanel rows={data.errorsByResponsible || []} periodLabel={periodLabel} />
       <article className="panel"><header className="panel__header"><div><h2>Progreso de capacitaciones</h2><p>Capacitaciones con más pendientes</p></div></header><div className="due-list">{data.progresoCursos.length ? data.progresoCursos.map((item, index) => { const total = item.completados + item.en_curso + item.pendientes; const porcentaje = total ? Math.round((item.completados / total) * 100) : 0; return <div key={`${item.titulo}-${index}`}><span className={`due-days ${item.pendientes > 0 ? "urgent" : ""}`}>{porcentaje}%</span><div><strong>{item.titulo}</strong><small>{item.completados} completados · {item.en_curso} en curso · {item.pendientes} pendientes</small></div></div>; }) : <div className="panel-empty"><CheckCircle2 size={24} /><span>Todavía no hay capacitaciones en el catálogo.</span></div>}</div></article>
     </section>
   </>;

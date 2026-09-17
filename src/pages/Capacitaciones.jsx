@@ -7,7 +7,7 @@ import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 
-const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", trabajador: "Trabajador", seguridad: "Seguridad" };
+const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", seguridad: "Seguridad", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const estadoPalette = { completado: "#2f9e78", en_curso: "#df9f39", pendiente: "#d9635f" };
 const progresoLabels = { completado: "Completado", en_curso: "En curso", pendiente: "Pendiente" };
 
@@ -26,7 +26,7 @@ export default function Capacitaciones({ user }) {
   const supervisedLabels = {
     gerencia_general: "todo el personal operativo",
     gerente_comercial: "todo el personal operativo",
-    coach: "gerentes comerciales",
+    coach: "todo el personal, por rol y por tienda",
     jefe_zonal: "jefes de tienda",
     jefe_tienda: "asistentes, trabajadores y seguridad",
     asistente_tienda: "trabajadores y seguridad",
@@ -37,6 +37,7 @@ export default function Capacitaciones({ user }) {
   const [perfilId, setPerfilId] = useState(null);
   const [cursos, setCursos] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [roleFilter, setRoleFilter] = useState("todos");
 
   const loadTrabajadores = () => api("/capacitaciones/trabajadores").then(setTrabajadores).catch((err) => setNotice({ type: "error", text: err.message }));
   useEffect(() => {
@@ -46,7 +47,9 @@ export default function Capacitaciones({ user }) {
 
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
-  const visibles = showInactivos ? (trabajadores || []) : activos;
+  const baseVisibles = showInactivos ? (trabajadores || []) : activos;
+  const visibles = roleFilter === "todos" ? baseVisibles : baseVisibles.filter((t) => t.rol === roleFilter);
+  const rolesDisponibles = [...new Set((trabajadores || []).map((t) => t.rol))].sort();
 
   return (
     <>
@@ -55,6 +58,7 @@ export default function Capacitaciones({ user }) {
       <PageHeader eyebrow={central ? "Supervisión general" : zonal ? "Mi clúster" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />
       <div className="toolbar">
         <span>{visibles.length} personas</span>
+        {user?.rol === "coach" && <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} aria-label="Filtrar por rol"><option value="todos">Todos los roles</option>{rolesDisponibles.map((role) => <option key={role} value={role}>{roleLabels[role] || role}</option>)}</select>}
         <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
           {showInactivos ? "Ocultar inactivos" : `Mostrar inactivos (${inactivos.length})`}
         </button>
@@ -82,12 +86,25 @@ export default function Capacitaciones({ user }) {
 
       <PageHeader eyebrow="Seguimiento" title="Resumen de capacitaciones" subtitle="Filtra una capacitación y revisa el estado de las personas supervisadas." />
       {!cursos ? <Loading /> : cursos.length ? (
-        <ResumenPanel cursos={cursos} />
+        <><ResumenPanel cursos={cursos} />{user?.rol === "coach" && <><PageHeader eyebrow="Asignación dirigida" title="Asignar por rol o tienda" subtitle="Filtra el personal, selecciona un rol completo o combina personas de distintas tiendas." /><AsignarPanel cursos={cursos} estadosPermitidos={["pendiente", "en_curso", "completado"]} restringirTransiciones={false} /><CoachComparisonPanel cursos={cursos} /></>}</>
       ) : (
         <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que dé de alta una capacitación en el catálogo." />
       )}
     </>
   );
+}
+
+function CoachComparisonPanel({ cursos }) {
+  const [cursoId, setCursoId] = useState(cursos[0]?.id ?? "");
+  const [people, setPeople] = useState(null);
+  useEffect(() => { if (cursoId) { setPeople(null); api(`/capacitaciones/trabajadores?curso_id=${cursoId}&estado=activo`).then(setPeople).catch(() => setPeople([])); } }, [cursoId]);
+  const summarize = (keyOf) => [...(people || []).reduce((map, person) => {
+    const key = keyOf(person) || "Sin asignar";
+    const row = map.get(key) || { name: key, total: 0, completado: 0, en_curso: 0, pendiente: 0 };
+    row.total += 1; row[person.progreso_estado || "pendiente"] += 1; map.set(key, row); return map;
+  }, new Map()).values()].sort((a, b) => (b.completado / b.total) - (a.completado / a.total));
+  const groups = [{ title: "Comparativa entre tiendas", rows: summarize((p) => p.tienda_nombre) }, { title: "Progreso por rol", rows: summarize((p) => roleLabels[p.rol] || p.rol) }];
+  return <section className="panel" style={{ marginTop: 24 }}><header className="panel__header"><div><span className="eyebrow">Comparativas</span><h2>Avance de capacitaciones</h2><p>Detecta qué tiendas y roles completaron la capacitación y cuáles requieren seguimiento.</p></div><select value={cursoId} onChange={(e) => setCursoId(e.target.value)}>{cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}</select></header>{!people ? <Loading /> : <div className="training-comparison-grid">{groups.map((group) => <div key={group.title}><h3>{group.title}</h3>{group.rows.map((row) => { const pct = row.total ? Math.round(row.completado * 100 / row.total) : 0; return <article className="training-comparison-row" key={row.name}><div><strong>{row.name}</strong><small>{row.completado} completadas · {row.en_curso} en curso · {row.pendiente} pendientes</small></div><div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${pct}%`, background: estadoPalette.completado }} /></div><b>{pct}%</b></article>; })}</div>)}</div>}</section>;
 }
 
 function TrabajadorPerfilView({ id, onClose }) {
@@ -278,6 +295,7 @@ export function AsignarPanel({ cursos, onAssigned, estadosPermitidos = ["pendien
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("activo");
+  const [filtroRol, setFiltroRol] = useState("todos");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -299,6 +317,7 @@ export function AsignarPanel({ cursos, onAssigned, estadosPermitidos = ["pendien
 
   const visibles = (trabajadores || [])
     .filter((t) => filtroEstado === "todos" || t.estado === filtroEstado)
+    .filter((t) => filtroRol === "todos" || t.rol === filtroRol)
     .filter((t) => permiteEstadoActual(t.progreso_estado))
     .filter((t) => [t.nombres, t.apellidos, t.usuario].join(" ").toLowerCase().includes(search.toLowerCase()));
 
@@ -366,6 +385,7 @@ export function AsignarPanel({ cursos, onAssigned, estadosPermitidos = ["pendien
           <option value="inactivo">Inactivos</option>
           <option value="todos">Todos</option>
         </select>
+        <select value={filtroRol} onChange={(e) => setFiltroRol(e.target.value)} aria-label="Filtrar personal por rol"><option value="todos">Todos los roles</option>{[...new Set((trabajadores || []).map((t) => t.rol))].sort().map((role) => <option key={role} value={role}>{roleLabels[role] || role}</option>)}</select>
         <button className="button button--ghost button--small" onClick={() => setSelected(new Set(visibles.map((t) => t.id)))}>Seleccionar visibles</button>
         <button className="button button--ghost button--small" onClick={() => setSelected(new Set())}>Quitar selección</button>
       </div>

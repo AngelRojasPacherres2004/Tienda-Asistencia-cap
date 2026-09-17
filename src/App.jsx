@@ -23,8 +23,8 @@ const IncidenciasTienda = lazy(() => import("./pages/IncidenciasTienda"));
 const Clusters = lazy(() => import("./pages/Clusters"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", coach: "dashboard", jefe_zonal: "dashboard",
-  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", seguridad: "seguridad",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", coach: "capacitaciones", jefe_zonal: "dashboard",
+  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
 class PageErrorBoundary extends Component {

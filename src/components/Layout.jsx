@@ -21,10 +21,8 @@ const navByRole = {
     { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   coach: [
-    { id: "dashboard", label: "Resumen", icon: BarChart3 },
-    { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "gestion", label: "Seguimiento", icon: AlertTriangle },
+    { id: "cursos", label: "Crear capacitaciones", icon: GraduationCap },
+    { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
   ],
   jefe_zonal: [
     { id: "dashboard", label: "Resumen zonal", icon: BarChart3 },
@@ -60,10 +58,13 @@ const navByRole = {
     { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
   ],
 };
+navByRole.jefe_seguridad = navByRole.seguridad;
+navByRole.vendedor = navByRole.trabajador;
+navByRole.asistente = navByRole.trabajador;
 const roleLabels = {
   gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach",
   jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
-  trabajador: "Trabajador", seguridad: "Seguridad",
+  trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {

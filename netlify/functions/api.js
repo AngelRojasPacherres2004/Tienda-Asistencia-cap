@@ -13,10 +13,12 @@ const headers = {
   "Cache-Control": "no-store",
 };
 const loginAttempts = new Map();
-const userRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "seguridad", "trabajador"]);
+const userRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
 const centralRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"]);
 const storeManagementRoles = new Set(["jefe_tienda", "asistente_tienda"]);
 const oversightRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"]);
+const storeStaffRoles = ["jefe_tienda", "asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
+const basicAccessRoles = new Set(["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
 const userStates = new Set(["activo", "inactivo"]);
 const tiendaEstados = new Set(["activo", "inactivo"]);
 const asistenciaEstados = new Set([
@@ -131,7 +133,8 @@ function ensureAuth(event, roles) {
   if (!user) throw httpError("Tu sesión expiró. Inicia sesión nuevamente.", 401);
   if (roles) {
     const allowed = Array.isArray(roles) ? roles : [roles];
-    if (!allowed.includes(user.rol)) throw httpError("No tienes permisos para realizar esta acción.", 403);
+    const equivalentRole = user.rol === "jefe_seguridad" ? "seguridad" : ["vendedor", "asistente"].includes(user.rol) ? "trabajador" : user.rol;
+    if (!allowed.includes(user.rol) && !allowed.includes(equivalentRole)) throw httpError("No tienes permisos para realizar esta acción.", 403);
   }
   return user;
 }
@@ -150,7 +153,7 @@ function cleanUsuario(value) {
 }
 
 function validateUserPayload(data, creating = false) {
-  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso", ...(creating && !["trabajador", "seguridad"].includes(data.rol) ? ["password"] : [])]);
+  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso", ...(creating && !basicAccessRoles.has(data.rol) ? ["password"] : [])]);
   if (cleanText(data.nombres).length < 2 || cleanText(data.apellidos).length < 2) {
     throw httpError("Los nombres y apellidos deben ser válidos.", 400);
   }
@@ -289,8 +292,8 @@ function allowedCreatedRoles(actor) {
   if (actor.rol === "gerencia_general") return new Set(["gerente_comercial", "coach"]);
   if (actor.rol === "gerente_comercial") return new Set(["jefe_zonal"]);
   if (actor.rol === "jefe_zonal") return new Set(["jefe_tienda"]);
-  if (actor.rol === "jefe_tienda") return new Set(["asistente_tienda", "trabajador", "seguridad"]);
-  if (actor.rol === "asistente_tienda") return new Set(["trabajador", "seguridad"]);
+  if (actor.rol === "jefe_tienda") return new Set(["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "asistente_tienda") return new Set(["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
   return new Set();
 }
 
@@ -321,8 +324,8 @@ async function listUsers(actor, storeId = null) {
     if (!ids.length) return [];
     request = request.eq("rol", "jefe_tienda").in("tienda_id", ids);
   }
-  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "trabajador", "seguridad"]);
-  if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["trabajador", "seguridad"]);
+  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
   if (storeId) request = request.eq("tienda_id", storeId);
   const { data, error } = await request;
   if (error) throw dbError(error);
@@ -498,7 +501,7 @@ async function updateUser(event, id, actor) {
   await assertUserScope(actor, current.rol, current.tienda_id);
   if (data.rol !== current.rol) throw httpError("No se permite cambiar el rango de un usuario existente.", 400);
   if (actor.rol === "gerente_comercial" && data.rol === "jefe_zonal") await validateZonalCluster(data.cluster_id, id);
-  if (!["trabajador", "seguridad"].includes(data.rol) && (!current.password || current.password === disabledPassword) && !data.password) {
+  if (!basicAccessRoles.has(data.rol) && (!current.password || current.password === disabledPassword) && !data.password) {
     throw httpError("Asigna una contraseña antes de otorgar este rol.", 400);
   }
   const usuario = cleanUsuario(data.usuario);
@@ -730,7 +733,7 @@ async function listAsistenciasDia(event, user) {
   const tiendaScope = await resolveStoreScope(user, query.tienda_id);
   const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
   let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado")
-    .in("rol", ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"]).order("nombres");
+    .in("rol", storeStaffRoles).order("nombres");
   empleadosQuery = applyStoreScope(empleadosQuery, tiendaScope);
   if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
   let registrosQuery = supabase.from("asistencias").select("*").eq("fecha", fecha);
@@ -935,11 +938,11 @@ async function updateEncargado(event, id) {
 // ---------- Capacitaciones (progreso por trabajador, jefe de tienda) ----------
 
 function trainingTargetRoles(role) {
-  if (["gerencia_general", "gerente_comercial"].includes(role)) return ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"];
-  if (role === "coach") return ["gerente_comercial"];
+  if (["gerencia_general", "gerente_comercial"].includes(role)) return storeStaffRoles;
+  if (role === "coach") return ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
   if (role === "jefe_zonal") return ["jefe_tienda"];
-  if (role === "jefe_tienda") return ["asistente_tienda", "trabajador", "seguridad"];
-  if (role === "asistente_tienda") return ["trabajador", "seguridad"];
+  if (role === "jefe_tienda") return ["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
+  if (role === "asistente_tienda") return ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
   return [];
 }
 
@@ -1191,7 +1194,7 @@ async function getSummary(tiendaFilter, today, monthStart) {
       return Array.isArray(tiendaFilter) ? active.in("id", tiendaFilter.length ? tiendaFilter : [0]) : active.eq("id", tiendaFilter);
     }),
     countRows("usuarios", (q) => {
-      const scoped = q.eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"]);
+      const scoped = q.eq("estado", "activo").in("rol", storeStaffRoles);
       return applyStoreScope(scoped, tiendaFilter);
     }),
     countRows("asistencias", (q) => {
@@ -1293,7 +1296,7 @@ async function getCourseProgress(tiendaFilter) {
   if (pError) throw dbError(pError);
 
   let trabajadoresQuery = supabase.from("usuarios").select("id", { count: "exact", head: true })
-    .eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"]);
+    .eq("estado", "activo").in("rol", storeStaffRoles);
   trabajadoresQuery = applyStoreScope(trabajadoresQuery, tiendaFilter);
   const { count: totalTrabajadores, error: tError } = await trabajadoresQuery;
   if (tError) throw dbError(tError);
@@ -1317,7 +1320,7 @@ async function getCourseProgress(tiendaFilter) {
 
 async function getRotation(tiendaFilter, desde, hasta) {
   const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id").in("rol", ["jefe_tienda", "asistente_tienda", "trabajador", "seguridad"]);
+  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id").in("rol", storeStaffRoles);
   request = applyStoreScope(request, tiendaFilter);
   const { data, error } = await request;
   if (error) throw dbError(error);
@@ -1340,6 +1343,32 @@ async function getRotation(tiendaFilter, desde, hasta) {
   return months;
 }
 
+async function getErrorsByResponsible(tiendaFilter, desde, hasta) {
+  let request = supabase.from("errores_personal")
+    .select("id,fecha,categoria,descripcion,accion_correctiva,usuario_id,tienda_id,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos,usuario),tiendas(nombre)")
+    .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false });
+  request = applyStoreScope(request, tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const groups = new Map();
+  for (const row of data || []) {
+    const personName = `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim();
+    const name = personName || row.usuarios?.usuario || row.categoria || "Sin identificar";
+    const group = groups.get(name) || { name, value: 0, areas: new Set(), rows: [] };
+    group.value += 1;
+    if (row.categoria) group.areas.add(row.categoria);
+    group.rows.push({
+      id: row.id, fecha: row.fecha, categoria: row.categoria || "Sin categoría",
+      descripcion: row.descripcion || "", accion_correctiva: row.accion_correctiva || "",
+      tienda: row.tiendas?.nombre || "Tienda sin identificar",
+    });
+    groups.set(name, group);
+  }
+  return [...groups.values()]
+    .map((group) => ({ ...group, area: [...group.areas].join(", ") || "Sin área", areas: undefined }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+}
+
 async function getDashboard(user, event) {
   const query = event.queryStringParameters || {};
   const today = todayISO();
@@ -1356,15 +1385,16 @@ async function getDashboard(user, event) {
     if (requestedStoreId && !assignedStoreIds.includes(requestedStoreId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
     tiendaFilter = requestedStoreId || assignedStoreIds;
   }
-  const [summary, states, trend, workload, progresoCursos, rotation] = await Promise.all([
+  const [summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible] = await Promise.all([
     getSummary(tiendaFilter, hasta, desde),
     getStates(tiendaFilter, desde, hasta),
     getTrend(tiendaFilter, rotationYear),
     getWorkload(tiendaFilter, desde, hasta),
     getCourseProgress(tiendaFilter),
     getRotation(tiendaFilter, rotationDesde, rotationHasta),
+    getErrorsByResponsible(tiendaFilter, desde, hasta),
   ]);
-  return { summary, states, trend, workload, progresoCursos, rotation, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
+  return { summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
 }
 
 // ---------- Documentos (Excel) ----------
@@ -1501,7 +1531,7 @@ async function exportStoreUsersExcel(actor, templateOnly = false) {
   } else {
     const { data, error } = await supabase.from("usuarios")
       .select("nombres,apellidos,dni,usuario,telefono,fecha_ingreso")
-      .eq("tienda_id", actor.tienda_id).in("rol", ["trabajador", "seguridad"]).order("nombres");
+      .eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]).order("nombres");
     if (error) throw dbError(error);
     sheet.addRows(data.map((row) => ({ ...row, password: "" })));
   }
@@ -1633,7 +1663,7 @@ async function notifyIncident(incident, storeName) {
 async function createIncident(event, user) {
   const data = bodyOf(event);
   requireFields(data, ["descripcion", "gravedad", "tipo"]);
-  if (user.rol === "seguridad" && !["robo", "robo_frustrado"].includes(data.tipo)) {
+  if (["seguridad", "jefe_seguridad"].includes(user.rol) && !["robo", "robo_frustrado"].includes(data.tipo)) {
     throw httpError("El tipo de incidencia debe ser robo o robo frustrado.", 400);
   }
   if (!["piso_venta", "textil", "calzado", "caja", "almacen", "ingreso", "exterior", "otro"].includes(data.area || "otro")) {
@@ -1765,7 +1795,7 @@ function limaDateParts(value) { const parts = new Intl.DateTimeFormat("en-US", {
 
 async function ensureWorkerInStore(userId, storeId) {
   const { data } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", userId).maybeSingle();
-  if (!data || Number(data.tienda_id) !== Number(storeId) || !["trabajador", "seguridad", "asistente_tienda"].includes(data.rol)) {
+  if (!data || Number(data.tienda_id) !== Number(storeId) || !["trabajador", "vendedor", "asistente", "seguridad", "jefe_seguridad", "asistente_tienda"].includes(data.rol)) {
     throw httpError("La persona no pertenece a la tienda seleccionada.", 400);
   }
 }
@@ -1852,7 +1882,7 @@ export async function handler(event) {
     if (path === "/mis-capacitaciones" && method === "GET") return json(200, await misCapacitaciones(user));
 
     if (path === "/dashboard" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await getDashboard(user, event));
     }
 
@@ -1895,10 +1925,10 @@ export async function handler(event) {
     if (clusterMatch && method === "PUT") { ensureAuth(event, "gerente_comercial"); await updateCluster(event, Number(clusterMatch[1])); return json(200, { ok: true }); }
     if (clusterMatch && method === "DELETE") { ensureAuth(event, "gerente_comercial"); return json(200, await deleteCluster(Number(clusterMatch[1]))); }
 
-    if (path === "/tiendas" && method === "GET") { ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"]); return json(200, await listTiendas(user)); }
+    if (path === "/tiendas" && method === "GET") { ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]); return json(200, await listTiendas(user)); }
     const tiendaUsersMatch = path.match(/^\/tiendas\/(\d+)\/usuarios$/);
     if (tiendaUsersMatch && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]);
       return json(200, await listUsers(user, Number(tiendaUsersMatch[1])));
     }
     if (path === "/tiendas" && method === "POST") { ensureAuth(event, "gerente_comercial"); return json(201, await createTienda(event)); }
@@ -1938,7 +1968,7 @@ export async function handler(event) {
     }
 
     if (path === "/asistencias" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listAsistenciasDia(event, user));
     }
     if (path === "/asistencias/lote" && method === "PUT") {
@@ -1952,7 +1982,7 @@ export async function handler(event) {
       return json(200, { ok: true });
     }
     if (path === "/asistencias/historial" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listAsistenciasHistorial(event, user));
     }
     if (path === "/asistencias/log" && method === "GET") {
@@ -1988,7 +2018,7 @@ export async function handler(event) {
       return json(200, await asignarLote(event, user));
     }
 
-    const operationalReaders = ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "seguridad"];
+    const operationalReaders = ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "seguridad"];
     if (path === "/operaciones/resumen" && method === "GET") {
       ensureAuth(event, operationalReaders);
       return json(200, await operationalSummary(event, user));
@@ -2019,7 +2049,7 @@ export async function handler(event) {
       return json(200, await listBrands());
     }
     if (path === "/amonestaciones" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
       return json(200, await listOperational("amonestaciones", event, user, "*,usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/amonestaciones" && method === "POST") {
@@ -2027,7 +2057,7 @@ export async function handler(event) {
       return json(201, await createDisciplinary(event, user, "amonestaciones"));
     }
     if (path === "/errores-personal" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listOperational("errores_personal", event, user, "*,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/errores-personal" && method === "POST") {
@@ -2035,7 +2065,7 @@ export async function handler(event) {
       return json(201, await createDisciplinary(event, user, "errores_personal"));
     }
     if (path === "/documentos-tienda" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
       return json(200, await listOperational("documentos_tienda", event, user));
     }
     if (path === "/documentos-tienda" && method === "POST") {
