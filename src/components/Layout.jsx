@@ -62,7 +62,7 @@ const navByRole = {
 };
 const roleLabels = {
   gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach",
-  jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda",
+  jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
   trabajador: "Trabajador", seguridad: "Seguridad",
 };
 
