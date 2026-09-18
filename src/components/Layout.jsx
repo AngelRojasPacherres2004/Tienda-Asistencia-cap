@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, BarChart3, Building2, CalendarCheck2, FileClock, GraduationCap,
+  AlertTriangle, BarChart3, Building2, CalendarCheck2, GraduationCap,
   LogOut, Menu, PanelLeftClose, ShieldCheck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -26,16 +26,16 @@ const navByRole = {
   ],
   jefe_zonal: [
     { id: "dashboard", label: "Resumen zonal", icon: BarChart3 },
-    { id: "usuarios", label: "Administradores", icon: Users },
+    { id: "usuarios", label: "Jefes de tienda", icon: Users },
     { id: "tiendas", label: "Tiendas asignadas", icon: Building2 },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
     { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
-    { id: "gestion", label: "Controles", icon: FileClock },
     { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
   ],
@@ -43,7 +43,6 @@ const navByRole = {
     { id: "dashboard", label: "Inicio", icon: BarChart3 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
-    { id: "gestion", label: "Controles", icon: FileClock },
     { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
   ],
@@ -61,10 +60,13 @@ const navByRole = {
 navByRole.jefe_seguridad = navByRole.seguridad;
 navByRole.vendedor = navByRole.trabajador;
 navByRole.asistente = navByRole.trabajador;
+navByRole.caja = navByRole.trabajador;
+navByRole.almacenero = navByRole.trabajador;
+navByRole.jefe_area = navByRole.trabajador;
 const roleLabels = {
   gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach",
-  jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
-  trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
+  jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda",
+  trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
 
 export default function Layout({ user, page, onNavigate, onLogout, children }) {

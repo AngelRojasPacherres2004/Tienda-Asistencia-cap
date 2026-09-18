@@ -85,7 +85,7 @@ export default function Tiendas({ user }) {
               <p>{item.direccion || "Sin dirección registrada"}</p>
               <dl>
                 <div><dt>Clúster</dt><dd>{item.cluster_nombre || "Sin asignar"}</dd></div>
-                <div><dt>Administrador de tienda</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div>
+                <div><dt>Jefe de tienda</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div>
                 <div><dt>Creada</dt><dd>{new Date(item.fecha_creacion).toLocaleDateString("es-PE")}</dd></div>
               </dl>
               <div className="company-card__footer">
@@ -112,7 +112,7 @@ export default function Tiendas({ user }) {
             <Field label="Dirección" className="span-2">
               <input value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} placeholder="Av. Ejemplo 123, distrito" />
             </Field>
-            <Field label="Administrador de tienda" hint="Solo usuarios activos.">
+            <Field label="Jefe de tienda" hint="Solo usuarios activos.">
               <select value={editing.jefe_id} onChange={(e) => set("jefe_id", e.target.value)}>
                 <option value="">Sin asignar</option>
                 {jefeOptions.map((u) => <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>)}
@@ -137,11 +137,11 @@ export default function Tiendas({ user }) {
           </form>
         )}
       </Modal>
-      <Modal open={!!viewing} wide title={viewing ? `Usuarios de ${viewing.nombre}` : "Usuarios"} subtitle="El administrador de tienda aparece separado del equipo operativo." onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} wide title={viewing ? `Usuarios de ${viewing.nombre}` : "Usuarios"} subtitle="El jefe de tienda aparece separado del equipo operativo." onClose={() => setViewing(null)}>
         {!storeUsers ? <Loading label="Cargando usuarios de la tienda..." /> : <div className="store-users">
           <section className="store-users__leader">
             <div className="store-users__icon"><Crown size={18} /></div>
-            <div><span>Administrador de tienda</span><strong>{viewing?.jefe_nombre || "Sin administrador asignado"}</strong><small>Responsable de la operación de esta tienda</small></div>
+            <div><span>Jefe de tienda</span><strong>{viewing?.jefe_nombre || "Sin jefe asignado"}</strong><small>Responsable de la operación de esta tienda</small></div>
           </section>
           <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{storeUsers.filter((item) => item.rol !== "jefe_tienda").length} usuarios</h3></div><button className="icon-button" onClick={() => setViewing(null)} aria-label="Cerrar"><X size={17} /></button></div>
           {storeUsers.length ? <div className="store-users__list">{storeUsers.filter((item) => item.rol !== "jefe_tienda").map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>@{item.usuario} · {item.fecha_ingreso || "Sin fecha de ingreso"}</small></div><StatusBadge value={item.estado} /></div>)}</div> : <EmptyState icon={UsersRound} title="Sin usuarios operativos" text="Esta tienda todavía no tiene personal registrado." />}

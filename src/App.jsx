@@ -21,10 +21,13 @@ const IncidenciasSeguridad = lazy(() => import("./pages/IncidenciasSeguridad"));
 const MiTienda = lazy(() => import("./pages/MiTienda"));
 const IncidenciasTienda = lazy(() => import("./pages/IncidenciasTienda"));
 const Clusters = lazy(() => import("./pages/Clusters"));
+const CoberturasEspeciales = lazy(() => import("./pages/CoberturasEspeciales"));
+const MiTiendaGestion = lazy(() => import("./pages/MiTiendaGestion"));
+const Personal = lazy(() => import("./pages/Personal"));
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", coach: "capacitaciones", jefe_zonal: "dashboard",
-  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
+  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
 class PageErrorBoundary extends Component {
@@ -69,7 +72,7 @@ export default function App() {
   const content = {
     dashboard: isStoreManagement ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
-    usuarios: <Usuarios user={user} />,
+    usuarios: isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
     tiendas: <Tiendas user={user} />,
     clusters: <Clusters />,
     cursos: <Cursos user={user} />,
@@ -83,7 +86,9 @@ export default function App() {
     "seguridad-trafico": <TraficoSeguridad user={user} />,
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
     "mi-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,
+    "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
     "incidencias-tienda": <IncidenciasTienda user={user} />,
+    coberturas: <CoberturasEspeciales />,
   }[page] || <Dashboard user={user} />;
 
   return (

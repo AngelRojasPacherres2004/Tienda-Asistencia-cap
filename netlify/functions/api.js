@@ -13,12 +13,11 @@ const headers = {
   "Cache-Control": "no-store",
 };
 const loginAttempts = new Map();
-const userRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
+const userRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
 const centralRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"]);
 const storeManagementRoles = new Set(["jefe_tienda", "asistente_tienda"]);
 const oversightRoles = new Set(["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"]);
-const storeStaffRoles = ["jefe_tienda", "asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
-const basicAccessRoles = new Set(["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
+const storeStaffRoles = ["jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
 const userStates = new Set(["activo", "inactivo"]);
 const tiendaEstados = new Set(["activo", "inactivo"]);
 const asistenciaEstados = new Set([
@@ -138,7 +137,7 @@ function ensureAuth(event, roles) {
   if (!user) throw httpError("Tu sesión expiró. Inicia sesión nuevamente.", 401);
   if (roles) {
     const allowed = Array.isArray(roles) ? roles : [roles];
-    const equivalentRole = user.rol === "jefe_seguridad" ? "seguridad" : ["vendedor", "asistente"].includes(user.rol) ? "trabajador" : user.rol;
+    const equivalentRole = user.rol === "jefe_seguridad" ? "seguridad" : ["vendedor", "asistente", "caja", "almacenero", "jefe_area"].includes(user.rol) ? "trabajador" : user.rol;
     if (!allowed.includes(user.rol) && !allowed.includes(equivalentRole)) throw httpError("No tienes permisos para realizar esta acción.", 403);
   }
   return user;
@@ -157,16 +156,19 @@ function cleanUsuario(value) {
   return cleanText(value).toLowerCase();
 }
 
-function validateUserPayload(data, creating = false) {
-  requireFields(data, ["nombres", "apellidos", "dni", "usuario", "rol", "estado", "fecha_ingreso", ...(creating && !basicAccessRoles.has(data.rol) ? ["password"] : [])]);
+function validateUserPayload(data) {
+  requireFields(data, ["nombres", "apellidos", "dni", "rol", "estado", "fecha_ingreso"]);
   if (cleanText(data.nombres).length < 2 || cleanText(data.apellidos).length < 2) {
     throw httpError("Los nombres y apellidos deben ser válidos.", 400);
   }
-  if (!/^\d{8}$/.test(cleanText(data.dni))) {
-    throw httpError("El DNI debe tener 8 dígitos.", 400);
+  const tipoDocumento = data.tipo_documento || "dni";
+  if (!["dni", "ce"].includes(tipoDocumento)) throw httpError("Selecciona un tipo de documento válido.", 400);
+  const documentLength = tipoDocumento === "dni" ? 8 : 9;
+  if (!new RegExp(`^\\d{${documentLength}}$`).test(cleanText(data.dni))) {
+    throw httpError(`El ${tipoDocumento.toUpperCase()} debe tener ${documentLength} dígitos.`, 400);
   }
-  const usuario = cleanUsuario(data.usuario);
-  if (usuario.length < 3 || !/^[a-z0-9._-]+$/.test(usuario)) {
+  const usuario = cleanUsuario(data.usuario) || null;
+  if (usuario && (usuario.length < 3 || !/^[a-z0-9._-]+$/.test(usuario))) {
     throw httpError("El usuario debe tener al menos 3 caracteres (letras, números, punto, guion).", 400);
   }
   if (data.telefono && !/^\d{9}$/.test(cleanText(data.telefono))) {
@@ -180,6 +182,15 @@ function validateUserPayload(data, creating = false) {
   if (data.fecha_salida && data.fecha_salida < data.fecha_ingreso) {
     throw httpError("La fecha de salida no puede ser anterior a la fecha de ingreso.", 400);
   }
+  if (data.fecha_salida && !cleanText(data.motivo_salida)) {
+    throw httpError("Indica el motivo de salida.", 400);
+  }
+  if (data.regimen_jornada && !["4h", "8h", "12h"].includes(data.regimen_jornada)) throw httpError("La jornada no es válida.", 400);
+  if (data.tipo_turno && !["apertura", "intermedio", "cierre", "part_time"].includes(data.tipo_turno)) throw httpError("El tipo de turno no es válido.", 400);
+  if (data.tiene_parentesco && (!cleanText(data.tipo_parentesco) || !cleanText(data.familiar_vinculo))) {
+    throw httpError("Indica el tipo de parentesco y el nombre del familiar o vínculo.", 400);
+  }
+  validateWeeklySchedule(data.horarios);
   if (centralRoles.has(data.rol) && data.tienda_id) {
     throw httpError("Gerentes y jefes zonales no llevan una única tienda asignada.", 400);
   }
@@ -297,8 +308,8 @@ function allowedCreatedRoles(actor) {
   if (actor.rol === "gerencia_general") return new Set(["gerente_comercial", "coach"]);
   if (actor.rol === "gerente_comercial") return new Set(["jefe_zonal"]);
   if (actor.rol === "jefe_zonal") return new Set(["jefe_tienda"]);
-  if (actor.rol === "jefe_tienda") return new Set(["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
-  if (actor.rol === "asistente_tienda") return new Set(["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "jefe_tienda") return new Set(["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "asistente_tienda") return new Set(["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   return new Set();
 }
 
@@ -320,7 +331,7 @@ async function listUsers(actor, storeId = null) {
   }
   let request = supabase
     .from("usuarios")
-    .select("id,nombres,apellidos,dni,usuario,telefono,email,fecha_nacimiento,sueldo,sexo,direccion,distrito,grado_academico,ciclo_semestre,puesto,estado_civil,numero_hijos,talla_zapatillas,talla_polo,telefono_emergencia,alergia,condicion_salud,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .select("id,nombres,apellidos,dni,tipo_documento,usuario,telefono,email,fecha_nacimiento,sueldo,sexo,nacionalidad,direccion,distrito,area_laboral,carrera,grado_academico,ciclo_semestre,regimen_jornada,tipo_turno,tiene_parentesco,tipo_parentesco,familiar_vinculo,estado_civil,numero_hijos,talla_zapatillas,talla_polo,telefono_emergencia,alergia,condicion_salud,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
     .order("nombres");
   if (actor.rol === "gerencia_general" && !storeId) request = request.in("rol", ["gerente_comercial", "coach"]);
   if (actor.rol === "gerente_comercial" && !storeId) request = request.eq("rol", "jefe_zonal");
@@ -329,14 +340,22 @@ async function listUsers(actor, storeId = null) {
     if (!ids.length) return [];
     request = request.eq("rol", "jefe_tienda").in("tienda_id", ids);
   }
-  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
-  if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   if (storeId) request = request.eq("tienda_id", storeId);
   const { data, error } = await request;
   if (error) throw dbError(error);
-  const { data: optionalRows } = await supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", data.map((row) => row.id));
+  if (!data?.length) return [];
+  const [{ data: optionalRows }, { data: schedules, error: scheduleError }] = await Promise.all([
+    supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", data.map((row) => row.id)),
+    supabase.from("horarios_trabajadores").select("usuario_id,dia_semana,trabaja,hora_entrada,hora_salida").in("usuario_id", data.map((row) => row.id)).order("dia_semana"),
+  ]);
+  if (scheduleError) throw dbError(scheduleError);
   const optionalById = new Map((optionalRows || []).map((row) => [row.id, row]));
-  const rows = data.map((row) => ({ ...mapUserRow(row), ...(optionalById.get(row.id) || {}) }));
+  const rows = data.map((row) => ({
+    ...mapUserRow(row), ...(optionalById.get(row.id) || {}),
+    horarios: (schedules || []).filter((schedule) => schedule.usuario_id === row.id),
+  }));
   if (["gerencia_general", "gerente_comercial"].includes(actor.rol) && rows.some((row) => row.rol === "jefe_zonal")) {
     const { data: assignments, error: assignmentError } = await supabase
       .from("clusters").select("id,nombre,jefe_zonal_id,tiendas(id)").in("jefe_zonal_id", rows.filter((row) => row.rol === "jefe_zonal").map((row) => row.id));
@@ -350,13 +369,13 @@ async function listUsers(actor, storeId = null) {
 }
 
 async function ensureUniqueUser(usuario, dni, excludeId) {
-  let byUsuario = supabase.from("usuarios").select("id").eq("usuario", usuario);
+  let byUsuario = usuario ? supabase.from("usuarios").select("id").eq("usuario", usuario) : null;
   let byDni = supabase.from("usuarios").select("id").eq("dni", dni);
   if (excludeId) {
-    byUsuario = byUsuario.neq("id", excludeId);
+    if (byUsuario) byUsuario = byUsuario.neq("id", excludeId);
     byDni = byDni.neq("id", excludeId);
   }
-  const [usuarioResult, dniResult] = await Promise.all([byUsuario, byDni]);
+  const [usuarioResult, dniResult] = await Promise.all([byUsuario || Promise.resolve({ data: [] }), byDni]);
   if (usuarioResult.data?.length) throw httpError("Ese nombre de usuario ya está registrado.", 409);
   if (dniResult.data?.length) throw httpError("Ese DNI ya está registrado.", 409);
 }
@@ -421,30 +440,36 @@ async function createUser(event, actor) {
   validateUserPayload(data, true);
   await assertUserScope(actor, data.rol, data.tienda_id);
   if (actor.rol === "gerente_comercial" && data.rol === "jefe_zonal") await validateZonalCluster(data.cluster_id);
-  const usuario = cleanUsuario(data.usuario);
+  const usuario = cleanUsuario(data.usuario) || null;
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni);
   if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda") await ensureStoreWithoutOtherChief(Number(data.tienda_id));
-  const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
+  const password = data.password ? await bcrypt.hash(String(data.password), 12) : null;
   const { data: created, error } = await supabase.from("usuarios").insert({
-    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
+    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
-    tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.fecha_salida ? "inactivo" : data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
-    sexo: data.sexo || null, direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
-    grado_academico: data.grado_academico || null, ciclo_semestre: data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
-    puesto: data.puesto ? cleanText(data.puesto) : null, estado_civil: data.estado_civil || null,
-    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? null : Number(data.numero_hijos),
+    sexo: data.sexo || "no_especificado", direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
+    nacionalidad: data.nacionalidad ? cleanText(data.nacionalidad) : null, area_laboral: data.area_laboral ? cleanText(data.area_laboral) : null, carrera: data.carrera ? cleanText(data.carrera) : null,
+    grado_academico: data.grado_academico || "sin_especificar", ciclo_semestre: data.grado_academico === "universitario" && data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
+    regimen_jornada: data.regimen_jornada || null, tipo_turno: data.tipo_turno || null,
+    tiene_parentesco: Boolean(data.tiene_parentesco), tipo_parentesco: data.tiene_parentesco ? cleanText(data.tipo_parentesco) : null,
+    familiar_vinculo: data.tiene_parentesco ? cleanText(data.familiar_vinculo) : null,
+    estado_civil: data.estado_civil || "sin_especificar",
+    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? 0 : Number(data.numero_hijos),
     talla_zapatillas: data.talla_zapatillas === "" || data.talla_zapatillas == null ? null : Number(data.talla_zapatillas),
-    talla_polo: data.talla_polo || null,
+    talla_polo: data.talla_polo || "sin_especificar",
     telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
     alergia: data.alergia ? cleanText(data.alergia) : null,
   }).select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida").single();
   if (error) throw dbError(error);
   await saveOptionalPersonnelFields(created.id, data);
+  await syncEmploymentPeriod(created.id, data, actor.id);
+  await saveWeeklySchedule(created.id, data.horarios);
   if (data.rol === "jefe_tienda") await linkStoreChief(created.id, Number(data.tienda_id));
   if (data.rol === "jefe_zonal") {
     try {
@@ -471,20 +496,20 @@ async function importStoreUsers(event, actor) {
     }
     return {
       nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni: cleanText(data.dni),
-      usuario: cleanUsuario(data.usuario), telefono: data.telefono ? cleanText(data.telefono) : null,
-      password: data.password ? String(data.password) : disabledPassword, rol: "trabajador", tienda_id: actor.tienda_id, estado: "activo",
+      usuario: cleanUsuario(data.usuario) || null, telefono: data.telefono ? cleanText(data.telefono) : null,
+      password: data.password ? String(data.password) : null, rol: "trabajador", tienda_id: actor.tienda_id, estado: "activo",
       fecha_ingreso: data.fecha_ingreso, fecha_salida: null,
     };
   });
   const usuariosSet = new Set();
   const dniSet = new Set();
   for (const row of prepared) {
-    if (usuariosSet.has(row.usuario)) throw httpError(`El usuario "${row.usuario}" está repetido en el Excel.`, 400);
+    if (row.usuario && usuariosSet.has(row.usuario)) throw httpError(`El usuario "${row.usuario}" está repetido en el Excel.`, 400);
     if (dniSet.has(row.dni)) throw httpError(`El DNI "${row.dni}" está repetido en el Excel.`, 400);
-    usuariosSet.add(row.usuario); dniSet.add(row.dni);
+    if (row.usuario) usuariosSet.add(row.usuario); dniSet.add(row.dni);
   }
   const [{ data: existingUsers, error: userError }, { data: existingDnis, error: dniError }] = await Promise.all([
-    supabase.from("usuarios").select("id,usuario,dni").in("usuario", [...usuariosSet]),
+    usuariosSet.size ? supabase.from("usuarios").select("id,usuario,dni").in("usuario", [...usuariosSet]) : Promise.resolve({ data: [] }),
     supabase.from("usuarios").select("id,usuario,dni").in("dni", [...dniSet]),
   ]);
   if (userError) throw dbError(userError);
@@ -501,7 +526,7 @@ async function importStoreUsers(event, actor) {
   });
 
   const rows = await Promise.all(nuevos.map(async (row) => ({
-    ...row, password: row.password === disabledPassword ? disabledPassword : await bcrypt.hash(row.password, 12),
+    ...row, password: row.password ? await bcrypt.hash(row.password, 12) : null,
   })));
   if (rows.length) {
     const { error } = await supabase.from("usuarios").insert(rows);
@@ -519,27 +544,28 @@ async function updateUser(event, id, actor) {
   await assertUserScope(actor, current.rol, current.tienda_id);
   if (data.rol !== current.rol) throw httpError("No se permite cambiar el rango de un usuario existente.", 400);
   if (actor.rol === "gerente_comercial" && data.rol === "jefe_zonal") await validateZonalCluster(data.cluster_id, id);
-  if (!basicAccessRoles.has(data.rol) && (!current.password || current.password === disabledPassword) && !data.password) {
-    throw httpError("Asigna una contraseña antes de otorgar este rol.", 400);
-  }
-  const usuario = cleanUsuario(data.usuario);
+  const usuario = cleanUsuario(data.usuario) || null;
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni, id);
   if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda") await ensureStoreWithoutOtherChief(Number(data.tienda_id), id);
   const payload = {
-    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
+    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
-    tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
+    tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.fecha_salida ? "inactivo" : data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
-    sexo: data.sexo || null, direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
-    grado_academico: data.grado_academico || null, ciclo_semestre: data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
-    puesto: data.puesto ? cleanText(data.puesto) : null, estado_civil: data.estado_civil || null,
-    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? null : Number(data.numero_hijos),
+    sexo: data.sexo || "no_especificado", direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
+    nacionalidad: data.nacionalidad ? cleanText(data.nacionalidad) : null, area_laboral: data.area_laboral ? cleanText(data.area_laboral) : null, carrera: data.carrera ? cleanText(data.carrera) : null,
+    grado_academico: data.grado_academico || "sin_especificar", ciclo_semestre: data.grado_academico === "universitario" && data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
+    regimen_jornada: data.regimen_jornada || null, tipo_turno: data.tipo_turno || null,
+    tiene_parentesco: Boolean(data.tiene_parentesco), tipo_parentesco: data.tiene_parentesco ? cleanText(data.tipo_parentesco) : null,
+    familiar_vinculo: data.tiene_parentesco ? cleanText(data.familiar_vinculo) : null,
+    estado_civil: data.estado_civil || "sin_especificar",
+    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? 0 : Number(data.numero_hijos),
     talla_zapatillas: data.talla_zapatillas === "" || data.talla_zapatillas == null ? null : Number(data.talla_zapatillas),
-    talla_polo: data.talla_polo || null,
+    talla_polo: data.talla_polo || "sin_especificar",
     telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
     alergia: data.alergia ? cleanText(data.alergia) : null,
   };
@@ -547,6 +573,8 @@ async function updateUser(event, id, actor) {
   const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
   if (error) throw dbError(error);
   await saveOptionalPersonnelFields(id, data);
+  await syncEmploymentPeriod(id, data, actor.id);
+  await saveWeeklySchedule(id, data.horarios);
   if (data.rol === "jefe_tienda") await linkStoreChief(id, Number(data.tienda_id), current.tienda_id);
   if (data.rol === "jefe_zonal") await assignZonalCluster(id, Number(data.cluster_id));
 }
@@ -557,6 +585,54 @@ async function saveOptionalPersonnelFields(id, data) {
     motivo_salida: data.motivo_salida ? cleanText(data.motivo_salida) : null,
   }).eq("id", id);
   if (error && !["42703", "PGRST204"].includes(error.code)) throw dbError(error);
+}
+
+async function saveWeeklySchedule(userId, schedule) {
+  if (!Array.isArray(schedule)) return;
+  const rows = schedule.map((row) => ({
+    usuario_id: userId,
+    dia_semana: Number(row.dia_semana),
+    trabaja: Boolean(row.trabaja),
+    hora_entrada: row.trabaja ? row.hora_entrada : null,
+    hora_salida: row.trabaja ? row.hora_salida : null,
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await supabase.from("horarios_trabajadores").upsert(rows, { onConflict: "usuario_id,dia_semana" });
+  if (error) throw dbError(error);
+}
+
+function validateWeeklySchedule(schedule) {
+  if (schedule == null) return;
+  if (!Array.isArray(schedule) || schedule.length !== 7) throw httpError("El horario semanal debe incluir los siete días.", 400);
+  const days = new Set();
+  for (const row of schedule) {
+    const day = Number(row.dia_semana);
+    if (!Number.isInteger(day) || day < 1 || day > 7 || days.has(day)) throw httpError("El horario semanal contiene días inválidos o repetidos.", 400);
+    days.add(day);
+    if (row.trabaja && (!/^\d{2}:\d{2}$/.test(row.hora_entrada || "") || !/^\d{2}:\d{2}$/.test(row.hora_salida || ""))) {
+      throw httpError("Indica la hora de entrada y salida de cada día trabajado.", 400);
+    }
+  }
+}
+
+async function syncEmploymentPeriod(userId, data, actorId) {
+  const { data: latest, error: readError } = await supabase.from("periodos_laborales")
+    .select("id,fecha_ingreso,fecha_salida").eq("usuario_id", userId)
+    .order("fecha_ingreso", { ascending: false }).limit(1).maybeSingle();
+  if (readError) throw dbError(readError);
+  const row = {
+    fecha_ingreso: data.fecha_ingreso,
+    fecha_salida: data.fecha_salida || null,
+    motivo_salida: data.fecha_salida ? cleanText(data.motivo_salida) : null,
+    registrado_por: actorId,
+    updated_at: new Date().toISOString(),
+  };
+  const opensNewPeriod = latest?.fecha_salida && !row.fecha_salida && row.fecha_ingreso > latest.fecha_salida;
+  const request = !latest || opensNewPeriod
+    ? supabase.from("periodos_laborales").insert({ usuario_id: userId, ...row })
+    : supabase.from("periodos_laborales").update(row).eq("id", latest.id);
+  const { error } = await request;
+  if (error) throw dbError(error);
 }
 
 async function deleteUser(id, actor) {
@@ -591,13 +667,13 @@ async function importUsersAdmin(event, actor) {
       if (storeManagementRoles.has(actor.rol)) data.tienda_id = actor.tienda_id;
       validateUserPayload(data, true);
       await assertUserScope(actor, data.rol, data.tienda_id);
-      const usuario = cleanUsuario(data.usuario);
+      const usuario = cleanUsuario(data.usuario) || null;
       const dni = cleanText(data.dni);
       await ensureUniqueUser(usuario, dni);
       if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
-      const password = data.password ? await bcrypt.hash(String(data.password), 12) : disabledPassword;
+      const password = data.password ? await bcrypt.hash(String(data.password), 12) : null;
       const { error } = await supabase.from("usuarios").insert({
-        nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario, password,
+        nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
         telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
         tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
         fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
@@ -976,10 +1052,10 @@ async function updateEncargado(event, id) {
 
 function trainingTargetRoles(role) {
   if (["gerencia_general", "gerente_comercial"].includes(role)) return storeStaffRoles;
-  if (role === "coach") return ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
+  if (role === "coach") return ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
   if (role === "jefe_zonal") return ["jefe_tienda"];
-  if (role === "jefe_tienda") return ["asistente_tienda", "jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
-  if (role === "asistente_tienda") return ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"];
+  if (role === "jefe_tienda") return ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
+  if (role === "asistente_tienda") return ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
   return [];
 }
 
@@ -1568,7 +1644,7 @@ async function exportStoreUsersExcel(actor, templateOnly = false) {
   } else {
     const { data, error } = await supabase.from("usuarios")
       .select("nombres,apellidos,dni,usuario,telefono,fecha_ingreso")
-      .eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "seguridad", "vendedor", "asistente", "trabajador"]).order("nombres");
+      .eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]).order("nombres");
     if (error) throw dbError(error);
     sheet.addRows(data.map((row) => ({ ...row, password: "" })));
   }
@@ -1710,22 +1786,38 @@ async function notifyIncident(incident, storeName) {
 async function createIncident(event, user) {
   const data = bodyOf(event);
   requireFields(data, ["descripcion", "gravedad", "tipo"]);
-  if (["seguridad", "jefe_seguridad"].includes(user.rol) && !["robo", "robo_frustrado"].includes(data.tipo)) {
-    throw httpError("El tipo de incidencia debe ser robo o robo frustrado.", 400);
+  const securityTypes = ["robo", "robo_frustrado", "cambio_precio"];
+  const internalTypes = ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"];
+  const isSecurityUser = ["seguridad", "jefe_seguridad"].includes(user.rol);
+  if (isSecurityUser && !securityTypes.includes(data.tipo)) {
+    throw httpError("Selecciona un tipo de incidencia válido.", 400);
+  }
+  if (["jefe_tienda", "asistente_tienda"].includes(user.rol) && !internalTypes.includes(data.tipo)) {
+    throw httpError("Selecciona un tipo de incidencia interna válido.", 400);
+  }
+  if (!["baja", "media", "alta"].includes(data.gravedad)) {
+    throw httpError("Selecciona una severidad válida.", 400);
+  }
+  const isPriceChange = data.tipo === "cambio_precio";
+  const detencion = isSecurityUser && !isPriceChange ? Boolean(data.detencion) : false;
+  const detencionDetalle = cleanText(data.detencion_detalle);
+  if (detencion && !detencionDetalle) {
+    throw httpError("Describe los detalles de la detención.", 400);
   }
   if (!["piso_venta", "textil", "calzado", "caja", "almacen", "ingreso", "exterior", "otro"].includes(data.area || "otro")) {
     throw httpError("Selecciona un área o ubicación válida.", 400);
   }
   const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
+  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", cambio_precio: "Cambio de precio", accidente: "Accidente", dano_infraestructura: "Daño de infraestructura", problema_operativo: "Problema operativo", falla_interna: "Falla interna", otro: "Otra incidencia interna" };
   const { data: incident, error } = await supabase.from("incidencias").insert({
-    tienda_id: storeId, asunto: data.tipo === "robo_frustrado" ? "Robo frustrado" : "Robo", tipo: data.tipo, area: data.area || "otro",
+    tienda_id: storeId, asunto: incidentNames[data.tipo], tipo: data.tipo, area: data.area || "otro",
     descripcion: cleanText(data.descripcion), gravedad: data.gravedad, estado: "abierta",
-    intervencion: Boolean(data.intervencion), detencion: Boolean(data.detencion),
+    intervencion: isSecurityUser && !isPriceChange ? Boolean(data.intervencion) : false, detencion, detencion_detalle: detencion ? detencionDetalle : null,
     fecha: data.fecha || new Date().toISOString(), registrado_por: user.id,
   }).select().single();
   if (error) throw dbError(error);
   try {
-    for (const item of Array.isArray(data.productos) ? data.productos : []) {
+    for (const item of isSecurityUser && Array.isArray(data.productos) ? data.productos : []) {
       const marcaNombre = cleanText(item.marca);
       const producto = cleanText(item.producto);
       if (!marcaNombre || !producto || !Number.isInteger(Number(item.cantidad)) || Number(item.cantidad) < 1 || item.valor === "" || !Number.isFinite(Number(item.valor)) || Number(item.valor) < 0) {
@@ -1744,11 +1836,11 @@ async function createIncident(event, user) {
       }
       const inserted = await supabase.from("incidencia_productos").insert({
         incidencia_id: incident.id, marca_id: marca.id,
-        producto, cantidad: Number(item.cantidad), valor: Number(item.valor || 0), recuperado: Boolean(item.recuperado),
+        producto, cantidad: Number(item.cantidad), valor: Number(item.valor || 0), recuperado: isPriceChange ? false : Boolean(item.recuperado),
       });
       if (inserted.error) throw dbError(inserted.error);
     }
-    const personas = (Array.isArray(data.personas) ? data.personas : []).filter((item) => cleanText(item.nombre));
+    const personas = (isSecurityUser && data.tipo !== "cambio_precio" && Array.isArray(data.personas) ? data.personas : []).filter((item) => cleanText(item.nombre));
     if (personas.length) {
       const inserted = await supabase.from("incidencia_personas").insert(personas.map((item) => ({
         incidencia_id: incident.id, nombre: cleanText(item.nombre), rol: cleanText(item.rol) || "Testigo",
@@ -1766,6 +1858,14 @@ async function createIncident(event, user) {
   return { ...incident, notificacion_estado: notification.estado, notificacion_detalle: notification.detalle };
 }
 
+async function listIncidents(event, user) {
+  const rows = await listOperational("incidencias", event, user,
+    "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
+  if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter((row) => ["robo", "robo_frustrado", "cambio_precio"].includes(row.tipo));
+  if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return rows.filter((row) => ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"].includes(row.tipo));
+  return rows;
+}
+
 async function listBrands() {
   const { data, error } = await supabase.from("marcas").select("id,nombre").order("nombre");
   if (error) throw dbError(error);
@@ -1773,8 +1873,7 @@ async function listBrands() {
 }
 
 async function exportIncidentsExcel(event, user) {
-  const rows = await listOperational("incidencias", event, user,
-    "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
+  const rows = await listIncidents(event, user);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Asiste";
   workbook.created = new Date();
@@ -1787,6 +1886,7 @@ async function exportIncidentsExcel(event, user) {
     { header: "Área / ubicación", key: "area", width: 20 }, { header: "Severidad", key: "gravedad", width: 14 },
     { header: "Estado", key: "estado", width: 15 }, { header: "Descripción", key: "descripcion", width: 55 },
     { header: "Intervención", key: "intervencion", width: 14 }, { header: "Detención", key: "detencion", width: 12 },
+    { header: "Detalle de detención", key: "detencion_detalle", width: 40 },
     { header: "Registrado por", key: "registrado_por", width: 28 }, { header: "Cantidad de productos", key: "productos", width: 20 },
     { header: "Valor involucrado", key: "valor", width: 19 }, { header: "Valor recuperado", key: "recuperado", width: 18 },
     { header: "Personas involucradas", key: "personas", width: 20 },
@@ -1794,7 +1894,7 @@ async function exportIncidentsExcel(event, user) {
   incidents.addRows(rows.map((row) => ({
     codigo: incidentCode(row), tienda: row.tiendas?.nombre || "", fecha: formatLimaDate(row.fecha), hora: formatLimaTime(row.fecha), tipo: humanize(row.tipo), area: humanize(row.area),
     gravedad: humanize(row.gravedad), estado: humanize(row.estado || "abierta"), descripcion: row.descripcion,
-    intervencion: row.intervencion ? "Sí" : "No", detencion: row.detencion ? "Sí" : "No",
+    intervencion: row.intervencion ? "Sí" : "No", detencion: row.detencion ? "Sí" : "No", detencion_detalle: row.detencion_detalle || "",
     registrado_por: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos} (@${row.usuarios.usuario})` : row.registrado_por,
     productos: row.incidencia_productos?.length || 0,
     valor: (row.incidencia_productos || []).reduce((sum, item) => sum + Number(item.valor) * Number(item.cantidad), 0),
@@ -1842,7 +1942,7 @@ function limaDateParts(value) { const parts = new Intl.DateTimeFormat("en-US", {
 
 async function ensureWorkerInStore(userId, storeId) {
   const { data } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", userId).maybeSingle();
-  if (!data || Number(data.tienda_id) !== Number(storeId) || !["trabajador", "vendedor", "asistente", "seguridad", "jefe_seguridad", "asistente_tienda"].includes(data.rol)) {
+  if (!data || Number(data.tienda_id) !== Number(storeId) || !["trabajador", "vendedor", "asistente", "caja", "almacenero", "jefe_area", "seguridad", "jefe_seguridad", "asistente_tienda"].includes(data.rol)) {
     throw httpError("La persona no pertenece a la tienda seleccionada.", 400);
   }
 }
@@ -1887,6 +1987,62 @@ async function createStoreDocument(event, user) {
   return row;
 }
 
+async function listSpecialCoverages(user) {
+  const { data, error } = await supabase.from("coberturas_especiales")
+    .select("*,cobertura_trabajadores(*,usuarios(nombres,apellidos),origen:tiendas!cobertura_trabajadores_tienda_origen_id_fkey(nombre),destino:tiendas!cobertura_trabajadores_tienda_destino_id_fkey(nombre))")
+    .eq("tienda_destino_id", user.tienda_id).order("fecha_inicio", { ascending: false });
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function listCoverageCandidates(user) {
+  const { data: store, error: storeError } = await supabase.from("tiendas").select("cluster_id").eq("id", user.tienda_id).maybeSingle();
+  if (storeError) throw dbError(storeError);
+  let storeIds = [user.tienda_id];
+  if (store?.cluster_id) {
+    const { data: stores, error } = await supabase.from("tiendas").select("id").eq("cluster_id", store.cluster_id).eq("estado", "activo");
+    if (error) throw dbError(error);
+    storeIds = stores.map((row) => row.id);
+  }
+  const { data, error } = await supabase.from("usuarios")
+    .select("id,nombres,apellidos,area_laboral,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .eq("estado", "activo").in("rol", storeStaffRoles).in("tienda_id", storeIds).order("nombres");
+  if (error) throw dbError(error);
+  return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || null }));
+}
+
+async function saveSpecialCoverage(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["fecha_inicio", "fecha_fin", "tipo_dia", "motivo", "estado", "trabajadores"]);
+  if (!isISODate(data.fecha_inicio) || !isISODate(data.fecha_fin) || data.fecha_fin < data.fecha_inicio) throw httpError("El período de cobertura no es válido.", 400);
+  if (!["sabado", "domingo", "feriado", "especial"].includes(data.tipo_dia)) throw httpError("Selecciona un tipo de día válido.", 400);
+  if (!["borrador", "confirmada"].includes(data.estado)) throw httpError("El estado de cobertura no es válido.", 400);
+  if (!Array.isArray(data.trabajadores) || !data.trabajadores.length) throw httpError("Agrega al menos un trabajador.", 400);
+  const ids = validIds(data.trabajadores.map((row) => row.usuario_id));
+  const candidates = await listCoverageCandidates(user);
+  const people = candidates.filter((person) => ids.includes(person.id));
+  if (people.length !== ids.length) throw httpError("Uno de los trabajadores no pertenece a una tienda autorizada del clúster.", 400);
+  const byId = new Map(people.map((person) => [person.id, person]));
+  for (const row of data.trabajadores) {
+    if (!/^\d{2}:\d{2}$/.test(row.hora_entrada || "")) throw httpError("Indica la hora de entrada de cada trabajador.", 400);
+    if (!["fijo", "apoyo"].includes(row.tipo_cobertura)) throw httpError("Selecciona un tipo de cobertura válido.", 400);
+  }
+  const { data: coverage, error } = await supabase.from("coberturas_especiales").insert({
+    tienda_destino_id: user.tienda_id, fecha_inicio: data.fecha_inicio, fecha_fin: data.fecha_fin,
+    tipo_dia: data.tipo_dia, motivo: cleanText(data.motivo), estado: data.estado, creado_por: user.id,
+  }).select().single();
+  if (error) throw dbError(error);
+  const details = data.trabajadores.map((row) => ({
+    cobertura_id: coverage.id, usuario_id: Number(row.usuario_id), area: cleanText(row.area) || null,
+    hora_entrada: row.hora_entrada, tipo_cobertura: row.tipo_cobertura,
+    tienda_origen_id: byId.get(Number(row.usuario_id)).tienda_id, tienda_destino_id: user.tienda_id,
+    observacion: cleanText(row.observacion) || null,
+  }));
+  const inserted = await supabase.from("cobertura_trabajadores").insert(details);
+  if (inserted.error) { await supabase.from("coberturas_especiales").delete().eq("id", coverage.id); throw dbError(inserted.error); }
+  return coverage;
+}
+
 async function operationalSummary(event, user) {
   const storeId = await operationalStoreId(event, user);
   const today = todayISO();
@@ -1899,6 +2055,119 @@ async function operationalSummary(event, user) {
     supabase.from("documentos_tienda").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).lte("fecha_vencimiento", in30Days),
   ]);
   return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
+}
+
+// ---------- Mi tienda (solo jefe de tienda) ----------
+
+const miTiendaTables = {
+  documentos: "documentos_municipales",
+  reclamaciones: "reclamaciones_tienda",
+  acciones: "acciones_tienda",
+  bitacora: "bitacora_tienda",
+  mejoras: "mejoras_continuas",
+};
+
+async function getMiTienda(user) {
+  const storeId = user.tienda_id;
+  const [store, documentos, reclamaciones, acciones, bitacora, visitas, observaciones, mejoras] = await Promise.all([
+    supabase.from("tiendas").select("id,codigo,nombre,zona,formato,distrito,direccion,estado,clusters(nombre)").eq("id", storeId).single(),
+    supabase.from("documentos_municipales").select("*").eq("tienda_id", storeId).order("fecha_vencimiento"),
+    supabase.from("reclamaciones_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
+    supabase.from("acciones_tienda").select("*").eq("tienda_id", storeId).order("fecha"),
+    supabase.from("bitacora_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
+    supabase.from("visitas_zonales").select("*,usuarios(nombres,apellidos)").eq("tienda_id", storeId).order("fecha", { ascending: false }),
+    supabase.from("observaciones_zonales").select("*").eq("tienda_id", storeId).order("created_at", { ascending: false }),
+    supabase.from("mejoras_continuas").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
+  ]);
+  for (const result of [store, documentos, reclamaciones, acciones, bitacora, visitas, observaciones, mejoras]) if (result.error) throw dbError(result.error);
+  const today = todayISO();
+  const limit = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const docs = documentos.data || [], claims = reclamaciones.data || [], acts = acciones.data || [];
+  return {
+    tienda: { ...store.data, cluster: store.data?.clusters?.nombre || null, clusters: undefined },
+    documentos: docs, reclamaciones: claims, acciones: acts, bitacora: bitacora.data || [],
+    visitas: visitas.data || [], observaciones: observaciones.data || [], mejoras: mejoras.data || [],
+    resumen: {
+      documentos_por_vencer: docs.filter((x) => x.fecha_vencimiento && x.fecha_vencimiento >= today && x.fecha_vencimiento <= limit).length,
+      reclamos_en_atencion: claims.filter((x) => ["registrado", "en_atencion"].includes(x.estado)).length,
+      observaciones_abiertas: (observaciones.data || []).filter((x) => !["levantada"].includes(x.estado)).length,
+      proxima_accion: acts.find((x) => x.fecha >= today && !["completada", "cancelada"].includes(x.estado)) || null,
+      ultima_mejora: mejoras.data?.[0] || null, ultima_bitacora: bitacora.data?.[0] || null,
+    },
+  };
+}
+
+async function updateMiTiendaData(event, user) {
+  const data = bodyOf(event);
+  const payload = {};
+  for (const key of ["codigo", "zona", "formato", "distrito", "direccion"]) payload[key] = cleanText(data[key]) || null;
+  const { error } = await supabase.from("tiendas").update(payload).eq("id", user.tienda_id);
+  if (error) throw dbError(error);
+}
+
+async function saveMiTiendaRecord(event, user, kind, id = null) {
+  const table = miTiendaTables[kind];
+  if (!table) throw httpError("Tipo de registro no válido.", 400);
+  const data = bodyOf(event);
+  const allowed = {
+    documentos: ["area_responsable","codigo","tipo_documento","frecuencia_revision","fecha_emision","fecha_vencimiento","estado","archivo_path","archivo_nombre"],
+    reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","consumidor_documento","consumidor_contacto","producto_servicio","monto","tipo","detalle","pedido_consumidor","observaciones_proveedor","acciones_adoptadas","fecha_respuesta","responsable","estado","archivo_path","archivo_nombre"],
+    acciones: ["fecha","tipo","responsable","accion","estado","objetivo","observacion","evidencia_path","evidencia_nombre"],
+    bitacora: ["fecha","venta_dia","categoria","evento","descripcion","evidencia_path","evidencia_nombre"],
+    mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo","foto_antes_path","foto_antes_nombre","foto_despues_path","foto_despues_nombre","estado","resultado_beneficio"],
+  }[kind];
+  const required = { documentos: ["area_responsable","tipo_documento"], reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","producto_servicio","tipo","detalle"], acciones: ["fecha","tipo","responsable","accion"], bitacora: ["fecha","venta_dia","categoria"], mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo"] }[kind];
+  requireFields(data, required);
+  const payload = Object.fromEntries(allowed.filter((key) => data[key] !== undefined).map((key) => [key, typeof data[key] === "string" ? cleanText(data[key]) || null : data[key]]));
+  payload.updated_at = new Date().toISOString();
+  if (kind === "bitacora") {
+    const { data: traffic, error } = await supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", user.tienda_id).eq("fecha", data.fecha);
+    if (error) throw dbError(error);
+    payload.trafico = (traffic || []).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+  }
+  let query;
+  if (id) query = supabase.from(table).update(payload).eq("id", id).eq("tienda_id", user.tienda_id);
+  else query = supabase.from(table).insert({ ...payload, tienda_id: user.tienda_id, creado_por: user.id });
+  const { data: row, error } = await query.select().single();
+  if (error) throw dbError(error);
+  return row;
+}
+
+async function updateZonalObservation(event, user, id) {
+  const data = bodyOf(event);
+  requireFields(data, ["accion_realizada"]);
+  const payload = {
+    accion_realizada: cleanText(data.accion_realizada), comentario: cleanText(data.comentario) || null,
+    soporte_requerido: Boolean(data.soporte_requerido), evidencia_cierre_path: data.evidencia_cierre_path || null,
+    evidencia_cierre_nombre: data.evidencia_cierre_nombre || null, estado: "en_validacion", updated_at: new Date().toISOString(),
+  };
+  const { data: row, error } = await supabase.from("observaciones_zonales").update(payload).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
+  if (error) throw dbError(error);
+  if (!row) throw httpError("La observación no existe.", 404);
+  return row;
+}
+
+async function uploadMiTiendaFile(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["nombre", "mime", "base64", "carpeta"]);
+  const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+  if (!allowed.has(data.mime)) throw httpError("Solo se permiten PDF, JPG, PNG o WEBP.", 400);
+  const buffer = Buffer.from(String(data.base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (!buffer.length || buffer.length > 5 * 1024 * 1024) throw httpError("El archivo debe pesar como máximo 5 MB.", 400);
+  const safeFolder = cleanText(data.carpeta).replace(/[^a-z0-9_-]/gi, "-");
+  const safeName = cleanText(data.nombre).replace(/[^a-z0-9._-]/gi, "-");
+  const path = `${user.tienda_id}/${safeFolder}/${Date.now()}-${safeName}`;
+  const { error } = await supabase.storage.from("mi-tienda").upload(path, buffer, { contentType: data.mime, upsert: false });
+  if (error) throw dbError(error);
+  return { path, nombre: cleanText(data.nombre) };
+}
+
+async function signedMiTiendaFile(event, user) {
+  const { path } = bodyOf(event);
+  if (!String(path || "").startsWith(`${user.tienda_id}/`)) throw httpError("No tienes acceso a este archivo.", 403);
+  const { data, error } = await supabase.storage.from("mi-tienda").createSignedUrl(path, 300);
+  if (error) throw dbError(error);
+  return { url: data.signedUrl };
 }
 
 // ---------- Router ----------
@@ -2080,8 +2349,7 @@ export async function handler(event) {
     }
     if (path === "/incidencias" && method === "GET") {
       ensureAuth(event, operationalReaders);
-      return json(200, await listOperational("incidencias", event, user,
-        "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)"));
+      return json(200, await listIncidents(event, user));
     }
     if (path === "/incidencias" && method === "POST") {
       ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
@@ -2118,6 +2386,42 @@ export async function handler(event) {
     if (path === "/documentos-tienda" && method === "POST") {
       ensureAuth(event, "jefe_tienda");
       return json(201, await createStoreDocument(event, user));
+    }
+    if (path === "/coberturas-especiales" && method === "GET") {
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
+      return json(200, await listSpecialCoverages(user));
+    }
+    if (path === "/coberturas-personal" && method === "GET") {
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
+      return json(200, await listCoverageCandidates(user));
+    }
+    if (path === "/coberturas-especiales" && method === "POST") {
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
+      return json(201, await saveSpecialCoverage(event, user));
+    }
+
+    if (path === "/mi-tienda-gestion" && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await getMiTienda(user));
+    }
+    if (path === "/mi-tienda-gestion/datos" && method === "PUT") {
+      ensureAuth(event, "jefe_tienda"); await updateMiTiendaData(event, user); return json(200, { ok: true });
+    }
+    if (path === "/mi-tienda-gestion/archivo" && method === "POST") {
+      ensureAuth(event, "jefe_tienda"); return json(201, await uploadMiTiendaFile(event, user));
+    }
+    if (path === "/mi-tienda-gestion/archivo-url" && method === "POST") {
+      ensureAuth(event, "jefe_tienda"); return json(200, await signedMiTiendaFile(event, user));
+    }
+    const miTiendaRecordMatch = path.match(/^\/mi-tienda-gestion\/(documentos|reclamaciones|acciones|bitacora|mejoras)(?:\/(\d+))?$/);
+    if (miTiendaRecordMatch && ["POST", "PUT"].includes(method)) {
+      ensureAuth(event, "jefe_tienda");
+      if (method === "PUT" && !miTiendaRecordMatch[2]) throw httpError("Falta indicar el registro.", 400);
+      return json(method === "POST" ? 201 : 200, await saveMiTiendaRecord(event, user, miTiendaRecordMatch[1], miTiendaRecordMatch[2] ? Number(miTiendaRecordMatch[2]) : null));
+    }
+    const zonalObservationMatch = path.match(/^\/mi-tienda-gestion\/observaciones\/(\d+)$/);
+    if (zonalObservationMatch && method === "PUT") {
+      ensureAuth(event, "jefe_tienda"); return json(200, await updateZonalObservation(event, user, Number(zonalObservationMatch[1])));
     }
 
     if (path === "/documentos/todo.xlsx" && method === "GET") {
