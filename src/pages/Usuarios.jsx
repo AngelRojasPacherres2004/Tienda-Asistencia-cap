@@ -11,7 +11,9 @@ const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], geren
 const blank = {
   nombres: "", apellidos: "", dni: "", usuario: "", password: "",
   telefono: "", email: "", rol: "trabajador", tienda_id: "", tienda_ids: [], estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
-  cluster_id: "",
+  cluster_id: "", fecha_nacimiento: "", sueldo: "", sexo: "", direccion: "", distrito: "", grado_academico: "",
+  ciclo_semestre: "", puesto: "", estado_civil: "", numero_hijos: "", talla_zapatillas: "", talla_polo: "",
+  contacto_emergencia: "", telefono_emergencia: "", alergia: "", condicion_salud: "", motivo_salida: "",
 };
 
 const excelFields = {
@@ -81,6 +83,7 @@ export default function Usuarios({ user }) {
     if (editing.apellidos && editing.apellidos.trim().length < 2) errors.apellidos = "Ingresa al menos 2 caracteres.";
     if (editing.dni && !/^\d{8}$/.test(editing.dni)) errors.dni = "Debe tener exactamente 8 dígitos.";
     if (editing.telefono && !/^\d{9}$/.test(editing.telefono)) errors.telefono = "Debe tener exactamente 9 dígitos.";
+    if (editing.telefono_emergencia && !/^\d{9}$/.test(editing.telefono_emergencia)) errors.telefono_emergencia = "Debe tener exactamente 9 dígitos.";
     if (editing.usuario && (editing.usuario.trim().length < 3 || !/^[a-z0-9._-]+$/i.test(editing.usuario.trim()))) errors.usuario = "Usa al menos 3 caracteres: letras, números, punto o guion.";
     if (editing.password && editing.password.length < 6) errors.password = "Debe tener al menos 6 caracteres.";
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
@@ -295,7 +298,10 @@ export default function Usuarios({ user }) {
               <input required={!editing.id && !["trabajador", "vendedor", "asistente", "seguridad", "jefe_seguridad"].includes(editing.rol)} type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
             <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
-            <Field label="Fecha de salida" error={fieldErrors.fecha_salida} hint="Se deja en blanco al crear el usuario."><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>
+            <Field label="Fecha de nacimiento"><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
+            <Field label="Edad" hint="Se calcula según la fecha de nacimiento"><input readOnly value={editing.fecha_nacimiento ? Math.max(0, Math.floor((Date.now() - new Date(`${editing.fecha_nacimiento}T12:00:00`).getTime()) / 31557600000)) : ""} /></Field>
+            <Field label="Sueldo"><input type="number" min="0" step="0.01" placeholder="0,00" value={editing.sueldo ?? ""} onChange={(e) => set("sueldo", e.target.value)} /></Field>
+            <Field label="Fecha de salida" error={fieldErrors.fecha_salida}><input type="date" min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => set("fecha_salida", e.target.value)} /></Field>
             {availableRoles.length > 0 && (
               <>
                 <Field label="Rol">
@@ -324,6 +330,23 @@ export default function Usuarios({ user }) {
                 <option value="activo">Activo</option>
                 <option value="inactivo">Inactivo</option>
               </select>
+            </Field>
+            <Field label="Sexo"><select value={editing.sexo || ""} onChange={(e) => set("sexo", e.target.value)}><option value="">Sin especificar</option><option value="Masculino">Hombre</option><option value="Femenino">Mujer</option><option value="Otro">Otro</option></select></Field>
+            <Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia}><input maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field>
+            <Field label="Contacto de emergencia" hint="Nombres y apellidos"><input value={editing.contacto_emergencia || ""} onChange={(e) => set("contacto_emergencia", e.target.value)} /></Field>
+            <Field label="Distrito"><input value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)} /></Field>
+            <Field label="Dirección" className="span-2"><textarea rows={2} value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} /></Field>
+            <Field label="Grado académico"><select value={editing.grado_academico || ""} onChange={(e) => set("grado_academico", e.target.value)}><option value="">Sin especificar</option><option value="Primaria">Primaria</option><option value="Secundaria">Secundaria</option><option value="Técnico">Técnico</option><option value="Universitario">Universitario</option><option value="Posgrado">Posgrado</option></select></Field>
+            <Field label="Ciclo / semestre"><input placeholder="Ej. 8vo ciclo" value={editing.ciclo_semestre || ""} onChange={(e) => set("ciclo_semestre", e.target.value)} /></Field>
+            <Field label="Puesto"><input placeholder="Ej. Auxiliar de almacén" value={editing.puesto || ""} onChange={(e) => set("puesto", e.target.value)} /></Field>
+            <Field label="Estado civil"><select value={editing.estado_civil || ""} onChange={(e) => set("estado_civil", e.target.value)}><option value="">Sin especificar</option><option value="Soltero(a)">Soltero(a)</option><option value="Casado(a)">Casado(a)</option><option value="Conviviente">Conviviente</option><option value="Divorciado(a)">Divorciado(a)</option><option value="Viudo(a)">Viudo(a)</option></select></Field>
+            <Field label="Número de hijos"><input type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field>
+            <Field label="Talla de zapatillas"><input type="number" min="0" step="0.5" value={editing.talla_zapatillas ?? ""} onChange={(e) => set("talla_zapatillas", e.target.value)} /></Field>
+            <Field label="Talla de polo"><select value={editing.talla_polo || ""} onChange={(e) => set("talla_polo", e.target.value)}><option value="">Sin especificar</option>{["XS", "S", "M", "L", "XL", "XXL"].map((size) => <option key={size} value={size}>{size}</option>)}</select></Field>
+            <Field label="Motivo de salida"><input disabled={!editing.fecha_salida} placeholder="Indica el motivo si registraste una fecha de salida" value={editing.motivo_salida || ""} onChange={(e) => set("motivo_salida", e.target.value)} /></Field>
+            <Field label="Alergia" className="span-2"><textarea rows={2} maxLength={500} placeholder="Ej. Ninguna, o detalla la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field>
+            <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
+              <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />
             </Field>
             <div className="form-actions span-2">
               <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>

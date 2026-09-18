@@ -320,7 +320,7 @@ async function listUsers(actor, storeId = null) {
   }
   let request = supabase
     .from("usuarios")
-    .select("id,nombres,apellidos,dni,usuario,telefono,email,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .select("id,nombres,apellidos,dni,usuario,telefono,email,fecha_nacimiento,sueldo,sexo,direccion,distrito,grado_academico,ciclo_semestre,puesto,estado_civil,numero_hijos,talla_zapatillas,talla_polo,telefono_emergencia,alergia,condicion_salud,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
     .order("nombres");
   if (actor.rol === "gerencia_general" && !storeId) request = request.in("rol", ["gerente_comercial", "coach"]);
   if (actor.rol === "gerente_comercial" && !storeId) request = request.eq("rol", "jefe_zonal");
@@ -334,7 +334,9 @@ async function listUsers(actor, storeId = null) {
   if (storeId) request = request.eq("tienda_id", storeId);
   const { data, error } = await request;
   if (error) throw dbError(error);
-  const rows = data.map(mapUserRow);
+  const { data: optionalRows } = await supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", data.map((row) => row.id));
+  const optionalById = new Map((optionalRows || []).map((row) => [row.id, row]));
+  const rows = data.map((row) => ({ ...mapUserRow(row), ...(optionalById.get(row.id) || {}) }));
   if (["gerencia_general", "gerente_comercial"].includes(actor.rol) && rows.some((row) => row.rol === "jefe_zonal")) {
     const { data: assignments, error: assignmentError } = await supabase
       .from("clusters").select("id,nombre,jefe_zonal_id,tiendas(id)").in("jefe_zonal_id", rows.filter((row) => row.rol === "jefe_zonal").map((row) => row.id));
@@ -430,8 +432,19 @@ async function createUser(event, actor) {
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
     tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
+    condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
+    fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
+    sexo: data.sexo || null, direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
+    grado_academico: data.grado_academico || null, ciclo_semestre: data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
+    puesto: data.puesto ? cleanText(data.puesto) : null, estado_civil: data.estado_civil || null,
+    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? null : Number(data.numero_hijos),
+    talla_zapatillas: data.talla_zapatillas === "" || data.talla_zapatillas == null ? null : Number(data.talla_zapatillas),
+    talla_polo: data.talla_polo || null,
+    telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
+    alergia: data.alergia ? cleanText(data.alergia) : null,
   }).select("id,nombres,apellidos,dni,usuario,telefono,rol,tienda_id,estado,fecha_ingreso,fecha_salida").single();
   if (error) throw dbError(error);
+  await saveOptionalPersonnelFields(created.id, data);
   if (data.rol === "jefe_tienda") await linkStoreChief(created.id, Number(data.tienda_id));
   if (data.rol === "jefe_zonal") {
     try {
@@ -519,12 +532,31 @@ async function updateUser(event, id, actor) {
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
     tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
+    condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
+    fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
+    sexo: data.sexo || null, direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
+    grado_academico: data.grado_academico || null, ciclo_semestre: data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
+    puesto: data.puesto ? cleanText(data.puesto) : null, estado_civil: data.estado_civil || null,
+    numero_hijos: data.numero_hijos === "" || data.numero_hijos == null ? null : Number(data.numero_hijos),
+    talla_zapatillas: data.talla_zapatillas === "" || data.talla_zapatillas == null ? null : Number(data.talla_zapatillas),
+    talla_polo: data.talla_polo || null,
+    telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
+    alergia: data.alergia ? cleanText(data.alergia) : null,
   };
   if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
   const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
   if (error) throw dbError(error);
+  await saveOptionalPersonnelFields(id, data);
   if (data.rol === "jefe_tienda") await linkStoreChief(id, Number(data.tienda_id), current.tienda_id);
   if (data.rol === "jefe_zonal") await assignZonalCluster(id, Number(data.cluster_id));
+}
+
+async function saveOptionalPersonnelFields(id, data) {
+  const { error } = await supabase.from("usuarios").update({
+    contacto_emergencia: data.contacto_emergencia ? cleanText(data.contacto_emergencia) : null,
+    motivo_salida: data.motivo_salida ? cleanText(data.motivo_salida) : null,
+  }).eq("id", id);
+  if (error && !["42703", "PGRST204"].includes(error.code)) throw dbError(error);
 }
 
 async function deleteUser(id, actor) {
