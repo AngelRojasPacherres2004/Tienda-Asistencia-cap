@@ -1745,6 +1745,16 @@ async function saveTraffic(event, user) {
   return row;
 }
 
+async function updateTraffic(event, user, id) {
+  const data = bodyOf(event);
+  requireFields(data, ["fecha", "rango_hora", "cantidad"]);
+  if (!rangosTrafico.has(data.rango_hora) || !isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha, rango y cantidad válidos.", 400);
+  const { data: row, error } = await supabase.from("trafico_tienda").update({ fecha: data.fecha, rango_hora: data.rango_hora, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null, updated_at: limaTimestamp() }).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
+  if (error) throw dbError(error);
+  if (!row) throw httpError("El registro de tráfico no existe.", 404);
+  return row;
+}
+
 function limaTimestamp(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit",
@@ -1786,7 +1796,11 @@ async function notifyIncident(incident, storeName) {
 async function createIncident(event, user) {
   const data = bodyOf(event);
   requireFields(data, ["descripcion", "gravedad", "tipo"]);
-  const securityTypes = ["robo", "robo_frustrado", "cambio_precio"];
+  if (data.fecha && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-05:00$/.test(String(data.fecha))) {
+    throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
+  }
+  if (data.fecha && Number.isNaN(new Date(data.fecha).getTime())) throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
+  const securityTypes = ["robo", "robo_frustrado", "cambio_precio", "otro"];
   const internalTypes = ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"];
   const isSecurityUser = ["seguridad", "jefe_seguridad"].includes(user.rol);
   if (isSecurityUser && !securityTypes.includes(data.tipo)) {
@@ -1808,7 +1822,7 @@ async function createIncident(event, user) {
     throw httpError("Selecciona un área o ubicación válida.", 400);
   }
   const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
-  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", cambio_precio: "Cambio de precio", accidente: "Accidente", dano_infraestructura: "Daño de infraestructura", problema_operativo: "Problema operativo", falla_interna: "Falla interna", otro: "Otra incidencia interna" };
+  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", cambio_precio: "Cambio de precio", accidente: "Accidente", dano_infraestructura: "Daño de infraestructura", problema_operativo: "Problema operativo", falla_interna: "Falla interna", otro: isSecurityUser ? "Otra incidencia de seguridad" : "Otra incidencia interna" };
   const { data: incident, error } = await supabase.from("incidencias").insert({
     tienda_id: storeId, asunto: incidentNames[data.tipo], tipo: data.tipo, area: data.area || "otro",
     descripcion: cleanText(data.descripcion), gravedad: data.gravedad, estado: "abierta",
@@ -1856,6 +1870,42 @@ async function createIncident(event, user) {
   const notification = await notifyIncident(incident, store?.nombre || `Tienda ${storeId}`).catch((err) => ({ estado: "error", detalle: err.message }));
   await supabase.from("incidencias").update({ notificacion_estado: notification.estado, notificacion_detalle: notification.detalle }).eq("id", incident.id);
   return { ...incident, notificacion_estado: notification.estado, notificacion_detalle: notification.detalle };
+}
+
+async function updateIncident(event, user, id) {
+  const data = bodyOf(event);
+  requireFields(data, ["descripcion", "gravedad", "tipo", "fecha"]);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-05:00$/.test(String(data.fecha)) || Number.isNaN(new Date(data.fecha).getTime())) throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
+  if (!["robo", "robo_frustrado", "cambio_precio", "otro"].includes(data.tipo) || !["baja", "media", "alta"].includes(data.gravedad)) throw httpError("Revisa el tipo y la severidad.", 400);
+  if (!["piso_venta", "textil", "calzado", "caja", "almacen", "ingreso", "exterior", "otro"].includes(data.area || "otro")) throw httpError("Selecciona un área válida.", 400);
+  const isPriceChange = data.tipo === "cambio_precio", detencion = !isPriceChange && Boolean(data.detencion);
+  if (detencion && !cleanText(data.detencion_detalle)) throw httpError("Describe los detalles de la detención.", 400);
+  for (const item of Array.isArray(data.productos) ? data.productos : []) {
+    if (!cleanText(item.marca) || !cleanText(item.producto) || !Number.isInteger(Number(item.cantidad)) || Number(item.cantidad) < 1 || item.valor === "" || !Number.isFinite(Number(item.valor)) || Number(item.valor) < 0) throw httpError("Revisa los productos involucrados.", 400);
+  }
+  if (!isPriceChange && (Array.isArray(data.personas) ? data.personas : []).some((item) => !cleanText(item.nombre) || !cleanText(item.rol))) throw httpError("Revisa las personas involucradas.", 400);
+  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", cambio_precio: "Cambio de precio", otro: "Otra incidencia de seguridad" };
+  const { data: incident, error } = await supabase.from("incidencias").update({ asunto: incidentNames[data.tipo], tipo: data.tipo, area: data.area || "otro", descripcion: cleanText(data.descripcion), gravedad: data.gravedad, intervencion: !isPriceChange && Boolean(data.intervencion), detencion, detencion_detalle: detencion ? cleanText(data.detencion_detalle) : null, fecha: data.fecha }).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
+  if (error) throw dbError(error);
+  if (!incident) throw httpError("La incidencia no existe.", 404);
+  const removedProducts = await supabase.from("incidencia_productos").delete().eq("incidencia_id", id);
+  const removedPeople = await supabase.from("incidencia_personas").delete().eq("incidencia_id", id);
+  if (removedProducts.error || removedPeople.error) throw dbError(removedProducts.error || removedPeople.error);
+  for (const item of Array.isArray(data.productos) ? data.productos : []) {
+    const marcaNombre = cleanText(item.marca), producto = cleanText(item.producto);
+    if (!marcaNombre || !producto || !Number.isInteger(Number(item.cantidad)) || Number(item.cantidad) < 1 || item.valor === "" || Number(item.valor) < 0) throw httpError("Revisa los productos involucrados.", 400);
+    const lookup = await supabase.from("marcas").select("id,nombre");
+    if (lookup.error) throw dbError(lookup.error);
+    let marca = (lookup.data || []).find((row) => row.nombre.trim().toLocaleLowerCase("es") === marcaNombre.toLocaleLowerCase("es"));
+    if (!marca) { const created = await supabase.from("marcas").insert({ nombre: marcaNombre }).select("id,nombre").single(); if (created.error) throw dbError(created.error); marca = created.data; }
+    const inserted = await supabase.from("incidencia_productos").insert({ incidencia_id: id, marca_id: marca.id, producto, cantidad: Number(item.cantidad), valor: Number(item.valor), recuperado: isPriceChange ? false : Boolean(item.recuperado) });
+    if (inserted.error) throw dbError(inserted.error);
+  }
+  if (!isPriceChange) {
+    const people = (Array.isArray(data.personas) ? data.personas : []).filter((item) => cleanText(item.nombre));
+    if (people.length) { const inserted = await supabase.from("incidencia_personas").insert(people.map((item) => ({ incidencia_id: id, nombre: cleanText(item.nombre), rol: cleanText(item.rol) || "Testigo", documento: cleanText(item.documento) || null, observacion: cleanText(item.observacion) || null }))); if (inserted.error) throw dbError(inserted.error); }
+  }
+  return incident;
 }
 
 async function listIncidents(event, user) {
@@ -2347,6 +2397,11 @@ export async function handler(event) {
       ensureAuth(event, "seguridad");
       return json(201, await saveTraffic(event, user));
     }
+    const trafficMatch = path.match(/^\/trafico\/(\d+)$/);
+    if (trafficMatch && method === "PUT") {
+      ensureAuth(event, "seguridad");
+      return json(200, await updateTraffic(event, user, Number(trafficMatch[1])));
+    }
     if (path === "/incidencias" && method === "GET") {
       ensureAuth(event, operationalReaders);
       return json(200, await listIncidents(event, user));
@@ -2354,6 +2409,11 @@ export async function handler(event) {
     if (path === "/incidencias" && method === "POST") {
       ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
       return json(201, await createIncident(event, user));
+    }
+    const incidentMatch = path.match(/^\/incidencias\/(\d+)$/);
+    if (incidentMatch && method === "PUT") {
+      ensureAuth(event, "seguridad");
+      return json(200, await updateIncident(event, user, Number(incidentMatch[1])));
     }
     if (path === "/incidencias/export.xlsx" && method === "GET") {
       ensureAuth(event, operationalReaders);

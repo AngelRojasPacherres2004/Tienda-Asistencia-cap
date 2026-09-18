@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, Plus, UsersRound } from "lucide-react";
+import { Download, Pencil, Plus, UsersRound } from "lucide-react";
 import { api, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput } from "../components/UI";
 
@@ -27,10 +27,11 @@ export default function TraficoSeguridad({ user }) {
   ), [rows, search]);
 
   const openForm = () => { setNotice(null); setForm(emptyForm()); setOpen(true); };
+  const editForm = (row) => { setNotice(null); setForm({ id: row.id, fecha: row.fecha, rango_hora: row.rango_hora, cantidad: row.cantidad, observaciones: row.observaciones || "" }); setOpen(true); };
   const save = async (event) => {
     event.preventDefault();
     try {
-      await api("/trafico", { method: "POST", body: form });
+      await api(form.id ? `/trafico/${form.id}` : "/trafico", { method: form.id ? "PUT" : "POST", body: form });
       setOpen(false);
       setForm(emptyForm());
       await load();
@@ -50,11 +51,11 @@ export default function TraficoSeguridad({ user }) {
       <header className="panel__header"><div><h2>Historial de tráfico</h2><p>Consulta y exporta los conteos registrados por rango horario</p></div><button className="button button--ghost" onClick={exportCsv}><Download size={15} /> Exportar</button></header>
       <div className="security-filters"><SearchInput value={search} onChange={setSearch} placeholder="Fecha, rango u observación" /></div>
       {filtered.length ? <div className="security-table">
-        <div className="security-table__head security-table__head--traffic"><span>Fecha</span><span>Rango horario</span><span>Visitantes</span><span>Estado</span><span>Observación</span></div>
-        {filtered.map((row) => <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span></div>)}
+        <div className="security-table__head security-table__head--traffic"><span>Fecha</span><span>Rango horario</span><span>Visitantes</span><span>Estado</span><span>Observación</span><span /></div>
+        {filtered.map((row) => <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" onClick={() => editForm(row)} aria-label="Editar tráfico"><Pencil size={15}/></button></div>)}
       </div> : <EmptyState icon={UsersRound} title="Sin registros" text="Registra el primer conteo de visitantes." />}
     </section>
-    <Modal open={open} title="Registrar tráfico" subtitle="Conteo de visitantes de la tienda asignada" onClose={() => setOpen(false)}>
+    <Modal open={open} title={form.id ? "Editar tráfico" : "Registrar tráfico"} subtitle="Conteo de visitantes de la tienda asignada" onClose={() => setOpen(false)}>
       <form className="form-grid" onSubmit={save}>
         {notice && <div className="span-2"><Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
         <Field label="Tienda"><input disabled value={user?.tienda_nombre || "Tienda asignada automáticamente"} /></Field>
@@ -62,7 +63,7 @@ export default function TraficoSeguridad({ user }) {
         <Field label="Rango horario"><select required value={form.rango_hora} onChange={(event) => setForm({ ...form, rango_hora: event.target.value })}>{RANGOS_HORA.map((rango) => <option key={rango.value} value={rango.value}>{rango.label}</option>)}</select></Field>
         <Field label="Cantidad de visitantes"><input required min="0" type="number" value={form.cantidad} onChange={(event) => setForm({ ...form, cantidad: event.target.value })} /></Field>
         <Field label="Observación (opcional)" className="span-2"><textarea rows="4" value={form.observaciones} onChange={(event) => setForm({ ...form, observaciones: event.target.value })} /></Field>
-        <div className="form-actions span-2"><button type="button" className="button button--ghost" onClick={() => setOpen(false)}>Cancelar</button><button className="button button--primary">Registrar tráfico</button></div>
+        <div className="form-actions span-2"><button type="button" className="button button--ghost" onClick={() => setOpen(false)}>Cancelar</button><button className="button button--primary">{form.id ? "Guardar cambios" : "Registrar tráfico"}</button></div>
       </form>
     </Modal>
   </>;
