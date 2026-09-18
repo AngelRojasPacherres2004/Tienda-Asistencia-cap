@@ -33,6 +33,11 @@ const operacionesLog = new Set(["creacion", "edicion", "eliminacion"]);
 const progresoLabels = { pendiente: "Pendiente", en_curso: "En curso", completado: "Completado" };
 const progresoEstados = new Set(["pendiente", "en_curso", "completado"]);
 const disabledPassword = "!SIN_ACCESO!";
+const rangosTrafico = new Set([
+  "09:00-10:00", "10:00-11:00", "11:00-12:00", "12:00-13:00", "13:00-14:00",
+  "14:00-15:00", "15:00-16:00", "16:00-17:00", "17:00-18:00", "18:00-19:00",
+  "19:00-20:00", "20:00-21:00", "21:00-22:00",
+]);
 
 function httpError(message, status) {
   return Object.assign(new Error(message), { status });
@@ -1616,18 +1621,28 @@ async function listOperational(table, event, user, select = "*") {
 
 async function saveTraffic(event, user) {
   const data = bodyOf(event);
-  requireFields(data, ["fecha", "cantidad"]);
+  requireFields(data, ["fecha", "rango_hora", "cantidad"]);
+  if (!rangosTrafico.has(data.rango_hora)) throw httpError("Selecciona un rango horario válido.", 400);
   if (!isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha y cantidad válidas.", 400);
   const tiendaId = await resolveOperationalStoreScope(user, data.tienda_id);
   const hora = new Intl.DateTimeFormat("en-GB", {
     timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
   }).format(new Date());
   const { data: row, error } = await supabase.from("trafico_tienda").upsert({
-    tienda_id: tiendaId, fecha: data.fecha, hora, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null,
-    registrado_por: user.id, updated_at: new Date().toISOString(),
-  }, { onConflict: "tienda_id,fecha" }).select().single();
+    tienda_id: tiendaId, fecha: data.fecha, hora, rango_hora: data.rango_hora,
+    cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null,
+    registrado_por: user.id, updated_at: limaTimestamp(),
+  }, { onConflict: "tienda_id,fecha,rango_hora" }).select().single();
   if (error) throw dbError(error);
   return row;
+}
+
+function limaTimestamp(date = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(date).filter(({ type }) => type !== "literal").map(({ type, value }) => [type, value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 async function incidentRecipients(storeId) {
@@ -1845,13 +1860,13 @@ async function operationalSummary(event, user) {
   const today = todayISO();
   const in30Days = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const [traffic, incidents, warnings, errors, documents] = await Promise.all([
-    supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today).maybeSingle(),
+    supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
     supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("documentos_tienda").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).lte("fecha_vencimiento", in30Days),
   ]);
-  return { trafico_hoy: traffic.data?.cantidad || 0, incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
+  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
 }
 
 // ---------- Router ----------

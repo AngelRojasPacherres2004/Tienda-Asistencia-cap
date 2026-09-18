@@ -8,9 +8,16 @@ export default function Seguridad({ user }) {
   const [incidents, setIncidents] = useState(null);
   const [notice, setNotice] = useState(null);
   useEffect(() => { Promise.all([api("/trafico"), api("/incidencias")]).then(([a, b]) => { setTraffic(a); setIncidents(b); }).catch((e) => setNotice({ type: "error", text: e.message })); }, []);
-  const todayTraffic = useMemo(() => (traffic || []).find((r) => r.fecha === todayISO()), [traffic]);
+  const todayTraffic = useMemo(() => {
+    const records = (traffic || []).filter((row) => row.fecha === todayISO());
+    if (!records.length) return null;
+    return {
+      cantidad: records.reduce((total, row) => total + Number(row.cantidad || 0), 0),
+      updated_at: records[0].updated_at,
+    };
+  }, [traffic]);
   const openIncidents = (incidents || []).filter((r) => r.estado !== "cerrada");
-  const activity = useMemo(() => [...(traffic || []).map((r) => ({ date: r.updated_at || r.created_at, text: `Tráfico registrado · ${r.cantidad} visitantes` })), ...(incidents || []).map((r) => ({ date: r.created_at || r.fecha, text: `${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}` }))].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5), [traffic, incidents]);
+  const activity = useMemo(() => [...(traffic || []).map((r) => ({ date: r.updated_at, text: `Tráfico registrado · ${r.cantidad} visitantes` })), ...(incidents || []).map((r) => ({ date: r.created_at || r.fecha, text: `${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}` }))].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5), [traffic, incidents]);
   if (!traffic || !incidents) return <Loading />;
   const pending = (todayTraffic ? 0 : 1) + openIncidents.length;
   return <>

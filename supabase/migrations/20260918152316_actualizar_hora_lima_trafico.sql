@@ -1,0 +1,10 @@
+BEGIN;
+
+ALTER TABLE trafico_tienda
+  ALTER COLUMN updated_at DROP DEFAULT,
+  ALTER COLUMN updated_at TYPE TIMESTAMP(0) WITHOUT TIME ZONE
+    USING (updated_at AT TIME ZONE 'America/Lima'),
+  ALTER COLUMN updated_at SET DEFAULT
+    ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::TIMESTAMP(0));
+
+COMMIT;
