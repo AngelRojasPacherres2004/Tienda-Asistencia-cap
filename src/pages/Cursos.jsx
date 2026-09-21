@@ -6,7 +6,14 @@ import {
 } from "../components/UI";
 import { AsignarPanel } from "./Capacitaciones";
 
-const blankCurso = { nombre: "", competencia: "", activo: true };
+const targetRoles = [
+  ["gerencia_general", "Gerencia general"], ["gerente_comercial", "Gerente comercial"], ["jefe_zonal", "Jefe zonal"],
+  ["jefe_tienda", "Administrador de tienda"], ["asistente_tienda", "Asistente de tienda"],
+  ["jefe_seguridad", "Jefe de seguridad"], ["jefe_area", "Jefe de área"],
+  ["seguridad", "Seguridad"], ["caja", "Caja"], ["almacenero", "Almacenero"],
+  ["vendedor", "Vendedor"], ["asistente", "Asistente"], ["trabajador", "Trabajador"],
+];
+const blankCurso = { nombre: "", competencia: "", activo: true, roles: [] };
 const blankEncargado = { nombre: "", activo: true };
 
 export default function Cursos({ user }) {
@@ -103,11 +110,11 @@ export default function Cursos({ user }) {
         !cursos ? <Loading /> : cursos.length ? (
           <div className="table-panel">
             <div className="data-table data-table--cursos">
-              <div className="data-table__head"><span>Capacitación</span><span>Competencia</span><span>Estado</span><span /></div>
+              <div className="data-table__head"><span>Capacitación</span><span>Competencia / roles</span><span>Estado</span><span /></div>
               {cursos.map((curso) => (
                 <div className="data-table__row" key={curso.id}>
                   <span className="cell-primary">{curso.nombre}</span>
-                  <span>{curso.competencia}</span>
+                  <span>{curso.competencia}<small style={{ display: "block", marginTop: 4 }}>{(curso.roles || []).map((role) => targetRoles.find(([id]) => id === role)?.[1] || role).join(", ")}</small></span>
                   <span><StatusBadge value={curso.activo ? "activo" : "inactivo"} /></span>
                   <div className="row-actions">
                     <button onClick={() => { setCursoError(""); setEditingCurso({ ...curso }); }} aria-label="Editar"><Pencil size={15} /></button>
@@ -152,6 +159,16 @@ export default function Cursos({ user }) {
             </Field>
             <Field label="Competencia" className="span-2">
               <input required value={editingCurso.competencia} onChange={(e) => setEditingCurso({ ...editingCurso, competencia: e.target.value })} />
+            </Field>
+            <Field label="Roles que recibirán esta capacitación" className="span-2">
+              <div className="people-picker" style={{ gridTemplateColumns: "1fr 1fr", maxHeight: 260 }}>
+                {targetRoles.map(([role, label]) => {
+                  const selected = (editingCurso.roles || []).includes(role);
+                  return <button type="button" key={role} className={selected ? "selected" : ""} onClick={() => setEditingCurso({ ...editingCurso, roles: selected ? editingCurso.roles.filter((item) => item !== role) : [...(editingCurso.roles || []), role] })}>
+                    <span>{label.charAt(0)}</span><div><strong>{label}</strong><small>{selected ? "Asignado" : "Sin asignar"}</small></div><i />
+                  </button>;
+                })}
+              </div>
             </Field>
             <Field label="Estado" className="span-2">
               <select value={editingCurso.activo ? "activo" : "inactivo"} onChange={(e) => setEditingCurso({ ...editingCurso, activo: e.target.value === "activo" })}>

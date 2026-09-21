@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, BarChart3, Building2, CalendarCheck2, GraduationCap,
+  AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
   LogOut, Menu, PanelLeftClose, ShieldCheck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -10,6 +10,8 @@ const navByRole = {
     { id: "usuarios", label: "Usuarios", icon: Users },
     { id: "clusters", label: "Clústeres", icon: Building2 },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   gerente_comercial: [
@@ -18,6 +20,7 @@ const navByRole = {
     { id: "clusters", label: "Clústeres", icon: Building2 },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   coach: [
@@ -26,10 +29,13 @@ const navByRole = {
   ],
   jefe_zonal: [
     { id: "dashboard", label: "Resumen zonal", icon: BarChart3 },
-    { id: "usuarios", label: "Jefes de tienda", icon: Users },
-    { id: "tiendas", label: "Tiendas asignadas", icon: Building2 },
+    { id: "tiendas", label: "Mis tiendas", icon: Building2 },
+    { id: "zonal-personal", label: "Personal", icon: Users },
+    { id: "zonal-asistencia", label: "Asistencia", icon: CalendarCheck2 },
+    { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck },
+    { id: "zonal-supervisiones", label: "Supervisiones", icon: ClipboardCheck },
+    { id: "zonal-incidencias", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Inicio", icon: BarChart3 },
@@ -38,6 +44,7 @@ const navByRole = {
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
     { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
   ],
   asistente_tienda: [
     { id: "dashboard", label: "Inicio", icon: BarChart3 },

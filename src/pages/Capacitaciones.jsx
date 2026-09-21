@@ -21,11 +21,12 @@ function Metric({ icon: Icon, label, value, note, tone }) {
 }
 
 export default function Capacitaciones({ user }) {
+  const isCoach = user?.rol === "coach";
   const zonal = user?.rol === "jefe_zonal";
   const central = ["gerencia_general", "gerente_comercial", "coach"].includes(user?.rol);
   const supervisedLabels = {
-    gerencia_general: "todo el personal operativo",
-    gerente_comercial: "todo el personal operativo",
+    gerencia_general: "jefes zonales",
+    gerente_comercial: "jefes zonales",
     coach: "todo el personal, por rol y por tienda",
     jefe_zonal: "jefes de tienda",
     jefe_tienda: "asistentes, trabajadores y seguridad",
@@ -37,7 +38,6 @@ export default function Capacitaciones({ user }) {
   const [perfilId, setPerfilId] = useState(null);
   const [cursos, setCursos] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [roleFilter, setRoleFilter] = useState("todos");
 
   const loadTrabajadores = () => api("/capacitaciones/trabajadores").then(setTrabajadores).catch((err) => setNotice({ type: "error", text: err.message }));
   useEffect(() => {
@@ -48,17 +48,15 @@ export default function Capacitaciones({ user }) {
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
   const baseVisibles = showInactivos ? (trabajadores || []) : activos;
-  const visibles = roleFilter === "todos" ? baseVisibles : baseVisibles.filter((t) => t.rol === roleFilter);
-  const rolesDisponibles = [...new Set((trabajadores || []).map((t) => t.rol))].sort();
+  const visibles = baseVisibles;
 
   return (
     <>
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-      <PageHeader eyebrow={central ? "Supervisión general" : zonal ? "Mi clúster" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />
+      {!isCoach && <><PageHeader eyebrow={central ? "Supervisión general" : zonal ? "Mi clúster" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />
       <div className="toolbar">
         <span>{visibles.length} personas</span>
-        {user?.rol === "coach" && <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} aria-label="Filtrar por rol"><option value="todos">Todos los roles</option>{rolesDisponibles.map((role) => <option key={role} value={role}>{roleLabels[role] || role}</option>)}</select>}
         <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
           {showInactivos ? "Ocultar inactivos" : `Mostrar inactivos (${inactivos.length})`}
         </button>
@@ -82,11 +80,11 @@ export default function Capacitaciones({ user }) {
         </div>
       ) : <EmptyState icon={GraduationCap} title="Sin personas para supervisar" text={`Todavía no hay ${supervisedLabel} disponibles en tu alcance.`} />}
 
-      {perfilId && <TrabajadorPerfilView id={perfilId} onClose={() => setPerfilId(null)} />}
+      {perfilId && <TrabajadorPerfilView id={perfilId} onClose={() => setPerfilId(null)} />}</>}
 
-      <PageHeader eyebrow="Seguimiento" title="Resumen de capacitaciones" subtitle="Filtra una capacitación y revisa el estado de las personas supervisadas." />
+      <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />
       {!cursos ? <Loading /> : cursos.length ? (
-        <><ResumenPanel cursos={cursos} />{user?.rol === "coach" && <><PageHeader eyebrow="Asignación dirigida" title="Asignar por rol o tienda" subtitle="Filtra el personal, selecciona un rol completo o combina personas de distintas tiendas." /><AsignarPanel cursos={cursos} estadosPermitidos={["pendiente", "en_curso", "completado"]} restringirTransiciones={false} /><CoachComparisonPanel cursos={cursos} /></>}</>
+        <><ResumenPanel cursos={cursos} />{user?.rol === "coach" && <CoachComparisonPanel cursos={cursos} />}</>
       ) : (
         <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que dé de alta una capacitación en el catálogo." />
       )}
@@ -107,7 +105,7 @@ function CoachComparisonPanel({ cursos }) {
   return <section className="panel" style={{ marginTop: 24 }}><header className="panel__header"><div><span className="eyebrow">Comparativas</span><h2>Avance de capacitaciones</h2><p>Detecta qué tiendas y roles completaron la capacitación y cuáles requieren seguimiento.</p></div><select value={cursoId} onChange={(e) => setCursoId(e.target.value)}>{cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}</select></header>{!people ? <Loading /> : <div className="training-comparison-grid">{groups.map((group) => <div key={group.title}><h3>{group.title}</h3>{group.rows.map((row) => { const pct = row.total ? Math.round(row.completado * 100 / row.total) : 0; return <article className="training-comparison-row" key={row.name}><div><strong>{row.name}</strong><small>{row.completado} completadas · {row.en_curso} en curso · {row.pendiente} pendientes</small></div><div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${pct}%`, background: estadoPalette.completado }} /></div><b>{pct}%</b></article>; })}</div>)}</div>}</section>;
 }
 
-function TrabajadorPerfilView({ id, onClose }) {
+function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
   const [data, setData] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [savingCurso, setSavingCurso] = useState(null);
@@ -170,21 +168,26 @@ function TrabajadorPerfilView({ id, onClose }) {
                     {!curso.curso_activo && <span className="status status--inactivo"><i />Inactivo</span>}
                   </div>
                   <h3>{curso.titulo}</h3>
-                  <Field label="Estado">
-                    <select value={draft.estado || "pendiente"} onChange={(e) => setDraft(curso.curso_id, "estado", e.target.value)}>
-                      <option value="pendiente">Pendiente</option>
-                      <option value="en_curso">En curso</option>
-                      <option value="completado">Completado</option>
-                    </select>
-                  </Field>
-                  <Field label="Duración (h)">
-                    <input type="number" min="0" step="0.5" value={draft.duracion_horas ?? ""} onChange={(e) => setDraft(curso.curso_id, "duracion_horas", e.target.value)} />
-                  </Field>
-                  <div className="worker-task__footer">
-                    <button className="button button--primary button--small" disabled={savingCurso === curso.curso_id} onClick={() => guardar(curso.curso_id)}>
-                      {savingCurso === curso.curso_id ? "Guardando…" : "Guardar"}
-                    </button>
-                  </div>
+                  {readOnly ? <>
+                    <Field label="Estado"><StatusBadge value={draft.estado || "pendiente"} label={progresoLabels[draft.estado || "pendiente"]} /></Field>
+                    <Field label="Duración"><span>{draft.duracion_horas ? `${draft.duracion_horas} h` : "Sin registrar"}</span></Field>
+                  </> : <>
+                    <Field label="Estado">
+                      <select value={draft.estado || "pendiente"} onChange={(e) => setDraft(curso.curso_id, "estado", e.target.value)}>
+                        <option value="pendiente">Pendiente</option>
+                        <option value="en_curso">En curso</option>
+                        <option value="completado">Completado</option>
+                      </select>
+                    </Field>
+                    <Field label="Duración (h)">
+                      <input type="number" min="0" step="0.5" value={draft.duracion_horas ?? ""} onChange={(e) => setDraft(curso.curso_id, "duracion_horas", e.target.value)} />
+                    </Field>
+                    <div className="worker-task__footer">
+                      <button className="button button--primary button--small" disabled={savingCurso === curso.curso_id} onClick={() => guardar(curso.curso_id)}>
+                        {savingCurso === curso.curso_id ? "Guardando…" : "Guardar"}
+                      </button>
+                    </div>
+                  </>}
                 </article>
               );
             })}

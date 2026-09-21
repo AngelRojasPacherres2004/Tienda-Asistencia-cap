@@ -24,6 +24,7 @@ const Clusters = lazy(() => import("./pages/Clusters"));
 const CoberturasEspeciales = lazy(() => import("./pages/CoberturasEspeciales"));
 const MiTiendaGestion = lazy(() => import("./pages/MiTiendaGestion"));
 const Personal = lazy(() => import("./pages/Personal"));
+const ZonalModule = lazy(() => import("./pages/ZonalModule"));
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", coach: "capacitaciones", jefe_zonal: "dashboard",
@@ -70,7 +71,7 @@ export default function App() {
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
-    dashboard: isStoreManagement ? storeHome : <Dashboard user={user} />,
+    dashboard: isStoreManagement || user.rol === "jefe_zonal" ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
     tiendas: <Tiendas user={user} />,
@@ -89,6 +90,11 @@ export default function App() {
     "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
     "incidencias-tienda": <IncidenciasTienda user={user} />,
     coberturas: <CoberturasEspeciales />,
+    "zonal-personal": <ZonalModule section="personal" />,
+    "zonal-asistencia": <ZonalModule section="asistencia" />,
+    "zonal-tareas": <ZonalModule section="tareas" />,
+    "zonal-supervisiones": <ZonalModule section="supervisiones" />,
+    "zonal-incidencias": <ZonalModule section="incidencias" />,
   }[page] || <Dashboard user={user} />;
 
   return (

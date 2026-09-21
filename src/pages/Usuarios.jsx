@@ -32,6 +32,7 @@ const excelDate = (value) => {
 
 export default function Usuarios({ user }) {
   const isCentral = ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(user?.rol);
+  const isStoreAdmin = user?.rol === "jefe_tienda";
   const availableRoles = rolesByManager[user?.rol] || [];
   const [items, setItems] = useState(null);
   const [tiendas, setTiendas] = useState([]);
@@ -365,7 +366,7 @@ export default function Usuarios({ user }) {
                     {availableRoles.map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
                   </select>
                 </Field>
-                {editing.rol !== "jefe_zonal" && <Field label="Tienda" error={fieldErrors.tienda_id}>
+                {!isStoreAdmin && editing.rol !== "jefe_zonal" && <Field label="Tienda" error={fieldErrors.tienda_id}>
                   <select required={isCentral} disabled={!isCentral} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
                     <option value="">Selecciona una tienda</option>
                     {tiendaOptions.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
@@ -394,9 +395,9 @@ export default function Usuarios({ user }) {
             <Field label="Contacto de emergencia" hint="Nombres y apellidos"><input value={editing.contacto_emergencia || ""} onChange={(e) => set("contacto_emergencia", e.target.value)} /></Field>
             <Field label="Distrito"><input value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)} /></Field>
             <Field label="Dirección" className="span-2"><textarea rows={2} value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} /></Field>
-            <Field label="Nivel de estudio"><select value={editing.grado_academico || "sin_especificar"} onChange={(e) => { set("grado_academico", e.target.value); if (e.target.value !== "universitario") set("ciclo_semestre", ""); }}><option value="sin_especificar">Sin especificar</option><option value="primaria">Primaria</option><option value="secundaria">Secundaria</option><option value="tecnico">Técnico</option><option value="universitario">Universitario</option><option value="postgrado">Posgrado</option></select></Field>
+            <Field label="Nivel de estudio"><select value={editing.grado_academico || "sin_especificar"} onChange={(e) => { set("grado_academico", e.target.value); if (e.target.value !== "universitario") set("ciclo_semestre", ""); }}><option value="sin_especificar">Sin especificar</option><option value="primaria">Primaria</option><option value="secundaria">Secundaria</option><option value="tecnico">Técnico</option><option value="universitario">Universitario</option>{!isStoreAdmin && <option value="postgrado">Posgrado</option>}</select></Field>
             {editing.grado_academico === "universitario" && <Field label="Ciclo / semestre"><input placeholder="Ej. 8vo ciclo" value={editing.ciclo_semestre || ""} onChange={(e) => set("ciclo_semestre", e.target.value)} /></Field>}
-            <Field label="Área"><input placeholder="Ej. Caja, almacén o ventas" value={editing.area_laboral || ""} onChange={(e) => set("area_laboral", e.target.value)} /></Field>
+            {!isStoreAdmin && <Field label="Área"><input placeholder="Ej. Caja, almacén o ventas" value={editing.area_laboral || ""} onChange={(e) => set("area_laboral", e.target.value)} /></Field>}
             <Field label="Carrera"><input placeholder="Carrera técnica o profesional" value={editing.carrera || ""} onChange={(e) => set("carrera", e.target.value)} /></Field>
             <Field label="Régimen / jornada"><select value={editing.regimen_jornada || ""} onChange={(e) => set("regimen_jornada", e.target.value)}><option value="">Sin especificar</option><option value="4h">4 horas</option><option value="8h">8 horas</option><option value="12h">12 horas</option></select></Field>
             <Field label="Tipo de turno"><select value={editing.tipo_turno || ""} onChange={(e) => set("tipo_turno", e.target.value)}><option value="">Sin especificar</option><option value="apertura">Apertura</option><option value="intermedio">Intermedio</option><option value="cierre">Cierre</option><option value="part_time">Part time</option></select></Field>

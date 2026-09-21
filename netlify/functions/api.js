@@ -986,20 +986,36 @@ async function misAsistencias(event, user) {
 
 // ---------- Cursos y Encargados (catálogo, solo admin) ----------
 
-async function listCursos() {
-  const { data, error } = await supabase.from("cursos").select("*").order("nombre");
+async function listCursos(user) {
+  const { data, error } = await supabase.from("cursos").select("*,curso_roles(rol_codigo)").order("nombre");
   if (error) throw dbError(error);
-  return data;
+  const targets = new Set(trainingTargetRoles(user.rol));
+  return data
+    .map(({ curso_roles, ...curso }) => ({ ...curso, roles: (curso_roles || []).map((row) => row.rol_codigo) }))
+    .filter((curso) => user.rol === "coach" || curso.roles.some((role) => targets.has(role)));
+}
+
+async function replaceCursoRoles(cursoId, roles) {
+  const validRoles = [...new Set((roles || []).filter((role) => userRoles.has(role) && role !== "coach"))];
+  if (!validRoles.length) throw httpError("Selecciona al menos un rol para la capacitación.", 400);
+  const { error: deleteError } = await supabase.from("curso_roles").delete().eq("curso_id", cursoId);
+  if (deleteError) throw dbError(deleteError);
+  const { error } = await supabase.from("curso_roles").insert(validRoles.map((rol_codigo) => ({ curso_id: cursoId, rol_codigo })));
+  if (error) throw dbError(error);
 }
 
 async function createCurso(event) {
   const data = bodyOf(event);
   validateCursoPayload(data);
+  if (!(data.roles || []).some((role) => userRoles.has(role) && role !== "coach")) {
+    throw httpError("Selecciona al menos un rol para la capacitación.", 400);
+  }
   const { data: created, error } = await supabase.from("cursos")
     .insert({ nombre: cleanText(data.nombre), competencia: cleanText(data.competencia), activo: data.activo !== false })
     .select().single();
   if (error) throw dbError(error);
-  return created;
+  await replaceCursoRoles(created.id, data.roles);
+  return { ...created, roles: data.roles };
 }
 
 async function updateCurso(event, id) {
@@ -1009,6 +1025,7 @@ async function updateCurso(event, id) {
     .update({ nombre: cleanText(data.nombre), competencia: cleanText(data.competencia), activo: !!data.activo })
     .eq("id", id);
   if (error) throw dbError(error);
+  await replaceCursoRoles(Number(id), data.roles);
 }
 
 async function deleteCurso(id) {
@@ -1051,17 +1068,31 @@ async function updateEncargado(event, id) {
 // ---------- Capacitaciones (progreso por trabajador, jefe de tienda) ----------
 
 function trainingTargetRoles(role) {
-  if (["gerencia_general", "gerente_comercial"].includes(role)) return storeStaffRoles;
-  if (role === "coach") return ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
+  if (["gerencia_general", "gerente_comercial"].includes(role)) return ["jefe_zonal"];
+  if (role === "coach") return ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
   if (role === "jefe_zonal") return ["jefe_tienda"];
   if (role === "jefe_tienda") return ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
   if (role === "asistente_tienda") return ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
   return [];
 }
 
+async function assertCursoAsignadoARol(cursoId, role) {
+  const { data, error } = await supabase.from("curso_roles")
+    .select("curso_id").eq("curso_id", cursoId).eq("rol_codigo", role).maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("La capacitación no está asignada al rol de esta persona.", 403);
+}
+
 async function listTrabajadores(event, user) {
   const query = event.queryStringParameters || {};
-  const targetRoles = trainingTargetRoles(user.rol);
+  let targetRoles = trainingTargetRoles(user.rol);
+  if (query.curso_id) {
+    const { data: roleRows, error: roleError } = await supabase.from("curso_roles")
+      .select("rol_codigo").eq("curso_id", Number(query.curso_id));
+    if (roleError) throw dbError(roleError);
+    const assignedRoles = new Set(roleRows.map((row) => row.rol_codigo));
+    targetRoles = targetRoles.filter((role) => assignedRoles.has(role));
+  }
   let request = supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)");
   request = request.in("rol", targetRoles.length ? targetRoles : ["__sin_acceso__"]);
@@ -1121,7 +1152,12 @@ async function getTrabajadorPerfil(id, user) {
   const { data: cursos, error: cursosError } = await cursosQuery.order("nombre");
   if (cursosError) throw dbError(cursosError);
 
-  const items = cursos.map((curso) => {
+  const { data: roleRows, error: roleError } = await supabase.from("curso_roles")
+    .select("curso_id").eq("rol_codigo", trabajador.rol);
+  if (roleError) throw dbError(roleError);
+  const assignedCursoIds = new Set(roleRows.map((row) => row.curso_id));
+
+  const items = cursos.filter((curso) => assignedCursoIds.has(curso.id) || progresoByCurso.has(curso.id)).map((curso) => {
     const progreso = progresoByCurso.get(curso.id);
     return {
       curso_id: curso.id, titulo: curso.nombre, competencia: curso.competencia, curso_activo: curso.activo,
@@ -1149,6 +1185,7 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
     .select("id,tienda_id,rol").eq("id", usuarioId).maybeSingle();
   if (tError) throw dbError(tError);
   await assertTrainingTarget(user, trabajador);
+  await assertCursoAsignadoARol(Number(cursoId), trabajador.rol);
   const payload = {
     curso_id: Number(cursoId), usuario_id: Number(usuarioId), tienda_id: trabajador.tienda_id,
     estado: data.estado, duracion_horas: data.duracion_horas ? Number(data.duracion_horas) : null,
@@ -1166,8 +1203,13 @@ async function getResumenCurso(event, user) {
   if (!Number.isInteger(cursoId) || cursoId < 1) throw httpError("Selecciona un curso.", 400);
   const tiendaId = oversightRoles.has(user.rol) ? (query.tienda_id ? Number(query.tienda_id) : null) : user.tienda_id;
 
+  const { data: roleRows, error: roleError } = await supabase.from("curso_roles")
+    .select("rol_codigo").eq("curso_id", cursoId);
+  if (roleError) throw dbError(roleError);
+  const assignedRoles = new Set(roleRows.map((row) => row.rol_codigo));
+  const targetRoles = trainingTargetRoles(user.rol).filter((role) => assignedRoles.has(role));
   let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol,tienda_id")
-    .eq("estado", "activo").in("rol", trainingTargetRoles(user.rol));
+    .eq("estado", "activo").in("rol", targetRoles.length ? targetRoles : ["__sin_acceso__"]);
   if (user.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(user.id);
     if (tiendaId && !ids.includes(tiendaId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
@@ -1221,7 +1263,10 @@ async function asignarLote(event, user) {
     .select("id,tienda_id,rol").in("id", ids);
   if (tError) throw dbError(tError);
   if (trabajadores.length !== ids.length) throw httpError("Una de las personas seleccionadas no existe.", 400);
-  for (const trabajador of trabajadores) await assertTrainingTarget(user, trabajador);
+  for (const trabajador of trabajadores) {
+    await assertTrainingTarget(user, trabajador);
+    await assertCursoAsignadoARol(cursoId, trabajador.rol);
+  }
   const fechaFinalizacion = data.estado === "completado" ? todayISO() : null;
   const rows = ids.map((usuario_id) => {
     const row = {
@@ -1243,7 +1288,12 @@ async function misCapacitaciones(user) {
     .eq("usuario_id", user.id);
   if (error) throw dbError(error);
   const progresoByCurso = new Map(progresoRows.filter((row) => row.cursos).map((row) => [row.curso_id, row]));
-  const { data: cursosActivos, error: cError } = await supabase.from("cursos").select("id,nombre,competencia,activo").eq("activo", true);
+  const { data: asignaciones, error: aError } = await supabase.from("curso_roles").select("curso_id").eq("rol_codigo", user.rol);
+  if (aError) throw dbError(aError);
+  const assignedIds = asignaciones.map((row) => row.curso_id);
+  const { data: cursosActivos, error: cError } = assignedIds.length
+    ? await supabase.from("cursos").select("id,nombre,competencia,activo").eq("activo", true).in("id", assignedIds)
+    : { data: [], error: null };
   if (cError) throw dbError(cError);
   const allCursos = new Map();
   for (const curso of cursosActivos) allCursos.set(curso.id, curso);
@@ -2107,6 +2157,89 @@ async function operationalSummary(event, user) {
   return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
 }
 
+// ---------- Supervisión zonal ----------
+
+async function zonalScope(user) {
+  const ids = await zonalStoreIds(user.id);
+  if (!ids.length) return { ids: [], stores: [] };
+  const { data, error } = await supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").in("id", ids).order("nombre");
+  if (error) throw dbError(error);
+  return { ids, stores: data || [] };
+}
+
+async function getZonalModule(event, user, kind) {
+  const { ids, stores } = await zonalScope(user);
+  if (!ids.length) return kind === "asistencia" ? { fecha: todayISO(), tiendas: [] } : [];
+  const query = event.queryStringParameters || {};
+  if (kind === "personal") {
+    const { data, error } = await supabase.from("usuarios")
+      .select("id,nombres,apellidos,dni,rol,estado,fecha_ingreso,fecha_salida,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
+      .in("tienda_id", ids).order("nombres");
+    if (error) throw dbError(error);
+    return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || "" }));
+  }
+  if (kind === "asistencia") {
+    const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
+    const [{ data: people, error: peopleError }, { data: attendance, error: attendanceError }] = await Promise.all([
+      supabase.from("usuarios").select("id,tienda_id").in("tienda_id", ids).eq("estado", "activo").in("rol", storeStaffRoles),
+      supabase.from("asistencias").select("tienda_id,usuario_id,estado,created_at").in("tienda_id", ids).eq("fecha", fecha),
+    ]);
+    if (peopleError) throw dbError(peopleError); if (attendanceError) throw dbError(attendanceError);
+    return { fecha, tiendas: stores.map((store) => {
+      const staff = people.filter((person) => Number(person.tienda_id) === Number(store.id));
+      const rows = attendance.filter((row) => Number(row.tienda_id) === Number(store.id));
+      const latest = rows.map((row) => row.created_at).filter(Boolean).sort().at(-1) || null;
+      return { ...store, personal: staff.length, registrados: rows.length, faltas: rows.filter((row) => row.estado === "falta").length, tardanzas: rows.filter((row) => row.estado === "tardanza").length, pendientes: Math.max(staff.length - rows.length, 0), ultimo_envio: latest };
+    }) };
+  }
+  if (kind === "incidencias") {
+    const { data, error } = await supabase.from("incidencias").select("id,codigo,fecha,tipo,asunto,area,descripcion,gravedad,estado,tienda_id,tiendas(nombre)").in("tienda_id", ids).order("fecha", { ascending: false });
+    if (error) throw dbError(error); return data;
+  }
+  if (kind === "tareas") {
+    const { data, error } = await supabase.from("tareas_zonales").select("*,tiendas(nombre)").eq("jefe_zonal_id", user.id).in("tienda_id", ids).order("fecha_limite");
+    if (error) throw dbError(error); return data;
+  }
+  if (kind === "supervisiones") {
+    const [{ data: visitas, error: visitError }, { data: observaciones, error: observationError }] = await Promise.all([
+      supabase.from("visitas_zonales").select("*,tiendas(nombre)").eq("jefe_zonal_id", user.id).in("tienda_id", ids).order("fecha", { ascending: false }),
+      supabase.from("observaciones_zonales").select("*,tiendas(nombre)").in("tienda_id", ids).order("created_at", { ascending: false }),
+    ]);
+    if (visitError) throw dbError(visitError); if (observationError) throw dbError(observationError);
+    return { visitas: visitas || [], observaciones: observaciones || [] };
+  }
+  throw httpError("Módulo zonal no válido.", 404);
+}
+
+async function createZonalTask(event, user) {
+  const data = bodyOf(event); requireFields(data, ["tienda_id", "titulo", "responsable", "fecha_limite"]);
+  const ids = await zonalStoreIds(user.id); const storeId = Number(data.tienda_id);
+  if (!ids.includes(storeId)) throw httpError("La tienda no pertenece a tu zona.", 403);
+  const row = { jefe_zonal_id: user.id, tienda_id: storeId, titulo: cleanText(data.titulo), descripcion: cleanText(data.descripcion) || null, responsable: cleanText(data.responsable), fecha_inicio: isISODate(data.fecha_inicio) ? data.fecha_inicio : todayISO(), fecha_limite: data.fecha_limite, prioridad: ["baja","media","alta","urgente"].includes(data.prioridad) ? data.prioridad : "media", estado: "pendiente" };
+  const { data: created, error } = await supabase.from("tareas_zonales").insert(row).select().single();
+  if (error) throw dbError(error); return created;
+}
+
+async function updateZonalTask(event, user, id) {
+  const data = bodyOf(event); const estados = ["pendiente","en_progreso","completada","cancelada"];
+  if (!estados.includes(data.estado)) throw httpError("El estado no es válido.", 400);
+  const { data: row, error } = await supabase.from("tareas_zonales").update({ estado: data.estado, updated_at: new Date().toISOString() }).eq("id", id).eq("jefe_zonal_id", user.id).select().maybeSingle();
+  if (error) throw dbError(error); if (!row) throw httpError("Tarea no encontrada.", 404); return row;
+}
+
+async function createZonalSupervision(event, user) {
+  const data = bodyOf(event); requireFields(data, ["tienda_id", "fecha", "observacion_general"]);
+  const ids = await zonalStoreIds(user.id); const storeId = Number(data.tienda_id);
+  if (!ids.includes(storeId)) throw httpError("La tienda no pertenece a tu zona.", 403);
+  const { data: visit, error } = await supabase.from("visitas_zonales").insert({ tienda_id: storeId, jefe_zonal_id: user.id, fecha: data.fecha, periodo: cleanText(data.periodo) || null, puntaje: data.puntaje === "" || data.puntaje == null ? null : Number(data.puntaje), checklist_nombre: cleanText(data.checklist_nombre) || null, observacion_general: cleanText(data.observacion_general) }).select().single();
+  if (error) throw dbError(error);
+  if (cleanText(data.hallazgo)) {
+    const inserted = await supabase.from("observaciones_zonales").insert({ visita_id: visit.id, tienda_id: storeId, area_item: cleanText(data.area_item) || "General", prioridad: ["baja","media","alta","urgente"].includes(data.prioridad) ? data.prioridad : "media", fecha_limite: isISODate(data.fecha_limite) ? data.fecha_limite : null, descripcion: cleanText(data.hallazgo), accion_solicitada: cleanText(data.accion_solicitada) || null });
+    if (inserted.error) throw dbError(inserted.error);
+  }
+  return visit;
+}
+
 // ---------- Mi tienda (solo jefe de tienda) ----------
 
 const miTiendaTables = {
@@ -2307,17 +2440,17 @@ export async function handler(event) {
 
     if (path === "/cursos" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
-      return json(200, await listCursos());
+      return json(200, await listCursos(user));
     }
-    if (path === "/cursos" && method === "POST") { ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach"]); return json(201, await createCurso(event)); }
+    if (path === "/cursos" && method === "POST") { ensureAuth(event, "coach"); return json(201, await createCurso(event)); }
     const cursoMatch = path.match(/^\/cursos\/(\d+)$/);
     if (cursoMatch && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach"]);
+      ensureAuth(event, "coach");
       await updateCurso(event, Number(cursoMatch[1]));
       return json(200, { ok: true });
     }
     if (cursoMatch && method === "DELETE") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach"]);
+      ensureAuth(event, "coach");
       return json(200, await deleteCurso(Number(cursoMatch[1])));
     }
 
@@ -2371,7 +2504,7 @@ export async function handler(event) {
     }
     const progresoMatch = path.match(/^\/capacitaciones\/trabajadores\/(\d+)\/cursos\/(\d+)$/);
     if (progresoMatch && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       await guardarProgreso(event, Number(progresoMatch[1]), Number(progresoMatch[2]), user);
       return json(200, { ok: true });
     }
@@ -2380,8 +2513,24 @@ export async function handler(event) {
       return json(200, await getResumenCurso(event, user));
     }
     if (path === "/capacitaciones/asignar" && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await asignarLote(event, user));
+    }
+
+    const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias)$/);
+    if (zonalModuleMatch && method === "GET") {
+      ensureAuth(event, "jefe_zonal");
+      return json(200, await getZonalModule(event, user, zonalModuleMatch[1]));
+    }
+    if (path === "/zonal/tareas" && method === "POST") {
+      ensureAuth(event, "jefe_zonal"); return json(201, await createZonalTask(event, user));
+    }
+    const zonalTaskMatch = path.match(/^\/zonal\/tareas\/(\d+)$/);
+    if (zonalTaskMatch && method === "PUT") {
+      ensureAuth(event, "jefe_zonal"); return json(200, await updateZonalTask(event, user, Number(zonalTaskMatch[1])));
+    }
+    if (path === "/zonal/supervisiones" && method === "POST") {
+      ensureAuth(event, "jefe_zonal"); return json(201, await createZonalSupervision(event, user));
     }
 
     const operationalReaders = ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "seguridad"];
