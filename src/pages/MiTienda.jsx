@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximi
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { Loading, Notice, StatusBadge } from "../components/UI";
+import TrafficHourMatrix from "../components/TrafficHourMatrix";
 
 export default function MiTienda({ user, onNavigate }) {
   const isZonal = user.rol === "jefe_zonal";
@@ -15,7 +16,7 @@ export default function MiTienda({ user, onNavigate }) {
     setRefreshing(true);
     const suffix = isZonal ? `?tienda_id=${storeId}` : "";
     const selectedStore = stores.find((store) => String(store.id) === String(storeId));
-    const profileRequest = isZonal ? Promise.resolve({ tienda_nombre: selectedStore?.nombre, tienda_direccion: selectedStore?.direccion }) : api("/perfil");
+    const profileRequest = isZonal ? Promise.resolve({ tienda_nombre: selectedStore?.nombre, tienda_direccion: selectedStore?.direccion, tienda_alquiler_mensual: selectedStore?.alquiler_mensual }) : api("/perfil");
     const peopleRequest = isZonal ? api(`/tiendas/${storeId}/usuarios`) : api("/usuarios");
     return Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest, api(`/documentos-tienda${suffix}`).catch(() => []), api(`/errores-personal${suffix}`).catch(() => [])]).then(([p, s, team, docs, errorRows]) => { setProfile(p); setSummary(s); setPeople(team); setDocuments(docs); setErrors(errorRows); setNotice(null); }).catch((e) => setNotice({ type: "error", text: e.message })).finally(() => setRefreshing(false));
   }, [isZonal, storeId, stores]);
@@ -42,6 +43,8 @@ export default function MiTienda({ user, onNavigate }) {
       <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Incidencias y medidas" first={{ value: summary.incidencias, label: "Incidencias registradas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Errores y documentos" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Estado de la dotación" first={{ value: activePeople.length, label: "Personas activas" }} second={{ value: expiring.length, label: "Alertas documentales" }} /></section>
       {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /><DashboardPairedKpi label="Cronograma zonal" first={{ value: pendingTasks, label: "Tareas pendientes" }} second={{ value: openFindings, label: "Hallazgos abiertos" }} /><DashboardPairedKpi label="Seguimiento" first={{ value: summary.incidencias, label: "Incidencias" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /></section>}
       <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Personal zonal" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button><button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button><button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>
+      <DashboardSection kicker="Afluencia de clientes" title="Tráfico de la tienda por hora" text="Identifica horas punta y ajusta la cobertura del equipo según la demanda real." />
+      <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} />
       <DashboardSection kicker="Personal de tienda" title="Asistencia y movimientos del personal" text="Consulta asistencias, ingresos, salidas y permanencia de tu equipo." />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} />}
       <DashboardSection kicker="Información de la sede" title="Datos y accesos de la tienda" text="Información principal, documentos próximos a vencer y accesos rápidos." />

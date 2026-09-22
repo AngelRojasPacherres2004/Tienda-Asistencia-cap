@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CalendarCheck2, ClipboardCheck, Plus, Search, UsersRound } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, CheckCircle2, ClipboardCheck, MapPin, Plus, Search, Store, UsersRound } from "lucide-react";
 import { api, formatDate, formatDateTime, todayISO } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
 
@@ -11,19 +11,19 @@ const labels = {
   incidencias: ["Incidencias", "Consulta y da seguimiento a las incidencias de todas tus tiendas."],
 };
 
-export default function ZonalModule({ section }) {
+export default function ZonalModule({ section, user }) {
   const [data, setData] = useState(null); const [stores, setStores] = useState([]); const [notice, setNotice] = useState(null); const [search, setSearch] = useState(""); const [open, setOpen] = useState(false); const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(blank(section));
-  const load = useCallback(() => { setData(null); api(`/zonal/${section}`).then(setData).catch((error) => setNotice({ type: "error", text: error.message })); }, [section]);
+  const load = useCallback(() => { setData(null); setNotice(null); api(`/zonal/${section}`).then(setData).catch((error) => { setNotice({ type: "error", text: error.message }); setData(section === "asistencia" ? { fecha:todayISO(), tiendas:[] } : section === "supervisiones" ? { visitas:[], observaciones:[] } : []); }); }, [section]);
   useEffect(() => { load(); if (["tareas", "supervisiones"].includes(section)) api("/tiendas").then(setStores).catch(() => setStores([])); }, [load, section]);
   const create = async (event) => { event.preventDefault(); setBusy(true); try { await api(`/zonal/${section}`, { method: "POST", body: form }); setOpen(false); setForm(blank(section)); await load(); } catch (error) { setNotice({ type: "error", text: error.message }); } finally { setBusy(false); } };
   const changeTask = async (id, estado) => { try { await api(`/zonal/tareas/${id}`, { method: "PUT", body: { estado } }); await load(); } catch (error) { setNotice({ type: "error", text: error.message }); } };
   const title = labels[section] || ["Resumen zonal", ""];
   return <>
-    <PageHeader eyebrow="Jefe zonal" title={title[0]} subtitle={title[1]} action={["tareas", "supervisiones"].includes(section) && <button className="button button--primary" onClick={() => { setForm(blank(section)); setOpen(true); }}><Plus size={16} />Nuevo registro</button>} />
+    <PageHeader eyebrow={user?.rol === "gerencia_general" ? "Gerencia general" : "Jefe zonal"} title={title[0]} subtitle={user?.rol === "gerencia_general" && section === "supervisiones" ? "Consulta las visitas, resultados y hallazgos de todas las tiendas." : title[1]} action={user?.rol === "jefe_zonal" && ["tareas", "supervisiones"].includes(section) && <button className="button button--primary" onClick={() => { setForm(blank(section)); setOpen(true); }}><Plus size={16} />Nuevo registro</button>} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-    {section !== "asistencia" && <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar…" /></label>}
-    {!data ? <Loading /> : <Content section={section} data={data} search={search} changeTask={changeTask} />}
+    {!["asistencia","supervisiones"].includes(section) && <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar…" /></label>}
+    {!data ? <Loading /> : <Content section={section} data={data} search={search} setSearch={setSearch} changeTask={changeTask} />}
     <Modal open={open} wide title={section === "tareas" ? "Nueva tarea zonal" : "Nueva supervisión"} onClose={() => setOpen(false)}>
       <form className="form-grid" onSubmit={create}>
         <Field label="Tienda"><select required value={form.tienda_id} onChange={(e) => setForm({ ...form, tienda_id: e.target.value })}><option value="">Selecciona</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></Field>
@@ -34,11 +34,10 @@ export default function ZonalModule({ section }) {
   </>;
 }
 
-function Content({ section, data, search, changeTask }) {
+function Content({ section, data, search, setSearch, changeTask }) {
   if (section === "asistencia") return data.tiendas.length ? <div className="cards-list">{data.tiendas.map((row) => <article className="task-catalog-card" key={row.id}><span className="catalog-icon"><CalendarCheck2 size={18} /></span><div><strong>{row.nombre}</strong><span>{row.registrados}/{row.personal} registrados · {row.faltas} faltas · {row.tardanzas} tardanzas · {row.pendientes} pendientes</span></div><StatusBadge value={row.pendientes ? "pendiente" : "completado"} /><small>{row.ultimo_envio ? formatDateTime(row.ultimo_envio) : "Sin envío"}</small></article>)}</div> : <Empty icon={CalendarCheck2} title="Sin tiendas" />;
   if (section === "supervisiones") {
-    const visits = filter(data.visitas, search); const observations = filter(data.observaciones, search);
-    return <div className="ops-grid"><List title="Visitas y checklists" rows={visits} render={(row) => <><strong>{row.tiendas?.nombre}</strong><span>{formatDate(row.fecha)} · Puntaje {row.puntaje ?? "—"}</span><small>{row.observacion_general}</small></>} /><List title="Hallazgos y observaciones" rows={observations} render={(row) => <><strong>{row.area_item} · {row.tiendas?.nombre}</strong><span>{row.prioridad} · límite {formatDate(row.fecha_limite)}</span><small>{row.descripcion}</small><StatusBadge value={row.estado} /></>} /></div>;
+    return <SupervisionBoard data={data} search={search} setSearch={setSearch}/>;
   }
   const rows = filter(data, search);
   if (!rows.length) return <Empty icon={section === "personal" ? UsersRound : AlertTriangle} title="Sin registros" />;
@@ -47,9 +46,26 @@ function Content({ section, data, search, changeTask }) {
   return <div className="cards-list">{rows.map((row) => <article className="task-catalog-card" key={row.id}><span className="catalog-icon"><AlertTriangle size={18} /></span><div><strong>{row.codigo || `INC-${row.id}`} · {row.tiendas?.nombre}</strong><span>{row.asunto || row.tipo} · {row.descripcion}</span></div><StatusBadge value={row.estado || "abierta"} /><small>{formatDateTime(row.fecha)}</small></article>)}</div>;
 }
 
+function SupervisionBoard({data,search,setSearch}) {
+  const [status,setStatus]=useState("todos");
+  const visits=filter(data.visitas,search);
+  const observations=filter(data.observaciones,search).filter((row)=>status==="todos"||row.estado===status);
+  const scored=data.visitas.filter((row)=>row.puntaje!==null&&row.puntaje!==undefined);
+  const average=scored.length?Math.round(scored.reduce((sum,row)=>sum+Number(row.puntaje),0)/scored.length):0;
+  const open=data.observaciones.filter((row)=>!["levantada"].includes(row.estado));
+  const urgent=open.filter((row)=>["alta","urgente"].includes(row.prioridad));
+  return <div className="supervision-board">
+    <section className="supervision-metrics"><article><span><ClipboardCheck size={19}/></span><div><small>Visitas registradas</small><strong>{data.visitas.length}</strong></div></article><article><span><CheckCircle2 size={19}/></span><div><small>Puntaje promedio</small><strong>{average}%</strong></div></article><article><span><AlertTriangle size={19}/></span><div><small>Hallazgos abiertos</small><strong>{open.length}</strong></div></article><article><span><Store size={19}/></span><div><small>Prioridad alta</small><strong>{urgent.length}</strong></div></article></section>
+    <div className="supervision-toolbar"><label><Search size={17}/><input value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Buscar tienda, área u observación"/></label><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="todos">Todos los estados</option><option value="abierta">Abiertas</option><option value="en_proceso">En proceso</option><option value="en_validacion">En validación</option><option value="levantada">Levantadas</option></select></div>
+    <div className="supervision-columns"><section className="supervision-panel"><header><div><span>CONTROL EN CAMPO</span><h2>Visitas y checklists</h2></div><b>{visits.length}</b></header><div className="supervision-list">{visits.length?visits.map((row)=><article className="supervision-visit" key={row.id}><div className="supervision-date"><strong>{new Date(`${row.fecha}T12:00:00`).toLocaleDateString("es-PE",{day:"2-digit"})}</strong><span>{new Date(`${row.fecha}T12:00:00`).toLocaleDateString("es-PE",{month:"short"}).replace(".","")}</span></div><div><h3>{row.tiendas?.nombre||"Tienda"}</h3><p><MapPin size={13}/>{row.periodo||formatDate(row.fecha)}</p><small>{row.observacion_general||"Sin observación general"}</small></div><span className={`supervision-score ${Number(row.puntaje)>=80?"good":Number(row.puntaje)>=60?"medium":"low"}`}><strong>{row.puntaje??"—"}</strong><small>Puntaje</small></span></article>):<SupervisionEmpty text="No hay visitas que coincidan con la búsqueda."/>}</div></section>
+    <section className="supervision-panel"><header><div><span>PLAN DE ACCIÓN</span><h2>Hallazgos y observaciones</h2></div><b>{observations.length}</b></header><div className="supervision-list">{observations.length?observations.map((row)=><article className="supervision-finding" key={row.id}><div className="supervision-finding-top"><span className={`priority priority--${row.prioridad}`}>{row.prioridad}</span><StatusBadge value={row.estado}/></div><h3>{row.area_item}</h3><p>{row.descripcion}</p><footer><span><Store size={13}/>{row.tiendas?.nombre||"Tienda"}</span><span>Vence {formatDate(row.fecha_limite)}</span></footer></article>):<SupervisionEmpty text="No hay hallazgos para los filtros seleccionados."/>}</div></section></div>
+  </div>;
+}
+
+function SupervisionEmpty({text}){return <div className="supervision-empty"><CheckCircle2 size={25}/><strong>Todo en orden</strong><span>{text}</span></div>}
+
 function TaskFields({ form, setForm }) { return <><Field label="Título"><input required value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} /></Field><Field label="Responsable"><input required value={form.responsable} onChange={(e) => setForm({ ...form, responsable: e.target.value })} /></Field><Field label="Fecha de inicio"><input type="date" value={form.fecha_inicio} onChange={(e) => setForm({ ...form, fecha_inicio: e.target.value })} /></Field><Field label="Fecha límite"><input required type="date" value={form.fecha_limite} onChange={(e) => setForm({ ...form, fecha_limite: e.target.value })} /></Field><Field label="Prioridad"><select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}><option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select></Field><Field label="Descripción" className="span-2"><textarea rows="3" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} /></Field></>; }
 function SupervisionFields({ form, setForm }) { return <><Field label="Fecha"><input required type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></Field><Field label="Periodo"><input placeholder="Ej. Setiembre 2026" value={form.periodo} onChange={(e) => setForm({ ...form, periodo: e.target.value })} /></Field><Field label="Puntaje"><input type="number" min="0" max="100" value={form.puntaje} onChange={(e) => setForm({ ...form, puntaje: e.target.value })} /></Field><Field label="Checklist / formato"><input value={form.checklist_nombre} onChange={(e) => setForm({ ...form, checklist_nombre: e.target.value })} /></Field><Field label="Observación general" className="span-2"><textarea required rows="3" value={form.observacion_general} onChange={(e) => setForm({ ...form, observacion_general: e.target.value })} /></Field><Field label="Área del hallazgo"><input value={form.area_item} onChange={(e) => setForm({ ...form, area_item: e.target.value })} /></Field><Field label="Prioridad"><select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}><option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select></Field><Field label="Hallazgo" className="span-2"><textarea rows="3" value={form.hallazgo} onChange={(e) => setForm({ ...form, hallazgo: e.target.value })} /></Field><Field label="Acción correctiva"><textarea rows="3" value={form.accion_solicitada} onChange={(e) => setForm({ ...form, accion_solicitada: e.target.value })} /></Field><Field label="Fecha límite"><input type="date" value={form.fecha_limite} onChange={(e) => setForm({ ...form, fecha_limite: e.target.value })} /></Field></>; }
-function List({ title, rows, render }) { return <section className="panel"><header className="panel__header"><h2>{title}</h2></header>{rows.length ? rows.map((row) => <div className="ops-row" key={row.id}>{render(row)}</div>) : <p>Sin registros.</p>}</section>; }
 function Empty({ icon, title }) { return <EmptyState icon={icon} title={title} text="No hay información disponible para las tiendas de tu zona." />; }
 function filter(rows, search) { const term = search.toLowerCase(); return (rows || []).filter((row) => JSON.stringify(row).toLowerCase().includes(term)); }
 function blank(section) { return section === "tareas" ? { tienda_id: "", titulo: "", descripcion: "", responsable: "", fecha_inicio: todayISO(), fecha_limite: "", prioridad: "media" } : { tienda_id: "", fecha: todayISO(), periodo: "", puntaje: "", checklist_nombre: "", observacion_general: "", area_item: "", prioridad: "media", hallazgo: "", accion_solicitada: "", fecha_limite: "" }; }

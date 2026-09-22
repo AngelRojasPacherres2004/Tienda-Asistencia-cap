@@ -270,6 +270,32 @@ async function login(event) {
   return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
 }
 
+async function loginApoyoSeguridad(event) {
+  const body = bodyOf(event);
+  requireFields(body, ["dni", "foto_base64", "foto_mime"]);
+  const dni = cleanText(body.dni);
+  if (!/^\d{8}$/.test(dni)) throw httpError("Ingresa un DNI válido de 8 dígitos.", 400);
+  if (!["image/jpeg", "image/png", "image/webp"].includes(body.foto_mime)) throw httpError("La foto debe ser JPG, PNG o WEBP.", 400);
+  const { data: support, error } = await supabase.from("apoyos_seguridad")
+    .select("id,usuario_id,tienda_id,fecha_inicio,fecha_fin,activo,usuarios!apoyos_seguridad_usuario_id_fkey(id,nombres,apellidos,usuario,estado)")
+    .eq("dni", dni).maybeSingle();
+  if (error) throw dbError(error);
+  const today = todayISO(); const account = support?.usuarios;
+  if (!support || !support.activo || support.fecha_inicio > today || support.fecha_fin < today || account?.estado !== "activo") throw httpError("El apoyo no tiene una autorización vigente para ingresar.", 403);
+  const buffer = Buffer.from(String(body.foto_base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (!buffer.length || buffer.length > 3 * 1024 * 1024) throw httpError("La foto debe pesar como máximo 3 MB.", 400);
+  const extension = body.foto_mime === "image/png" ? "png" : body.foto_mime === "image/webp" ? "webp" : "jpg";
+  const photoPath = `${support.tienda_id}/apoyos-seguridad/accesos/${support.id}-${Date.now()}.${extension}`;
+  const uploaded = await supabase.storage.from("mi-tienda").upload(photoPath, buffer, { contentType: body.foto_mime, upsert: false });
+  if (uploaded.error) throw dbError(uploaded.error);
+  const clientIp = event.headers["x-nf-client-connection-ip"] || event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "local";
+  const access = await supabase.from("apoyo_seguridad_accesos").insert({ apoyo_id: support.id, foto_rostro_path: photoPath, ip: clientIp });
+  if (access.error) throw dbError(access.error);
+  const sessionUser = { id: account.id, nombres: account.nombres, apellidos: account.apellidos, usuario: account.usuario, rol: "seguridad", tienda_id: support.tienda_id, apoyo_temporal: true };
+  const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
+  return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
+}
+
 // ---------- Usuarios ----------
 
 function mapUserRow(row) {
@@ -1139,7 +1165,7 @@ async function getTrabajadorPerfil(id, user) {
   await assertTrainingTarget(user, trabajador);
 
   const { data: progresoRows, error: progresoError } = await supabase.from("capacitacion_progreso")
-    .select("curso_id,estado,duracion_horas,fecha_finalizacion")
+    .select("curso_id,estado,duracion_horas,nota,fecha_finalizacion")
     .eq("usuario_id", id);
   if (progresoError) throw dbError(progresoError);
   const progresoByCurso = new Map(progresoRows.map((row) => [row.curso_id, row]));
@@ -1163,6 +1189,7 @@ async function getTrabajadorPerfil(id, user) {
       curso_id: curso.id, titulo: curso.nombre, competencia: curso.competencia, curso_activo: curso.activo,
       estado: progreso?.estado || "pendiente",
       duracion_horas: progreso?.duracion_horas ?? null,
+      nota: progreso?.nota ?? null,
       fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
     };
   });
@@ -1181,6 +1208,7 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
   const data = bodyOf(event);
   requireFields(data, ["estado"]);
   if (!progresoEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  if (data.nota !== "" && data.nota != null && (!Number.isFinite(Number(data.nota)) || Number(data.nota) < 0 || Number(data.nota) > 20)) throw httpError("La nota debe estar entre 0 y 20.", 400);
   const { data: trabajador, error: tError } = await supabase.from("usuarios")
     .select("id,tienda_id,rol").eq("id", usuarioId).maybeSingle();
   if (tError) throw dbError(tError);
@@ -1189,6 +1217,7 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
   const payload = {
     curso_id: Number(cursoId), usuario_id: Number(usuarioId), tienda_id: trabajador.tienda_id,
     estado: data.estado, duracion_horas: data.duracion_horas ? Number(data.duracion_horas) : null,
+    nota: data.nota === "" || data.nota == null ? null : Number(data.nota),
     encargado_id: null,
     fecha_finalizacion: data.estado === "completado" ? todayISO() : null,
     actualizado_por: user.id, updated_at: new Date().toISOString(),
@@ -1223,7 +1252,7 @@ async function getResumenCurso(event, user) {
 
   const ids = trabajadores.map((t) => t.id);
   const { data: progresoRows, error: pError } = await supabase.from("capacitacion_progreso")
-    .select("usuario_id,estado,duracion_horas,fecha_finalizacion")
+    .select("usuario_id,estado,duracion_horas,nota,fecha_finalizacion")
     .eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]);
   if (pError) throw dbError(pError);
   const byUser = new Map(progresoRows.map((row) => [row.usuario_id, row]));
@@ -1236,6 +1265,7 @@ async function getResumenCurso(event, user) {
       usuario_id: trabajador.id, nombre: `${trabajador.nombres} ${trabajador.apellidos}`,
       usuario: trabajador.usuario, rol: trabajador.rol, estado,
       duracion_horas: progreso?.duracion_horas ?? null,
+      nota: progreso?.nota ?? null,
       fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
     });
   }
@@ -1284,7 +1314,7 @@ async function asignarLote(event, user) {
 
 async function misCapacitaciones(user) {
   const { data: progresoRows, error } = await supabase.from("capacitacion_progreso")
-    .select("curso_id,estado,duracion_horas,fecha_finalizacion,cursos(id,nombre,competencia,activo)")
+    .select("curso_id,estado,duracion_horas,nota,fecha_finalizacion,cursos(id,nombre,competencia,activo)")
     .eq("usuario_id", user.id);
   if (error) throw dbError(error);
   const progresoByCurso = new Map(progresoRows.filter((row) => row.cursos).map((row) => [row.curso_id, row]));
@@ -1304,6 +1334,7 @@ async function misCapacitaciones(user) {
       curso_id: curso.id, titulo: curso.nombre, competencia: curso.competencia,
       estado: progreso?.estado || "pendiente",
       duracion_horas: progreso?.duracion_horas ?? null,
+      nota: progreso?.nota ?? null,
       fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
     };
   }).sort((a, b) => a.titulo.localeCompare(b.titulo));
@@ -1313,7 +1344,7 @@ async function misCapacitaciones(user) {
 
 async function getPerfil(user) {
   const { data, error } = await supabase.from("usuarios")
-    .select("id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_creacion,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre,direccion,estado)")
+    .select("id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_creacion,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre,direccion,alquiler_mensual,estado)")
     .eq("id", user.id).single();
   if (error) throw dbError(error);
   const monthStart = `${todayISO().slice(0, 7)}-01`;
@@ -1324,7 +1355,7 @@ async function getPerfil(user) {
   const presentes = mes?.filter((row) => presenteEstados.has(row.estado)).length || 0;
   return {
     ...data, tiendas: undefined, tienda_nombre: data.tiendas?.nombre || null,
-    tienda_direccion: data.tiendas?.direccion || null, tienda_estado: data.tiendas?.estado || null,
+    tienda_direccion: data.tiendas?.direccion || null, tienda_alquiler_mensual: data.tiendas?.alquiler_mensual ?? null, tienda_estado: data.tiendas?.estado || null,
     asistencia_mes: total ? Math.round((presentes / total) * 100) : null,
     dias_registrados_mes: total,
   };
@@ -1592,7 +1623,7 @@ async function fetchAsistenciasExport(tiendaId, desde, hasta) {
 
 async function fetchCapacitacionesExport(tiendaId, desde, hasta) {
   let request = supabase.from("capacitacion_progreso")
-    .select("estado,duracion_horas,fecha_finalizacion,updated_at,cursos(nombre,competencia),encargados(nombre),usuarios!capacitacion_progreso_usuario_id_fkey(nombres,apellidos,usuario)")
+    .select("estado,duracion_horas,nota,fecha_finalizacion,updated_at,cursos(nombre,competencia),encargados(nombre),usuarios!capacitacion_progreso_usuario_id_fkey(nombres,apellidos,usuario)")
     .order("updated_at", { ascending: false });
   if (tiendaId) request = request.eq("tienda_id", tiendaId);
   if (desde && isISODate(desde)) request = request.gte("updated_at", `${desde}T00:00:00`);
@@ -1604,7 +1635,7 @@ async function fetchCapacitacionesExport(tiendaId, desde, hasta) {
     empleado: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(),
     usuario: row.usuarios?.usuario || "",
     estado: progresoLabels[row.estado] || row.estado,
-    duracion_horas: row.duracion_horas || "",
+    duracion_horas: row.duracion_horas || "", nota: row.nota ?? "",
     encargado: row.encargados?.nombre || "",
     fecha_finalizacion: row.fecha_finalizacion || "",
   }));
@@ -1632,6 +1663,7 @@ function addCapacitacionesSheet(workbook, sheetName, rows) {
     { header: "Usuario", key: "usuario", width: 16 },
     { header: "Estado", key: "estado", width: 14 },
     { header: "Duración (h)", key: "duracion_horas", width: 14 },
+    { header: "Nota (0-20)", key: "nota", width: 14 },
     { header: "Encargado", key: "encargado", width: 20 },
     { header: "Fecha finalización", key: "fecha_finalizacion", width: 16 },
   ];
@@ -2157,9 +2189,34 @@ async function operationalSummary(event, user) {
   return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
 }
 
+async function listTrafficMatrix(event, user) {
+  const query = event.queryStringParameters || {};
+  const today = todayISO();
+  const desde = isISODate(query.desde) ? query.desde : new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const hasta = isISODate(query.hasta) ? query.hasta : today;
+  let scope = user.tienda_id;
+  if (user.rol === "gerencia_general") scope = Number(query.tienda_id) || null;
+  if (user.rol === "jefe_zonal") {
+    const ids = await zonalStoreIds(user.id);
+    const requested = Number(query.tienda_id) || null;
+    if (requested && !ids.includes(requested)) throw httpError("La tienda no pertenece a tu zona.", 403);
+    scope = requested || ids;
+  }
+  let request = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,tiendas(nombre)").gte("fecha", desde).lte("fecha", hasta);
+  request = applyStoreScope(request, scope);
+  const { data, error } = await request.order("fecha", { ascending: false }).order("rango_hora");
+  if (error) throw dbError(error);
+  return { desde, hasta, alcance: hasStoreScope(scope) && !Array.isArray(scope) ? "tienda" : "consolidado", registros: data || [] };
+}
+
 // ---------- Supervisión zonal ----------
 
 async function zonalScope(user) {
+  if (user.rol === "gerencia_general") {
+    const { data, error } = await supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").order("nombre");
+    if (error) throw dbError(error);
+    return { ids: (data || []).map((store) => store.id), stores: data || [] };
+  }
   const ids = await zonalStoreIds(user.id);
   if (!ids.length) return { ids: [], stores: [] };
   const { data, error } = await supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").in("id", ids).order("nombre");
@@ -2193,7 +2250,7 @@ async function getZonalModule(event, user, kind) {
     }) };
   }
   if (kind === "incidencias") {
-    const { data, error } = await supabase.from("incidencias").select("id,codigo,fecha,tipo,asunto,area,descripcion,gravedad,estado,tienda_id,tiendas(nombre)").in("tienda_id", ids).order("fecha", { ascending: false });
+    const { data, error } = await supabase.from("incidencias").select("id,fecha,tipo,asunto,area,descripcion,gravedad,estado,tienda_id,tiendas(nombre)").in("tienda_id", ids).order("fecha", { ascending: false });
     if (error) throw dbError(error); return data;
   }
   if (kind === "tareas") {
@@ -2201,8 +2258,10 @@ async function getZonalModule(event, user, kind) {
     if (error) throw dbError(error); return data;
   }
   if (kind === "supervisiones") {
+    let visitsRequest = supabase.from("visitas_zonales").select("*,tiendas(nombre)").in("tienda_id", ids).order("fecha", { ascending: false });
+    if (user.rol === "jefe_zonal") visitsRequest = visitsRequest.eq("jefe_zonal_id", user.id);
     const [{ data: visitas, error: visitError }, { data: observaciones, error: observationError }] = await Promise.all([
-      supabase.from("visitas_zonales").select("*,tiendas(nombre)").eq("jefe_zonal_id", user.id).in("tienda_id", ids).order("fecha", { ascending: false }),
+      visitsRequest,
       supabase.from("observaciones_zonales").select("*,tiendas(nombre)").in("tienda_id", ids).order("created_at", { ascending: false }),
     ]);
     if (visitError) throw dbError(visitError); if (observationError) throw dbError(observationError);
@@ -2247,29 +2306,33 @@ const miTiendaTables = {
   reclamaciones: "reclamaciones_tienda",
   acciones: "acciones_tienda",
   bitacora: "bitacora_tienda",
+  requerimientos: "requerimientos_tienda",
   mejoras: "mejoras_continuas",
 };
 
 async function getMiTienda(user) {
   const storeId = user.tienda_id;
-  const [store, documentos, reclamaciones, acciones, bitacora, visitas, observaciones, mejoras] = await Promise.all([
-    supabase.from("tiendas").select("id,codigo,nombre,zona,formato,distrito,direccion,estado,clusters(nombre)").eq("id", storeId).single(),
+  const [store, documentos, reclamaciones, acciones, bitacora, requerimientos, seguimientos, visitas, observaciones, mejoras, apoyos] = await Promise.all([
+    supabase.from("tiendas").select("id,codigo,nombre,zona,formato,distrito,direccion,alquiler_mensual,estado,clusters(nombre)").eq("id", storeId).single(),
     supabase.from("documentos_municipales").select("*").eq("tienda_id", storeId).order("fecha_vencimiento"),
     supabase.from("reclamaciones_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("acciones_tienda").select("*").eq("tienda_id", storeId).order("fecha"),
     supabase.from("bitacora_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
+    supabase.from("requerimientos_tienda").select("*").eq("tienda_id", storeId).order("created_at", { ascending: false }),
+    supabase.from("requerimiento_seguimientos").select("*,requerimientos_tienda!inner(tienda_id),usuarios(nombres,apellidos)").eq("requerimientos_tienda.tienda_id", storeId).order("created_at", { ascending: false }),
     supabase.from("visitas_zonales").select("*,usuarios(nombres,apellidos)").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("observaciones_zonales").select("*").eq("tienda_id", storeId).order("created_at", { ascending: false }),
     supabase.from("mejoras_continuas").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
+    supabase.from("apoyos_seguridad").select("*,usuarios!apoyos_seguridad_usuario_id_fkey(nombres,apellidos,telefono,estado)").eq("tienda_id", storeId).order("created_at", { ascending: false }),
   ]);
-  for (const result of [store, documentos, reclamaciones, acciones, bitacora, visitas, observaciones, mejoras]) if (result.error) throw dbError(result.error);
+  for (const result of [store, documentos, reclamaciones, acciones, bitacora, requerimientos, seguimientos, visitas, observaciones, mejoras, apoyos]) if (result.error) throw dbError(result.error);
   const today = todayISO();
   const limit = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const docs = documentos.data || [], claims = reclamaciones.data || [], acts = acciones.data || [];
   return {
     tienda: { ...store.data, cluster: store.data?.clusters?.nombre || null, clusters: undefined },
-    documentos: docs, reclamaciones: claims, acciones: acts, bitacora: bitacora.data || [],
-    visitas: visitas.data || [], observaciones: observaciones.data || [], mejoras: mejoras.data || [],
+    documentos: docs, reclamaciones: claims, acciones: acts, bitacora: bitacora.data || [], requerimientos: (requerimientos.data || []).map((item) => ({ ...item, seguimientos: (seguimientos.data || []).filter((entry) => entry.requerimiento_id === item.id) })),
+    visitas: visitas.data || [], observaciones: observaciones.data || [], mejoras: mejoras.data || [], apoyos_seguridad: apoyos.data || [],
     resumen: {
       documentos_por_vencer: docs.filter((x) => x.fecha_vencimiento && x.fecha_vencimiento >= today && x.fecha_vencimiento <= limit).length,
       reclamos_en_atencion: claims.filter((x) => ["registrado", "en_atencion"].includes(x.estado)).length,
@@ -2284,6 +2347,8 @@ async function updateMiTiendaData(event, user) {
   const data = bodyOf(event);
   const payload = {};
   for (const key of ["codigo", "zona", "formato", "distrito", "direccion"]) payload[key] = cleanText(data[key]) || null;
+  payload.alquiler_mensual = data.alquiler_mensual === "" || data.alquiler_mensual == null ? null : Number(data.alquiler_mensual);
+  if (payload.alquiler_mensual !== null && (!Number.isFinite(payload.alquiler_mensual) || payload.alquiler_mensual < 0)) throw httpError("El alquiler mensual debe ser un monto válido.", 400);
   const { error } = await supabase.from("tiendas").update(payload).eq("id", user.tienda_id);
   if (error) throw dbError(error);
 }
@@ -2293,15 +2358,19 @@ async function saveMiTiendaRecord(event, user, kind, id = null) {
   if (!table) throw httpError("Tipo de registro no válido.", 400);
   const data = bodyOf(event);
   const allowed = {
-    documentos: ["area_responsable","codigo","tipo_documento","frecuencia_revision","fecha_emision","fecha_vencimiento","estado","archivo_path","archivo_nombre"],
+    documentos: ["area_responsable","responsables","codigo","tipo_documento","frecuencia_revision","fecha_emision","fecha_vencimiento","estado","archivo_path","archivo_nombre"],
     reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","consumidor_documento","consumidor_contacto","producto_servicio","monto","tipo","detalle","pedido_consumidor","observaciones_proveedor","acciones_adoptadas","fecha_respuesta","responsable","estado","archivo_path","archivo_nombre"],
     acciones: ["fecha","tipo","responsable","accion","estado","objetivo","observacion","evidencia_path","evidencia_nombre"],
     bitacora: ["fecha","venta_dia","categoria","evento","descripcion","evidencia_path","evidencia_nombre"],
+    requerimientos: ["requerimiento","cantidad","areas_responsables","urgencia","fecha_inicio","fecha_fin_objetivo","estado","evidencia_path","evidencia_nombre","comentario"],
     mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo","foto_antes_path","foto_antes_nombre","foto_despues_path","foto_despues_nombre","estado","resultado_beneficio"],
   }[kind];
-  const required = { documentos: ["area_responsable","tipo_documento"], reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","producto_servicio","tipo","detalle"], acciones: ["fecha","tipo","responsable","accion"], bitacora: ["fecha","venta_dia","categoria"], mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo"] }[kind];
+  const required = { documentos: ["responsables","tipo_documento"], reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","producto_servicio","tipo","detalle"], acciones: ["fecha","tipo","responsable","accion"], bitacora: ["fecha","venta_dia","categoria"], requerimientos: ["requerimiento","areas_responsables","urgencia","fecha_inicio"], mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo"] }[kind];
   requireFields(data, required);
+  if (kind === "requerimientos" && (!Array.isArray(data.areas_responsables) || !data.areas_responsables.length)) throw httpError("Selecciona al menos un área responsable.", 400);
+  if (kind === "documentos" && (!Array.isArray(data.responsables) || !data.responsables.length)) throw httpError("Selecciona al menos un responsable.", 400);
   const payload = Object.fromEntries(allowed.filter((key) => data[key] !== undefined).map((key) => [key, typeof data[key] === "string" ? cleanText(data[key]) || null : data[key]]));
+  if (kind === "documentos") payload.area_responsable = data.responsables.join(", ");
   payload.updated_at = new Date().toISOString();
   if (kind === "bitacora") {
     const { data: traffic, error } = await supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", user.tienda_id).eq("fecha", data.fecha);
@@ -2312,6 +2381,51 @@ async function saveMiTiendaRecord(event, user, kind, id = null) {
   if (id) query = supabase.from(table).update(payload).eq("id", id).eq("tienda_id", user.tienda_id);
   else query = supabase.from(table).insert({ ...payload, tienda_id: user.tienda_id, creado_por: user.id });
   const { data: row, error } = await query.select().single();
+  if (error) throw dbError(error);
+  if (kind === "requerimientos" && !id) {
+    const tracking = await supabase.from("requerimiento_seguimientos").insert({ requerimiento_id: row.id, usuario_id: user.id, comentario: "Requerimiento registrado", estado: row.estado });
+    if (tracking.error) throw dbError(tracking.error);
+  }
+  return row;
+}
+
+async function createSecuritySupport(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["nombres", "apellidos", "dni", "fecha_inicio", "fecha_fin", "foto_referencia_path"]);
+  const dni = cleanText(data.dni);
+  if (!/^\d{8}$/.test(dni)) throw httpError("El DNI debe tener 8 dígitos.", 400);
+  if (!isISODate(data.fecha_inicio) || !isISODate(data.fecha_fin) || data.fecha_fin < data.fecha_inicio) throw httpError("Indica un periodo de apoyo válido.", 400);
+  await ensureUniqueUser(null, dni);
+  const username = `apoyo.${dni}.${Date.now().toString(36)}`;
+  const inserted = await supabase.from("usuarios").insert({ nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: "dni", usuario: username, password: disabledPassword, telefono: cleanText(data.telefono) || null, rol: "seguridad", tienda_id: user.tienda_id, estado: "activo", fecha_ingreso: data.fecha_inicio }).select("id").single();
+  if (inserted.error) throw dbError(inserted.error);
+  const support = await supabase.from("apoyos_seguridad").insert({ usuario_id: inserted.data.id, tienda_id: user.tienda_id, dni, foto_referencia_path: data.foto_referencia_path, fecha_inicio: data.fecha_inicio, fecha_fin: data.fecha_fin, motivo: cleanText(data.motivo) || null, creado_por: user.id }).select("*").single();
+  if (support.error) { await supabase.from("usuarios").delete().eq("id", inserted.data.id); throw dbError(support.error); }
+  return support.data;
+}
+
+async function updateSecuritySupport(event, user, id) {
+  const data = bodyOf(event); const payload = {};
+  if (data.activo !== undefined) payload.activo = Boolean(data.activo);
+  if (data.fecha_fin !== undefined) { if (!isISODate(data.fecha_fin)) throw httpError("La fecha final no es válida.", 400); payload.fecha_fin = data.fecha_fin; }
+  payload.updated_at = new Date().toISOString();
+  const result = await supabase.from("apoyos_seguridad").update(payload).eq("id", id).eq("tienda_id", user.tienda_id).select("*").maybeSingle();
+  if (result.error) throw dbError(result.error); if (!result.data) throw httpError("El apoyo no existe.", 404);
+  const status = await supabase.from("usuarios").update({ estado: result.data.activo ? "activo" : "inactivo", fecha_salida: result.data.activo ? null : todayISO() }).eq("id", result.data.usuario_id);
+  if (status.error) throw dbError(status.error);
+  return result.data;
+}
+
+async function addRequirementTracking(event, user, id) {
+  const data = bodyOf(event);
+  requireFields(data, ["comentario", "estado"]);
+  const existing = await supabase.from("requerimientos_tienda").select("id").eq("id", id).eq("tienda_id", user.tienda_id).maybeSingle();
+  if (existing.error) throw dbError(existing.error);
+  if (!existing.data) throw httpError("El requerimiento no existe.", 404);
+  const estado = ["pendiente", "en_proceso", "atendido", "cancelado"].includes(data.estado) ? data.estado : "pendiente";
+  const update = await supabase.from("requerimientos_tienda").update({ estado, updated_at: new Date().toISOString() }).eq("id", id);
+  if (update.error) throw dbError(update.error);
+  const { data: row, error } = await supabase.from("requerimiento_seguimientos").insert({ requerimiento_id: id, usuario_id: user.id, comentario: cleanText(data.comentario), estado, evidencia_path: data.evidencia_path || null, evidencia_nombre: data.evidencia_nombre || null }).select().single();
   if (error) throw dbError(error);
   return row;
 }
@@ -2366,6 +2480,7 @@ export async function handler(event) {
       return json(200, { ok: true, database: "connected" });
     }
     if (path === "/auth/login" && method === "POST") return await login(event);
+    if (path === "/auth/apoyo-seguridad" && method === "POST") return await loginApoyoSeguridad(event);
     if (path === "/auth/logout" && method === "POST") {
       return json(200, { ok: true }, { "Set-Cookie": clearSessionCookie(event) });
     }
@@ -2519,7 +2634,7 @@ export async function handler(event) {
 
     const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias)$/);
     if (zonalModuleMatch && method === "GET") {
-      ensureAuth(event, "jefe_zonal");
+      ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
       return json(200, await getZonalModule(event, user, zonalModuleMatch[1]));
     }
     if (path === "/zonal/tareas" && method === "POST") {
@@ -2537,6 +2652,10 @@ export async function handler(event) {
     if (path === "/operaciones/resumen" && method === "GET") {
       ensureAuth(event, operationalReaders);
       return json(200, await operationalSummary(event, user));
+    }
+    if (path === "/trafico/matriz" && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      return json(200, await listTrafficMatrix(event, user));
     }
     if (path === "/trafico" && method === "GET") {
       ensureAuth(event, operationalReaders);
@@ -2622,11 +2741,22 @@ export async function handler(event) {
     if (path === "/mi-tienda-gestion/archivo-url" && method === "POST") {
       ensureAuth(event, "jefe_tienda"); return json(200, await signedMiTiendaFile(event, user));
     }
-    const miTiendaRecordMatch = path.match(/^\/mi-tienda-gestion\/(documentos|reclamaciones|acciones|bitacora|mejoras)(?:\/(\d+))?$/);
+    if (path === "/mi-tienda-gestion/apoyos-seguridad" && method === "POST") {
+      ensureAuth(event, "jefe_tienda"); return json(201, await createSecuritySupport(event, user));
+    }
+    const securitySupportMatch = path.match(/^\/mi-tienda-gestion\/apoyos-seguridad\/(\d+)$/);
+    if (securitySupportMatch && method === "PUT") {
+      ensureAuth(event, "jefe_tienda"); return json(200, await updateSecuritySupport(event, user, Number(securitySupportMatch[1])));
+    }
+    const miTiendaRecordMatch = path.match(/^\/mi-tienda-gestion\/(documentos|reclamaciones|acciones|bitacora|requerimientos|mejoras)(?:\/(\d+))?$/);
     if (miTiendaRecordMatch && ["POST", "PUT"].includes(method)) {
       ensureAuth(event, "jefe_tienda");
       if (method === "PUT" && !miTiendaRecordMatch[2]) throw httpError("Falta indicar el registro.", 400);
       return json(method === "POST" ? 201 : 200, await saveMiTiendaRecord(event, user, miTiendaRecordMatch[1], miTiendaRecordMatch[2] ? Number(miTiendaRecordMatch[2]) : null));
+    }
+    const requirementTrackingMatch = path.match(/^\/mi-tienda-gestion\/requerimientos\/(\d+)\/seguimiento$/);
+    if (requirementTrackingMatch && method === "POST") {
+      ensureAuth(event, "jefe_tienda"); return json(201, await addRequirementTracking(event, user, Number(requirementTrackingMatch[1])));
     }
     const zonalObservationMatch = path.match(/^\/mi-tienda-gestion\/observaciones\/(\d+)$/);
     if (zonalObservationMatch && method === "PUT") {

@@ -117,7 +117,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
     const initial = {};
     for (const curso of res.cursos) {
       initial[curso.curso_id] = {
-        estado: curso.estado, duracion_horas: curso.duracion_horas ?? "",
+        estado: curso.estado, duracion_horas: curso.duracion_horas ?? "", nota: curso.nota ?? "",
       };
     }
     setDrafts(initial);
@@ -133,7 +133,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
     try {
       await api(`/capacitaciones/trabajadores/${id}/cursos/${cursoId}`, {
         method: "PUT",
-        body: { estado: draft.estado, duracion_horas: draft.duracion_horas || null },
+        body: { estado: draft.estado, duracion_horas: draft.duracion_horas || null, nota: draft.nota === "" ? null : draft.nota },
       });
       await load();
       setSuccess({ title: "Progreso actualizado", message: "La capacitación del trabajador se guardó correctamente." });
@@ -171,6 +171,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
                   {readOnly ? <>
                     <Field label="Estado"><StatusBadge value={draft.estado || "pendiente"} label={progresoLabels[draft.estado || "pendiente"]} /></Field>
                     <Field label="Duración"><span>{draft.duracion_horas ? `${draft.duracion_horas} h` : "Sin registrar"}</span></Field>
+                    <Field label="Nota"><span>{draft.nota !== "" && draft.nota != null ? `${draft.nota} / 20` : "Sin nota"}</span></Field>
                   </> : <>
                     <Field label="Estado">
                       <select value={draft.estado || "pendiente"} onChange={(e) => setDraft(curso.curso_id, "estado", e.target.value)}>
@@ -181,6 +182,9 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
                     </Field>
                     <Field label="Duración (h)">
                       <input type="number" min="0" step="0.5" value={draft.duracion_horas ?? ""} onChange={(e) => setDraft(curso.curso_id, "duracion_horas", e.target.value)} />
+                    </Field>
+                    <Field label="Nota (0–20)">
+                      <input type="number" min="0" max="20" step="0.5" value={draft.nota ?? ""} onChange={(e) => setDraft(curso.curso_id, "nota", e.target.value)} />
                     </Field>
                     <div className="worker-task__footer">
                       <button className="button button--primary button--small" disabled={savingCurso === curso.curso_id} onClick={() => guardar(curso.curso_id)}>
@@ -279,7 +283,7 @@ function ResumenPanel({ cursos }) {
               <span className="avatar">{p.nombre.charAt(0).toUpperCase()}</span>
               <div><strong>{p.nombre}</strong><small>@{p.usuario} · {roleLabels[p.rol]}</small></div>
               <div className="detail-person__status">
-                <small>{p.duracion_horas ? `${p.duracion_horas} h` : "Sin duración"}</small>
+                <small>{p.duracion_horas ? `${p.duracion_horas} h` : "Sin duración"}{p.nota !== null && p.nota !== undefined ? ` · Nota ${p.nota}/20` : " · Sin nota"}</small>
                 <small>{p.fecha_finalizacion ? formatDate(p.fecha_finalizacion) : "—"}</small>
               </div>
             </div>

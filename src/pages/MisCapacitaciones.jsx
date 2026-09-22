@@ -28,6 +28,7 @@ export default function MisCapacitaciones() {
                 <span>
                   {item.competencia}
                   {item.duracion_horas ? ` · ${item.duracion_horas} h` : ""}
+                  {item.nota !== null && item.nota !== undefined ? ` · Nota ${item.nota}/20` : ""}
                 </span>
               </div>
               <StatusBadge value={item.estado} label={progresoLabels[item.estado]} />

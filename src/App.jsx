@@ -5,6 +5,7 @@ import { Loading } from "./components/UI";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const CommercialDashboard = lazy(() => import("./pages/CommercialDashboard"));
 const Usuarios = lazy(() => import("./pages/Usuarios"));
 const Tiendas = lazy(() => import("./pages/Tiendas"));
 const Cursos = lazy(() => import("./pages/Cursos"));
@@ -71,7 +72,7 @@ export default function App() {
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
-    dashboard: isStoreManagement || user.rol === "jefe_zonal" ? storeHome : <Dashboard user={user} />,
+    dashboard: user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : isStoreManagement || user.rol === "jefe_zonal" ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
     tiendas: <Tiendas user={user} />,
@@ -90,11 +91,11 @@ export default function App() {
     "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
     "incidencias-tienda": <IncidenciasTienda user={user} />,
     coberturas: <CoberturasEspeciales />,
-    "zonal-personal": <ZonalModule section="personal" />,
-    "zonal-asistencia": <ZonalModule section="asistencia" />,
-    "zonal-tareas": <ZonalModule section="tareas" />,
-    "zonal-supervisiones": <ZonalModule section="supervisiones" />,
-    "zonal-incidencias": <ZonalModule section="incidencias" />,
+    "zonal-personal": <ZonalModule section="personal" user={user} />,
+    "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,
+    "zonal-tareas": <ZonalModule section="tareas" user={user} />,
+    "zonal-supervisiones": <ZonalModule section="supervisiones" user={user} />,
+    "zonal-incidencias": <ZonalModule section="incidencias" user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (
