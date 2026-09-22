@@ -72,7 +72,7 @@ export default function App() {
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
-    dashboard: user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : isStoreManagement || user.rol === "jefe_zonal" ? storeHome : <Dashboard user={user} />,
+    dashboard: user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" ? storeHome : isStoreManagement ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
     tiendas: <Tiendas user={user} />,

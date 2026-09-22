@@ -8,10 +8,12 @@ import {
 const blank = { nombre: "", direccion: "", jefe_id: "", cluster_id: "", estado: "activo" };
 
 export default function Tiendas({ user }) {
-  const canEdit = user?.rol === "gerente_comercial";
+  const canEdit = ["gerente_comercial", "jefe_zonal"].includes(user?.rol);
+  const isZonal = user?.rol === "jefe_zonal";
   const [items, setItems] = useState(null);
   const [usuarios, setUsuarios] = useState([]);
   const [clusters, setClusters] = useState([]);
+  const [zonalCluster, setZonalCluster] = useState(null);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +25,7 @@ export default function Tiendas({ user }) {
 
   const load = () => api("/tiendas").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
-  useEffect(() => { load(); loadUsuarios(); if (canEdit) api("/clusters").then(setClusters).catch(() => {}); }, [canEdit]);
+  useEffect(() => { load(); loadUsuarios(); if (user?.rol === "gerente_comercial") api("/clusters").then(setClusters).catch(() => {}); if(isZonal)api("/zonal/cluster").then(setZonalCluster).catch(()=>setZonalCluster(null)); }, [user?.rol,isZonal]);
 
   const filtered = useMemo(() => (items || []).filter((item) =>
     [item.nombre, item.direccion, item.jefe_nombre].join(" ").toLowerCase().includes(search.toLowerCase()),
@@ -62,9 +64,9 @@ export default function Tiendas({ user }) {
   return (
     <>
       <PageHeader
-        eyebrow="Operación"
-        title="Tiendas"
-        subtitle="Crea tiendas, asígnales un jefe y administra su estado."
+        eyebrow={isZonal ? "Gestión zonal" : "Operación"}
+        title={isZonal ? "Mis tiendas" : "Tiendas"}
+        subtitle="Crea tiendas, asigna su administrador y consulta al resto del personal."
         action={canEdit ? <button className="button button--primary" onClick={openNew}>Nueva tienda</button> : null}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
@@ -118,12 +120,12 @@ export default function Tiendas({ user }) {
                 {jefeOptions.map((u) => <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>)}
               </select>
             </Field>
-            <Field label="Clúster">
+            {isZonal ? <Field label="Clúster asignado" hint="Las tiendas creadas quedan dentro de tu clúster."><input disabled value={zonalCluster?`${zonalCluster.nombre}${zonalCluster.codigo?` · ${zonalCluster.codigo}`:""}`:"Sin clúster asignado"}/></Field> : <Field label="Clúster">
               <select required value={editing.cluster_id || ""} onChange={(e) => set("cluster_id", e.target.value)}>
                 <option value="">Selecciona un clúster</option>
                 {clusters.filter((c) => c.estado === "activo" || String(c.id) === String(editing.cluster_id)).map((c) => <option value={c.id} key={c.id}>{c.nombre}</option>)}
               </select>
-            </Field>
+            </Field>}
             <Field label="Estado">
               <select value={editing.estado} onChange={(e) => set("estado", e.target.value)}>
                 <option value="activo">Activo</option>

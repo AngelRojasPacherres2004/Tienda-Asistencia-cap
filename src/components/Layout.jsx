@@ -30,7 +30,7 @@ const navByRole = {
   jefe_zonal: [
     { id: "dashboard", label: "Resumen zonal", icon: BarChart3 },
     { id: "tiendas", label: "Mis tiendas", icon: Building2 },
-    { id: "zonal-personal", label: "Personal", icon: Users },
+    { id: "zonal-personal", label: "Administradores", icon: Users },
     { id: "zonal-asistencia", label: "Asistencia", icon: CalendarCheck2 },
     { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck },
     { id: "zonal-supervisiones", label: "Supervisiones", icon: ClipboardCheck },

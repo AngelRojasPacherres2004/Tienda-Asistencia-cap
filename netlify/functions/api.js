@@ -91,7 +91,10 @@ function dbError(error) {
     return httpError("La base de datos rechazó uno de los valores. Ejecuta las migraciones pendientes y vuelve a intentarlo.", 400);
   }
   if (["42P01", "42703", "PGRST204", "PGRST205"].includes(error.code)) {
-    return httpError("La estructura de la base de datos no está actualizada. Ejecuta las migraciones pendientes.", 500);
+    const missing = String(error.message || "").match(/(?:table|column) ['"]?public\.([a-z0-9_]+)/i)?.[1];
+    return httpError(missing
+      ? `Falta habilitar "${missing}" en la base de datos. Ejecuta su migración y recarga el esquema de Supabase.`
+      : "La estructura de la base de datos no está actualizada. Ejecuta las migraciones pendientes.", 500);
   }
   console.error(error);
   return httpError("Ocurrió un error al acceder a la base de datos.", 500);
@@ -194,7 +197,7 @@ function validateUserPayload(data) {
   if (centralRoles.has(data.rol) && data.tienda_id) {
     throw httpError("Gerentes y jefes zonales no llevan una única tienda asignada.", 400);
   }
-  if (!centralRoles.has(data.rol) && !data.tienda_id) {
+  if (!centralRoles.has(data.rol) && data.rol !== "jefe_tienda" && !data.tienda_id) {
     throw httpError("Selecciona la tienda del usuario.", 400);
   }
   if (data.password && String(data.password).length < 6) {
@@ -342,6 +345,7 @@ function allowedCreatedRoles(actor) {
 async function assertUserScope(actor, role, tiendaId) {
   if (!allowedCreatedRoles(actor).has(role)) throw httpError("No puedes administrar usuarios de ese rango.", 403);
   if (actor.rol === "jefe_zonal") {
+    if (role === "jefe_tienda" && !tiendaId) return;
     const ids = await zonalStoreIds(actor.id);
     if (!ids.includes(Number(tiendaId))) throw httpError("La tienda no está asignada a tu zona.", 403);
   }
@@ -363,8 +367,8 @@ async function listUsers(actor, storeId = null) {
   if (actor.rol === "gerente_comercial" && !storeId) request = request.eq("rol", "jefe_zonal");
   if (actor.rol === "jefe_zonal" && !storeId) {
     const ids = await zonalStoreIds(actor.id);
-    if (!ids.length) return [];
-    request = request.eq("rol", "jefe_tienda").in("tienda_id", ids);
+    request = request.eq("rol", "jefe_tienda");
+    request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${actor.id}`) : request.eq("zonal_creador_id", actor.id);
   }
   if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
@@ -469,13 +473,13 @@ async function createUser(event, actor) {
   const usuario = cleanUsuario(data.usuario) || null;
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni);
-  if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
-  if (data.rol === "jefe_tienda") await ensureStoreWithoutOtherChief(Number(data.tienda_id));
+  if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
+  if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id));
   const password = data.password ? await bcrypt.hash(String(data.password), 12) : null;
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
-    tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.fecha_salida ? "inactivo" : data.estado,
+    tienda_id: centralRoles.has(data.rol) || !data.tienda_id ? null : Number(data.tienda_id), zonal_creador_id: actor.rol === "jefe_zonal" ? actor.id : null, estado: data.fecha_salida ? "inactivo" : data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
@@ -496,7 +500,7 @@ async function createUser(event, actor) {
   await saveOptionalPersonnelFields(created.id, data);
   await syncEmploymentPeriod(created.id, data, actor.id);
   await saveWeeklySchedule(created.id, data.horarios);
-  if (data.rol === "jefe_tienda") await linkStoreChief(created.id, Number(data.tienda_id));
+  if (data.rol === "jefe_tienda" && data.tienda_id) await linkStoreChief(created.id, Number(data.tienda_id));
   if (data.rol === "jefe_zonal") {
     try {
       await assignZonalCluster(created.id, Number(data.cluster_id));
@@ -573,12 +577,12 @@ async function updateUser(event, id, actor) {
   const usuario = cleanUsuario(data.usuario) || null;
   const dni = cleanText(data.dni);
   await ensureUniqueUser(usuario, dni, id);
-  if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
-  if (data.rol === "jefe_tienda") await ensureStoreWithoutOtherChief(Number(data.tienda_id), id);
+  if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
+  if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id), id);
   const payload = {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
-    tienda_id: centralRoles.has(data.rol) ? null : Number(data.tienda_id), estado: data.fecha_salida ? "inactivo" : data.estado,
+    tienda_id: centralRoles.has(data.rol) || !data.tienda_id ? null : Number(data.tienda_id), estado: data.fecha_salida ? "inactivo" : data.estado,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
@@ -601,7 +605,7 @@ async function updateUser(event, id, actor) {
   await saveOptionalPersonnelFields(id, data);
   await syncEmploymentPeriod(id, data, actor.id);
   await saveWeeklySchedule(id, data.horarios);
-  if (data.rol === "jefe_tienda") await linkStoreChief(id, Number(data.tienda_id), current.tienda_id);
+  if (data.rol === "jefe_tienda" && data.tienda_id) await linkStoreChief(id, Number(data.tienda_id), current.tienda_id);
   if (data.rol === "jefe_zonal") await assignZonalCluster(id, Number(data.cluster_id));
 }
 
@@ -819,7 +823,9 @@ async function syncJefe(tiendaId, jefeId) {
   const { data: jefe } = await supabase.from("usuarios").select("id,rol,tienda_id,estado").eq("id", jefeId).maybeSingle();
   if (!jefe || jefe.estado !== "activo") throw httpError("El usuario seleccionado como jefe no existe o está inactivo.", 400);
   if (jefe.rol !== "jefe_tienda") throw httpError("Selecciona un jefe de tienda activo.", 400);
-  if (jefe.tienda_id !== tiendaId) throw httpError("El administrador debe pertenecer a esta tienda.", 400);
+  if (jefe.tienda_id && Number(jefe.tienda_id) !== Number(tiendaId)) throw httpError("El administrador ya pertenece a otra tienda.", 400);
+  const { error } = await supabase.from("usuarios").update({ tienda_id: Number(tiendaId) }).eq("id", jefeId);
+  if (error) throw dbError(error);
 }
 
 async function ensureClusterActive(clusterId) {
@@ -828,11 +834,28 @@ async function ensureClusterActive(clusterId) {
   if (!data || data.estado !== "activo") throw httpError("Selecciona un clúster activo.", 400);
 }
 
-async function createTienda(event) {
+async function zonalClusterId(userId) {
+  const { data, error } = await supabase.from("clusters").select("id").eq("jefe_zonal_id", userId).eq("estado", "activo").maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("No tienes una zona activa asignada.", 400);
+  return data.id;
+}
+
+async function assertZonalChief(actor, chiefId) {
+  if (actor.rol !== "jefe_zonal" || !chiefId) return;
+  const ids = await zonalStoreIds(actor.id);
+  const { data, error } = await supabase.from("usuarios").select("id,tienda_id,zonal_creador_id,rol").eq("id", Number(chiefId)).maybeSingle();
+  if (error) throw dbError(error);
+  if (!data || data.rol !== "jefe_tienda" || (Number(data.zonal_creador_id) !== Number(actor.id) && !ids.includes(Number(data.tienda_id)))) throw httpError("El administrador no pertenece a tu zona.", 403);
+}
+
+async function createTienda(event, actor) {
   const data = bodyOf(event);
   validateTiendaPayload(data);
+  if (actor.rol === "jefe_zonal") data.cluster_id = await zonalClusterId(actor.id);
   if (!data.cluster_id) throw httpError("Selecciona el clúster de la tienda.", 400);
   await ensureClusterActive(Number(data.cluster_id));
+  await assertZonalChief(actor, data.jefe_id);
   const { data: created, error } = await supabase.from("tiendas")
     .insert({
       nombre: cleanText(data.nombre),
@@ -849,11 +872,20 @@ async function createTienda(event) {
   return created;
 }
 
-async function updateTienda(event, id) {
+async function updateTienda(event, id, actor) {
   const data = bodyOf(event);
   validateTiendaPayload(data);
+  if (actor.rol === "jefe_zonal") {
+    const clusterId = await zonalClusterId(actor.id);
+    const { data: store, error } = await supabase.from("tiendas").select("id,jefe_id").eq("id", id).eq("cluster_id", clusterId).maybeSingle();
+    if (error) throw dbError(error); if (!store) throw httpError("La tienda no pertenece a tu zona.", 403);
+    data.cluster_id = clusterId;
+  }
   if (!data.cluster_id) throw httpError("Selecciona el clúster de la tienda.", 400);
   await ensureClusterActive(Number(data.cluster_id));
+  await assertZonalChief(actor, data.jefe_id);
+  const { data: previousStore, error: previousError } = await supabase.from("tiendas").select("jefe_id").eq("id", id).maybeSingle();
+  if (previousError) throw dbError(previousError);
   const jefeId = data.jefe_id ? Number(data.jefe_id) : null;
   if (jefeId) await syncJefe(Number(id), jefeId);
   const { error } = await supabase.from("tiendas").update({
@@ -863,6 +895,10 @@ async function updateTienda(event, id) {
     jefe_id: jefeId, cluster_id: data.cluster_id ? Number(data.cluster_id) : null,
   }).eq("id", id);
   if (error) throw dbError(error);
+  if (previousStore?.jefe_id && Number(previousStore.jefe_id) !== jefeId) {
+    const released = await supabase.from("usuarios").update({ tienda_id: null }).eq("id", previousStore.jefe_id).eq("rol", "jefe_tienda");
+    if (released.error) throw dbError(released.error);
+  }
 }
 
 // ---------- Asistencias ----------
@@ -2226,12 +2262,14 @@ async function zonalScope(user) {
 
 async function getZonalModule(event, user, kind) {
   const { ids, stores } = await zonalScope(user);
-  if (!ids.length) return kind === "asistencia" ? { fecha: todayISO(), tiendas: [] } : [];
+  if (!ids.length && kind !== "personal") return kind === "asistencia" ? { fecha: todayISO(), tiendas: [] } : [];
   const query = event.queryStringParameters || {};
   if (kind === "personal") {
-    const { data, error } = await supabase.from("usuarios")
-      .select("id,nombres,apellidos,dni,rol,estado,fecha_ingreso,fecha_salida,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
-      .in("tienda_id", ids).order("nombres");
+    let request = supabase.from("usuarios")
+      .select("id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_ingreso,fecha_salida,tienda_id,zonal_creador_id,tiendas!usuarios_tienda_id_fkey(nombre)")
+      .eq("rol", "jefe_tienda").order("nombres");
+    if (user.rol === "jefe_zonal") request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${user.id}`) : request.eq("zonal_creador_id", user.id);
+    const { data, error } = await request;
     if (error) throw dbError(error);
     return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || "" }));
   }
@@ -2250,7 +2288,9 @@ async function getZonalModule(event, user, kind) {
     }) };
   }
   if (kind === "incidencias") {
-    const { data, error } = await supabase.from("incidencias").select("id,fecha,tipo,asunto,area,descripcion,gravedad,estado,tienda_id,tiendas(nombre)").in("tienda_id", ids).order("fecha", { ascending: false });
+    let request = supabase.from("incidencias_zonales").select("*,origen:tiendas!incidencias_zonales_tienda_origen_id_fkey(nombre),afectada:tiendas!incidencias_zonales_tienda_afectada_id_fkey(nombre)").order("fecha", { ascending: false });
+    if (user.rol === "jefe_zonal") request = request.eq("jefe_zonal_id", user.id);
+    const { data, error } = await request;
     if (error) throw dbError(error); return data;
   }
   if (kind === "tareas") {
@@ -2258,7 +2298,7 @@ async function getZonalModule(event, user, kind) {
     if (error) throw dbError(error); return data;
   }
   if (kind === "supervisiones") {
-    let visitsRequest = supabase.from("visitas_zonales").select("*,tiendas(nombre)").in("tienda_id", ids).order("fecha", { ascending: false });
+    let visitsRequest = supabase.from("visitas_zonales").select("*,tiendas(nombre,jefe:usuarios!tiendas_jefe_fk(nombres,apellidos))").in("tienda_id", ids).order("fecha", { ascending: false });
     if (user.rol === "jefe_zonal") visitsRequest = visitsRequest.eq("jefe_zonal_id", user.id);
     const [{ data: visitas, error: visitError }, { data: observaciones, error: observationError }] = await Promise.all([
       visitsRequest,
@@ -2297,6 +2337,94 @@ async function createZonalSupervision(event, user) {
     if (inserted.error) throw dbError(inserted.error);
   }
   return visit;
+}
+
+async function updateZonalAdministrator(event, user, id) {
+  const data = bodyOf(event);
+  const { data: current, error: currentError } = await supabase.from("usuarios")
+    .select("id,rol,tienda_id,zonal_creador_id").eq("id", id).maybeSingle();
+  if (currentError) throw dbError(currentError);
+  if (!current || current.rol !== "jefe_tienda") throw httpError("Administrador no encontrado.", 404);
+  const storeIds = await zonalStoreIds(user.id);
+  if (Number(current.zonal_creador_id) !== Number(user.id) && !storeIds.includes(Number(current.tienda_id))) {
+    throw httpError("El administrador no pertenece a tu zona.", 403);
+  }
+  const normalized = { ...data, rol: "jefe_tienda", tienda_id: current.tienda_id, estado: data.estado || "activo", fecha_salida: "" };
+  validateUserPayload(normalized);
+  const usuario = cleanUsuario(data.usuario) || null;
+  const dni = cleanText(data.dni);
+  await ensureUniqueUser(usuario, dni, id);
+  const payload = {
+    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
+    telefono: data.telefono ? cleanText(data.telefono) : null,
+    fecha_ingreso: data.fecha_ingreso, estado: normalized.estado,
+  };
+  if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
+  const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
+  if (error) throw dbError(error);
+  return { ok: true };
+}
+
+async function getZonalCluster(user) {
+  const { data, error } = await supabase.from("clusters").select("id,nombre,codigo,estado").eq("jefe_zonal_id", user.id).maybeSingle();
+  if (error) throw dbError(error); if (!data) throw httpError("No tienes un clúster asignado.", 404); return data;
+}
+
+async function validateZonalObservation(event, user, id) {
+  const data = bodyOf(event); const ids = await zonalStoreIds(user.id);
+  if (!['validar','reabrir'].includes(data.resultado)) throw httpError("Selecciona un resultado válido.", 400);
+  const estado = data.resultado === 'validar' ? 'levantada' : 'abierta';
+  const { data: row, error } = await supabase.from("observaciones_zonales").update({ estado, comentario_validacion:cleanText(data.comentario)||null, validado_por:user.id, fecha_validacion:new Date().toISOString(), updated_at:new Date().toISOString() }).eq("id",id).in("tienda_id",ids).select().maybeSingle();
+  if (error) throw dbError(error); if (!row) throw httpError("La observación no pertenece a tu zona.",404); return row;
+}
+
+async function signedZonalSupervisionFile(event, user) {
+  const { path, visita_id: visitId } = bodyOf(event); const ids = await zonalStoreIds(user.id);
+  const { data: visit, error: visitError } = await supabase.from("visitas_zonales").select("id,tienda_id,checklist_path").eq("id",Number(visitId)).in("tienda_id",ids).maybeSingle();
+  if (visitError) throw dbError(visitError); if (!visit || visit.checklist_path !== path) throw httpError("No tienes acceso a este checklist.",403);
+  const { data, error } = await supabase.storage.from("mi-tienda").createSignedUrl(path,300); if(error)throw dbError(error); return {url:data.signedUrl};
+}
+
+async function exportZonalSupervisions(user) {
+  const result=await getZonalModule({},user,"supervisiones"); const workbook=new ExcelJS.Workbook(); const sheet=workbook.addWorksheet("Supervisiones");
+  sheet.columns=[{header:"Código",key:"codigo",width:14},{header:"Tienda",key:"tienda",width:22},{header:"Administrador",key:"administrador",width:25},{header:"Fecha",key:"fecha",width:14},{header:"Periodo",key:"periodo",width:18},{header:"Puntaje",key:"puntaje",width:12},{header:"Observaciones",key:"observaciones",width:16},{header:"Por validar",key:"por_validar",width:14},{header:"Estado",key:"estado",width:18}];
+  sheet.addRows(result.visitas.map(visit=>{const observations=result.observaciones.filter(item=>item.visita_id===visit.id);const chief=visit.tiendas?.jefe;return{codigo:`SUP-${String(visit.id).padStart(4,"0")}`,tienda:visit.tiendas?.nombre||"",administrador:chief?`${chief.nombres} ${chief.apellidos}`:"Sin asignar",fecha:visit.fecha,periodo:visit.periodo||"",puntaje:visit.puntaje??"",observaciones:observations.length,por_validar:observations.filter(item=>item.estado==="en_validacion").length,estado:observations.some(item=>item.estado==="en_validacion")?"Por validar":observations.some(item=>item.estado!=="levantada")?"En seguimiento":"Cerrada"};})); styleHeader(sheet); return excelResponse(workbook,"supervisiones-zonales.xlsx");
+}
+
+async function createZonalIncident(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["tipo", "alcance", "fecha", "descripcion", "estado"]);
+  const types = ["diferencia_transferencia","coordinacion_tiendas","apoyo_tiendas","logistica_externa","proveedor","infraestructura_externa","otro"];
+  const scopes = ["entre_tiendas","externa_tienda","varias_tiendas"];
+  const states = ["abierta","en_seguimiento","cerrada"];
+  if (!types.includes(data.tipo) || !scopes.includes(data.alcance) || !states.includes(data.estado) || !isISODate(data.fecha)) throw httpError("Revisa el tipo, alcance, fecha y estado.", 400);
+  const ids = await zonalStoreIds(user.id); const originId = data.tienda_origen_id ? Number(data.tienda_origen_id) : null; const affectedId = data.tienda_afectada_id ? Number(data.tienda_afectada_id) : null;
+  if (!originId && !affectedId) throw httpError("Selecciona al menos una tienda relacionada.", 400);
+  if ([originId, affectedId].filter(Boolean).some((id) => !ids.includes(id))) throw httpError("Una de las tiendas no pertenece a tu zona.", 403);
+  let evidencePath = null; let evidenceName = null;
+  if (data.evidencia_base64) {
+    const allowed = ["application/pdf","image/jpeg","image/png","image/webp"];
+    if (!allowed.includes(data.evidencia_mime)) throw httpError("La evidencia debe ser PDF, JPG, PNG o WEBP.", 400);
+    const buffer = Buffer.from(String(data.evidencia_base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+    if (!buffer.length || buffer.length > 5 * 1024 * 1024) throw httpError("La evidencia debe pesar como máximo 5 MB.", 400);
+    evidenceName = cleanText(data.evidencia_nombre).replace(/[^a-z0-9._-]/gi, "-"); evidencePath = `zonal-${user.id}/incidencias/${Date.now()}-${evidenceName}`;
+    const uploaded = await supabase.storage.from("mi-tienda").upload(evidencePath, buffer, { contentType: data.evidencia_mime, upsert: false }); if (uploaded.error) throw dbError(uploaded.error);
+  }
+  const { data: row, error } = await supabase.from("incidencias_zonales").insert({ jefe_zonal_id:user.id, tipo:data.tipo, alcance:data.alcance, tienda_origen_id:originId, tienda_afectada_id:affectedId, fecha:data.fecha, descripcion:cleanText(data.descripcion), estado:data.estado, responsable_seguimiento:`${user.nombres || "Jefe"} ${user.apellidos || "Zonal"}`.trim(), evidencia_path:evidencePath, evidencia_nombre:evidenceName }).select().single();
+  if (error) throw dbError(error); return row;
+}
+
+async function updateZonalIncident(event, user, id) {
+  const { estado } = bodyOf(event); if (!["abierta","en_seguimiento","cerrada"].includes(estado)) throw httpError("El estado no es válido.", 400);
+  const { data, error } = await supabase.from("incidencias_zonales").update({ estado, updated_at:new Date().toISOString() }).eq("id",id).eq("jefe_zonal_id",user.id).select().maybeSingle();
+  if (error) throw dbError(error); if (!data) throw httpError("Incidencia no encontrada.",404); return data;
+}
+
+async function exportZonalIncidents(user) {
+  const rows = await getZonalModule({}, user, "incidencias"); const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("Incidencias zonales");
+  sheet.columns = [{header:"Código",key:"codigo",width:14},{header:"Fecha",key:"fecha",width:14},{header:"Tipo",key:"tipo",width:24},{header:"Alcance",key:"alcance",width:20},{header:"Tienda origen",key:"origen",width:22},{header:"Tienda afectada",key:"afectada",width:22},{header:"Estado",key:"estado",width:18},{header:"Descripción",key:"descripcion",width:45},{header:"Responsable",key:"responsable",width:24}];
+  sheet.addRows(rows.map((row)=>({codigo:`IZ-${String(row.id).padStart(4,"0")}`,fecha:row.fecha,tipo:row.tipo.replaceAll("_"," "),alcance:row.alcance.replaceAll("_"," "),origen:row.origen?.nombre||"",afectada:row.afectada?.nombre||"",estado:row.estado.replaceAll("_"," "),descripcion:row.descripcion,responsable:row.responsable_seguimiento}))); styleHeader(sheet);
+  return excelResponse(workbook, "incidencias-zonales.xlsx");
 }
 
 // ---------- Mi tienda (solo jefe de tienda) ----------
@@ -2545,11 +2673,11 @@ export async function handler(event) {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]);
       return json(200, await listUsers(user, Number(tiendaUsersMatch[1])));
     }
-    if (path === "/tiendas" && method === "POST") { ensureAuth(event, "gerente_comercial"); return json(201, await createTienda(event)); }
+    if (path === "/tiendas" && method === "POST") { ensureAuth(event, ["gerente_comercial", "jefe_zonal"]); return json(201, await createTienda(event, user)); }
     const tiendaMatch = path.match(/^\/tiendas\/(\d+)$/);
     if (tiendaMatch && method === "PUT") {
-      ensureAuth(event, "gerente_comercial");
-      await updateTienda(event, Number(tiendaMatch[1]));
+      ensureAuth(event, ["gerente_comercial", "jefe_zonal"]);
+      await updateTienda(event, Number(tiendaMatch[1]), user);
       return json(200, { ok: true });
     }
 
@@ -2640,12 +2768,40 @@ export async function handler(event) {
     if (path === "/zonal/tareas" && method === "POST") {
       ensureAuth(event, "jefe_zonal"); return json(201, await createZonalTask(event, user));
     }
+    const zonalAdministratorMatch = path.match(/^\/zonal\/administradores\/(\d+)$/);
+    if (zonalAdministratorMatch && method === "PUT") {
+      ensureAuth(event, "jefe_zonal");
+      return json(200, await updateZonalAdministrator(event, user, Number(zonalAdministratorMatch[1])));
+    }
     const zonalTaskMatch = path.match(/^\/zonal\/tareas\/(\d+)$/);
     if (zonalTaskMatch && method === "PUT") {
       ensureAuth(event, "jefe_zonal"); return json(200, await updateZonalTask(event, user, Number(zonalTaskMatch[1])));
     }
     if (path === "/zonal/supervisiones" && method === "POST") {
       ensureAuth(event, "jefe_zonal"); return json(201, await createZonalSupervision(event, user));
+    }
+    if (path === "/zonal/cluster" && method === "GET") {
+      ensureAuth(event, "jefe_zonal"); return json(200, await getZonalCluster(user));
+    }
+    if (path === "/zonal/supervisiones/export.xlsx" && method === "GET") {
+      ensureAuth(event, "jefe_zonal"); return await exportZonalSupervisions(user);
+    }
+    if (path === "/zonal/supervisiones/archivo-url" && method === "POST") {
+      ensureAuth(event, "jefe_zonal"); return json(200, await signedZonalSupervisionFile(event,user));
+    }
+    const zonalObservationValidationMatch=path.match(/^\/zonal\/observaciones\/(\d+)\/validar$/);
+    if(zonalObservationValidationMatch&&method==="PUT"){
+      ensureAuth(event,"jefe_zonal");return json(200,await validateZonalObservation(event,user,Number(zonalObservationValidationMatch[1])));
+    }
+    if (path === "/zonal/incidencias" && method === "POST") {
+      ensureAuth(event, "jefe_zonal"); return json(201, await createZonalIncident(event, user));
+    }
+    if (path === "/zonal/incidencias/export.xlsx" && method === "GET") {
+      ensureAuth(event, "jefe_zonal"); return await exportZonalIncidents(user);
+    }
+    const zonalIncidentMatch = path.match(/^\/zonal\/incidencias\/(\d+)$/);
+    if (zonalIncidentMatch && method === "PUT") {
+      ensureAuth(event, "jefe_zonal"); return json(200, await updateZonalIncident(event, user, Number(zonalIncidentMatch[1])));
     }
 
     const operationalReaders = ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "seguridad"];
