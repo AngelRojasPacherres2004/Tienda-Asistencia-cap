@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Building2, CalendarCheck2, FileClock, GraduationCap, Layers3, Maximize2, RefreshCw, Sun, Target, Users } from "lucide-react";
 import { api, formatDate, todayISO } from "../lib/api";
 import { Loading, Notice, StatusBadge } from "../components/UI";
+import { TrainingDevelopmentPanel } from "./Dashboard";
 
 const openStates = new Set(["abierta", "pendiente", "en_proceso", "en_atencion"]);
 
@@ -42,6 +43,7 @@ export default function CommercialDashboard({ onNavigate }) {
       <div className="commercial-alert-grid"><CommercialList title="Incidencias importantes" icon={AlertTriangle} rows={alerts.critical.slice(0,6)} empty="No hay incidencias críticas abiertas." render={(row)=><><div><strong>{row.tiendas?.nombre||"Tienda"}</strong><small>{row.asunto||row.tipo||"Incidencia"} · {formatDate(row.fecha)}</small></div><StatusBadge value={row.estado||"abierta"}/></>}/><CommercialList title="Documentos vencidos" icon={FileClock} rows={alerts.expired.slice(0,6)} empty="No hay documentos vencidos." render={(row)=><><div><strong>{row.nombre||"Documento"}</strong><small>Venció {formatDate(row.fecha_vencimiento)}</small></div><span className="commercial-alert-danger">Vencido</span></>}/></div>
       <header className="store-dashboard-section"><div><span>Indicadores de gestión</span><h2>Asistencia, capacitaciones y metas</h2></div><p>Lectura consolidada para orientar las decisiones comerciales.</p></header>
       <div className="commercial-progress-grid"><article><span><CalendarCheck2 size={19}/></span><div><small>Presentes hoy</small><strong>{summary.asistencias_hoy}</strong><p>Personas registradas como presentes.</p></div></article><article><span><GraduationCap size={19}/></span><div><small>Capacitaciones en curso</small><strong>{summary.cursos_en_curso}</strong><p>{alerts.pendingCourses} asignaciones pendientes.</p></div></article><article><span><Target size={19}/></span><div><small>Metas comerciales</small><strong>0</strong><p>Sin metas configuradas para el periodo actual.</p></div></article></div>
+      <TrainingDevelopmentPanel rows={data.dashboard.progresoCursos || []} year={todayISO().slice(0,4)} />
     </div>
   </section>;
 }

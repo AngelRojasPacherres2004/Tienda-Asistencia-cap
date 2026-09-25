@@ -305,6 +305,7 @@ export default function Usuarios({ user }) {
             <div className="data-table__head">
               <span>Persona</span><span>DNI</span><span>Usuario</span><span>Teléfono</span>
               {isCentral && <><span>Rol</span><span>Tienda / clúster</span></>}
+              {!isCentral && <span>Rol</span>}
               <span>Estado</span><span />
             </div>
             {filtered.map((item) => (
@@ -316,6 +317,7 @@ export default function Usuarios({ user }) {
                 <span className="mono">{item.dni}</span>
                 <span className="cell-primary">{item.usuario || "Sin acceso"}</span>
                 <span>{item.telefono || "—"}</span>
+                {!isCentral && <span className="personnel-role">{roleLabels[item.rol] || item.rol?.replaceAll("_", " ") || "Sin rol"}</span>}
                 {isCentral && <>
                   <span className={`role role--${item.rol}`}>{roleLabels[item.rol]}</span>
                   <span>{item.rol === "jefe_zonal" ? (item.cluster_nombre || "Sin clúster") : (item.tienda_nombre || "—")}</span>
@@ -359,6 +361,7 @@ export default function Usuarios({ user }) {
             <Field label="Edad" hint="Se calcula según la fecha de nacimiento"><input readOnly value={editing.fecha_nacimiento ? Math.max(0, Math.floor((Date.now() - new Date(`${editing.fecha_nacimiento}T12:00:00`).getTime()) / 31557600000)) : ""} /></Field>
             <Field label="Sueldo"><input type="number" min="0" step="0.01" placeholder="0,00" value={editing.sueldo ?? ""} onChange={(e) => set("sueldo", e.target.value)} /></Field>
             <Field label="Fecha de salida" error={fieldErrors.fecha_salida} hint={editing.id ? "Al guardarla, el trabajador quedará inactivo." : "Se registra únicamente al editar al trabajador."}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => { set("fecha_salida", e.target.value); if (e.target.value) set("estado", "inactivo"); else set("motivo_salida", ""); }} /></Field>
+            <Field label="Motivo de salida" error={fieldErrors.motivo_salida}><input required={Boolean(editing.fecha_salida)} disabled={!editing.id || !editing.fecha_salida} placeholder="Indica el motivo de la salida" value={editing.motivo_salida || ""} onChange={(e) => set("motivo_salida", e.target.value)} /></Field>
             {availableRoles.length > 0 && (
               <>
                 <Field label="Rol">
@@ -410,7 +413,6 @@ export default function Usuarios({ user }) {
             <Field label="Número de hijos"><input type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field>
             <Field label="Talla de zapatillas"><input type="number" min="0" step="0.5" value={editing.talla_zapatillas ?? ""} onChange={(e) => set("talla_zapatillas", e.target.value)} /></Field>
             <Field label="Talla de polo"><select value={editing.talla_polo || "sin_especificar"} onChange={(e) => set("talla_polo", e.target.value)}><option value="sin_especificar">Sin especificar</option>{["s", "m", "l", "xl", "xxl"].map((size) => <option key={size} value={size}>{size.toUpperCase()}</option>)}</select></Field>
-            <Field label="Motivo de salida" error={fieldErrors.motivo_salida}><input required={Boolean(editing.fecha_salida)} disabled={!editing.id || !editing.fecha_salida} placeholder="Indica el motivo de la salida" value={editing.motivo_salida || ""} onChange={(e) => set("motivo_salida", e.target.value)} /></Field>
             <Field label="Alergia" className="span-2"><textarea rows={2} maxLength={500} placeholder="Ej. Ninguna, o detalla la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field>
             <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
               <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />
@@ -433,7 +435,7 @@ export default function Usuarios({ user }) {
         )}
       </Modal>
 
-      <Modal open={!!viewing} wide title={viewing ? `Ficha de ${viewing.nombres} ${viewing.apellidos}` : "Ficha del trabajador"} subtitle="Datos, horario, amonestaciones, errores y capacitaciones" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} extraWide className="worker-file-modal" title={viewing ? `Ficha de ${viewing.nombres} ${viewing.apellidos}` : "Ficha del trabajador"} subtitle="Datos, horario, amonestaciones, errores y capacitaciones" onClose={() => setViewing(null)}>
         {viewing && <div className="worker-file">
           {workerFile?.error && <Notice type="error">{workerFile.error}</Notice>}
           <section><h3>Datos personales</h3><dl><div><dt>Documento</dt><dd>{(viewing.tipo_documento || "dni").toUpperCase()} {viewing.dni}</dd></div><div><dt>Teléfono</dt><dd>{viewing.telefono || "—"}</dd></div><div><dt>Nacimiento</dt><dd>{viewing.fecha_nacimiento || "—"}</dd></div><div><dt>Nacionalidad</dt><dd>{viewing.nacionalidad || "—"}</dd></div><div><dt>Distrito</dt><dd>{viewing.distrito || "—"}</dd></div><div><dt>Dirección</dt><dd>{viewing.direccion || "—"}</dd></div></dl></section>

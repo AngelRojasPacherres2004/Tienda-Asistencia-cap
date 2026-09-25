@@ -2292,14 +2292,16 @@ async function operationalSummary(event, user) {
   const storeId = await operationalStoreId(event, user);
   const today = todayISO();
   const in30Days = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-  const [traffic, incidents, warnings, errors, documents] = await Promise.all([
+  const [traffic, incidents, warnings, errors, documents, administration] = await Promise.all([
     supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
     supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("documentos_municipales").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).lte("fecha_vencimiento", in30Days),
+    supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
   ]);
-  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
+  if (administration.error) throw dbError(administration.error);
+  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0, administracion_tienda: administration.count || 0 };
 }
 
 async function listTrafficMatrix(event, user) {
@@ -2317,9 +2319,8 @@ async function listTrafficMatrix(event, user) {
   }
   let request = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,tiendas(nombre)").gte("fecha", desde).lte("fecha", hasta);
   request = applyStoreScope(request, scope);
-  const { data, error } = await request.order("fecha", { ascending: false }).order("rango_hora");
-  if (error) throw dbError(error);
-  return { desde, hasta, alcance: hasStoreScope(scope) && !Array.isArray(scope) ? "tienda" : "consolidado", registros: data || [] };
+  const registros = await fetchAllReportPages(request.order("fecha", { ascending: false }).order("rango_hora").order("id"));
+  return { desde, hasta, alcance: hasStoreScope(scope) && !Array.isArray(scope) ? "tienda" : "consolidado", registros };
 }
 
 // ---------- Supervisión zonal ----------
@@ -2385,6 +2386,48 @@ async function getZonalModule(event, user, kind) {
     return { visitas: visitas || [], observaciones: observaciones || [] };
   }
   throw httpError("Módulo zonal no válido.", 404);
+}
+
+async function getZonalComparison(event, user) {
+  const { ids, stores } = await zonalScope(user);
+  const query = event.queryStringParameters || {};
+  const fecha = isISODate(query.fecha) ? query.fecha : formatLimaDate(new Date()).split("/").reverse().join("-");
+  const desde = isISODate(query.desde) ? query.desde : fecha;
+  const hasta = isISODate(query.hasta) ? query.hasta : fecha;
+  if (desde > hasta || desde.slice(0, 7) !== hasta.slice(0, 7) || hasta > fecha) throw httpError("Selecciona un periodo valido dentro del mes y hasta hoy.", 400);
+  if (!ids.length) return { fecha, desde, hasta, tiendas: [] };
+  const daysInRange = Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86400000) + 1;
+  const in30Days = new Date(`${fecha}T12:00:00Z`);
+  in30Days.setUTCDate(in30Days.getUTCDate() + 30);
+  const deadline = in30Days.toISOString().slice(0, 10);
+  const [people, attendance, traffic, incidents, errors, documents] = await Promise.all([
+    fetchAllReportPages(supabase.from("usuarios").select("id,tienda_id").in("tienda_id", ids).eq("estado", "activo").in("rol", storeStaffRoles).order("id")),
+    fetchAllReportPages(supabase.from("asistencias").select("id,tienda_id,usuario_id,fecha,estado").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
+    fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,cantidad").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
+    fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,tipo").in("tienda_id", ids).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59-05:00`).order("id")),
+    fetchAllReportPages(supabase.from("errores_personal").select("id,tienda_id").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
+    fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id").in("tienda_id", ids).gte("fecha_vencimiento", fecha).lte("fecha_vencimiento", deadline).order("id")),
+  ]);
+  const securityTypes = new Set(["robo", "robo_frustrado", "cambio_precio"]);
+  return { fecha, desde, hasta, tiendas: stores.map((store) => {
+    const staff = people.filter((person) => Number(person.tienda_id) === Number(store.id));
+    const staffIds = new Set(staff.map((person) => person.id));
+    const marks = attendance.filter((row) => Number(row.tienda_id) === Number(store.id) && staffIds.has(row.usuario_id));
+    const storeIncidents = incidents.filter((row) => Number(row.tienda_id) === Number(store.id));
+    return {
+      id: store.id, nombre: store.nombre, personal: staff.length,
+      presentes: marks.filter((row) => row.estado === "presente").length,
+      tardanzas: marks.filter((row) => row.estado === "tardanza").length,
+      faltas: marks.filter((row) => row.estado === "falta").length,
+      otros: marks.filter((row) => !["presente", "tardanza", "falta"].includes(row.estado)).length,
+      pendientes: Math.max(staff.length * daysInRange - new Set(marks.map((row) => `${row.usuario_id}|${row.fecha}`)).size, 0),
+      visitas: traffic.filter((row) => Number(row.tienda_id) === Number(store.id)).reduce((sum, row) => sum + Number(row.cantidad || 0), 0),
+      incidencias_seguridad: storeIncidents.filter((row) => securityTypes.has(row.tipo)).length,
+      incidencias_administrativas: storeIncidents.filter((row) => !securityTypes.has(row.tipo)).length,
+      errores: errors.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
+      documentos_por_vencer: documents.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
+    };
+  }) };
 }
 
 async function getZonalCluster(user) {
@@ -2957,6 +3000,10 @@ export async function handler(event) {
       return json(200, await asignarLote(event, user));
     }
 
+    if (path === "/zonal/comparativa" && method === "GET") {
+      ensureAuth(event, "jefe_zonal");
+      return json(200, await getZonalComparison(event, user));
+    }
     const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias)$/);
     if (zonalModuleMatch && method === "GET") {
       ensureAuth(event, ["gerencia_general", "jefe_zonal"]);

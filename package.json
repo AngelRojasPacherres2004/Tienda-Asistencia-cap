@@ -9,7 +9,9 @@
     "dev:api": "node --watch --env-file=.env scripts/dev-api.js",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "eslint . --max-warnings=0"
+    "check": "eslint . --max-warnings=0",
+    "import:commercial:check": "node scripts/import-commercial-roster.mjs",
+    "import:commercial:apply": "node scripts/import-commercial-roster.mjs --apply"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

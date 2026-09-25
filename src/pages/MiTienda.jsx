@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RefreshCw, RotateCcw, Sun, Users, X } from "lucide-react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { exportExcel } from "../lib/excelExport";
 import { Loading, Notice } from "../components/UI";
@@ -8,44 +8,53 @@ import TrafficHourMatrix from "../components/TrafficHourMatrix";
 
 export default function MiTienda({ user, onNavigate }) {
   const isZonal = user.rol === "jefe_zonal";
-  const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(user.tienda_id || "");
+  const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? "all" : user.tienda_id || "");
   const [zonalAlerts, setZonalAlerts] = useState(null);
-  const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [notice, setNotice] = useState(null);
-  const [refreshing, setRefreshing] = useState(false); const [lightMode, setLightMode] = useState(true); const [dashboardKey, setDashboardKey] = useState(0); const dashboardRef = useRef(null);
+  const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [incidents, setIncidents] = useState([]); const [notice, setNotice] = useState(null);
+  const [refreshing, setRefreshing] = useState(false); const [lightMode, setLightMode] = useState(true); const [dashboardKey, setDashboardKey] = useState(0); const dashboardRef = useRef(null); const dashboardRequestId = useRef(0);
   const currentPeriodDate = todayISO();
   const [matrixPeriod, setMatrixPeriod] = useState({ year: currentPeriodDate.slice(0, 4), monthNumber: currentPeriodDate.slice(5, 7), week: "", day: "" });
   useEffect(() => { if (dashboardKey) setMatrixPeriod({ year: currentPeriodDate.slice(0, 4), monthNumber: currentPeriodDate.slice(5, 7), week: "", day: "" }); }, [dashboardKey, currentPeriodDate]);
   const loadDashboard = useCallback(() => {
-    if (isZonal && !storeId) return Promise.resolve();
+    if (isZonal && (storeId === "all" || !storeId)) return Promise.resolve();
+    const requestId = ++dashboardRequestId.current;
     setRefreshing(true);
     const suffix = isZonal ? `?tienda_id=${storeId}` : "";
     const selectedStore = stores.find((store) => String(store.id) === String(storeId));
     const profileRequest = isZonal ? Promise.resolve({ tienda_nombre: selectedStore?.nombre, tienda_direccion: selectedStore?.direccion, tienda_alquiler_mensual: selectedStore?.alquiler_mensual }) : api("/perfil");
     const peopleRequest = isZonal ? api(`/tiendas/${storeId}/usuarios`) : api("/usuarios");
-    return Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest, api(`/documentos-tienda${suffix}`).catch(() => []), api(`/errores-personal${suffix}`).catch(() => [])]).then(([p, s, team, docs, errorRows]) => { setProfile(p); setSummary(s); setPeople(team); setDocuments(docs); setErrors(errorRows); setNotice(null); }).catch((e) => setNotice({ type: "error", text: e.message })).finally(() => setRefreshing(false));
+    return Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest, api(`/documentos-tienda${suffix}`).catch(() => []), api(`/errores-personal${suffix}`).catch(() => []), api(`/incidencias${suffix}`).catch(() => [])]).then(([p, s, team, docs, errorRows, incidentRows]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(s); setPeople(team); setDocuments(docs); setErrors(errorRows); setIncidents(incidentRows); setNotice(null); }).catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); }).finally(() => { if (requestId === dashboardRequestId.current) setRefreshing(false); });
   }, [isZonal, storeId, stores]);
   useEffect(() => { if (!isZonal) return; api("/tiendas").then((rows) => { setStores(rows); setStoreId((current) => current || rows[0]?.id || ""); }).catch((e) => setNotice({ type: "error", text: e.message })); }, [isZonal]);
-  useEffect(() => { if (!isZonal) return; Promise.all([api("/zonal/asistencia"), api("/zonal/tareas"), api("/zonal/supervisiones")]).then(([attendance, tasks, supervision]) => setZonalAlerts({ attendance, tasks, supervision })).catch(() => setZonalAlerts(null)); }, [isZonal]);
+  useEffect(() => { if (!isZonal) return; api("/zonal/asistencia").then((attendance) => setZonalAlerts({ attendance })).catch(() => setZonalAlerts(null)); }, [isZonal]);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
-  if (!profile || !summary) return <Loading />;
-  const storeName = profile.tienda_nombre || "Tienda asignada"; const expiring = documents.filter((d) => d.fecha_vencimiento && daysUntil(d.fecha_vencimiento) <= 30).slice(0, 4);
+  const changeStore = (value) => { dashboardRequestId.current += 1; setProfile(null); setSummary(null); setNotice(null); setStoreId(value); };
+  const refreshDashboard = () => { if (isZonal && storeId === "all") setDashboardKey((value) => value + 1); else loadDashboard(); };
+  const toggleFullscreen = async () => { if (document.fullscreenElement) await document.exitFullscreen(); else await dashboardRef.current?.requestFullscreen(); };
+  if (isZonal && storeId === "all") return <section ref={dashboardRef} className={`store-dashboard-shell ${lightMode ? "is-light" : ""}`}>
+    <div className="store-dashboard-topbar"><div><i /><strong>SUPERVISIÓN ZONAL</strong><span>Comparación entre las tiendas de tu zona</span></div><div><label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label><button onClick={refreshDashboard}><RefreshCw size={17} />Actualizar datos</button><button onClick={() => setLightMode((value) => !value)}><Sun size={17} />{lightMode ? "Modo claro" : "Modo oscuro"}</button><button onClick={toggleFullscreen}><Maximize2 size={17} />Pantalla completa</button></div></div>
+    <header className="store-dashboard-hero"><div><span><Users size={38} /></span><div><h1>COMPARATIVA ZONAL</h1><p>Asistencia, tráfico y alertas de todas las tiendas asignadas</p></div></div></header>
+    {notice && <Notice type={notice.type}>{notice.text}</Notice>}
+    <ZonalStoreComparison user={user} refreshKey={dashboardKey} onSelectStore={changeStore} />
+  </section>;
+  if (!profile || !summary) return isZonal ? <section ref={dashboardRef} className={`store-dashboard-shell ${lightMode ? "is-light" : ""}`}><div className="store-dashboard-topbar"><div><i /><strong>SUPERVISIÓN ZONAL</strong></div><div><label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label></div></div><div className="store-dashboard-body">{notice ? <Notice type="error">{notice.text}</Notice> : <Loading />}</div></section> : <Loading />;
+  const storeName = profile.tienda_nombre || "Tienda asignada"; const expiring = documents.filter((d) => d.fecha_vencimiento && daysUntil(d.fecha_vencimiento) >= 0 && daysUntil(d.fecha_vencimiento) <= 30).sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento)).slice(0, 3);
   const exportSummary = () => exportExcel(`resumen-${storeName}.xlsx`, [{ indicador: "Tienda", valor: storeName }, { indicador: "Personal activo", valor: people.filter((p) => p.estado === "activo").length }, { indicador: "Incidencias", valor: summary.incidencias }, { indicador: "Amonestaciones", valor: summary.amonestaciones }, { indicador: "Errores", valor: summary.errores }, { indicador: "Documentos por vencer", valor: summary.documentos_por_vencer }], "Resumen");
   const activePeople = people.filter((person) => person.estado === "activo");
   const employees = activePeople.filter((person) => ["trabajador", "vendedor", "asistente"].includes(person.rol));
   const securityPeople = activePeople.filter((person) => ["seguridad", "jefe_seguridad"].includes(person.rol));
-  const administrativePeople = activePeople.filter((person) => ["jefe_tienda", "asistente_tienda"].includes(person.rol));
+  const securityIncidentTypes = new Set(["robo", "robo_frustrado", "cambio_precio"]);
+  const securityIncidents = incidents.filter((incident) => securityIncidentTypes.has(incident.tipo)).length;
+  const administrativeIncidents = incidents.filter((incident) => !securityIncidentTypes.has(incident.tipo)).length;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
-  const pendingTasks = (zonalAlerts?.tasks || []).filter((task) => String(task.tienda_id) === String(storeId) && !["completada", "cancelada"].includes(task.estado)).length;
-  const openFindings = (zonalAlerts?.supervision?.observaciones || []).filter((item) => String(item.tienda_id) === String(storeId) && item.estado !== "levantada").length;
-  const toggleFullscreen = async () => { if (document.fullscreenElement) await document.exitFullscreen(); else await dashboardRef.current?.requestFullscreen(); };
   return <section ref={dashboardRef} className={`store-dashboard-shell ${lightMode ? "is-light" : ""}`}>
-    <div className="store-dashboard-topbar"><div><i /> <strong>{isZonal ? "SUPERVISIÓN ZONAL" : "ADMINISTRACIÓN DE TIENDA"}</strong><span>El filtro de período controla la asistencia, movimientos y errores del personal</span></div><div>{isZonal && <select value={storeId} onChange={(event) => setStoreId(event.target.value)} aria-label="Seleccionar tienda">{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select>}<button onClick={loadDashboard}><RefreshCw size={17} className={refreshing ? "is-spinning" : ""} />Actualizar datos</button><button onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={17} />Limpiar filtros</button><button onClick={() => setLightMode((value) => !value)}><Sun size={17} />{lightMode ? "Modo claro" : "Modo oscuro"}</button><button onClick={toggleFullscreen}><Maximize2 size={17} />Pantalla completa</button></div></div>
+    <div className="store-dashboard-topbar"><div><i /> <strong>{isZonal ? "SUPERVISIÓN ZONAL" : "ADMINISTRACIÓN DE TIENDA"}</strong><span>El filtro de período controla la asistencia, movimientos y errores del personal</span></div><div>{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button onClick={refreshDashboard}><RefreshCw size={17} className={refreshing ? "is-spinning" : ""} />Actualizar datos</button><button onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={17} />Limpiar filtros</button><button onClick={() => setLightMode((value) => !value)}><Sun size={17} />{lightMode ? "Modo claro" : "Modo oscuro"}</button><button onClick={toggleFullscreen}><Maximize2 size={17} />Pantalla completa</button></div></div>
     <header className="store-dashboard-hero"><div><span><Users size={38} /></span><div><h1>{isZonal ? "RESUMEN ZONAL" : "PANEL DE MI TIENDA"}</h1><p>Personal, asistencias, incidencias y capacitaciones de {storeName}</p></div></div><span className="store-dashboard-status"><i />Datos sincronizados · {new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}</span></header>
     {notice && <Notice type={notice.type}>{notice.text}</Notice>}
     <div className="store-dashboard-body">
-      <section className="store-dashboard-personnel-kpis"><DashboardPersonnelKpi label="Empleados, vendedores y asistentes" value={employees.length} detail="Personal activo de atención y operación" /><DashboardPersonnelKpi label="Seguridad" value={securityPeople.length} detail="Seguridad y jefe de seguridad" /><DashboardPersonnelKpi label="Administración de tienda" value={administrativePeople.length} detail="Administrador y asistente de tienda" /></section>
-      <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Incidencias y medidas" first={{ value: summary.incidencias, label: "Incidencias registradas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Errores y documentos" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Estado de la dotación" first={{ value: activePeople.length, label: "Personas activas" }} second={{ value: expiring.length, label: "Alertas documentales" }} /></section>
-      {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /><DashboardPairedKpi label="Cronograma zonal" first={{ value: pendingTasks, label: "Tareas pendientes" }} second={{ value: openFindings, label: "Hallazgos abiertos" }} /><DashboardPairedKpi label="Seguimiento" first={{ value: summary.incidencias, label: "Incidencias" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /></section>}
+      <section className="store-dashboard-personnel-kpis"><DashboardPersonnelKpi label="Empleados, vendedores y asistentes" value={employees.length} detail="Personal activo de atención y operación" /><DashboardPersonnelKpi label="Seguridad" value={securityPeople.length} detail="Seguridad y jefe de seguridad" /><DashboardPersonnelKpi label="Administración de tienda" value={summary.administracion_tienda ?? 0} detail="Administrador y asistente de tienda" /></section>
+      <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Incidencias administrativas y medidas" first={{ value: administrativeIncidents, label: "Incidencias administrativas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Errores y documentos" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Estado de la dotación" first={{ value: activePeople.length, label: "Personas activas" }} second={{ value: expiring.length, label: "Alertas documentales" }} /></section>
+      {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /><DashboardSingleKpi label="Incidencias de seguridad" value={securityIncidents} detail="Incidencias de seguridad registradas" /><DashboardUpcomingDocumentsKpi documents={expiring} /></section>}
       <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Personal zonal" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button><button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button><button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>
       <DashboardSection kicker="Afluencia de clientes" title="Tráfico de la tienda por hora" text="Identifica horas punta y ajusta la cobertura del equipo según la demanda real." />
       <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
@@ -58,7 +67,78 @@ export default function MiTienda({ user, onNavigate }) {
 
 function DashboardPersonnelKpi({ label, value, detail }) { return <article className="store-dashboard-personnel-kpi"><div><strong>{label}</strong><small>{detail}</small></div><b>{value}</b></article>; }
 function DashboardPairedKpi({ label, first, second }) { return <article className="store-dashboard-paired-kpi"><h3>{label}</h3><div><span><strong>{first.value}</strong><small>{first.label}</small></span><span><strong>{second.value}</strong><small>{second.label}</small></span></div></article>; }
+function DashboardSingleKpi({ label, value, detail }) { return <article className="store-dashboard-paired-kpi store-dashboard-single-kpi"><h3>{label}</h3><div><span><strong>{value}</strong><small>{detail}</small></span></div></article>; }
+function DashboardUpcomingDocumentsKpi({ documents }) { return <article className="store-dashboard-paired-kpi store-dashboard-documents-kpi"><h3>Documentos próximos a vencer</h3><section className="store-dashboard-document-list">{documents.length ? documents.map((document) => <div key={document.id}><strong>{document.nombre || document.tipo_documento || "Documento"}</strong><small>Vence {formatDate(document.fecha_vencimiento)}</small></div>) : <small>No hay documentos por vencer</small>}</section></article>; }
 function DashboardSection({ kicker, title, text }) { return <header className="store-dashboard-section"><div><span>{kicker}</span><h2>{title}</h2></div><p>{text}</p></header>; }
+
+function ZonalStoreComparison({ user, refreshKey, onSelectStore }) {
+  const [period, setPeriod] = useState(() => { const now = todayISO(); return { year: now.slice(0, 4), monthNumber: now.slice(5, 7), week: "", day: now.slice(8, 10) }; });
+  const [comparison, setComparison] = useState(null);
+  const [appliedPeriod, setAppliedPeriod] = useState(period);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const now = todayISO();
+  const { year, monthNumber, week, day } = period;
+  const monthNames = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const lastDay = year === now.slice(0, 4) && monthNumber === now.slice(5, 7) ? Number(now.slice(8, 10)) : new Date(Number(year), Number(monthNumber), 0).getDate();
+  const selectedDays = Array.from({ length: lastDay }, (_, index) => index + 1).filter((value) => (!week || Math.ceil(value / 7) === Number(week)) && (!day || value === Number(day)));
+  const desde = `${year}-${monthNumber}-${String(selectedDays[0]).padStart(2, "0")}`;
+  const hasta = `${year}-${monthNumber}-${String(selectedDays.at(-1)).padStart(2, "0")}`;
+  const requestedLabel = desde === hasta ? formatDate(desde) : `${formatDate(desde)} al ${formatDate(hasta)}`;
+  const displayedFrom = comparison?.desde || comparison?.fecha;
+  const displayedTo = comparison?.hasta || comparison?.fecha;
+  const displayedLabel = displayedFrom === displayedTo ? formatDate(displayedFrom) : `${formatDate(displayedFrom)} al ${formatDate(displayedTo)}`;
+  const periodLabel = comparison ? displayedLabel : requestedLabel;
+  useEffect(() => {
+    let active = true;
+    setLoading(true); setError("");
+    api(`/zonal/comparativa?fecha=${hasta}&desde=${desde}&hasta=${hasta}`).then((result) => { if (active) { setComparison(result); setAppliedPeriod(period); } }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [desde, hasta, period, refreshKey]);
+  const rows = comparison?.tiendas || [];
+  const totals = rows.reduce((sum, row) => ({
+    personal: sum.personal + row.personal, presentes: sum.presentes + row.presentes,
+    tardanzas: sum.tardanzas + row.tardanzas, faltas: sum.faltas + row.faltas,
+    pendientes: sum.pendientes + row.pendientes, visitas: sum.visitas + row.visitas,
+    incidencias: sum.incidencias + row.incidencias_seguridad + row.incidencias_administrativas,
+    documentos: sum.documentos + row.documentos_por_vencer,
+  }), { personal: 0, presentes: 0, tardanzas: 0, faltas: 0, pendientes: 0, visitas: 0, incidencias: 0, documentos: 0 });
+  const chartHeight = Math.max(290, rows.length * 38 + 45);
+  return <div className="store-dashboard-body zonal-comparison">
+    <header className="store-dashboard-section"><div><span>Vista general · {periodLabel}</span><h2>Comparación entre tiendas</h2></div><p>Asistencia, tráfico, incidencias y errores del período seleccionado. Documentos por vencer en 30 días desde el fin del período.</p></header>
+    <button type="button" className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} aria-label="Filtros de período"><Filter size={16} /><span>Periodo</span></button>
+    {filtersOpen && <aside className="attendance-filter-popover" aria-label="Filtros de todas las tiendas">
+      <div className="attendance-filter-popover__head"><div><span className="eyebrow">Periodo global</span><h3>Filtros de gráficas</h3></div><button type="button" className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={16} /></button></div>
+      <label className="field"><span>Año</span><select value={year} onChange={(event) => setPeriod({ year: event.target.value, monthNumber: event.target.value === now.slice(0, 4) && Number(monthNumber) > Number(now.slice(5, 7)) ? now.slice(5, 7) : monthNumber, week: "", day: "" })}>{Array.from({ length: 6 }, (_, index) => String(Number(now.slice(0, 4)) - index)).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+      <label className="field"><span>Mes</span><select value={monthNumber} onChange={(event) => setPeriod({ year, monthNumber: event.target.value, week: "", day: "" })}>{monthNames.slice(0, year === now.slice(0, 4) ? Number(now.slice(5, 7)) : 12).map((name, index) => <option key={name} value={String(index + 1).padStart(2, "0")}>{name}</option>)}</select></label>
+      <label className="field"><span>Semana</span><select value={week} onChange={(event) => setPeriod({ year, monthNumber, week: event.target.value, day: "" })}><option value="">Todas las semanas</option>{Array.from({ length: Math.ceil(lastDay / 7) }, (_, index) => <option key={index + 1} value={index + 1}>Semana {index + 1} ({index * 7 + 1}–{Math.min((index + 1) * 7, lastDay)})</option>)}</select></label>
+      <label className="field"><span>Día</span><select value={day} onChange={(event) => setPeriod({ year, monthNumber, week: "", day: event.target.value })}><option value="">Todos los días</option>{Array.from({ length: lastDay }, (_, index) => <option key={index + 1} value={String(index + 1).padStart(2, "0")}>{index + 1}</option>)}</select></label>
+      <div className="attendance-filter-summary">{requestedLabel}</div>
+      <button type="button" className="button button--ghost button--small" onClick={() => setPeriod({ year: now.slice(0, 4), monthNumber: now.slice(5, 7), week: "", day: "" })}><RotateCcw size={14} />Restablecer</button>
+    </aside>}
+    {loading && <div className="zonal-comparison-sync" role="status">Actualizando datos para {requestedLabel}…</div>}{error && <Notice type="error">{error}</Notice>}
+    {comparison && <>
+    <section className="zonal-comparison-summary" aria-label="Resumen de la zona">
+      <article><small>Tiendas asignadas</small><strong>{rows.length}</strong></article>
+      <article><small>Personal activo</small><strong>{totals.personal}</strong></article>
+      <article><small>Presentes y tardanzas · período</small><strong>{totals.presentes + totals.tardanzas}</strong></article>
+      <article><small>Visitas · período</small><strong>{totals.visitas.toLocaleString("es-PE")}</strong></article>
+      <article><small>Incidencias · período</small><strong>{totals.incidencias}</strong></article>
+      <article><small>Documentos por vencer</small><strong>{totals.documentos}</strong></article>
+    </section>
+    {rows.length ? <>
+      <div className="zonal-comparison-charts">
+        <article><header><h3>Asistencia por tienda</h3><p>Estados y marcas pendientes · {periodLabel}</p></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 16, left: 4, bottom: 10 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 11 }} /><YAxis type="category" dataKey="nombre" width={132} tick={{ fill: "#173b60", fontSize: 11, fontWeight: 700 }} /><Tooltip /><Legend /><Bar dataKey="presentes" name="Presentes" stackId="asistencia" fill="#16a66a" /><Bar dataKey="tardanzas" name="Tardanzas" stackId="asistencia" fill="#f0ad32" /><Bar dataKey="faltas" name="Faltas" stackId="asistencia" fill="#e36a70" /><Bar dataKey="pendientes" name="Pendientes" stackId="asistencia" fill="#a7b6c6" /><Bar dataKey="otros" name="Otros" stackId="asistencia" fill="#8f7ac8" /></BarChart></ResponsiveContainer></div></div></article>
+        <article><header><h3>Visitas por tienda</h3><p>Clientes registrados · {periodLabel}</p></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 16, left: 4, bottom: 10 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 11 }} /><YAxis type="category" dataKey="nombre" width={132} tick={{ fill: "#173b60", fontSize: 11, fontWeight: 700 }} /><Tooltip formatter={(value) => Number(value).toLocaleString("es-PE")} /><Bar dataKey="visitas" name="Visitas" fill="#0d6fa1" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div></div></article>
+        <article className="zonal-comparison-charts-wide"><header><h3>Incidencias y errores por tienda</h3><p>Registros · {periodLabel}</p></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 16, left: 4, bottom: 10 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 11 }} /><YAxis type="category" dataKey="nombre" width={132} tick={{ fill: "#173b60", fontSize: 11, fontWeight: 700 }} /><Tooltip /><Legend /><Bar dataKey="incidencias_administrativas" name="Incidencias administrativas" stackId="incidencias" fill="#e6a23c" /><Bar dataKey="incidencias_seguridad" name="Incidencias de seguridad" stackId="incidencias" fill="#d75b66" /><Bar dataKey="errores" name="Errores del personal" fill="#4b86bb" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div></div></article>
+      </div>
+      <section className="zonal-comparison-traffic"><header><div><span>Tráfico consolidado</span><h2>Movimiento por hora · todas las tiendas</h2></div><p>Suma de visitas de la zona · {periodLabel}.</p></header><TrafficHourMatrix user={user} scopeName="todas las tiendas" period={appliedPeriod} refreshKey={refreshKey} /></section>
+      <section className="zonal-comparison-table-card"><header><h3>Detalle por tienda</h3><p>Selecciona una tienda para abrir su panel completo.</p></header><div className="zonal-comparison-table-scroll"><table><thead><tr><th>Tienda</th><th>Personal</th><th>Presentes</th><th>Tardanzas</th><th>Faltas</th><th>Pendientes</th><th>Visitas</th><th>Inc. admin.</th><th>Inc. seguridad</th><th>Errores</th><th>Documentos por vencer</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><th><button type="button" onClick={() => onSelectStore(String(row.id))}>{row.nombre}</button></th><td>{row.personal}</td><td>{row.presentes}</td><td>{row.tardanzas}</td><td>{row.faltas}</td><td>{row.pendientes}</td><td>{row.visitas.toLocaleString("es-PE")}</td><td>{row.incidencias_administrativas}</td><td>{row.incidencias_seguridad}</td><td>{row.errores}</td><td>{row.documentos_por_vencer}</td></tr>)}</tbody></table></div></section>
+    </> : <p className="zonal-comparison-empty">No hay tiendas asignadas a tu zona.</p>}
+    </>}
+  </div>;
+}
 
 function TrainingDevelopmentHome() {
   const [courses, setCourses] = useState([]); const [courseId, setCourseId] = useState(""); const [people, setPeople] = useState([]); const [status, setStatus] = useState("todos");

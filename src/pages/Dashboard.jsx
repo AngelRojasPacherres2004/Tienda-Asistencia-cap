@@ -57,7 +57,7 @@ function RotationPanel({ rows, totals, year }) {
   </article>;
 }
 
-function TrainingDevelopmentPanel({ rows, year }) {
+export function TrainingDevelopmentPanel({ rows, year }) {
   const [course, setCourse] = useState(""); const [status, setStatus] = useState("todos");
   const filtered = rows.filter((row) => (!course || row.titulo === course) && (status === "todos" || row[status] > 0));
   const total = filtered.reduce((sum, row) => sum + row.completados + row.en_curso + row.pendientes, 0);
