@@ -18,11 +18,11 @@ export function StatusBadge({ value, label }) {
   return <span className={`status status--${key}`}><i />{label ?? (value || "Sin estado")}</span>;
 }
 
-export function Modal({ open, title, subtitle, children, onClose, wide = false }) {
+export function Modal({ open, title, subtitle, children, onClose, wide = false, extraWide = false }) {
   if (!open) return null;
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className={`modal ${wide ? "modal--wide" : ""}`} role="dialog" aria-modal="true">
+      <section className={`modal ${wide ? "modal--wide" : ""} ${extraWide ? "modal--extra-wide" : ""}`} role="dialog" aria-modal="true">
         <header className="modal__header">
           <div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>

@@ -11,6 +11,9 @@ export default function MiTienda({ user, onNavigate }) {
   const [zonalAlerts, setZonalAlerts] = useState(null);
   const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [notice, setNotice] = useState(null);
   const [refreshing, setRefreshing] = useState(false); const [lightMode, setLightMode] = useState(true); const [dashboardKey, setDashboardKey] = useState(0); const dashboardRef = useRef(null);
+  const currentPeriodDate = todayISO();
+  const [matrixPeriod, setMatrixPeriod] = useState({ year: currentPeriodDate.slice(0, 4), monthNumber: currentPeriodDate.slice(5, 7), week: "", day: "" });
+  useEffect(() => { if (dashboardKey) setMatrixPeriod({ year: currentPeriodDate.slice(0, 4), monthNumber: currentPeriodDate.slice(5, 7), week: "", day: "" }); }, [dashboardKey, currentPeriodDate]);
   const loadDashboard = useCallback(() => {
     if (isZonal && !storeId) return Promise.resolve();
     setRefreshing(true);
@@ -44,9 +47,9 @@ export default function MiTienda({ user, onNavigate }) {
       {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /><DashboardPairedKpi label="Cronograma zonal" first={{ value: pendingTasks, label: "Tareas pendientes" }} second={{ value: openFindings, label: "Hallazgos abiertos" }} /><DashboardPairedKpi label="Seguimiento" first={{ value: summary.incidencias, label: "Incidencias" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /></section>}
       <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Personal zonal" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button><button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button><button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>
       <DashboardSection kicker="Afluencia de clientes" title="Tráfico de la tienda por hora" text="Identifica horas punta y ajusta la cobertura del equipo según la demanda real." />
-      <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} />
+      <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
       <DashboardSection kicker="Personal de tienda" title="Asistencia y movimientos del personal" text="Consulta asistencias, ingresos, salidas y permanencia de tu equipo." />
-      {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} />}
+      {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} />}
       <DashboardSection kicker="Información de la sede" title="Datos y accesos de la tienda" text="Información principal, documentos próximos a vencer y accesos rápidos." />
       <div className="store-overview-grid"><section className="panel store-main-data"><header className="panel__header"><div><h2>Datos principales</h2><p>Información operativa de la sede</p></div><Store size={22} /></header><dl><div><dt>Nombre</dt><dd>{storeName}</dd></div><div><dt>Estado operativo</dt><dd><StatusBadge value="activo" /></dd></div><div className="span-2"><dt>Dirección</dt><dd>{profile.tienda_direccion || "Sin dirección registrada"}</dd></div><div><dt>Jefe responsable</dt><dd>{user.rol === "jefe_tienda" ? `${user.nombres} ${user.apellidos}` : `${administrativePeople.find((person) => person.rol === "jefe_tienda")?.nombres || "Jefe"} ${administrativePeople.find((person) => person.rol === "jefe_tienda")?.apellidos || "de tienda"}`}</dd></div><div><dt>Personal activo</dt><dd>{activePeople.length}</dd></div></dl></section><div className="store-side-stack"><section className="panel"><header className="panel__header"><h2>Estado documental</h2></header>{expiring.length ? expiring.map((d) => <div className="store-doc-row" key={d.id}><div><strong>{d.nombre}</strong><small>Vence {formatDate(d.fecha_vencimiento)}</small></div><span className={daysUntil(d.fecha_vencimiento) <= 7 ? "danger-text" : ""}>{daysUntil(d.fecha_vencimiento)} días</span></div>) : <p className="store-empty-copy">Sin documentos próximos a vencer.</p>}</section><section className="panel"><header className="panel__header"><h2>Accesos rápidos</h2></header><Quick icon={Users} text={isZonal ? "Personal zonal" : "Gestionar personal"} action={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")} />{!isZonal && <Quick icon={CalendarCheck2} text="Registrar asistencia" action={() => onNavigate("asistencias")} />}<Quick icon={GraduationCap} text="Revisar capacitaciones" action={() => onNavigate("capacitaciones")} /><Quick icon={AlertTriangle} text="Ver incidencias" action={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")} /></section></div></div>
     </div>
@@ -68,14 +71,15 @@ const attendanceCodes = {
   suspension: { code: "S", label: "Suspensión" },
 };
 
-function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false }) {
+function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange }) {
   const currentDate = todayISO();
-  const [year, setYear] = useState(currentDate.slice(0, 4));
-  const [monthNumber, setMonthNumber] = useState(currentDate.slice(5, 7));
+  const { year, monthNumber, week, day } = period;
+  const setYear = (value) => onPeriodChange((current) => ({ ...current, year: value }));
+  const setMonthNumber = (value) => onPeriodChange((current) => ({ ...current, monthNumber: value }));
   const [workerId, setWorkerId] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [week, setWeek] = useState("");
-  const [day, setDay] = useState("");
+  const setWeek = (value) => onPeriodChange((current) => ({ ...current, week: value }));
+  const setDay = (value) => onPeriodChange((current) => ({ ...current, day: value }));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [records, setRecords] = useState(null);
@@ -119,7 +123,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
   const byPersonAndDay = new Map(monthRecords.map((record) => [`${record.usuario_id}-${Number(record.fecha.slice(8, 10))}`, record]));
   const resetFilters = () => {
     setYear(currentDate.slice(0, 4)); setMonthNumber(currentDate.slice(5, 7));
-    setWorkerId(""); setIncludeInactive(false); setWeek(""); setDay("");
+    setWorkerId(""); setIncludeInactive(false); onPeriodChange({ year: currentDate.slice(0, 4), monthNumber: currentDate.slice(5, 7), week: "", day: "" });
   };
 
   return <><section className={`panel attendance-matrix-panel ${expanded ? "attendance-matrix-panel--expanded" : ""}`}>
@@ -240,7 +244,7 @@ function PersonnelCharts({ people, errors, year, monthNumber, week, day }) {
 
   return <section className="personnel-charts-grid">
     <article className={`panel personnel-chart-panel ${expandedChart === "rotation" ? "personnel-chart-panel--expanded" : ""}`}>
-      <header className="panel__header"><div><span className="eyebrow">Equipo</span><h2>Rotación de Personal por Mes · {year}</h2><p>Ingresos y salidas mensuales de la tienda.</p></div><div className="personnel-chart-actions"><span className="panel-tag">{totalEntries} ingresos · {totalExits} salidas</span><button className="icon-button" onClick={() => setExpandedChart(expandedChart === "rotation" ? "" : "rotation")} aria-label={expandedChart === "rotation" ? "Cerrar vista ampliada" : "Ampliar rotación"}>{expandedChart === "rotation" ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></header>
+      <header className="panel__header rotation-comparison-header"><div><h2>Rotación de Personal por Mes · {year}</h2></div><div className="personnel-chart-actions"><span className="panel-tag">{totalEntries} ingresos · {totalExits} salidas</span><button className="icon-button" onClick={() => setExpandedChart(expandedChart === "rotation" ? "" : "rotation")} aria-label={expandedChart === "rotation" ? "Cerrar vista ampliada" : "Ampliar rotación"}>{expandedChart === "rotation" ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></header>
       <div className="rotation-comparison">
         <div className="rotation-comparison-legend"><button className={visibleRotationSeries.ingresos ? "" : "is-muted"} onClick={() => setVisibleRotationSeries((current) => ({ ...current, ingresos: !current.ingresos }))}><i style={{ background: "#05b13e" }} />Ingreso</button><button className={visibleRotationSeries.salidas ? "" : "is-muted"} onClick={() => setVisibleRotationSeries((current) => ({ ...current, salidas: !current.salidas }))}><i style={{ background: "#f4303f" }} />Salida</button></div>
         <div className="rotation-headcount-legend"><span>Personal al inicio del mes</span><span>Personal al fin del mes</span></div>

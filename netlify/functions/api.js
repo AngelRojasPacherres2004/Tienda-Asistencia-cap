@@ -1201,7 +1201,7 @@ async function getTrabajadorPerfil(id, user) {
   await assertTrainingTarget(user, trabajador);
 
   const { data: progresoRows, error: progresoError } = await supabase.from("capacitacion_progreso")
-    .select("curso_id,estado,duracion_horas,nota,fecha_finalizacion")
+    .select("curso_id,estado,duracion_horas,nota,resultado,fecha_finalizacion")
     .eq("usuario_id", id);
   if (progresoError) throw dbError(progresoError);
   const progresoByCurso = new Map(progresoRows.map((row) => [row.curso_id, row]));
@@ -1224,7 +1224,7 @@ async function getTrabajadorPerfil(id, user) {
     return {
       curso_id: curso.id, titulo: curso.nombre, competencia: curso.competencia, curso_activo: curso.activo,
       estado: progreso?.estado || "pendiente",
-      duracion_horas: progreso?.duracion_horas ?? null,
+      duracion_horas: progreso?.duracion_horas ?? null, resultado: progreso?.resultado ?? "na",
       nota: progreso?.nota ?? null,
       fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
     };
@@ -1244,6 +1244,7 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
   const data = bodyOf(event);
   requireFields(data, ["estado"]);
   if (!progresoEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  if (!['aprobado', 'desaprobado', 'na'].includes(data.resultado || 'na')) throw httpError("El resultado de capacitación no es válido.", 400);
   if (data.nota !== "" && data.nota != null && (!Number.isFinite(Number(data.nota)) || Number(data.nota) < 0 || Number(data.nota) > 20)) throw httpError("La nota debe estar entre 0 y 20.", 400);
   const { data: trabajador, error: tError } = await supabase.from("usuarios")
     .select("id,tienda_id,rol").eq("id", usuarioId).maybeSingle();
@@ -1254,7 +1255,7 @@ async function guardarProgreso(event, usuarioId, cursoId, user) {
     curso_id: Number(cursoId), usuario_id: Number(usuarioId), tienda_id: trabajador.tienda_id,
     estado: data.estado, duracion_horas: data.duracion_horas ? Number(data.duracion_horas) : null,
     nota: data.nota === "" || data.nota == null ? null : Number(data.nota),
-    encargado_id: null,
+    encargado_id: null, resultado: data.resultado || 'na',
     fecha_finalizacion: data.estado === "completado" ? todayISO() : null,
     actualizado_por: user.id, updated_at: new Date().toISOString(),
   };
@@ -2164,17 +2165,9 @@ async function listSpecialCoverages(user) {
 }
 
 async function listCoverageCandidates(user) {
-  const { data: store, error: storeError } = await supabase.from("tiendas").select("cluster_id").eq("id", user.tienda_id).maybeSingle();
-  if (storeError) throw dbError(storeError);
-  let storeIds = [user.tienda_id];
-  if (store?.cluster_id) {
-    const { data: stores, error } = await supabase.from("tiendas").select("id").eq("cluster_id", store.cluster_id).eq("estado", "activo");
-    if (error) throw dbError(error);
-    storeIds = stores.map((row) => row.id);
-  }
   const { data, error } = await supabase.from("usuarios")
-    .select("id,nombres,apellidos,area_laboral,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
-    .eq("estado", "activo").in("rol", storeStaffRoles).in("tienda_id", storeIds).order("nombres");
+    .select("id,nombres,apellidos,dni,area_laboral,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
+    .eq("estado", "activo").in("rol", storeStaffRoles).order("nombres");
   if (error) throw dbError(error);
   return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || null }));
 }
@@ -2189,7 +2182,7 @@ async function saveSpecialCoverage(event, user) {
   const ids = validIds(data.trabajadores.map((row) => row.usuario_id));
   const candidates = await listCoverageCandidates(user);
   const people = candidates.filter((person) => ids.includes(person.id));
-  if (people.length !== ids.length) throw httpError("Uno de los trabajadores no pertenece a una tienda autorizada del clúster.", 400);
+  if (people.length !== ids.length) throw httpError("Uno de los trabajadores no está activo o no puede asignarse a la cobertura.", 400);
   const byId = new Map(people.map((person) => [person.id, person]));
   for (const row of data.trabajadores) {
     if (!/^\d{2}:\d{2}$/.test(row.hora_entrada || "")) throw httpError("Indica la hora de entrada de cada trabajador.", 400);

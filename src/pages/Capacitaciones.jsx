@@ -117,7 +117,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
     const initial = {};
     for (const curso of res.cursos) {
       initial[curso.curso_id] = {
-        estado: curso.estado, duracion_horas: curso.duracion_horas ?? "", nota: curso.nota ?? "",
+        estado: curso.estado, duracion_horas: curso.duracion_horas ?? "", nota: curso.nota ?? "", resultado: curso.resultado ?? "na",
       };
     }
     setDrafts(initial);
@@ -133,7 +133,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
     try {
       await api(`/capacitaciones/trabajadores/${id}/cursos/${cursoId}`, {
         method: "PUT",
-        body: { estado: draft.estado, duracion_horas: draft.duracion_horas || null, nota: draft.nota === "" ? null : draft.nota },
+        body: { estado: draft.estado, duracion_horas: draft.duracion_horas || null, nota: draft.nota === "" ? null : draft.nota, resultado: draft.resultado || "na" },
       });
       await load();
       setSuccess({ title: "Progreso actualizado", message: "La capacitación del trabajador se guardó correctamente." });
@@ -186,6 +186,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
                     <Field label="Nota (0–20)">
                       <input type="number" min="0" max="20" step="0.5" value={draft.nota ?? ""} onChange={(e) => setDraft(curso.curso_id, "nota", e.target.value)} />
                     </Field>
+                    <Field label="Resultado"><select value={draft.resultado || "na"} onChange={(e) => setDraft(curso.curso_id, "resultado", e.target.value)}><option value="aprobado">Aprobado</option><option value="desaprobado">Desaprobado</option><option value="na">N/A</option></select></Field>
                     <div className="worker-task__footer">
                       <button className="button button--primary button--small" disabled={savingCurso === curso.curso_id} onClick={() => guardar(curso.curso_id)}>
                         {savingCurso === curso.curso_id ? "Guardando…" : "Guardar"}
