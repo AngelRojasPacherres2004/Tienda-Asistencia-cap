@@ -15,7 +15,8 @@ export function PageHeader({ eyebrow, title, subtitle, action }) {
 
 export function StatusBadge({ value, label }) {
   const key = String(value || "").toLowerCase().replace(/\s+/g, "-");
-  return <span className={`status status--${key}`}><i />{label ?? (value || "Sin estado")}</span>;
+  const text = label ?? (value ? String(value).replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase()) : "Sin estado");
+  return <span className={`status status--${key}`}><i />{text}</span>;
 }
 
 export function Modal({ open, title, subtitle, children, onClose, wide = false, extraWide = false }) {

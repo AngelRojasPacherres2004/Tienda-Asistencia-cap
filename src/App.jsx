@@ -26,6 +26,8 @@ const CoberturasEspeciales = lazy(() => import("./pages/CoberturasEspeciales"));
 const MiTiendaGestion = lazy(() => import("./pages/MiTiendaGestion"));
 const Personal = lazy(() => import("./pages/Personal"));
 const ZonalModule = lazy(() => import("./pages/ZonalModule"));
+const Reportes = lazy(() => import("./pages/Reportes"));
+const HistorialMovimientos = lazy(() => import("./pages/HistorialMovimientos"));
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", coach: "capacitaciones", jefe_zonal: "dashboard",
@@ -96,6 +98,8 @@ export default function App() {
     "zonal-tareas": <ZonalModule section="tareas" user={user} />,
     "zonal-supervisiones": <ZonalModule section="supervisiones" user={user} />,
     "zonal-incidencias": <ZonalModule section="incidencias" user={user} />,
+    reportes: <Reportes user={user} />,
+    historial: <HistorialMovimientos user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (

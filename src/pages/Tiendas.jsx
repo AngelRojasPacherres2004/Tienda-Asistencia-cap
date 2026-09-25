@@ -8,7 +8,7 @@ import {
 const blank = { nombre: "", direccion: "", jefe_id: "", cluster_id: "", estado: "activo" };
 
 export default function Tiendas({ user }) {
-  const canEdit = ["gerente_comercial", "jefe_zonal"].includes(user?.rol);
+  const canEdit = user?.rol === "gerente_comercial";
   const isZonal = user?.rol === "jefe_zonal";
   const [items, setItems] = useState(null);
   const [usuarios, setUsuarios] = useState([]);
@@ -66,7 +66,7 @@ export default function Tiendas({ user }) {
       <PageHeader
         eyebrow={isZonal ? "Gestión zonal" : "Operación"}
         title={isZonal ? "Mis tiendas" : "Tiendas"}
-        subtitle="Crea tiendas, asigna su administrador y consulta al resto del personal."
+        subtitle={isZonal ? "Consulta las tiendas de tu zona, su administrador y el equipo asignado." : "Crea tiendas, asigna su administrador y consulta al resto del personal."}
         action={canEdit ? <button className="button button--primary" onClick={openNew}>Nueva tienda</button> : null}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}

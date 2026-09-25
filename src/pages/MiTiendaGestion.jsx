@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import ExcelJS from "exceljs";
 import { Check, ClipboardCheck, FileText, Plus, ShieldCheck, Upload } from "lucide-react";
-import { api, formatDate, todayISO } from "../lib/api";
+import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
 
 const DOCUMENTOS = ["Certificado de Defensa Civil","Licencia de Funcionamiento","Ficha RUC","Pozo a Tierra","Plan de Contingencia y Seguridad","Certificados de capacitación","Fumigación","Extintores","Luces de emergencia","Detectores de humo","Prueba hidrostática","Láminas de seguridad","Rociadores","Sistema de alarma contra incendios","Plano de evacuación","Plano de señalización","Plano de instalaciones eléctricas","Plano de arquitectura","Plano de ubicación"];
 const AREAS_DOCUMENTOS = ["Municipalidad","Contabilidad","Ingeniero eléctrico","Calcin","Proveedor","Ingeniero civil","Correos especiales"];
 const AREAS_REQUERIMIENTOS = ["Operaciones","Sistemas","Marketing","Seguridad","Logística","Mantenimiento","Recursos Humanos","Otro"];
-const tabs = [["resumen","Resumen"],["documentos","Documentos"],["operacion","Operación"],["seguimiento","Seguimiento"]];
+const tabs = [["resumen","Resumen"],["documentos","Documentos"],["operacion","Operación"],["seguimiento","Seguimiento"],["apoyos","Apoyo de seguridad"]];
+const reportKindBySub = { municipal:"documentos", reclamaciones:"reclamaciones", acciones:"acciones", bitacora:"bitacora", requerimientos:"requerimientos", observaciones:"supervisiones", mejoras:"mejoras" };
 const blank = (type) => ({
   documento: { responsables:[AREAS_DOCUMENTOS[0]], codigo:"", tipo_documento:DOCUMENTOS[0], frecuencia_revision:"Anual", fecha_emision:"", fecha_vencimiento:"", estado:"vigente", archivo:null },
   apoyo: { nombres:"", apellidos:"", dni:"", telefono:"", fecha_inicio:todayISO(), fecha_fin:todayISO(), motivo:"", foto:null },
@@ -27,34 +27,6 @@ const FileField = ({ label, onChange, accept=".pdf,image/*", capture }) => {
 const Text = ({ label, name, form, setForm, ...props }) => <Field label={label}><input {...props} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></Field>;
 const Area = ({ label, name, form, setForm }) => <Field label={label}><textarea rows="3" value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></Field>;
 const Select = ({ label, name, form, setForm, options }) => <Field label={label}><select value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })}>{options.map(([v,l]) => <option value={v} key={v}>{l}</option>)}</select></Field>;
-
-function downloadCsv(name, rows) {
-  if (!rows.length) return;
-  const keys = Object.keys(rows[0]).filter((key) => !key.includes("path") && !key.includes("nombre") && key !== "creado_por");
-  const escape = (value) => `"${String(value ?? "").replaceAll('"','""')}"`;
-  const blob = new Blob(["\ufeff" + [keys.join(";"), ...rows.map((row) => keys.map((key) => escape(row[key])).join(";"))].join("\n")], { type:"text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob), link = document.createElement("a"); link.href=url; link.download=name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 500);
-}
-
-async function downloadExcel(name, rows) {
-  if (!rows.length) return;
-  const keys = Object.keys(rows[0]).filter((key) => !key.includes("path") && !key.includes("nombre") && key !== "creado_por");
-  const label = (key) => key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-  const value = (item) => Array.isArray(item) ? item.join(" · ") : item && typeof item === "object" ? JSON.stringify(item) : item ?? "";
-  const workbook = new ExcelJS.Workbook(); workbook.creator = "Asiste";
-  const sheet = workbook.addWorksheet("Registros", { views: [{ state: "frozen", ySplit: 1 }] });
-  sheet.columns = keys.map((key) => {
-    const contentWidth = Math.max(label(key).length, ...rows.map((row) => String(value(row[key])).replaceAll("\n", " ").length));
-    const isLongText = /descripcion|observacion|comentario|detalle|resultado/i.test(key);
-    const isTimestamp = /created_at|updated_at/i.test(key);
-    return { header: label(key), key, width: Math.min(Math.max(contentWidth + 3, isLongText ? 28 : isTimestamp ? 26 : 16), isLongText ? 48 : 32) };
-  });
-  sheet.addRows(rows.map((row) => Object.fromEntries(keys.map((key) => [key, value(row[key])]))));
-  const header = sheet.getRow(1); header.height = 30; header.font = { name: "Aptos Display", bold: true, color: { argb: "FFFFFFFF" } }; header.alignment = { vertical: "middle" }; header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D4F86" } };
-  sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(keys.length).letter}1` };
-  sheet.eachRow((row, index) => { if (index === 1) return; row.height = 24; row.eachCell((cell, column) => { const key = keys[column - 1] || ""; cell.font = { name: "Aptos", size: 10, color: { argb: "FF1C3044" } }; cell.alignment = { vertical: "middle", wrapText: /descripcion|observacion|comentario|detalle|resultado/i.test(key) }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: index % 2 === 0 ? "FFF4F8FB" : "FFFFFFFF" } }; cell.border = { bottom: { style: "hair", color: { argb: "FFC7D7E5" } } }; }); });
-  const buffer = await workbook.xlsx.writeBuffer(); const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })); const link = document.createElement("a"); link.href = url; link.download = name.replace(/\.csv$/i, ".xlsx"); link.click(); setTimeout(() => URL.revokeObjectURL(url), 500);
-}
 
 export default function MiTiendaGestion() {
   const [data,setData] = useState(null), [tab,setTab] = useState("resumen"), [sub,setSub] = useState("municipal");
@@ -98,7 +70,8 @@ export default function MiTiendaGestion() {
     {tab === "documentos" && <ModuleTabs items={[["municipal","Documentación municipal"],["reclamaciones","Libro de reclamaciones"]]} sub={sub} setSub={setSub} />}
     {tab === "operacion" && <ModuleTabs items={[["acciones","Acciones de tienda"],["bitacora","Bitácora diaria"],["requerimientos","Requerimientos de tienda"]]} sub={sub} setSub={setSub} />}
     {tab === "seguimiento" && <ModuleTabs items={[["observaciones","Observaciones zonales"],["mejoras","Mejora continua"]]} sub={sub} setSub={setSub} />}
-    {tab !== "resumen" && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>downloadExcel(`${sub}.xlsx`,currentRows)} />}
+    {tab === "apoyos" && <SecuritySupports rows={data.apoyos_seguridad||[]} open={open} reload={load} />}
+    {!['resumen','apoyos'].includes(tab) && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>downloadFile(`/api/reportes/${reportKindBySub[sub]}/export.xlsx`,`reporte-${reportKindBySub[sub]}.xlsx`)} />}
 
     <EditorModal type={modal} form={form} setForm={setForm} error={error} busy={busy} onClose={()=>setModal(null)} onSave={modal==="datos" ? async()=>{setBusy(true);try{await api("/mi-tienda-gestion/datos",{method:"PUT",body:form});setModal(null);await load();}catch(e){setError(e.message);}finally{setBusy(false);}} : save} />
   </>;
@@ -117,7 +90,7 @@ function Records({section,rows,open,viewFile,exportRows}) {
   const primary=(row)=>row.tipo_documento||row.codigo_hoja||row.accion||row.evento||row.requerimiento||row.area_item||row.que_mejoro;
   const secondary=(row)=>row.responsables?.join(" · ")||row.area_responsable||row.consumidor_nombre||row.responsable||row.categoria||row.areas_responsables?.join(" · ")||row.descripcion||row.area;
   const path=(row)=>row.archivo_path||row.evidencia_path||row.evidencia_inicial_path||row.foto_despues_path;
-  return <section className="panel records-panel"><header><div><small>Subsección</small><h2>{title}</h2></div><div className="header-actions"><button className="button button--ghost" onClick={exportRows}>Exportar</button>{config[0]&&<button className="button button--primary" onClick={()=>open(config[0])}><Plus size={15}/>{config[1]}</button>}</div></header>
+  return <section className="panel records-panel"><header><div><small>Subsección</small><h2>{title}</h2></div><div className="header-actions"><button className="button button--ghost" onClick={exportRows}>Descargar Excel</button>{config[0]&&<button className="button button--primary" onClick={()=>open(config[0])}><Plus size={15}/>{config[1]}</button>}</div></header>
     {!rows.length?<EmptyState icon={section==="municipal"?FileText:ClipboardCheck} title="Sin registros" text="Aún no hay información en esta subsección."/>:<div className="compact-record-list">{rows.map(row=><article className={section==="requerimientos"?"requirement-record":""} key={row.id}><div><strong>{section==="requerimientos"?`REQ-${String(row.id).padStart(4,"0")} · `:""}{primary(row)||"Registro"}</strong><small>{secondary(row)||"Sin detalle"} · {formatDate(row.fecha||row.fecha_inicio||row.fecha_vencimiento||row.created_at)}</small>{section==="requerimientos"&&row.fecha_fin_objetivo&&<small>Fecha objetivo: {formatDate(row.fecha_fin_objetivo)} · {row.urgencia?.replaceAll("_"," ")}</small>}</div><StatusBadge value={row.estado||row.prioridad}/><div className="record-actions">{path(row)&&<button onClick={()=>viewFile(path(row))}>Ver archivo</button>}{section==="municipal"&&<button onClick={()=>open("documento",{...row,archivo:null})}>Renovar / editar</button>}{section==="bitacora"&&<button onClick={()=>open("bitacora",{...row,archivo:null})}>Editar</button>}{section==="requerimientos"&&<><button onClick={()=>open("requerimiento",{...row,archivo:null})}>Ver / actualizar</button><button onClick={()=>open("seguimiento_requerimiento",{...blank("seguimiento_requerimiento"),requerimiento_id:row.id,estado:row.estado})}>Seguimiento</button></>}{section==="observaciones"&&!(["levantada","en_validacion"].includes(row.estado))&&<button onClick={()=>open("observacion",{...blank("observacion"),id:row.id})}>Levantar</button>}</div>{section==="requerimientos"&&!!row.seguimientos?.length&&<div className="requirement-timeline">{row.seguimientos.map(item=><div key={item.id}><span>{formatDate(item.created_at)}</span><strong>{item.usuarios ? `${item.usuarios.nombres||""} ${item.usuarios.apellidos||""}`.trim() : "Usuario"}</strong><span>{item.comentario}</span><StatusBadge value={item.estado}/></div>)}</div>}</article>)}</div>}
   </section>;
 }

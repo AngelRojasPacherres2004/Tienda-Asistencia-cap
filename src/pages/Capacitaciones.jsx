@@ -80,7 +80,7 @@ export default function Capacitaciones({ user }) {
         </div>
       ) : <EmptyState icon={GraduationCap} title="Sin personas para supervisar" text={`Todavía no hay ${supervisedLabel} disponibles en tu alcance.`} />}
 
-      {perfilId && <TrabajadorPerfilView id={perfilId} onClose={() => setPerfilId(null)} />}</>}
+      {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal", "coach"].includes(user?.rol)} onClose={() => setPerfilId(null)} />}</>}
 
       <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />
       {!cursos ? <Loading /> : cursos.length ? (

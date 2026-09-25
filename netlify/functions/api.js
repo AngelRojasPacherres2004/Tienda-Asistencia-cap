@@ -2248,7 +2248,7 @@ async function listSpecialCoverages(user) {
   return data;
 }
 
-async function listCoverageCandidates(user) {
+async function listCoverageCandidates(_user) {
   const { data, error } = await supabase.from("usuarios")
     .select("id,nombres,apellidos,dni,area_laboral,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
     .eq("estado", "activo").in("rol", storeStaffRoles).order("nombres");
@@ -2297,7 +2297,7 @@ async function operationalSummary(event, user) {
     supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-    supabase.from("documentos_tienda").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).lte("fecha_vencimiento", in30Days),
+    supabase.from("documentos_municipales").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).lte("fecha_vencimiento", in30Days),
   ]);
   return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0 };
 }
@@ -2387,72 +2387,9 @@ async function getZonalModule(event, user, kind) {
   throw httpError("Módulo zonal no válido.", 404);
 }
 
-async function createZonalTask(event, user) {
-  const data = bodyOf(event); requireFields(data, ["tienda_id", "titulo", "responsable", "fecha_limite"]);
-  const ids = await zonalStoreIds(user.id); const storeId = Number(data.tienda_id);
-  if (!ids.includes(storeId)) throw httpError("La tienda no pertenece a tu zona.", 403);
-  const row = { jefe_zonal_id: user.id, tienda_id: storeId, titulo: cleanText(data.titulo), descripcion: cleanText(data.descripcion) || null, responsable: cleanText(data.responsable), fecha_inicio: isISODate(data.fecha_inicio) ? data.fecha_inicio : todayISO(), fecha_limite: data.fecha_limite, prioridad: ["baja","media","alta","urgente"].includes(data.prioridad) ? data.prioridad : "media", estado: "pendiente" };
-  const { data: created, error } = await supabase.from("tareas_zonales").insert(row).select().single();
-  if (error) throw dbError(error); return created;
-}
-
-async function updateZonalTask(event, user, id) {
-  const data = bodyOf(event); const estados = ["pendiente","en_progreso","completada","cancelada"];
-  if (!estados.includes(data.estado)) throw httpError("El estado no es válido.", 400);
-  const { data: row, error } = await supabase.from("tareas_zonales").update({ estado: data.estado, updated_at: new Date().toISOString() }).eq("id", id).eq("jefe_zonal_id", user.id).select().maybeSingle();
-  if (error) throw dbError(error); if (!row) throw httpError("Tarea no encontrada.", 404); return row;
-}
-
-async function createZonalSupervision(event, user) {
-  const data = bodyOf(event); requireFields(data, ["tienda_id", "fecha", "observacion_general"]);
-  const ids = await zonalStoreIds(user.id); const storeId = Number(data.tienda_id);
-  if (!ids.includes(storeId)) throw httpError("La tienda no pertenece a tu zona.", 403);
-  const { data: visit, error } = await supabase.from("visitas_zonales").insert({ tienda_id: storeId, jefe_zonal_id: user.id, fecha: data.fecha, periodo: cleanText(data.periodo) || null, puntaje: data.puntaje === "" || data.puntaje == null ? null : Number(data.puntaje), checklist_nombre: cleanText(data.checklist_nombre) || null, observacion_general: cleanText(data.observacion_general) }).select().single();
-  if (error) throw dbError(error);
-  if (cleanText(data.hallazgo)) {
-    const inserted = await supabase.from("observaciones_zonales").insert({ visita_id: visit.id, tienda_id: storeId, area_item: cleanText(data.area_item) || "General", prioridad: ["baja","media","alta","urgente"].includes(data.prioridad) ? data.prioridad : "media", fecha_limite: isISODate(data.fecha_limite) ? data.fecha_limite : null, descripcion: cleanText(data.hallazgo), accion_solicitada: cleanText(data.accion_solicitada) || null });
-    if (inserted.error) throw dbError(inserted.error);
-  }
-  return visit;
-}
-
-async function updateZonalAdministrator(event, user, id) {
-  const data = bodyOf(event);
-  const { data: current, error: currentError } = await supabase.from("usuarios")
-    .select("id,rol,tienda_id,zonal_creador_id").eq("id", id).maybeSingle();
-  if (currentError) throw dbError(currentError);
-  if (!current || current.rol !== "jefe_tienda") throw httpError("Administrador no encontrado.", 404);
-  const storeIds = await zonalStoreIds(user.id);
-  if (Number(current.zonal_creador_id) !== Number(user.id) && !storeIds.includes(Number(current.tienda_id))) {
-    throw httpError("El administrador no pertenece a tu zona.", 403);
-  }
-  const normalized = { ...data, rol: "jefe_tienda", tienda_id: current.tienda_id, estado: data.estado || "activo", fecha_salida: "" };
-  validateUserPayload(normalized);
-  const usuario = cleanUsuario(data.usuario) || null;
-  const dni = cleanText(data.dni);
-  await ensureUniqueUser(usuario, dni, id);
-  const payload = {
-    nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, usuario,
-    telefono: data.telefono ? cleanText(data.telefono) : null,
-    fecha_ingreso: data.fecha_ingreso, estado: normalized.estado,
-  };
-  if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
-  const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
-  if (error) throw dbError(error);
-  return { ok: true };
-}
-
 async function getZonalCluster(user) {
   const { data, error } = await supabase.from("clusters").select("id,nombre,codigo,estado").eq("jefe_zonal_id", user.id).maybeSingle();
   if (error) throw dbError(error); if (!data) throw httpError("No tienes un clúster asignado.", 404); return data;
-}
-
-async function validateZonalObservation(event, user, id) {
-  const data = bodyOf(event); const ids = await zonalStoreIds(user.id);
-  if (!['validar','reabrir'].includes(data.resultado)) throw httpError("Selecciona un resultado válido.", 400);
-  const estado = data.resultado === 'validar' ? 'levantada' : 'abierta';
-  const { data: row, error } = await supabase.from("observaciones_zonales").update({ estado, comentario_validacion:cleanText(data.comentario)||null, validado_por:user.id, fecha_validacion:new Date().toISOString(), updated_at:new Date().toISOString() }).eq("id",id).in("tienda_id",ids).select().maybeSingle();
-  if (error) throw dbError(error); if (!row) throw httpError("La observación no pertenece a tu zona.",404); return row;
 }
 
 async function signedZonalSupervisionFile(event, user) {
@@ -2503,6 +2440,184 @@ async function exportZonalIncidents(user) {
   sheet.addRows(rows.map((row)=>({codigo:`IZ-${String(row.id).padStart(4,"0")}`,fecha:row.fecha,tipo:row.tipo.replaceAll("_"," "),alcance:row.alcance.replaceAll("_"," "),origen:row.origen?.nombre||"",afectada:row.afectada?.nombre||"",estado:row.estado.replaceAll("_"," "),descripcion:row.descripcion,responsable:row.responsable_seguimiento}))); styleHeader(sheet);
   return excelResponse(workbook, "incidencias-zonales.xlsx");
 }
+
+// ---------- Reportes e historial ----------
+
+const reportKinds = new Set([
+  "personal", "asistencias", "documentos", "incidencias", "reclamaciones", "acciones",
+  "bitacora", "requerimientos", "mejoras", "supervisiones", "capacitaciones", "tareas",
+]);
+
+const reportExcelColumns = {
+  personal: [["Nombre", "nombre", 30], ["Tienda", "tienda", 24], ["Cargo", "rol", 22], ["DNI", "dni", 13], ["Usuario", "usuario", 18], ["Celular", "telefono", 14], ["Fecha de ingreso", "fecha_ingreso", 17], ["Estado", "estado", 15]],
+  asistencias: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Estado", "estado", 18], ["Observación", "observaciones", 42]],
+  documentos: [["Tienda", "tienda", 24], ["Documento", "tipo_documento", 32], ["Código", "codigo", 16], ["Responsables", "responsables", 34], ["Frecuencia", "frecuencia_revision", 16], ["Emisión", "fecha_emision", 14], ["Vencimiento", "fecha_vencimiento", 16], ["Estado", "estado", 18]],
+  incidencias: [["Código", "codigo", 15], ["Fecha", "fecha", 14], ["Tienda", "tienda", 30], ["Tipo", "tipo", 28], ["Alcance", "alcance", 22], ["Estado", "estado", 18], ["Descripción", "descripcion", 55], ["Responsable", "responsable", 28]],
+  reclamaciones: [["Código", "codigo", 16], ["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Consumidor", "consumidor", 28], ["Producto o servicio", "producto_servicio", 30], ["Monto", "monto", 14], ["Tipo", "tipo", 14], ["Estado", "estado", 18], ["Responsable", "responsable", 25], ["Detalle", "detalle", 55]],
+  acciones: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Acción", "accion", 36], ["Tipo", "tipo", 18], ["Responsable", "responsable", 26], ["Estado", "estado", 18], ["Objetivo", "objetivo", 42], ["Observación", "observacion", 42]],
+  bitacora: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Categoría", "categoria", 20], ["Evento", "evento", 34], ["Venta del día", "venta_dia", 16], ["Tráfico", "trafico", 12], ["Descripción", "descripcion", 48]],
+  requerimientos: [["Código", "codigo", 15], ["Tienda", "tienda", 24], ["Requerimiento", "requerimiento", 45], ["Cantidad", "cantidad", 12], ["Áreas responsables", "areas", 34], ["Urgencia", "urgencia", 18], ["Inicio", "fecha_inicio", 14], ["Fecha objetivo", "fecha_objetivo", 16], ["Estado", "estado", 18], ["Comentario", "comentario", 40]],
+  mejoras: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Sección", "seccion", 20], ["Área", "area", 20], ["Responsable", "responsable", 25], ["Mejora", "mejora", 45], ["Cómo se hizo", "como_se_hizo", 48], ["Estado", "estado", 18], ["Resultado", "resultado", 42]],
+  supervisiones: [["Código", "codigo", 15], ["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Administrador", "administrador", 28], ["Periodo", "periodo", 18], ["Puntaje", "puntaje", 12], ["Observaciones", "observaciones", 16], ["Por validar", "por_validar", 14], ["Estado", "estado", 18]],
+  capacitaciones: [["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["Curso", "curso", 32], ["Competencia", "competencia", 24], ["Avance", "avance", 14], ["Duración (h)", "duracion", 14], ["Nota", "nota", 12], ["Estado", "estado", 18], ["Finalización", "fecha_finalizacion", 16]],
+  tareas: [["Tienda", "tienda", 24], ["Tarea", "titulo", 36], ["Responsable", "responsable", 26], ["Inicio", "fecha_inicio", 14], ["Fecha límite", "fecha_limite", 16], ["Prioridad", "prioridad", 14], ["Estado", "estado", 18], ["Descripción", "descripcion", 48]],
+};
+
+function reportScopeContains(scope, storeId) {
+  if (!hasStoreScope(scope)) return true;
+  if (!storeId) return false;
+  return Array.isArray(scope) ? scope.map(Number).includes(Number(storeId)) : Number(scope) === Number(storeId);
+}
+
+function reportText(value) {
+  if (Array.isArray(value)) return value.join(" · ");
+  return value == null ? "" : String(value);
+}
+
+function applyReportFilters(rows, query) {
+  const search = cleanText(query.q).toLocaleLowerCase("es");
+  return rows.filter((row) => {
+    const date = String(row._fecha || "").slice(0, 10);
+    if (query.desde && isISODate(query.desde) && date && date < query.desde) return false;
+    if (query.hasta && isISODate(query.hasta) && date && date > query.hasta) return false;
+    if (query.estado && row._estado !== query.estado) return false;
+    if (query.prioridad && !row._prioridades?.includes(query.prioridad)) return false;
+    if (search && !Object.values(row).some((value) => reportText(value).toLocaleLowerCase("es").includes(search))) return false;
+    return true;
+  }).map(({ _fecha, _estado, _prioridades, ...row }) => row);
+}
+
+async function fetchAllReportPages(request, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await request.range(from, from + pageSize - 1);
+    if (error) throw dbError(error);
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
+async function getReportRows(event, user, kind) {
+  if (!reportKinds.has(kind)) throw httpError("El reporte solicitado no existe.", 404);
+  const query = event.queryStringParameters || {};
+  const scope = await resolveStoreScope(user, query.tienda_id);
+  let rows = [];
+
+  if (kind === "personal") {
+    let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_ingreso,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:humanize(row.rol), dni:row.dni || "", usuario:row.usuario || "", telefono:row.telefono || "", fecha_ingreso:row.fecha_ingreso || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
+  }
+  if (kind === "asistencias") {
+    let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", estado:row.estado, observaciones:row.observaciones || "", _fecha:row.fecha, _estado:row.estado }));
+  }
+  if (kind === "documentos") {
+    let request = supabase.from("documentos_municipales").select("id,tienda_id,tipo_documento,codigo,responsables,area_responsable,frecuencia_revision,fecha_emision,fecha_vencimiento,estado,tiendas(nombre)").order("fecha_vencimiento");
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, tienda:row.tiendas?.nombre || "", tipo_documento:row.tipo_documento, codigo:row.codigo || "", responsables:(row.responsables?.length ? row.responsables : [row.area_responsable]).filter(Boolean).join(" · "), frecuencia_revision:row.frecuencia_revision || "", fecha_emision:row.fecha_emision || "", fecha_vencimiento:row.fecha_vencimiento || "", estado:row.estado, _fecha:row.fecha_vencimiento || row.fecha_emision, _estado:row.estado }));
+  }
+  if (kind === "reclamaciones") {
+    let request = supabase.from("reclamaciones_tienda").select("id,tienda_id,codigo_hoja,fecha,consumidor_nombre,producto_servicio,monto,tipo,detalle,responsable,estado,tiendas(nombre)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, codigo:row.codigo_hoja, fecha:row.fecha, tienda:row.tiendas?.nombre || "", consumidor:row.consumidor_nombre, producto_servicio:row.producto_servicio, monto:row.monto ?? "", tipo:humanize(row.tipo), estado:row.estado, responsable:row.responsable || "", detalle:row.detalle, _fecha:row.fecha, _estado:row.estado }));
+  }
+  if (kind === "acciones") {
+    let request = supabase.from("acciones_tienda").select("id,tienda_id,fecha,tipo,responsable,accion,estado,objetivo,observacion,tiendas(nombre)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", accion:row.accion, tipo:humanize(row.tipo), responsable:row.responsable, estado:row.estado, objetivo:row.objetivo || "", observacion:row.observacion || "", _fecha:row.fecha, _estado:row.estado }));
+  }
+  if (kind === "bitacora") {
+    let request = supabase.from("bitacora_tienda").select("id,tienda_id,fecha,venta_dia,trafico,categoria,evento,descripcion,tiendas(nombre)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", categoria:row.categoria, evento:row.evento || "", venta_dia:row.venta_dia ?? 0, trafico:row.trafico ?? 0, descripcion:row.descripcion || "", _fecha:row.fecha }));
+  }
+  if (kind === "requerimientos") {
+    let request = supabase.from("requerimientos_tienda").select("id,tienda_id,requerimiento,cantidad,areas_responsables,urgencia,fecha_inicio,fecha_fin_objetivo,estado,comentario,tiendas(nombre)").order("fecha_inicio", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, codigo:`REQ-${String(row.id).padStart(4,"0")}`, tienda:row.tiendas?.nombre || "", requerimiento:row.requerimiento, cantidad:row.cantidad ?? "", areas:(row.areas_responsables || []).join(" · "), urgencia:humanize(row.urgencia), fecha_inicio:row.fecha_inicio, fecha_objetivo:row.fecha_fin_objetivo || "", estado:row.estado, comentario:row.comentario || "", _fecha:row.fecha_inicio, _estado:row.estado }));
+  }
+  if (kind === "mejoras") {
+    let request = supabase.from("mejoras_continuas").select("id,tienda_id,fecha,seccion,area,responsable,que_mejoro,como_se_hizo,estado,resultado_beneficio,tiendas(nombre)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", seccion:row.seccion, area:row.area, responsable:row.responsable, mejora:row.que_mejoro, como_se_hizo:row.como_se_hizo, estado:row.estado, resultado:row.resultado_beneficio || "", _fecha:row.fecha, _estado:row.estado }));
+  }
+  if (kind === "capacitaciones") {
+    let request = supabase.from("capacitacion_progreso").select("id,tienda_id,estado,duracion_horas,nota,fecha_finalizacion,updated_at,tiendas(nombre),cursos(nombre,competencia),usuarios!capacitacion_progreso_usuario_id_fkey(nombres,apellidos)").order("updated_at", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), curso:row.cursos?.nombre || "", competencia:row.cursos?.competencia || "", avance:row.estado === "completado" ? "100%" : row.estado === "en_curso" ? "En progreso" : "0%", duracion:row.duracion_horas ?? "", nota:row.nota ?? "", estado:row.estado, fecha_finalizacion:row.fecha_finalizacion || "", _fecha:row.fecha_finalizacion || row.updated_at, _estado:row.estado }));
+  }
+  if (kind === "tareas") {
+    let request = supabase.from("tareas_zonales").select("id,tienda_id,titulo,descripcion,responsable,fecha_inicio,fecha_limite,prioridad,estado,tiendas(nombre)").order("fecha_limite");
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, tienda:row.tiendas?.nombre || "", titulo:row.titulo, responsable:row.responsable, fecha_inicio:row.fecha_inicio, fecha_limite:row.fecha_limite, prioridad:row.prioridad, estado:row.estado, descripcion:row.descripcion || "", _fecha:row.fecha_limite || row.fecha_inicio, _estado:row.estado }));
+  }
+  if (kind === "supervisiones") {
+    let visitsRequest = supabase.from("visitas_zonales").select("id,tienda_id,fecha,periodo,puntaje,tiendas(nombre,jefe:usuarios!tiendas_jefe_fk(nombres,apellidos))").order("fecha", { ascending:false });
+    let observationsRequest = supabase.from("observaciones_zonales").select("id,visita_id,tienda_id,estado,prioridad");
+    visitsRequest = applyStoreScope(visitsRequest, scope); observationsRequest = applyStoreScope(observationsRequest, scope);
+    const [visits, observations] = await Promise.all([fetchAllReportPages(visitsRequest), fetchAllReportPages(observationsRequest)]);
+    rows = (visits || []).map((row) => { const items=(observations || []).filter((item) => Number(item.visita_id) === Number(row.id)); const pending=items.filter((item) => item.estado === "en_validacion").length; const state=pending ? "por_validar" : items.some((item) => item.estado !== "levantada") ? "en_seguimiento" : "cerrada"; const chief=row.tiendas?.jefe; return { id:row.id, codigo:`SUP-${String(row.id).padStart(4,"0")}`, fecha:row.fecha, tienda:row.tiendas?.nombre || "", administrador:chief ? `${chief.nombres} ${chief.apellidos}` : "Sin asignar", periodo:row.periodo || "", puntaje:row.puntaje ?? "", observaciones:items.length, por_validar:pending, estado:state, _fecha:row.fecha, _estado:state, _prioridades:items.map((item) => item.prioridad).filter(Boolean) }; });
+  }
+  if (kind === "incidencias") {
+    let localRequest = supabase.from("incidencias").select("id,tienda_id,fecha,tipo,area,gravedad,estado,descripcion,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos)").order("fecha", { ascending:false });
+    localRequest = applyStoreScope(localRequest, scope);
+    let zonalRequest = supabase.from("incidencias_zonales").select("id,jefe_zonal_id,tipo,alcance,tienda_origen_id,tienda_afectada_id,fecha,descripcion,estado,responsable_seguimiento,origen:tiendas!incidencias_zonales_tienda_origen_id_fkey(nombre),afectada:tiendas!incidencias_zonales_tienda_afectada_id_fkey(nombre)").order("fecha", { ascending:false });
+    if (user.rol === "jefe_zonal") zonalRequest = zonalRequest.eq("jefe_zonal_id", user.id);
+    const [local, zonal] = await Promise.all([fetchAllReportPages(localRequest), fetchAllReportPages(zonalRequest)]);
+    const localRows=(local || []).map((row) => ({ id:`local-${row.id}`, codigo:incidentCode(row), fecha:String(row.fecha).slice(0,10), tienda:row.tiendas?.nombre || "", tipo:humanize(row.tipo), alcance:"Una tienda", estado:row.estado, descripcion:row.descripcion, responsable:row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "", _fecha:row.fecha, _estado:row.estado }));
+    const zonalRows=(zonal || []).filter((row) => reportScopeContains(scope,row.tienda_origen_id) || reportScopeContains(scope,row.tienda_afectada_id)).map((row) => ({ id:`zonal-${row.id}`, codigo:`IZ-${String(row.id).padStart(4,"0")}`, fecha:row.fecha, tienda:[row.origen?.nombre,row.afectada?.nombre].filter(Boolean).join(" → "), tipo:row.tipo === "diferencia_transferencia" ? "Mercadería liberada / diferencia en transferencia" : humanize(row.tipo), alcance:humanize(row.alcance), estado:row.estado, descripcion:row.descripcion, responsable:row.responsable_seguimiento || "", _fecha:row.fecha, _estado:row.estado }));
+    rows=[...localRows,...zonalRows].sort((a,b) => String(b._fecha).localeCompare(String(a._fecha)));
+  }
+  return applyReportFilters(rows, query);
+}
+
+function addReportSheet(workbook, kind, rows) {
+  const sheet=workbook.addWorksheet(excelSheetName(reportExcelColumns[kind]?.[0]?.[0] ? humanize(kind) : "Reporte"));
+  sheet.columns=reportExcelColumns[kind].map(([header,key,width]) => ({ header,key,width }));
+  const humanKeys=new Set(["estado","rol","tipo","alcance","urgencia","prioridad"]);
+  sheet.addRows(rows.map((row) => Object.fromEntries(reportExcelColumns[kind].map(([,key]) => [key, humanKeys.has(key) ? humanize(row[key]) : row[key] ?? ""]))));
+  styleHeader(sheet); return sheet;
+}
+
+async function exportReportExcel(event, user, kind) {
+  const rows=await getReportRows(event,user,kind); const workbook=new ExcelJS.Workbook(); workbook.creator="Asiste"; workbook.created=new Date(); addReportSheet(workbook,kind,rows);
+  return excelResponse(workbook,`reporte-${kind}-${todayISO()}.xlsx`);
+}
+
+async function getMovements(event,user) {
+  const query=event.queryStringParameters || {}; const scope=await resolveStoreScope(user,query.tienda_id); const movements=[];
+  let attendanceRequest=supabase.from("log_asistencias").select("id,tienda_id,operacion,estado_anterior,estado_nuevo,created_at,tiendas(nombre),usuarios!log_asistencias_usuario_id_fkey(nombres,apellidos),realizador:usuarios!log_asistencias_realizado_por_fkey(nombres,apellidos)").order("created_at",{ascending:false});
+  attendanceRequest=applyStoreScope(attendanceRequest,scope);
+  let observationsRequest=supabase.from("observaciones_zonales").select("id,tienda_id,estado,descripcion,comentario_validacion,fecha_validacion,updated_at,tiendas(nombre),validador:usuarios!observaciones_zonales_validado_por_fkey(nombres,apellidos)").not("fecha_validacion","is",null).order("fecha_validacion",{ascending:false});
+  observationsRequest=applyStoreScope(observationsRequest,scope);
+  let zonalIncidentsRequest=supabase.from("incidencias_zonales").select("id,jefe_zonal_id,tienda_origen_id,tienda_afectada_id,tipo,estado,descripcion,responsable_seguimiento,created_at,updated_at,origen:tiendas!incidencias_zonales_tienda_origen_id_fkey(nombre),afectada:tiendas!incidencias_zonales_tienda_afectada_id_fkey(nombre)").order("updated_at",{ascending:false});
+  if(user.rol==="jefe_zonal")zonalIncidentsRequest=zonalIncidentsRequest.eq("jefe_zonal_id",user.id);
+  let requirementsRequest=supabase.from("requerimientos_tienda").select("id,tienda_id,requerimiento,tiendas(nombre)"); requirementsRequest=applyStoreScope(requirementsRequest,scope);
+  const [{data:attendance,error:attendanceError},{data:observations,error:observationsError},{data:zonalIncidents,error:zonalError},{data:requirements,error:requirementsError}]=await Promise.all([attendanceRequest,observationsRequest,zonalIncidentsRequest,requirementsRequest]);
+  if(attendanceError||observationsError||zonalError||requirementsError)throw dbError(attendanceError||observationsError||zonalError||requirementsError);
+  movements.push(...(attendance||[]).map((row)=>({id:row.id,modulo:"asistencia",operacion:row.operacion,titulo:`Asistencia · ${row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "Trabajador"}`,detalle:"Cambio en el estado de asistencia.",tienda:row.tiendas?.nombre||"",realizado_por:row.realizador?`${row.realizador.nombres} ${row.realizador.apellidos}`:"",fecha_hora:row.created_at,valor_anterior:row.estado_anterior?humanize(row.estado_anterior):"",valor_nuevo:row.estado_nuevo?humanize(row.estado_nuevo):""})));
+  const requirementIds=(requirements||[]).map((row)=>row.id); const requirementById=new Map((requirements||[]).map((row)=>[row.id,row]));
+  if(requirementIds.length){const {data:tracking,error}=await supabase.from("requerimiento_seguimientos").select("id,requerimiento_id,comentario,estado,created_at,usuarios(nombres,apellidos)").in("requerimiento_id",requirementIds).order("created_at",{ascending:false});if(error)throw dbError(error);movements.push(...(tracking||[]).map((row)=>{const requirement=requirementById.get(row.requerimiento_id);return{id:row.id,modulo:"requerimientos",operacion:"seguimiento",titulo:`Seguimiento · REQ-${String(row.requerimiento_id).padStart(4,"0")}`,detalle:row.comentario||requirement?.requerimiento||"",tienda:requirement?.tiendas?.nombre||"",realizado_por:row.usuarios?`${row.usuarios.nombres} ${row.usuarios.apellidos}`:"",fecha_hora:row.created_at,valor_anterior:"",valor_nuevo:humanize(row.estado)};}));}
+  movements.push(...(observations||[]).map((row)=>({id:row.id,modulo:"supervisiones",operacion:"validacion",titulo:`Validación · OBS-${String(row.id).padStart(4,"0")}`,detalle:row.comentario_validacion||row.descripcion,tienda:row.tiendas?.nombre||"",realizado_por:row.validador?`${row.validador.nombres} ${row.validador.apellidos}`:"Jefe zonal",fecha_hora:row.fecha_validacion||row.updated_at,valor_anterior:"En validación",valor_nuevo:humanize(row.estado)})));
+  movements.push(...(zonalIncidents||[]).filter((row)=>reportScopeContains(scope,row.tienda_origen_id)||reportScopeContains(scope,row.tienda_afectada_id)).map((row)=>({id:row.id,modulo:"incidencias",operacion:row.updated_at!==row.created_at?"edicion":"creacion",titulo:`Incidencia · IZ-${String(row.id).padStart(4,"0")}`,detalle:row.descripcion,tienda:[row.origen?.nombre,row.afectada?.nombre].filter(Boolean).join(" → "),realizado_por:row.responsable_seguimiento||"Jefe zonal",fecha_hora:row.updated_at||row.created_at,valor_anterior:"",valor_nuevo:humanize(row.estado)})));
+  const search=cleanText(query.q).toLocaleLowerCase("es");
+  return movements.filter((row)=>(!query.modulo||row.modulo===query.modulo)&&(!query.operacion||row.operacion===query.operacion)&&(!query.desde||String(row.fecha_hora).slice(0,10)>=query.desde)&&(!query.hasta||String(row.fecha_hora).slice(0,10)<=query.hasta)&&(!search||Object.values(row).some((value)=>reportText(value).toLocaleLowerCase("es").includes(search)))).sort((a,b)=>String(b.fecha_hora).localeCompare(String(a.fecha_hora))).slice(0,500);
+}
+
+async function exportMovementsExcel(event,user){const rows=await getMovements(event,user);const workbook=new ExcelJS.Workbook();const sheet=workbook.addWorksheet("Historial");sheet.columns=[{header:"Fecha y hora",key:"fecha_hora",width:22},{header:"Módulo",key:"modulo",width:20},{header:"Operación",key:"operacion",width:18},{header:"Tienda",key:"tienda",width:26},{header:"Movimiento",key:"titulo",width:34},{header:"Detalle",key:"detalle",width:55},{header:"Realizado por",key:"realizado_por",width:28},{header:"Valor anterior",key:"valor_anterior",width:22},{header:"Valor nuevo",key:"valor_nuevo",width:22}];sheet.addRows(rows.map((row)=>({...row,modulo:humanize(row.modulo),operacion:humanize(row.operacion)})));styleHeader(sheet);return excelResponse(workbook,`historial-movimientos-${todayISO()}.xlsx`);}
 
 // ---------- Mi tienda (solo jefe de tienda) ----------
 
@@ -2715,7 +2830,7 @@ export async function handler(event) {
       return json(200, await listUsers(user));
     }
     if (path === "/usuarios" && method === "POST") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"]);
       return json(201, await createUser(event, user));
     }
     if (path === "/usuarios/import" && method === "POST") {
@@ -2734,12 +2849,12 @@ export async function handler(event) {
     }
     const userMatch = path.match(/^\/usuarios\/(\d+)$/);
     if (userMatch && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"]);
       await updateUser(event, Number(userMatch[1]), user);
       return json(200, { ok: true });
     }
     if (userMatch && method === "DELETE") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"]);
       return json(200, await deleteUser(Number(userMatch[1]), user));
     }
 
@@ -2755,10 +2870,10 @@ export async function handler(event) {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]);
       return json(200, await listUsers(user, Number(tiendaUsersMatch[1])));
     }
-    if (path === "/tiendas" && method === "POST") { ensureAuth(event, ["gerente_comercial", "jefe_zonal"]); return json(201, await createTienda(event, user)); }
+    if (path === "/tiendas" && method === "POST") { ensureAuth(event, "gerente_comercial"); return json(201, await createTienda(event, user)); }
     const tiendaMatch = path.match(/^\/tiendas\/(\d+)$/);
     if (tiendaMatch && method === "PUT") {
-      ensureAuth(event, ["gerente_comercial", "jefe_zonal"]);
+      ensureAuth(event, "gerente_comercial");
       await updateTienda(event, Number(tiendaMatch[1]), user);
       return json(200, { ok: true });
     }
@@ -2829,7 +2944,7 @@ export async function handler(event) {
     }
     const progresoMatch = path.match(/^\/capacitaciones\/trabajadores\/(\d+)\/cursos\/(\d+)$/);
     if (progresoMatch && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["coach", "jefe_tienda", "asistente_tienda"]);
       await guardarProgreso(event, Number(progresoMatch[1]), Number(progresoMatch[2]), user);
       return json(200, { ok: true });
     }
@@ -2838,7 +2953,7 @@ export async function handler(event) {
       return json(200, await getResumenCurso(event, user));
     }
     if (path === "/capacitaciones/asignar" && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["coach", "jefe_tienda", "asistente_tienda"]);
       return json(200, await asignarLote(event, user));
     }
 
@@ -2848,19 +2963,19 @@ export async function handler(event) {
       return json(200, await getZonalModule(event, user, zonalModuleMatch[1]));
     }
     if (path === "/zonal/tareas" && method === "POST") {
-      ensureAuth(event, "jefe_zonal"); return json(201, await createZonalTask(event, user));
+      ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta tareas, pero no puede crearlas.", 403);
     }
     const zonalAdministratorMatch = path.match(/^\/zonal\/administradores\/(\d+)$/);
     if (zonalAdministratorMatch && method === "PUT") {
       ensureAuth(event, "jefe_zonal");
-      return json(200, await updateZonalAdministrator(event, user, Number(zonalAdministratorMatch[1])));
+      throw httpError("El rol zonal consulta administradores, pero no puede modificarlos.", 403);
     }
     const zonalTaskMatch = path.match(/^\/zonal\/tareas\/(\d+)$/);
     if (zonalTaskMatch && method === "PUT") {
-      ensureAuth(event, "jefe_zonal"); return json(200, await updateZonalTask(event, user, Number(zonalTaskMatch[1])));
+      ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta tareas, pero no puede modificarlas.", 403);
     }
     if (path === "/zonal/supervisiones" && method === "POST") {
-      ensureAuth(event, "jefe_zonal"); return json(201, await createZonalSupervision(event, user));
+      ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta supervisiones, pero no puede crearlas.", 403);
     }
     if (path === "/zonal/cluster" && method === "GET") {
       ensureAuth(event, "jefe_zonal"); return json(200, await getZonalCluster(user));
@@ -2873,7 +2988,7 @@ export async function handler(event) {
     }
     const zonalObservationValidationMatch=path.match(/^\/zonal\/observaciones\/(\d+)\/validar$/);
     if(zonalObservationValidationMatch&&method==="PUT"){
-      ensureAuth(event,"jefe_zonal");return json(200,await validateZonalObservation(event,user,Number(zonalObservationValidationMatch[1])));
+      ensureAuth(event,"jefe_zonal");throw httpError("El rol zonal consulta observaciones, pero no puede validarlas.",403);
     }
     if (path === "/zonal/incidencias" && method === "POST") {
       ensureAuth(event, "jefe_zonal"); return json(201, await createZonalIncident(event, user));
@@ -2884,6 +2999,25 @@ export async function handler(event) {
     const zonalIncidentMatch = path.match(/^\/zonal\/incidencias\/(\d+)$/);
     if (zonalIncidentMatch && method === "PUT") {
       ensureAuth(event, "jefe_zonal"); return json(200, await updateZonalIncident(event, user, Number(zonalIncidentMatch[1])));
+    }
+
+    const reportExportMatch = path.match(/^\/reportes\/([a-z-]+)\/export\.xlsx$/);
+    if (reportExportMatch && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      return await exportReportExcel(event, user, reportExportMatch[1]);
+    }
+    const reportMatch = path.match(/^\/reportes\/([a-z-]+)$/);
+    if (reportMatch && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      return json(200, { rows: await getReportRows(event, user, reportMatch[1]) });
+    }
+    if (path === "/movimientos/export.xlsx" && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      return await exportMovementsExcel(event, user);
+    }
+    if (path === "/movimientos" && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      return json(200, { rows: await getMovements(event, user) });
     }
 
     const operationalReaders = ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "seguridad"];
@@ -2942,7 +3076,7 @@ export async function handler(event) {
       return json(200, await listOperational("amonestaciones", event, user, "*,usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/amonestaciones" && method === "POST") {
-      ensureAuth(event, ["jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, "jefe_tienda");
       return json(201, await createDisciplinary(event, user, "amonestaciones"));
     }
     if (path === "/errores-personal" && method === "GET") {
@@ -2950,7 +3084,7 @@ export async function handler(event) {
       return json(200, await listOperational("errores_personal", event, user, "*,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/errores-personal" && method === "POST") {
-      ensureAuth(event, ["jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
       return json(201, await createDisciplinary(event, user, "errores_personal"));
     }
     if (path === "/documentos-tienda" && method === "GET") {
