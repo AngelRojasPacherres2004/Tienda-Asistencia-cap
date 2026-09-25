@@ -1636,10 +1636,43 @@ function excelSheetName(name) {
 
 function styleHeader(worksheet) {
   const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF172235" } };
-  worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: worksheet.columns.length } };
+  const columnCount = worksheet.columnCount || worksheet.columns.length;
+  const headerNames = headerRow.values.slice(1).map((value) => String(value || "").toLowerCase());
+  worksheet.properties.defaultRowHeight = 21;
+  headerRow.height = 30;
+  headerRow.font = { name: "Aptos Display", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D4F86" } };
+  headerRow.eachCell((cell) => { cell.border = { top: { style: "thin", color: { argb: "FF083B65" } }, bottom: { style: "thin", color: { argb: "FF083B65" } }, left: { style: "thin", color: { argb: "FF083B65" } }, right: { style: "thin", color: { argb: "FF083B65" } } }; });
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    row.height = 22;
+    row.eachCell((cell, columnNumber) => {
+      cell.font = { name: "Aptos", size: 10, color: { argb: "FF1C3044" } };
+      cell.alignment = { vertical: "middle", wrapText: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowNumber % 2 === 0 ? "FFF4F8FB" : "FFFFFFFF" } };
+      cell.border = { bottom: { style: "hair", color: { argb: "FFC7D7E5" } }, right: { style: "hair", color: { argb: "FFD6E1EA" } } };
+      const header = headerNames[columnNumber - 1] || "";
+      if (header.includes("fecha")) { cell.numFmt = "dd/mm/yyyy"; cell.alignment = { vertical: "middle", horizontal: "center" }; }
+      if (header.includes("dni") || header.includes("teléfono") || header.includes("telefono")) cell.alignment = { vertical: "middle", horizontal: "center" };
+      if (header === "estado") {
+        const value = String(cell.value || "").toLowerCase();
+        const tone = value.includes("complet") || value.includes("activo") || value.includes("atendido") ? "FFE2F5E9" : value.includes("pend") || value.includes("progreso") ? "FFFFF1CE" : value.includes("venc") || value.includes("cancel") || value.includes("falta") ? "FFFBE1E3" : "FFE9F1F8";
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: tone } }; cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: "FF1C3044" } };
+      }
+    });
+  });
+  worksheet.columns.forEach((column, index) => {
+    const header = headerNames[index] || "";
+    const longText = /observaci|descripci|comentario|detalle|resultado|curso|requerimiento/i.test(header);
+    const timestamp = /created|updated|fecha.*(registro|creaci|actualiz)/i.test(header);
+    let contentWidth = header.length;
+    column.eachCell({ includeEmpty: false }, (cell) => { contentWidth = Math.max(contentWidth, String(cell.value ?? "").replaceAll("\n", " ").length); });
+    column.width = Math.min(Math.max(contentWidth + 3, longText ? 28 : timestamp ? 26 : 14), longText ? 48 : 32);
+  });
+  worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columnCount } };
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  worksheet.pageSetup = { orientation: columnCount > 7 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9, margins: { left: .25, right: .25, top: .5, bottom: .5, header: .2, footer: .2 } };
 }
 
 async function fetchAsistenciasExport(tiendaId, desde, hasta) {
@@ -2467,6 +2500,11 @@ async function getMiTienda(user) {
 async function updateMiTiendaData(event, user) {
   const data = bodyOf(event);
   const payload = {};
+  const nombre = cleanText(data.nombre);
+  if (nombre.length < 2) throw httpError("El nombre de la tienda debe tener al menos 2 caracteres.", 400);
+  if (!tiendaEstados.has(data.estado)) throw httpError("El estado operativo no es válido.", 400);
+  payload.nombre = nombre;
+  payload.estado = data.estado;
   for (const key of ["codigo", "zona", "formato", "distrito", "direccion"]) payload[key] = cleanText(data[key]) || null;
   payload.alquiler_mensual = data.alquiler_mensual === "" || data.alquiler_mensual == null ? null : Number(data.alquiler_mensual);
   if (payload.alquiler_mensual !== null && (!Number.isFinite(payload.alquiler_mensual) || payload.alquiler_mensual < 0)) throw httpError("El alquiler mensual debe ser un monto válido.", 400);

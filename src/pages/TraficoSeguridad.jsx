@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Pencil, Plus, UsersRound } from "lucide-react";
 import { api, formatDate, todayISO } from "../lib/api";
+import { exportExcel } from "../lib/excelExport";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput } from "../components/UI";
 
 const RANGOS_HORA = Array.from({ length: 13 }, (_, index) => {
@@ -39,10 +40,7 @@ export default function TraficoSeguridad({ user }) {
       setNotice({ type: "error", text: error.message });
     }
   };
-  const exportCsv = () => downloadCsv("trafico-tienda.csv", [
-    "Fecha,Rango horario,Visitantes,Observación",
-    ...(rows || []).map((row) => [row.fecha, quoted(rangeLabel(row.rango_hora)), row.cantidad, quoted(row.observaciones)].join(",")),
-  ]);
+  const exportCsv = () => exportExcel("trafico-tienda.xlsx", (rows || []).map((row) => ({ fecha: row.fecha, rango_horario: rangeLabel(row.rango_hora), visitantes: row.cantidad, observacion: row.observaciones || "" })), "Tráfico");
 
   if (!rows) return <Loading />;
   return <>

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RefreshCw, RotateCcw, Store, Sun, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RefreshCw, RotateCcw, Sun, Users, X } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
-import { Loading, Notice, StatusBadge } from "../components/UI";
+import { exportExcel } from "../lib/excelExport";
+import { Loading, Notice } from "../components/UI";
 import TrafficHourMatrix from "../components/TrafficHourMatrix";
 
 export default function MiTienda({ user, onNavigate }) {
@@ -28,7 +29,7 @@ export default function MiTienda({ user, onNavigate }) {
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
   if (!profile || !summary) return <Loading />;
   const storeName = profile.tienda_nombre || "Tienda asignada"; const expiring = documents.filter((d) => d.fecha_vencimiento && daysUntil(d.fecha_vencimiento) <= 30).slice(0, 4);
-  const exportSummary = () => { const lines = ["Indicador,Valor", `Tienda,${storeName}`, `Personal activo,${people.filter((p) => p.estado === "activo").length}`, `Incidencias,${summary.incidencias}`, `Amonestaciones,${summary.amonestaciones}`, `Errores,${summary.errores}`, `Documentos por vencer,${summary.documentos_por_vencer}`]; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })); a.download = `resumen-${storeName}.csv`; a.click(); URL.revokeObjectURL(a.href); };
+  const exportSummary = () => exportExcel(`resumen-${storeName}.xlsx`, [{ indicador: "Tienda", valor: storeName }, { indicador: "Personal activo", valor: people.filter((p) => p.estado === "activo").length }, { indicador: "Incidencias", valor: summary.incidencias }, { indicador: "Amonestaciones", valor: summary.amonestaciones }, { indicador: "Errores", valor: summary.errores }, { indicador: "Documentos por vencer", valor: summary.documentos_por_vencer }], "Resumen");
   const activePeople = people.filter((person) => person.estado === "activo");
   const employees = activePeople.filter((person) => ["trabajador", "vendedor", "asistente"].includes(person.rol));
   const securityPeople = activePeople.filter((person) => ["seguridad", "jefe_seguridad"].includes(person.rol));
@@ -50,8 +51,7 @@ export default function MiTienda({ user, onNavigate }) {
       <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
       <DashboardSection kicker="Personal de tienda" title="Asistencia y movimientos del personal" text="Consulta asistencias, ingresos, salidas y permanencia de tu equipo." />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} />}
-      <DashboardSection kicker="Información de la sede" title="Datos y accesos de la tienda" text="Información principal, documentos próximos a vencer y accesos rápidos." />
-      <div className="store-overview-grid"><section className="panel store-main-data"><header className="panel__header"><div><h2>Datos principales</h2><p>Información operativa de la sede</p></div><Store size={22} /></header><dl><div><dt>Nombre</dt><dd>{storeName}</dd></div><div><dt>Estado operativo</dt><dd><StatusBadge value="activo" /></dd></div><div className="span-2"><dt>Dirección</dt><dd>{profile.tienda_direccion || "Sin dirección registrada"}</dd></div><div><dt>Jefe responsable</dt><dd>{user.rol === "jefe_tienda" ? `${user.nombres} ${user.apellidos}` : `${administrativePeople.find((person) => person.rol === "jefe_tienda")?.nombres || "Jefe"} ${administrativePeople.find((person) => person.rol === "jefe_tienda")?.apellidos || "de tienda"}`}</dd></div><div><dt>Personal activo</dt><dd>{activePeople.length}</dd></div></dl></section><div className="store-side-stack"><section className="panel"><header className="panel__header"><h2>Estado documental</h2></header>{expiring.length ? expiring.map((d) => <div className="store-doc-row" key={d.id}><div><strong>{d.nombre}</strong><small>Vence {formatDate(d.fecha_vencimiento)}</small></div><span className={daysUntil(d.fecha_vencimiento) <= 7 ? "danger-text" : ""}>{daysUntil(d.fecha_vencimiento)} días</span></div>) : <p className="store-empty-copy">Sin documentos próximos a vencer.</p>}</section><section className="panel"><header className="panel__header"><h2>Accesos rápidos</h2></header><Quick icon={Users} text={isZonal ? "Personal zonal" : "Gestionar personal"} action={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")} />{!isZonal && <Quick icon={CalendarCheck2} text="Registrar asistencia" action={() => onNavigate("asistencias")} />}<Quick icon={GraduationCap} text="Revisar capacitaciones" action={() => onNavigate("capacitaciones")} /><Quick icon={AlertTriangle} text="Ver incidencias" action={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")} /></section></div></div>
+      <TrainingDevelopmentHome />
     </div>
   </section>;
 }
@@ -59,6 +59,14 @@ export default function MiTienda({ user, onNavigate }) {
 function DashboardPersonnelKpi({ label, value, detail }) { return <article className="store-dashboard-personnel-kpi"><div><strong>{label}</strong><small>{detail}</small></div><b>{value}</b></article>; }
 function DashboardPairedKpi({ label, first, second }) { return <article className="store-dashboard-paired-kpi"><h3>{label}</h3><div><span><strong>{first.value}</strong><small>{first.label}</small></span><span><strong>{second.value}</strong><small>{second.label}</small></span></div></article>; }
 function DashboardSection({ kicker, title, text }) { return <header className="store-dashboard-section"><div><span>{kicker}</span><h2>{title}</h2></div><p>{text}</p></header>; }
+
+function TrainingDevelopmentHome() {
+  const [courses, setCourses] = useState([]); const [courseId, setCourseId] = useState(""); const [people, setPeople] = useState([]); const [status, setStatus] = useState("todos");
+  useEffect(() => { api("/cursos").then((rows) => { const active = rows.filter((row) => row.activo); setCourses(active); setCourseId((current) => current || String(active[0]?.id || "")); }).catch(() => setCourses([])); }, []);
+  useEffect(() => { if (!courseId) return; api(`/capacitaciones/trabajadores?curso_id=${courseId}&estado=activo`).then(setPeople).catch(() => setPeople([])); }, [courseId]);
+  const visible = people.filter((person) => status === "todos" || person.progreso_estado === status); const completed = visible.filter((person) => person.progreso_estado === "completado").length;
+  return <section className="training-development"><header><div><span>Desarrollo</span><h2>Capacitación y desarrollo</h2></div><p>Avance y estado de cursos asignados al personal.</p></header><div className="training-development-filters"><label>Curso<select value={courseId} onChange={(event) => setCourseId(event.target.value)}><option value="">Todos</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.nombre}</option>)}</select></label><label>Estado<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="todos">Todos</option><option value="completado">Completado</option><option value="en_curso">En curso</option><option value="pendiente">Pendiente</option></select></label></div><div className="training-development-grid"><article><header><h3>Avance de capacitaciones</h3><strong>{visible.length ? Math.round(completed * 100 / visible.length) : 0}% completado</strong></header><div className="training-development-bars">{visible.map((person) => <div key={person.id}><strong>{person.nombres} {person.apellidos}</strong><span><i style={{ width: person.progreso_estado === "completado" ? "100%" : person.progreso_estado === "en_curso" ? "55%" : "0%" }} /><b>{person.progreso_estado === "completado" ? "1/1" : "0/1"}</b></span></div>)}</div></article><article><header><h3>Historial de capacitaciones</h3><strong>{visible.length} asignaciones</strong></header><div className="training-history"><div className="training-history-head"><span>Trabajador</span><span>Curso</span><span>Estado</span></div>{visible.map((person) => <div key={person.id}><strong>{person.nombres} {person.apellidos}</strong><span>{courses.find((course) => String(course.id) === String(courseId))?.nombre || "Cursos"}</span><span>{person.progreso_estado?.replace("_", " ") || "pendiente"}</span></div>)}</div></article></div></section>;
+}
 
 const attendanceCodes = {
   presente: { code: "A", label: "Asistencia" },
@@ -272,5 +280,4 @@ function PersonnelCharts({ people, errors, year, monthNumber, week, day }) {
   </section>;
 }
 
-function Quick({ icon: Icon, text, action }) { return <button className="store-quick-row" onClick={action}><Icon size={16} /><span>{text}</span><strong>Ir</strong></button>; }
 function daysUntil(value) { return Math.ceil((new Date(`${value}T12:00:00`) - new Date()) / 86400000); }
