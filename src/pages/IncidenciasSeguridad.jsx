@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { api, downloadFile, formatDateTime } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput } from "../components/UI";
 
-const newProduct = () => ({ codigo: "", producto: "", sublinea: "", marca: "", cantidad: 1, valor: "", recuperado: false });
+const newProduct = () => ({ codigo: "", producto: "", sublinea: "", marca: "", cantidad: "", valor: "", stock: null, recuperado: false });
 const newPerson = () => ({ nombre: "", rol: "Testigo", documento: "", observacion: "" });
 const limaNow = (value = new Date()) => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
@@ -13,11 +13,13 @@ const emptyForm = () => ({ ...limaNow(), tipo: "robo", area: "piso_venta", grave
 
 export default function IncidenciasSeguridad({ user, management = false }) {
   const [rows, setRows] = useState(null); const [open, setOpen] = useState(false); const [step, setStep] = useState(1); const [notice, setNotice] = useState(null); const [modalNotice, setModalNotice] = useState(null); const [search, setSearch] = useState(""); const [state, setState] = useState("todos"); const [severity, setSeverity] = useState("todas"); const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const load = () => api("/incidencias").then(setRows).catch((e) => setNotice({ type: "error", text: e.message }));
   useEffect(() => { load(); }, []);
   const filtered = useMemo(() => (rows || []).filter((r) => `${r.codigo || ""} ${r.tipo || ""} ${r.asunto} ${r.descripcion}`.toLowerCase().includes(search.toLowerCase()) && (state === "todos" || (r.estado || "abierta") === state) && (severity === "todas" || r.gravedad === severity)), [rows, search, state, severity]);
   const start = () => { setForm(emptyForm()); setStep(1); setModalNotice(null); setOpen(true); };
-  const edit = (row) => { const when = limaNow(row.fecha); setForm({ ...emptyForm(), ...when, id: row.id, tipo: row.tipo, area: row.area, gravedad: row.gravedad, descripcion: row.descripcion || "", intervencion: Boolean(row.intervencion), detencion: Boolean(row.detencion), detencion_detalle: row.detencion_detalle || "", productos: (row.incidencia_productos || []).map((item) => ({ codigo: "", producto: item.producto, sublinea: "", marca: item.marcas?.nombre || "", cantidad: item.cantidad, valor: item.valor, recuperado: Boolean(item.recuperado) })), personas: (row.incidencia_personas || []).map((item) => ({ nombre: item.nombre, rol: item.rol, documento: item.documento || "", observacion: item.observacion || "" })) }); setStep(1); setModalNotice(null); setOpen(true); };
+  const edit = (row) => { const when = limaNow(row.fecha); setForm({ ...emptyForm(), ...when, id: row.id, tipo: row.tipo, area: row.area, gravedad: row.gravedad, descripcion: row.descripcion || "", intervencion: Boolean(row.intervencion), detencion: Boolean(row.detencion), detencion_detalle: row.detencion_detalle || "", productos: (row.incidencia_productos || []).map((item) => ({ codigo: item.codigo_nissei || "", producto: item.producto, sublinea: "", marca: item.marcas?.nombre || "", cantidad: item.cantidad, valor: item.valor, recuperado: Boolean(item.recuperado) })), personas: (row.incidencia_personas || []).map((item) => ({ nombre: item.nombre, rol: item.rol, documento: item.documento || "", observacion: item.observacion || "" })) }); setStep(1); setModalNotice(null); setOpen(true); };
   const next = () => {
     if (step === 1 && (!form.fecha_incidente || !form.hora_incidente)) return setModalNotice("Completa la fecha y la hora de la incidencia.");
     if (step === 1 && !form.descripcion.trim()) return setModalNotice("Completa la descripción del hecho.");
@@ -27,21 +29,39 @@ export default function IncidenciasSeguridad({ user, management = false }) {
     if (step === 2 && form.tipo !== "cambio_precio" && form.personas.some((p) => !p.nombre.trim() || !p.rol.trim())) return setModalNotice("Cada persona agregada debe tener nombre y rol.");
     setModalNotice(null); setStep((value) => Math.min(3, value + 1));
   };
-  const save = async () => { try { const datedForm = { ...form, fecha: `${form.fecha_incidente}T${form.hora_incidente}:00-05:00` }; const body = form.tipo === "cambio_precio" ? { ...datedForm, personas: [], intervencion: false, detencion: false, detencion_detalle: "", productos: form.productos.map((item) => ({ ...item, recuperado: false })) } : datedForm; await api(form.id ? `/incidencias/${form.id}` : "/incidencias", { method: form.id ? "PUT" : "POST", body }); setOpen(false); setForm(emptyForm()); setModalNotice(null); await load(); } catch (error) { setModalNotice(error.message); } };
+  const save = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const datedForm = { ...form, fecha: `${form.fecha_incidente}T${form.hora_incidente}:00-05:00` };
+      const body = form.tipo === "cambio_precio" ? { ...datedForm, personas: [], intervencion: false, detencion: false, detencion_detalle: "", productos: form.productos.map((item) => ({ ...item, recuperado: false })) } : datedForm;
+      await api(form.id ? `/incidencias/${form.id}` : "/incidencias", { method: form.id ? "PUT" : "POST", body });
+      setOpen(false);
+      setForm(emptyForm());
+      setModalNotice(null);
+      await load();
+    } catch (error) {
+      setModalNotice(error.message);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   const exportExcel = async () => { try { const now = new Date(); const filename = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-incidentes.xlsx`; await downloadFile("/api/incidencias/export.xlsx", filename); } catch (error) { setNotice({ type: "error", text: error.message }); } };
   if (!rows) return <Loading />;
   return <>
     <PageHeader eyebrow={management ? "Operación de tienda" : "Seguridad"} title="Incidencias" subtitle="Registro y seguimiento de incidencias de seguridad" action={<button className="button button--primary" onClick={start}><Plus size={16} /> Nueva incidencia</button>} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <section className="panel security-history"><div className="security-filter-grid"><SearchInput value={search} onChange={setSearch} placeholder="Código, tipo o detalle" /><select value={state} onChange={(e) => setState(e.target.value)}><option value="todos">Todos los estados</option><option value="abierta">Abiertas</option><option value="en_revision">En revisión</option><option value="cerrada">Cerradas</option></select><select value={severity} onChange={(e) => setSeverity(e.target.value)}><option value="todas">Todas las severidades</option><option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option></select><button className="button button--ghost" onClick={exportExcel}><Download size={15} /> Exportar Excel</button></div>{filtered.length ? <div className="security-table"><div className="security-table__head security-table__head--incidents"><span>Código</span><span>Fecha</span><span>Tipo</span><span>Área</span><span>Severidad</span><span>Estado</span><span /></div>{filtered.map((r) => <div className="security-table__row security-table__row--incidents" key={r.id}><strong>{codeOf(r)}</strong><span>{formatDateTime(r.fecha)}</span><span>{label(r.tipo) || r.asunto}</span><span>{label(r.area) || "—"}</span><span className={`security-pill security-pill--${r.gravedad}`}>{r.gravedad}</span><span className="security-pill">{label(r.estado) || "Abierta"}</span><button className="icon-button" onClick={() => edit(r)} aria-label="Editar incidencia"><Pencil size={15} /></button></div>)}</div> : <EmptyState icon={ShieldCheck} title="Sin incidencias" text="No hay resultados para los filtros seleccionados." />}</section>
-    <Modal open={open} title={form.id ? "Editar incidencia" : "Nueva incidencia"} subtitle="Registro guiado en 3 pasos" wide onClose={() => setOpen(false)}>
+    <Modal open={open} title={form.id ? "Editar incidencia" : "Nueva incidencia"} subtitle="Registro guiado en 3 pasos" wide onClose={() => { if (!savingRef.current) setOpen(false); }}>
       <div className="incident-wizard">
         <div className="incident-steps">{["Datos generales", form.tipo === "cambio_precio" ? "Productos opcionales" : "Productos e involucrados", "Revisar y enviar"].map((name, index) => <button type="button" key={name} className={step === index + 1 ? "active" : step > index + 1 ? "done" : ""} onClick={() => index + 1 < step && setStep(index + 1)}><b>{index + 1}</b>{name}</button>)}</div>
         {modalNotice && <Notice type="error" onClose={() => setModalNotice(null)}>{modalNotice}</Notice>}
         {step === 1 && <GeneralStep form={form} setForm={setForm} user={user} />}
         {step === 2 && <DetailsStep form={form} setForm={setForm} />}
         {step === 3 && <ReviewStep form={form} user={user} />}
-        <div className="incident-actions"><button type="button" className="button button--ghost" onClick={() => { setModalNotice(null); step === 1 ? setOpen(false) : setStep(step - 1); }}>{step === 1 ? "Cancelar" : "Volver"}</button>{step < 3 ? <button type="button" className="button button--primary" onClick={next}>Continuar</button> : <button type="button" className="button button--primary" onClick={save}>Enviar incidencia</button>}</div>
+        <div className="incident-actions"><button type="button" className="button button--ghost" disabled={saving} onClick={() => { setModalNotice(null); step === 1 ? setOpen(false) : setStep(step - 1); }}>{step === 1 ? "Cancelar" : "Volver"}</button>{step < 3 ? <button type="button" className="button button--primary" disabled={saving} onClick={next}>Continuar</button> : <button type="button" className="button button--primary" disabled={saving} onClick={save}>{saving ? "Enviando…" : "Enviar incidencia"}</button>}</div>
       </div>
     </Modal>
   </>;
@@ -57,7 +77,7 @@ function DetailsStep({ form, setForm }) {
   const remove = (key, index) => setForm({ ...form, [key]: form[key].filter((_, i) => i !== index) });
   const add = (key, item) => setForm({ ...form, [key]: [...form[key], item] });
   return <section className="incident-step"><h3>{form.tipo === "cambio_precio" ? "Productos (opcional)" : "Productos e involucrados"}</h3><SectionTitle title={form.tipo === "cambio_precio" ? "Productos (opcional)" : "Productos involucrados"} onAdd={() => add("productos", newProduct())} label="Agregar producto" />
-    {form.productos.length === 0 ? <p className="incident-empty">No se agregaron productos.</p> : <div className="incident-entry-list">{form.productos.map((item, index) => <div className="incident-product" key={index}><ProductCodeField value={item.codigo} onCodeChange={(codigo) => update("productos", index, "codigo", codigo)} onSelect={(product) => setForm({ ...form, productos: form.productos.map((current, position) => position === index ? { ...current, codigo: product.codigo, producto: product.producto, sublinea: product.sublinea, marca: product.marca, valor: product.precio } : current) })} /><Field label="Producto"><input required readOnly value={productLabel(item)} placeholder="Se completa al elegir el código" /></Field><Field label="Marca"><input required readOnly value={item.marca} placeholder="Se completa al elegir el código" /></Field><Field label="Cantidad"><input type="number" min="1" value={item.cantidad} onChange={(e) => update("productos", index, "cantidad", e.target.value)} /></Field><Field label="Valor (S/)"><input type="number" min="0" step="0.01" value={item.valor} onChange={(e) => update("productos", index, "valor", e.target.value)} /></Field>{form.tipo !== "cambio_precio" && <Choice label="¿Recuperado?" value={item.recuperado} onChange={(value) => update("productos", index, "recuperado", value)} />}<button className="icon-button incident-remove" type="button" onClick={() => remove("productos", index)} aria-label="Quitar producto"><Trash2 size={17} /></button></div>)}</div>}
+    {form.productos.length === 0 ? <p className="incident-empty">No se agregaron productos.</p> : <div className="incident-entry-list">{form.productos.map((item, index) => <div className="incident-product" key={index}><ProductCodeField value={item.codigo} onCodeChange={(codigo) => setForm({ ...form, productos: form.productos.map((current, position) => position === index ? { ...current, codigo, producto: "", sublinea: "", marca: "", valor: "", stock: null, cantidad: "" } : current) })} onSelect={(product) => setForm({ ...form, productos: form.productos.map((current, position) => position === index ? { ...current, codigo: product.codigo, producto: product.producto, sublinea: product.sublinea, marca: product.marca, valor: product.precio, stock: product.stock, cantidad: "" } : current) })} /><Field label="Producto"><input required readOnly value={productLabel(item)} placeholder="Se completa al elegir el código" /></Field><Field label="Marca"><input required readOnly value={item.marca} placeholder="Se completa al elegir el código" /></Field><Field label="Cantidad"><input type="number" min="1" value={item.cantidad} placeholder="Ingresa la cantidad" onChange={(e) => update("productos", index, "cantidad", e.target.value)} /></Field><Field label="Precio sugerido (S/)"><input type="number" min="0" step="0.01" readOnly value={item.valor} /></Field>{form.tipo !== "cambio_precio" && <Choice label="¿Recuperado?" value={item.recuperado} onChange={(value) => update("productos", index, "recuperado", value)} />}<button className="icon-button incident-remove" type="button" onClick={() => remove("productos", index)} aria-label="Quitar producto"><Trash2 size={17} /></button></div>)}</div>}
     {form.tipo !== "cambio_precio" && <><SectionTitle title="Personas involucradas" onAdd={() => add("personas", newPerson())} label="Agregar persona" />
       {form.personas.length === 0 ? <p className="incident-empty">No se agregaron personas.</p> : <div className="incident-entry-list">{form.personas.map((item, index) => <div className="incident-person" key={index}><Field label="Nombre"><input value={item.nombre} onChange={(e) => update("personas", index, "nombre", e.target.value)} /></Field><Field label="Rol"><select value={item.rol} onChange={(e) => update("personas", index, "rol", e.target.value)}><option value="Ladrón">Ladrón</option><option value="Testigo">Testigo</option><option value="Vendedor">Vendedor</option><option value="Externo">Externo</option></select></Field><Field label="Documento"><input value={item.documento} onChange={(e) => update("personas", index, "documento", e.target.value)} /></Field><Field label="Observación"><input value={item.observacion} onChange={(e) => update("personas", index, "observacion", e.target.value)} /></Field><button className="icon-button incident-remove" type="button" onClick={() => remove("personas", index)} aria-label="Quitar persona"><Trash2 size={17} /></button></div>)}</div>}</>}
   </section>;
@@ -71,11 +91,22 @@ function ReviewStep({ form, user }) {
 function ProductCodeField({ value, onCodeChange, onSelect }) {
   const [options, setOptions] = useState([]);
   const [open, setOpen] = useState(false);
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
   useEffect(() => {
     const query = String(value || "").trim();
     if (query.length < 1) { setOptions([]); setOpen(false); return undefined; }
     const timer = window.setTimeout(() => {
-      api(`/productos/catalogo?q=${encodeURIComponent(query)}`).then((rows) => { setOptions(rows); setOpen(true); }).catch(() => { setOptions([]); setOpen(false); });
+      api(`/productos/catalogo?q=${encodeURIComponent(query)}`).then((rows) => {
+        const exactMatch = rows.find((item) => item.codigo.toLowerCase() === query.toLowerCase());
+        setOptions(rows);
+        if (exactMatch) {
+          onSelectRef.current(exactMatch);
+          setOpen(false);
+        } else {
+          setOpen(true);
+        }
+      }).catch(() => { setOptions([]); setOpen(false); });
     }, 200);
     return () => window.clearTimeout(timer);
   }, [value]);

@@ -2034,6 +2034,7 @@ async function createIncident(event, user) {
       }
       const inserted = await supabase.from("incidencia_productos").insert({
         incidencia_id: incident.id, marca_id: marca.id,
+        codigo_nissei: cleanText(item.codigo) || null,
         producto, cantidad: Number(item.cantidad), valor: Number(item.valor || 0), recuperado: isPriceChange ? false : Boolean(item.recuperado),
       });
       if (inserted.error) throw dbError(inserted.error);
@@ -2082,7 +2083,7 @@ async function updateIncident(event, user, id) {
     if (lookup.error) throw dbError(lookup.error);
     let marca = (lookup.data || []).find((row) => row.nombre.trim().toLocaleLowerCase("es") === marcaNombre.toLocaleLowerCase("es"));
     if (!marca) { const created = await supabase.from("marcas").insert({ nombre: marcaNombre }).select("id,nombre").single(); if (created.error) throw dbError(created.error); marca = created.data; }
-    const inserted = await supabase.from("incidencia_productos").insert({ incidencia_id: id, marca_id: marca.id, producto, cantidad: Number(item.cantidad), valor: Number(item.valor), recuperado: isPriceChange ? false : Boolean(item.recuperado) });
+    const inserted = await supabase.from("incidencia_productos").insert({ incidencia_id: id, marca_id: marca.id, codigo_nissei: cleanText(item.codigo) || null, producto, cantidad: Number(item.cantidad), valor: Number(item.valor), recuperado: isPriceChange ? false : Boolean(item.recuperado) });
     if (inserted.error) throw dbError(inserted.error);
   }
   if (!isPriceChange) {
@@ -2094,7 +2095,7 @@ async function updateIncident(event, user, id) {
 
 async function listIncidents(event, user) {
   const rows = await listOperational("incidencias", event, user,
-    "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
+    "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,codigo_nissei,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
   if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter((row) => ["robo", "robo_frustrado", "cambio_precio"].includes(row.tipo));
   if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return rows.filter((row) => ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"].includes(row.tipo));
   return rows;
@@ -2106,23 +2107,28 @@ async function listBrands() {
   return data;
 }
 
-async function listStoreProducts(event) {
+async function listStoreProducts(event, user) {
   const query = cleanText(event.queryStringParameters?.q).slice(0, 60);
   if (!query) return [];
-  const { data, error } = await supabase.from("productos")
-    .select("codigo_nissei,sub_linea,marca,modelo,descripcion")
-    .ilike("codigo_nissei", `%${query}%`)
-    .order("codigo_nissei")
+  if (!user.tienda_id) throw httpError("Tu usuario no tiene una tienda asignada.", 400);
+  const { data, error } = await supabase.from("productos_tienda")
+    .select("producto_id,cantidad,precio_sugerido,productos!inner(codigo_nissei,sub_linea,marca,modelo,descripcion)")
+    .eq("tienda_id", user.tienda_id)
+    .ilike("productos.codigo_nissei", `%${query}%`)
+    .order("producto_id")
     .limit(15);
   if (error) throw dbError(error);
-  return (data || []).map((row) => ({
-    codigo: row.codigo_nissei || "",
-    producto: row.descripcion || row.modelo || row.codigo_nissei || "",
-    sublinea: row.sub_linea || "Sin sublínea",
-    marca: row.marca || "Sin marca",
-    precio: 0,
-    stock: null,
-  }));
+  return (data || []).map((storeProduct) => {
+    const product = storeProduct.productos;
+    return {
+      codigo: product.codigo_nissei || "",
+      producto: product.descripcion || product.modelo || product.codigo_nissei || "",
+      sublinea: product.sub_linea || "Sin sublínea",
+      marca: product.marca || "Sin marca",
+      precio: Number(storeProduct.precio_sugerido),
+      stock: Number(storeProduct.cantidad),
+    };
+  });
 }
 
 async function exportIncidentsExcel(event, user) {
@@ -2162,12 +2168,12 @@ async function exportIncidentsExcel(event, user) {
   const products = workbook.addWorksheet("Productos");
   products.columns = [
     { header: "Código de incidencia", key: "codigo", width: 20 }, { header: "Tienda", key: "tienda", width: 24 },
-    { header: "Producto", key: "producto", width: 30 }, { header: "Marca", key: "marca", width: 24 },
+    { header: "Código Nissei", key: "codigo_nissei", width: 20 }, { header: "Producto", key: "producto", width: 30 }, { header: "Marca", key: "marca", width: 24 },
     { header: "Cantidad", key: "cantidad", width: 12 }, { header: "Valor unitario", key: "valor", width: 18 },
     { header: "Valor total", key: "total", width: 18 }, { header: "Recuperado", key: "recuperado", width: 14 },
   ];
   for (const row of rows) for (const item of row.incidencia_productos || []) products.addRow({
-    codigo: incidentCode(row), tienda: row.tiendas?.nombre || "", producto: item.producto, marca: item.marcas?.nombre || "",
+    codigo: incidentCode(row), tienda: row.tiendas?.nombre || "", codigo_nissei: item.codigo_nissei || "", producto: item.producto, marca: item.marcas?.nombre || "",
     cantidad: item.cantidad, valor: Number(item.valor), total: Number(item.valor) * Number(item.cantidad), recuperado: item.recuperado ? "Sí" : "No",
   });
   products.getColumn("valor").numFmt = '"S/ "#,##0.00'; products.getColumn("total").numFmt = '"S/ "#,##0.00'; styleHeader(products);
@@ -3116,7 +3122,7 @@ export async function handler(event) {
     }
     if (path === "/productos/catalogo" && method === "GET") {
       ensureAuth(event, "seguridad");
-      return json(200, await listStoreProducts(event));
+      return json(200, await listStoreProducts(event, user));
     }
     if (path === "/amonestaciones" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);

@@ -3,6 +3,8 @@ import { AlertTriangle, CheckCircle2, Clock3, ShieldAlert, UsersRound } from "lu
 import { api, formatDateTime, todayISO } from "../lib/api";
 import { EmptyState, Loading, Notice, PageHeader } from "../components/UI";
 
+const TOTAL_RANGOS_TRAFICO = 13;
+
 export default function Seguridad({ user }) {
   const [traffic, setTraffic] = useState(null);
   const [incidents, setIncidents] = useState(null);
@@ -13,18 +15,20 @@ export default function Seguridad({ user }) {
     if (!records.length) return null;
     return {
       cantidad: records.reduce((total, row) => total + Number(row.cantidad || 0), 0),
+      rangosRegistrados: new Set(records.map((row) => row.rango_hora).filter(Boolean)).size,
       updated_at: records[0].updated_at,
     };
   }, [traffic]);
   const openIncidents = (incidents || []).filter((r) => r.estado !== "cerrada");
   const activity = useMemo(() => [...(traffic || []).map((r) => ({ date: r.updated_at, text: `Tráfico registrado · ${r.cantidad} visitantes` })), ...(incidents || []).map((r) => ({ date: r.created_at || r.fecha, text: `${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}` }))].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5), [traffic, incidents]);
   if (!traffic || !incidents) return <Loading />;
-  const pending = (todayTraffic ? 0 : 1) + openIncidents.length;
+  const registeredRanges = todayTraffic?.rangosRegistrados ?? 0;
+  const missingRanges = Math.max(TOTAL_RANGOS_TRAFICO - registeredRanges, 0);
   return <>
     <PageHeader eyebrow="Seguridad" title="Inicio" subtitle={`Tienda asignada: ${user?.tienda_nombre || "Sin tienda asignada"} · Control operativo del día`} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <div className="security-home-layout"><div>
-      <div className="security-metrics"><Metric icon={UsersRound} tone="green" label="Tráfico hoy" value={todayTraffic?.cantidad ?? 0} footer={todayTraffic ? `Registrado · ${timeOf(todayTraffic.updated_at)}` : "Registro pendiente"} /><Metric icon={ShieldAlert} tone="amber" label="Incidencias abiertas" value={openIncidents.length} footer={`${openIncidents.filter((r) => r.gravedad === "alta").length} de alta severidad`} /><Metric icon={Clock3} tone="red" label="Pendientes" value={pending} footer={pending ? "Acción requerida" : "Todo al día"} /></div>
+      <div className="security-metrics"><Metric icon={UsersRound} tone="green" label="Rangos de tráfico hoy" value={`${registeredRanges} / ${TOTAL_RANGOS_TRAFICO}`} footer={`${registeredRanges} con datos · ${missingRanges} faltantes`} /><Metric icon={ShieldAlert} tone="amber" label="Incidencias abiertas" value={openIncidents.length} footer={`${openIncidents.filter((r) => r.gravedad === "alta").length} de alta severidad`} /></div>
       <section className="panel security-pending"><header className="panel__header"><div><h2>Pendientes del día</h2><p>Acciones necesarias para completar la jornada</p></div></header>{todayTraffic ? <Pending tone="done" icon={CheckCircle2} title="Tráfico registrado" detail={`${timeOf(todayTraffic.updated_at || todayTraffic.created_at)} · ${todayTraffic.cantidad} visitantes`} /> : <Pending tone="warning" icon={AlertTriangle} title="Falta registrar el tráfico de hoy" detail="Ingresa a Tráfico para completar el registro diario." />}{openIncidents.slice(0, 3).map((r) => <Pending key={r.id} tone="warning" icon={AlertTriangle} title={`${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}`} detail={`${r.estado || "abierta"} · ${r.gravedad}`} />)}{!openIncidents.length && todayTraffic && <p className="security-all-clear">No hay incidencias pendientes.</p>}</section>
     </div><section className="panel security-activity"><header className="panel__header"><h2>Actividad reciente</h2></header>{activity.length ? activity.map((item, i) => <div className="activity-row" key={`${item.date}-${i}`}><time>{timeOf(item.date)}</time><span>{item.text}</span></div>) : <EmptyState icon={Clock3} title="Sin actividad" text="Los registros recientes aparecerán aquí." />}</section></div>
     <section className="panel security-recent"><header className="panel__header"><div><h2>Incidencias recientes</h2><p>Últimos eventos registrados en la tienda</p></div></header><div className="security-table"><div className="security-table__head"><span>Código</span><span>Fecha</span><span>Tipo</span><span>Severidad</span><span>Estado</span></div>{incidents.slice(0, 6).map((r) => <div className="security-table__row" key={r.id}><strong>{r.codigo || `INC-${String(r.id).padStart(4, "0")}`}</strong><span>{formatDateTime(r.fecha)}</span><span>{r.tipo || r.asunto}</span><span className={`security-pill security-pill--${r.gravedad}`}>{r.gravedad}</span><span className="security-pill">{r.estado || "abierta"}</span></div>)}</div></section>
