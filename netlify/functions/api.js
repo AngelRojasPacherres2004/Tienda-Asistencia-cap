@@ -1907,6 +1907,38 @@ async function updateTraffic(event, user, id) {
   return row;
 }
 
+async function exportTrafficExcel(event, user) {
+  const rows = await listOperational("trafico_tienda", event, user,
+    "fecha,rango_hora,cantidad,observaciones,tiendas(nombre),usuarios!trafico_tienda_registrado_por_fkey(nombres,apellidos,usuario)");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Asiste";
+  workbook.created = new Date();
+
+  const traffic = workbook.addWorksheet("Tráfico");
+  traffic.columns = [
+    { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Tienda", key: "tienda", width: 26 },
+    { header: "Rango horario", key: "rango_hora", width: 22 },
+    { header: "Visitantes", key: "cantidad", width: 14 },
+    { header: "Observación", key: "observaciones", width: 48 },
+    { header: "Registrado por", key: "registrado_por", width: 30 },
+  ];
+  traffic.addRows(rows.map((row) => ({
+    fecha: row.fecha,
+    tienda: row.tiendas?.nombre || "",
+    rango_hora: row.rango_hora || "",
+    cantidad: Number(row.cantidad || 0),
+    observaciones: row.observaciones || "",
+    registrado_por: row.usuarios
+      ? `${row.usuarios.nombres} ${row.usuarios.apellidos} (@${row.usuarios.usuario})`
+      : "",
+  })));
+  traffic.getColumn("observaciones").alignment = { vertical: "top", wrapText: true };
+  styleHeader(traffic);
+  const nowParts = limaDateParts(new Date());
+  return excelResponse(workbook, `${nowParts.month}-${nowParts.day}-trafico.xlsx`);
+}
+
 function limaTimestamp(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit",
@@ -2072,6 +2104,25 @@ async function listBrands() {
   const { data, error } = await supabase.from("marcas").select("id,nombre").order("nombre");
   if (error) throw dbError(error);
   return data;
+}
+
+async function listStoreProducts(event) {
+  const query = cleanText(event.queryStringParameters?.q).slice(0, 60);
+  if (!query) return [];
+  const { data, error } = await supabase.from("productos")
+    .select("codigo_nissei,sub_linea,marca,modelo,descripcion")
+    .ilike("codigo_nissei", `%${query}%`)
+    .order("codigo_nissei")
+    .limit(15);
+  if (error) throw dbError(error);
+  return (data || []).map((row) => ({
+    codigo: row.codigo_nissei || "",
+    producto: row.descripcion || row.modelo || row.codigo_nissei || "",
+    sublinea: row.sub_linea || "Sin sublínea",
+    marca: row.marca || "Sin marca",
+    precio: 0,
+    stock: null,
+  }));
 }
 
 async function exportIncidentsExcel(event, user) {
@@ -2848,6 +2899,10 @@ export async function handler(event) {
       ensureAuth(event, operationalReaders);
       return json(200, await listOperational("trafico_tienda", event, user));
     }
+    if (path === "/trafico/export.xlsx" && method === "GET") {
+      ensureAuth(event, operationalReaders);
+      return await exportTrafficExcel(event, user);
+    }
     if (path === "/trafico" && method === "POST") {
       ensureAuth(event, "seguridad");
       return json(201, await saveTraffic(event, user));
@@ -2877,6 +2932,10 @@ export async function handler(event) {
     if (path === "/marcas" && method === "GET") {
       ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listBrands());
+    }
+    if (path === "/productos/catalogo" && method === "GET") {
+      ensureAuth(event, "seguridad");
+      return json(200, await listStoreProducts(event));
     }
     if (path === "/amonestaciones" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);

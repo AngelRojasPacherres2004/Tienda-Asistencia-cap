@@ -21,7 +21,7 @@ export default function Seguridad({ user }) {
   if (!traffic || !incidents) return <Loading />;
   const pending = (todayTraffic ? 0 : 1) + openIncidents.length;
   return <>
-    <PageHeader eyebrow="Seguridad" title="Inicio" subtitle={`${user?.tienda_nombre || "Tu tienda"} · Control operativo del día`} />
+    <PageHeader eyebrow="Seguridad" title="Inicio" subtitle={`Tienda asignada: ${user?.tienda_nombre || "Sin tienda asignada"} · Control operativo del día`} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <div className="security-home-layout"><div>
       <div className="security-metrics"><Metric icon={UsersRound} tone="green" label="Tráfico hoy" value={todayTraffic?.cantidad ?? 0} footer={todayTraffic ? `Registrado · ${timeOf(todayTraffic.updated_at)}` : "Registro pendiente"} /><Metric icon={ShieldAlert} tone="amber" label="Incidencias abiertas" value={openIncidents.length} footer={`${openIncidents.filter((r) => r.gravedad === "alta").length} de alta severidad`} /><Metric icon={Clock3} tone="red" label="Pendientes" value={pending} footer={pending ? "Acción requerida" : "Todo al día"} /></div>

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Pencil, Plus, UsersRound } from "lucide-react";
-import { api, formatDate, todayISO } from "../lib/api";
-import { exportExcel } from "../lib/excelExport";
+import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput } from "../components/UI";
 
 const RANGOS_HORA = Array.from({ length: 13 }, (_, index) => {
@@ -40,13 +39,21 @@ export default function TraficoSeguridad({ user }) {
       setNotice({ type: "error", text: error.message });
     }
   };
-  const exportCsv = () => exportExcel("trafico-tienda.xlsx", (rows || []).map((row) => ({ fecha: row.fecha, rango_horario: rangeLabel(row.rango_hora), visitantes: row.cantidad, observacion: row.observaciones || "" })), "Tráfico");
+  const exportExcel = async () => {
+    try {
+      const now = new Date();
+      const filename = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-trafico.xlsx`;
+      await downloadFile("/api/trafico/export.xlsx", filename);
+    } catch (error) {
+      setNotice({ type: "error", text: error.message });
+    }
+  };
 
   if (!rows) return <Loading />;
   return <>
     <PageHeader eyebrow="Seguridad" title="Tráfico de clientes" subtitle="Registro diario e histórico de afluencia" action={<button className="button button--primary" onClick={openForm}><Plus size={16} /> Registrar tráfico</button>} />
     <section className="panel security-history">
-      <header className="panel__header"><div><h2>Historial de tráfico</h2><p>Consulta y exporta los conteos registrados por rango horario</p></div><button className="button button--ghost" onClick={exportCsv}><Download size={15} /> Exportar</button></header>
+      <header className="panel__header"><div><h2>Historial de tráfico</h2><p>Consulta y exporta los conteos registrados por rango horario</p></div><button className="button button--ghost" onClick={exportExcel}><Download size={15} /> Exportar Excel</button></header>
       <div className="security-filters"><SearchInput value={search} onChange={setSearch} placeholder="Fecha, rango u observación" /></div>
       {filtered.length ? <div className="security-table">
         <div className="security-table__head security-table__head--traffic"><span>Fecha</span><span>Rango horario</span><span>Visitantes</span><span>Estado</span><span>Observación</span><span /></div>
@@ -77,5 +84,3 @@ function currentRange() {
 }
 function displayHour(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a. m." : "p. m."}`; }
 function rangeLabel(value) { return RANGOS_HORA.find((rango) => rango.value === value)?.label || value || "Sin rango"; }
-function quoted(value) { return `"${String(value || "").replaceAll('"', '""')}"`; }
-function downloadCsv(name, lines) { const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })); link.download = name; link.click(); URL.revokeObjectURL(link.href); }
