@@ -1639,5 +1639,26 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 @media(max-width:480px){.report-picker{grid-template-columns:1fr}.report-picker>button{min-height:92px}}
 @media(max-width:720px){.attendance-overview-actions{align-items:stretch}.attendance-overview-actions label{width:100%}.attendance-overview--expanded{inset:8px}.management-dashboard{gap:18px}}
 .store-dashboard-shell .training-history > div { grid-template-columns:minmax(150px,.8fr) minmax(230px,1.4fr) 110px; }
+.alert-settings header p { margin:6px 0 0; color:var(--muted); font-size:12px; }
+.alert-settings__list { display:grid; gap:10px; }
+.alert-settings__list article { display:grid; grid-template-columns:minmax(220px,1fr) auto auto; align-items:center; gap:16px; padding:14px; border:1px solid rgba(205,169,95,.16); border-radius:11px; background:rgba(255,255,255,.015); }
+.alert-settings__list strong,.alert-settings__list small { display:block; }
+.alert-settings__list small { margin-top:5px; color:var(--muted); font-size:11px; }
+.alert-settings__list label { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:11px; white-space:nowrap; }
+.alert-settings__list input { width:66px; height:34px; padding:0 8px; border:1px solid rgba(205,169,95,.28); border-radius:8px; outline:0; color:var(--text); background:var(--surface-strong); text-align:center; }
+.alert-settings__list input:focus { border-color:rgba(220,184,107,.72); box-shadow:0 0 0 3px rgba(205,169,95,.1); }
+.alert-settings__list em { color:var(--muted); font-style:normal; }
+@media(max-width:680px){.alert-settings__list article{grid-template-columns:1fr;gap:11px}.alert-settings__list label{justify-content:flex-start}.alert-settings__list button{width:100%}}
+.training-development-legend span:nth-child(2) i { background:#f39137; }
+.training-development-legend span:last-child i { background:#a7b6c6; }
+.training-progress[data-state="en_curso"] { background:#fff2df; }
+.training-progress[data-state="en_curso"] b { color:#9a5900; }
+.training-progress[data-state="completado"] b { color:#075d2c; }
+.training-development-empty { margin:0; padding:20px 0; color:#607188; font-size:12px; text-align:center; }
+.training-history-empty { display:block!important; min-width:0!important; padding:20px!important; color:#607188; font-size:12px!important; text-align:center; }
+.training-status { font-weight:700; text-transform:capitalize; }
+.training-status--completado { color:#087536; }
+.training-status--en_curso { color:#a55d00; }
+.training-status--pendiente { color:#607188; }
 .store-dashboard-shell.is-light .personnel-donut > div:last-child strong,.store-dashboard-shell.is-light .personnel-reasons span,.store-dashboard-shell.is-light .personnel-reasons strong { color:#172033; }.store-dashboard-shell.is-light .personnel-donut > div:last-child small { color:#536174; }
 .store-dashboard-shell .training-development { margin: 30px 0 0; padding: 30px; border: 1px solid #c9dae6; border-radius: 22px; }.store-dashboard-shell .training-development > header { align-items:center; }.store-dashboard-shell .training-development-filters { gap:20px; }.store-dashboard-shell .training-development-filters label { width:330px; min-width:0; }.store-dashboard-shell .training-development-filters select { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.store-dashboard-shell .training-development-grid { grid-template-columns:minmax(360px,.8fr) minmax(0,1.6fr); }.store-dashboard-shell .training-development-grid > article > header { min-height:72px; }.store-dashboard-shell .training-development-bars { max-height:390px; overflow:auto; }.store-dashboard-shell .training-development-bars > div { grid-template-columns:135px minmax(120px,1fr); }.store-dashboard-shell .training-history { max-height:390px; }.store-dashboard-shell .training-history > div > * { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

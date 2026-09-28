@@ -2306,17 +2306,18 @@ async function saveSpecialCoverage(event, user) {
 async function operationalSummary(event, user) {
   const storeId = await operationalStoreId(event, user);
   const today = todayISO();
-  const in30Days = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const [traffic, incidents, warnings, errors, documents, administration] = await Promise.all([
     supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
     supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-    supabase.from("documentos_municipales").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).lte("fecha_vencimiento", in30Days),
+    supabase.from("documentos_municipales").select("fecha_vencimiento,dias_alerta").eq("tienda_id", storeId).gte("fecha_vencimiento", today),
     supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
   ]);
   if (administration.error) throw dbError(administration.error);
-  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documents.count || 0, administracion_tienda: administration.count || 0 };
+  if (documents.error) throw dbError(documents.error);
+  const documentosPorVencer = (documents.data || []).filter((row) => Number(row.fecha_vencimiento.slice(0, 10).replaceAll("-", "")) >= Number(today.replaceAll("-", "")) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length;
+  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0 };
 }
 
 async function listTrafficMatrix(event, user) {
@@ -2412,16 +2413,16 @@ async function getZonalComparison(event, user) {
   if (desde > hasta || desde.slice(0, 7) !== hasta.slice(0, 7) || hasta > fecha) throw httpError("Selecciona un periodo valido dentro del mes y hasta hoy.", 400);
   if (!ids.length) return { fecha, desde, hasta, tiendas: [] };
   const daysInRange = Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86400000) + 1;
-  const in30Days = new Date(`${fecha}T12:00:00Z`);
-  in30Days.setUTCDate(in30Days.getUTCDate() + 30);
-  const deadline = in30Days.toISOString().slice(0, 10);
+  const alertWindow = new Date(`${fecha}T12:00:00Z`);
+  alertWindow.setUTCDate(alertWindow.getUTCDate() + 365);
+  const deadline = alertWindow.toISOString().slice(0, 10);
   const [people, attendance, traffic, incidents, errors, documents] = await Promise.all([
     fetchAllReportPages(supabase.from("usuarios").select("id,tienda_id").in("tienda_id", ids).eq("estado", "activo").in("rol", storeStaffRoles).order("id")),
     fetchAllReportPages(supabase.from("asistencias").select("id,tienda_id,usuario_id,fecha,estado").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,cantidad").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,tipo").in("tienda_id", ids).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59-05:00`).order("id")),
     fetchAllReportPages(supabase.from("errores_personal").select("id,tienda_id").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
-    fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id").in("tienda_id", ids).gte("fecha_vencimiento", fecha).lte("fecha_vencimiento", deadline).order("id")),
+    fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id,fecha_vencimiento,dias_alerta").in("tienda_id", ids).gte("fecha_vencimiento", fecha).lte("fecha_vencimiento", deadline).order("id")),
   ]);
   const securityTypes = new Set(["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]);
   return { fecha, desde, hasta, tiendas: stores.map((store) => {
@@ -2440,7 +2441,7 @@ async function getZonalComparison(event, user) {
       incidencias_seguridad: storeIncidents.filter((row) => securityTypes.has(row.tipo)).length,
       incidencias_administrativas: storeIncidents.filter((row) => !securityTypes.has(row.tipo)).length,
       errores: errors.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
-      documentos_por_vencer: documents.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
+      documentos_por_vencer: documents.filter((row) => Number(row.tienda_id) === Number(store.id) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${fecha}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length,
     };
   }) };
 }
@@ -2705,14 +2706,13 @@ async function getMiTienda(user) {
   ]);
   for (const result of [store, documentos, reclamaciones, acciones, bitacora, requerimientos, seguimientos, visitas, observaciones, mejoras, apoyos]) if (result.error) throw dbError(result.error);
   const today = todayISO();
-  const limit = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const docs = documentos.data || [], claims = reclamaciones.data || [], acts = acciones.data || [];
   return {
     tienda: { ...store.data, cluster: store.data?.clusters?.nombre || null, clusters: undefined },
     documentos: docs, reclamaciones: claims, acciones: acts, bitacora: bitacora.data || [], requerimientos: (requerimientos.data || []).map((item) => ({ ...item, seguimientos: (seguimientos.data || []).filter((entry) => entry.requerimiento_id === item.id) })),
     visitas: visitas.data || [], observaciones: observaciones.data || [], mejoras: mejoras.data || [], apoyos_seguridad: apoyos.data || [],
     resumen: {
-      documentos_por_vencer: docs.filter((x) => x.fecha_vencimiento && x.fecha_vencimiento >= today && x.fecha_vencimiento <= limit).length,
+      documentos_por_vencer: docs.filter((x) => x.fecha_vencimiento && x.fecha_vencimiento >= today && Math.round((Date.parse(`${x.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(x.dias_alerta || 30)).length,
       reclamos_en_atencion: claims.filter((x) => ["registrado", "en_atencion"].includes(x.estado)).length,
       observaciones_abiertas: (observaciones.data || []).filter((x) => !["levantada"].includes(x.estado)).length,
       proxima_accion: acts.find((x) => x.fecha >= today && !["completada", "cancelada"].includes(x.estado)) || null,
@@ -2741,7 +2741,7 @@ async function saveMiTiendaRecord(event, user, kind, id = null) {
   if (!table) throw httpError("Tipo de registro no válido.", 400);
   const data = bodyOf(event);
   const allowed = {
-    documentos: ["area_responsable","responsables","codigo","tipo_documento","frecuencia_revision","fecha_emision","fecha_vencimiento","estado","archivo_path","archivo_nombre"],
+    documentos: ["area_responsable","responsables","codigo","tipo_documento","frecuencia_revision","fecha_emision","fecha_vencimiento","estado","dias_alerta","archivo_path","archivo_nombre"],
     reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","consumidor_documento","consumidor_contacto","producto_servicio","monto","tipo","detalle","pedido_consumidor","observaciones_proveedor","acciones_adoptadas","fecha_respuesta","responsable","estado","archivo_path","archivo_nombre"],
     acciones: ["fecha","tipo","responsable","accion","estado","objetivo","observacion","evidencia_path","evidencia_nombre"],
     bitacora: ["fecha","venta_dia","categoria","evento","descripcion","evidencia_path","evidencia_nombre"],
@@ -2750,8 +2750,10 @@ async function saveMiTiendaRecord(event, user, kind, id = null) {
   }[kind];
   const required = { documentos: ["responsables","tipo_documento"], reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","producto_servicio","tipo","detalle"], acciones: ["fecha","tipo","responsable","accion"], bitacora: ["fecha","venta_dia","categoria"], requerimientos: ["requerimiento","areas_responsables","urgencia","fecha_inicio"], mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo"] }[kind];
   requireFields(data, required);
+  if (kind === "reclamaciones" && data.estado !== undefined && !["registrado", "en_atencion", "respondido", "cerrado"].includes(data.estado)) throw httpError("El estado de la reclamación no es válido.", 400);
   if (kind === "requerimientos" && (!Array.isArray(data.areas_responsables) || !data.areas_responsables.length)) throw httpError("Selecciona al menos un área responsable.", 400);
   if (kind === "documentos" && (!Array.isArray(data.responsables) || !data.responsables.length)) throw httpError("Selecciona al menos un responsable.", 400);
+  if (kind === "documentos" && data.dias_alerta !== undefined && (!Number.isInteger(Number(data.dias_alerta)) || Number(data.dias_alerta) < 1 || Number(data.dias_alerta) > 365)) throw httpError("Los días de alerta deben estar entre 1 y 365.", 400);
   const payload = Object.fromEntries(allowed.filter((key) => data[key] !== undefined).map((key) => [key, typeof data[key] === "string" ? cleanText(data[key]) || null : data[key]]));
   if (kind === "documentos") payload.area_responsable = data.responsables.join(", ");
   payload.updated_at = new Date().toISOString();

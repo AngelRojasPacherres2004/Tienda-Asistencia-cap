@@ -27,20 +27,6 @@ const documentosPorArea = {
       "1.15 Certificado de operatividad del sistema de detección y alarma contra incendios",
     ],
   },
-  calcin: {
-    label: "Calcin",
-    documentos: [
-      "1.6 Certificado de capacitación en seguridad, primeros auxilios o incendios",
-      "Cronograma de capacitación",
-      "1.7 Certificado de fumigación actualizado",
-      "1.8 Certificado de mantenimiento, garantía y operatividad de extintores",
-      "Protocolo de extintores",
-      "Memoria descriptiva de extintores",
-      "1.9 Certificado de mantenimiento y operatividad de luces de emergencia",
-      "1.10 Certificado de mantenimiento y operatividad de detectores de humo",
-      "1.11 Certificado de prueba hidrostática de extintores",
-    ],
-  },
   proveedor: {
     label: "Proveedor",
     documentos: ["1.12 Certificado de láminas de seguridad"],
