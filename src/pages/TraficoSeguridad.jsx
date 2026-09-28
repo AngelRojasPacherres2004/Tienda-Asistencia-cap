@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Pencil, Plus, UsersRound } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
-import { EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput } from "../components/UI";
+import { EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput } from "../components/UI";
+
+const PAGE_SIZE = 15;
 
 const RANGOS_HORA = Array.from({ length: 14 }, (_, index) => {
   const start = index + 9;
@@ -16,6 +18,9 @@ export default function TraficoSeguridad({ user }) {
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [date, setDate] = useState("");
+  const [range, setRange] = useState("todos");
+  const [page, setPage] = useState(1);
   const [notice, setNotice] = useState(null);
   const [form, setForm] = useState(emptyForm());
 
@@ -24,7 +29,12 @@ export default function TraficoSeguridad({ user }) {
 
   const filtered = useMemo(() => (rows || []).filter((row) =>
     `${row.fecha} ${row.rango_hora || ""} ${row.observaciones || ""}`.toLowerCase().includes(search.toLowerCase())
-  ), [rows, search]);
+    && (!date || row.fecha === date)
+    && (range === "todos" || row.rango_hora === range)
+  ), [rows, search, date, range]);
+  useEffect(() => { setPage(1); }, [search, date, range]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const visibleRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openForm = () => { setNotice(null); setForm(emptyForm()); setOpen(true); };
   const editForm = (row) => { setNotice(null); setForm({ id: row.id, fecha: row.fecha, rango_hora: row.rango_hora, cantidad: row.cantidad, observaciones: row.observaciones || "" }); setOpen(true); };
@@ -54,11 +64,11 @@ export default function TraficoSeguridad({ user }) {
     <PageHeader eyebrow="Seguridad" title="Tráfico de clientes" subtitle="Registro diario e histórico de afluencia" action={<button className="button button--primary" onClick={openForm}><Plus size={16} /> Registrar tráfico</button>} />
     <section className="panel security-history">
       <header className="panel__header"><div><h2>Historial de tráfico</h2><p>Consulta y exporta los conteos registrados por rango horario</p></div><button className="button button--ghost" onClick={exportExcel}><Download size={15} /> Exportar Excel</button></header>
-      <div className="security-filters"><SearchInput value={search} onChange={setSearch} placeholder="Fecha, rango u observación" /></div>
-      {filtered.length ? <div className="security-table">
+      <div className="security-filter-grid"><SearchInput value={search} onChange={setSearch} placeholder="Fecha, rango u observación" /><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="Filtrar por fecha" /><select value={range} onChange={(event) => setRange(event.target.value)} aria-label="Filtrar por rango horario"><option value="todos">Todos los horarios</option>{RANGOS_HORA.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+      {filtered.length ? <><div className="security-table">
         <div className="security-table__head security-table__head--traffic"><span>Fecha</span><span>Rango horario</span><span>Visitantes</span><span>Estado</span><span>Observación</span><span /></div>
-        {filtered.map((row) => { const editable = isToday(row.fecha); return <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" disabled={!editable} title={editable ? "Editar tráfico" : "Solo se puede editar el día del registro"} onClick={() => editable && editForm(row)} aria-label="Editar tráfico"><Pencil size={15}/></button></div>; })}
-      </div> : <EmptyState icon={UsersRound} title="Sin registros" text="Registra el primer conteo de visitantes." />}
+        {visibleRows.map((row) => { const editable = isToday(row.fecha); return <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" disabled={!editable} title={editable ? "Editar tráfico" : "Solo se puede editar el día del registro"} onClick={() => editable && editForm(row)} aria-label="Editar tráfico"><Pencil size={15}/></button></div>; })}
+      </div><Pagination page={page} pages={pages} onChange={setPage} /></> : <EmptyState icon={UsersRound} title="Sin registros" text="No hay registros para los filtros seleccionados." />}
     </section>
     <Modal open={open} title={form.id ? "Editar tráfico" : "Registrar tráfico"} subtitle="Conteo de visitantes de la tienda asignada" onClose={() => setOpen(false)}>
       <form className="form-grid" onSubmit={save}>
