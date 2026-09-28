@@ -35,7 +35,7 @@ const disabledPassword = "!SIN_ACCESO!";
 const rangosTrafico = new Set([
   "09:00-10:00", "10:00-11:00", "11:00-12:00", "12:00-13:00", "13:00-14:00",
   "14:00-15:00", "15:00-16:00", "16:00-17:00", "17:00-18:00", "18:00-19:00",
-  "19:00-20:00", "20:00-21:00", "21:00-22:00",
+  "19:00-20:00", "20:00-21:00", "21:00-22:00", "22:00-23:00",
 ]);
 
 function httpError(message, status) {
@@ -1901,9 +1901,12 @@ async function updateTraffic(event, user, id) {
   const data = bodyOf(event);
   requireFields(data, ["fecha", "rango_hora", "cantidad"]);
   if (!rangosTrafico.has(data.rango_hora) || !isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha, rango y cantidad válidos.", 400);
+  const { data: existing, error: lookupError } = await supabase.from("trafico_tienda").select("fecha").eq("id", id).eq("tienda_id", user.tienda_id).maybeSingle();
+  if (lookupError) throw dbError(lookupError);
+  if (!existing) throw httpError("El registro de tráfico no existe.", 404);
+  if (String(existing.fecha).slice(0, 10) !== limaDateISO()) throw httpError("Este registro ya no puede editarse porque corresponde a un día anterior.", 403);
   const { data: row, error } = await supabase.from("trafico_tienda").update({ fecha: data.fecha, rango_hora: data.rango_hora, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null, updated_at: limaTimestamp() }).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
   if (error) throw dbError(error);
-  if (!row) throw httpError("El registro de tráfico no existe.", 404);
   return row;
 }
 
@@ -1947,6 +1950,8 @@ function limaTimestamp(date = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
+function limaDateISO(date = new Date()) { return limaTimestamp(new Date(date)).slice(0, 10); }
+
 async function incidentRecipients(storeId) {
   const recipients = new Set(String(process.env.GERENCIA_GENERAL_EMAIL || "").split(",").map((v) => v.trim()).filter(Boolean));
   const { data: central } = await supabase.from("usuarios").select("email").in("rol", ["gerencia_general", "gerente_comercial"]).eq("estado", "activo").not("email", "is", null);
@@ -1984,7 +1989,7 @@ async function createIncident(event, user) {
     throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
   }
   if (data.fecha && Number.isNaN(new Date(data.fecha).getTime())) throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
-  const securityTypes = ["robo", "robo_frustrado", "cambio_precio", "otro"];
+  const securityTypes = ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"];
   const internalTypes = ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"];
   const isSecurityUser = ["seguridad", "jefe_seguridad"].includes(user.rol);
   if (isSecurityUser && !securityTypes.includes(data.tipo)) {
@@ -2002,11 +2007,11 @@ async function createIncident(event, user) {
   if (detencion && !detencionDetalle) {
     throw httpError("Describe los detalles de la detención.", 400);
   }
-  if (!["piso_venta", "textil", "calzado", "caja", "almacen", "ingreso", "exterior", "otro"].includes(data.area || "otro")) {
+  if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) {
     throw httpError("Selecciona un área o ubicación válida.", 400);
   }
   const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
-  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", cambio_precio: "Cambio de precio", accidente: "Accidente", dano_infraestructura: "Daño de infraestructura", problema_operativo: "Problema operativo", falla_interna: "Falla interna", otro: isSecurityUser ? "Otra incidencia de seguridad" : "Otra incidencia interna" };
+  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", robo_interno: "Robo interno", estafa: "Estafa", asalto: "Asalto", fiscalizacion: "Fiscalización", cambio_precio: "Cambio de precio", accidente: "Accidente", dano_infraestructura: "Daño de infraestructura", problema_operativo: "Problema operativo", falla_interna: "Falla interna", otro: isSecurityUser ? "Otra incidencia de seguridad" : "Otra incidencia interna" };
   const { data: incident, error } = await supabase.from("incidencias").insert({
     tienda_id: storeId, asunto: incidentNames[data.tipo], tipo: data.tipo, area: data.area || "otro",
     descripcion: cleanText(data.descripcion), gravedad: data.gravedad, estado: "abierta",
@@ -2060,16 +2065,20 @@ async function createIncident(event, user) {
 async function updateIncident(event, user, id) {
   const data = bodyOf(event);
   requireFields(data, ["descripcion", "gravedad", "tipo", "fecha"]);
+  const { data: existing, error: lookupError } = await supabase.from("incidencias").select("fecha").eq("id", id).eq("tienda_id", user.tienda_id).maybeSingle();
+  if (lookupError) throw dbError(lookupError);
+  if (!existing) throw httpError("La incidencia no existe.", 404);
+  if (limaDateISO(existing.fecha) !== limaDateISO()) throw httpError("Esta incidencia ya no puede editarse porque corresponde a un día anterior.", 403);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-05:00$/.test(String(data.fecha)) || Number.isNaN(new Date(data.fecha).getTime())) throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
-  if (!["robo", "robo_frustrado", "cambio_precio", "otro"].includes(data.tipo) || !["baja", "media", "alta"].includes(data.gravedad)) throw httpError("Revisa el tipo y la severidad.", 400);
-  if (!["piso_venta", "textil", "calzado", "caja", "almacen", "ingreso", "exterior", "otro"].includes(data.area || "otro")) throw httpError("Selecciona un área válida.", 400);
+  if (!["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"].includes(data.tipo) || !["baja", "media", "alta"].includes(data.gravedad)) throw httpError("Revisa el tipo y la severidad.", 400);
+  if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) throw httpError("Selecciona un área válida.", 400);
   const isPriceChange = data.tipo === "cambio_precio", detencion = !isPriceChange && Boolean(data.detencion);
   if (detencion && !cleanText(data.detencion_detalle)) throw httpError("Describe los detalles de la detención.", 400);
   for (const item of Array.isArray(data.productos) ? data.productos : []) {
     if (!cleanText(item.marca) || !cleanText(item.producto) || !Number.isInteger(Number(item.cantidad)) || Number(item.cantidad) < 1 || item.valor === "" || !Number.isFinite(Number(item.valor)) || Number(item.valor) < 0) throw httpError("Revisa los productos involucrados.", 400);
   }
   if (!isPriceChange && (Array.isArray(data.personas) ? data.personas : []).some((item) => !cleanText(item.nombre) || !cleanText(item.rol))) throw httpError("Revisa las personas involucradas.", 400);
-  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", cambio_precio: "Cambio de precio", otro: "Otra incidencia de seguridad" };
+  const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", robo_interno: "Robo interno", estafa: "Estafa", asalto: "Asalto", fiscalizacion: "Fiscalización", cambio_precio: "Cambio de precio", otro: "Otra incidencia de seguridad" };
   const { data: incident, error } = await supabase.from("incidencias").update({ asunto: incidentNames[data.tipo], tipo: data.tipo, area: data.area || "otro", descripcion: cleanText(data.descripcion), gravedad: data.gravedad, intervencion: !isPriceChange && Boolean(data.intervencion), detencion, detencion_detalle: detencion ? cleanText(data.detencion_detalle) : null, fecha: data.fecha }).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
   if (error) throw dbError(error);
   if (!incident) throw httpError("La incidencia no existe.", 404);
@@ -2096,7 +2105,7 @@ async function updateIncident(event, user, id) {
 async function listIncidents(event, user) {
   const rows = await listOperational("incidencias", event, user,
     "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,codigo_nissei,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
-  if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter((row) => ["robo", "robo_frustrado", "cambio_precio"].includes(row.tipo));
+  if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter((row) => ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"].includes(row.tipo));
   if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return rows.filter((row) => ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"].includes(row.tipo));
   return rows;
 }
@@ -2414,7 +2423,7 @@ async function getZonalComparison(event, user) {
     fetchAllReportPages(supabase.from("errores_personal").select("id,tienda_id").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id").in("tienda_id", ids).gte("fecha_vencimiento", fecha).lte("fecha_vencimiento", deadline).order("id")),
   ]);
-  const securityTypes = new Set(["robo", "robo_frustrado", "cambio_precio"]);
+  const securityTypes = new Set(["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]);
   return { fecha, desde, hasta, tiendas: stores.map((store) => {
     const staff = people.filter((person) => Number(person.tienda_id) === Number(store.id));
     const staffIds = new Set(staff.map((person) => person.id));

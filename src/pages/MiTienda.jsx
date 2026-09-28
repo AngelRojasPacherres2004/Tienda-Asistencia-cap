@@ -43,7 +43,7 @@ export default function MiTienda({ user, onNavigate }) {
   const activePeople = people.filter((person) => person.estado === "activo");
   const employees = activePeople.filter((person) => ["trabajador", "vendedor", "asistente"].includes(person.rol));
   const securityPeople = activePeople.filter((person) => ["seguridad", "jefe_seguridad"].includes(person.rol));
-  const securityIncidentTypes = new Set(["robo", "robo_frustrado", "cambio_precio"]);
+  const securityIncidentTypes = new Set(["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]);
   const securityIncidents = incidents.filter((incident) => securityIncidentTypes.has(incident.tipo)).length;
   const administrativeIncidents = incidents.filter((incident) => !securityIncidentTypes.has(incident.tipo)).length;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));

@@ -3,7 +3,7 @@ import { Download, Pencil, Plus, UsersRound } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput } from "../components/UI";
 
-const RANGOS_HORA = Array.from({ length: 13 }, (_, index) => {
+const RANGOS_HORA = Array.from({ length: 14 }, (_, index) => {
   const start = index + 9;
   const end = start + 1;
   return {
@@ -57,7 +57,7 @@ export default function TraficoSeguridad({ user }) {
       <div className="security-filters"><SearchInput value={search} onChange={setSearch} placeholder="Fecha, rango u observación" /></div>
       {filtered.length ? <div className="security-table">
         <div className="security-table__head security-table__head--traffic"><span>Fecha</span><span>Rango horario</span><span>Visitantes</span><span>Estado</span><span>Observación</span><span /></div>
-        {filtered.map((row) => <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" onClick={() => editForm(row)} aria-label="Editar tráfico"><Pencil size={15}/></button></div>)}
+        {filtered.map((row) => { const editable = isToday(row.fecha); return <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" disabled={!editable} title={editable ? "Editar tráfico" : "Solo se puede editar el día del registro"} onClick={() => editable && editForm(row)} aria-label="Editar tráfico"><Pencil size={15}/></button></div>; })}
       </div> : <EmptyState icon={UsersRound} title="Sin registros" text="Registra el primer conteo de visitantes." />}
     </section>
     <Modal open={open} title={form.id ? "Editar tráfico" : "Registrar tráfico"} subtitle="Conteo de visitantes de la tienda asignada" onClose={() => setOpen(false)}>
@@ -79,8 +79,10 @@ function currentRange() {
   const limaHour = Number(new Intl.DateTimeFormat("en-GB", {
     timeZone: "America/Lima", hour: "2-digit", hourCycle: "h23",
   }).format(new Date()));
-  const rangeStart = Math.min(21, Math.max(9, limaHour));
+  const rangeStart = Math.min(22, Math.max(9, limaHour));
   return `${String(rangeStart).padStart(2, "0")}:00-${String(rangeStart + 1).padStart(2, "0")}:00`;
 }
 function displayHour(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a. m." : "p. m."}`; }
 function rangeLabel(value) { return RANGOS_HORA.find((rango) => rango.value === value)?.label || value || "Sin rango"; }
+function isToday(value) { return Boolean(value) && String(value).slice(0, 10) === limaDate(new Date()); }
+function limaDate(value) { const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); return `${parts.year}-${parts.month}-${parts.day}`; }
