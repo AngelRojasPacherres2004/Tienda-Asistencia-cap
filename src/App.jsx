@@ -93,7 +93,7 @@ export default function App() {
     "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
     "incidencias-tienda": <IncidenciasTienda user={user} />,
     coberturas: <CoberturasEspeciales />,
-    "zonal-personal": <ZonalModule section="personal" user={user} />,
+    "zonal-personal": <Usuarios user={user} zonalTeam />,
     "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,
     "zonal-tareas": <ZonalModule section="tareas" user={user} />,
     "zonal-supervisiones": <ZonalModule section="supervisiones" user={user} />,

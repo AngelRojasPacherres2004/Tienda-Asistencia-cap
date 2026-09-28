@@ -4,8 +4,9 @@ import {
 } from "lucide-react";
 import { api, formatDate } from "../lib/api";
 import {
-  EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
+  EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
+import Reportes from "./Reportes";
 
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const estadoPalette = { completado: "#2f9e78", en_curso: "#df9f39", pendiente: "#d9635f" };
@@ -38,6 +39,8 @@ export default function Capacitaciones({ user }) {
   const [perfilId, setPerfilId] = useState(null);
   const [cursos, setCursos] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [view,setView]=useState("seguimiento");
+  const [page,setPage]=useState(1);
 
   const loadTrabajadores = () => api("/capacitaciones/trabajadores").then(setTrabajadores).catch((err) => setNotice({ type: "error", text: err.message }));
   useEffect(() => {
@@ -49,12 +52,19 @@ export default function Capacitaciones({ user }) {
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
   const baseVisibles = showInactivos ? (trabajadores || []) : activos;
   const visibles = baseVisibles;
+  const pages=Math.max(1,Math.ceil(visibles.length/8));
+  const visiblePeople=visibles.slice((page-1)*8,page*8);
+  useEffect(()=>setPage(1),[showInactivos]);
 
   return (
     <>
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-      {!isCoach && <><PageHeader eyebrow={central ? "Supervisión general" : zonal ? "Mi clúster" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />
+      {zonal && <><PageHeader eyebrow="Jefe zonal" title="Capacitaciones" subtitle="Consulta el avance por persona o prepara el reporte de capacitación con los mismos filtros de tu zona."/><div className="module-view-tabs"><button className={view==="seguimiento"?"active":""} onClick={()=>setView("seguimiento")}>Personas y avance</button><button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div></>}
+
+      {zonal && view === "reporte" ? <Reportes user={user} embedded initialKind="capacitaciones" allowedKinds={["capacitaciones"]}/> : <>
+
+      {!isCoach && <>{!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2><p>Selecciona un administrador para consultar el avance de sus capacitaciones.</p></div>}
       <div className="toolbar">
         <span>{visibles.length} personas</span>
         <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
@@ -65,7 +75,7 @@ export default function Capacitaciones({ user }) {
         <div className="table-panel">
           <div className="data-table data-table--trabajadores">
             <div className="data-table__head"><span>Nombre</span><span>Usuario</span><span>Rol</span><span>Activo</span></div>
-            {visibles.map((t) => (
+            {visiblePeople.map((t) => (
               <div className="data-table__row" key={t.id} onClick={() => setPerfilId(t.id)}>
                 <div className="person-cell">
                   <span className="avatar">{t.nombres.charAt(0).toUpperCase()}</span>
@@ -77,17 +87,19 @@ export default function Capacitaciones({ user }) {
               </div>
             ))}
           </div>
+          <Pagination page={page} pages={pages} onChange={setPage}/>
         </div>
       ) : <EmptyState icon={GraduationCap} title="Sin personas para supervisar" text={`Todavía no hay ${supervisedLabel} disponibles en tu alcance.`} />}
 
       {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal", "coach"].includes(user?.rol)} onClose={() => setPerfilId(null)} />}</>}
 
-      <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />
+      {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2><p>Filtra una capacitación y revisa el estado de los administradores supervisados.</p></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />}
       {!cursos ? <Loading /> : cursos.length ? (
         <><ResumenPanel cursos={cursos} />{user?.rol === "coach" && <CoachComparisonPanel cursos={cursos} />}</>
       ) : (
         <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que dé de alta una capacitación en el catálogo." />
       )}
+      </>}
     </>
   );
 }

@@ -3,10 +3,11 @@ import ExcelJS from "exceljs";
 import { Download, Edit3, Eye, FileSpreadsheet, FileUp, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
 import {
-  ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, SearchInput, StatusBadge, SuccessDialog,
+  ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
+import Reportes from "./Reportes";
 
-const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
+const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"] };
 const weekDays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const blankSchedule = () => weekDays.map((_, index) => ({ dia_semana: index + 1, trabaja: false, hora_entrada: "", hora_salida: "" }));
@@ -30,7 +31,7 @@ const excelDate = (value) => {
   return String(value || "").trim().slice(0, 10);
 };
 
-export default function Usuarios({ user }) {
+export default function Usuarios({ user, zonalTeam = false }) {
   const isCentral = ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(user?.rol);
   const isStoreAdmin = user?.rol === "jefe_tienda";
   const availableRoles = rolesByManager[user?.rol] || [];
@@ -39,6 +40,10 @@ export default function Usuarios({ user }) {
   const [clusters, setClusters] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
+  const [storeFilter, setStoreFilter] = useState("todos");
+  const [roleFilter, setRoleFilter] = useState("todos");
+  const [workspace, setWorkspace] = useState("equipo");
+  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -53,7 +58,7 @@ export default function Usuarios({ user }) {
   const [errorForm, setErrorForm] = useState({ categoria: "Operativo", descripcion: "", accion_correctiva: "", fecha: todayISO() });
   const fileRef = useRef(null);
 
-  const load = () => api("/usuarios").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
+  const load = useCallback(() => api(zonalTeam ? "/zonal/personal" : "/usuarios").then(setItems).catch((err) => setNotice({ type: "error", text: err.message })), [zonalTeam]);
   const loadTiendas = useCallback(
     () => (isCentral ? api("/tiendas").then(setTiendas).catch(() => {}) : Promise.resolve()),
     [isCentral],
@@ -62,12 +67,18 @@ export default function Usuarios({ user }) {
     () => (user?.rol === "gerente_comercial" ? api("/clusters").then(setClusters).catch(() => {}) : Promise.resolve()),
     [user?.rol],
   );
-  useEffect(() => { load(); loadTiendas(); loadClusters(); }, [loadTiendas, loadClusters]);
+  useEffect(() => { load(); loadTiendas(); loadClusters(); }, [load, loadTiendas, loadClusters]);
 
   const filtered = useMemo(() => (items || []).filter((item) => (statusFilter === "todos" || item.estado === statusFilter) &&
+    (storeFilter === "todos" || String(item.tienda_id || "sin_asignar") === storeFilter) &&
+    (roleFilter === "todos" || item.rol === roleFilter) &&
     [item.nombres, item.apellidos, item.dni, item.usuario, item.tienda_nombre]
       .join(" ").toLowerCase().includes(search.toLowerCase()),
-  ), [items, search, statusFilter]);
+  ), [items, search, statusFilter, storeFilter, roleFilter]);
+  const pages = Math.max(1, Math.ceil(filtered.length / 10));
+  const visibleItems = filtered.slice((page - 1) * 10, page * 10);
+  const visibleRoles = [...new Set((items || []).map((item) => item.rol))].sort();
+  useEffect(() => setPage(1), [search, statusFilter, storeFilter, roleFilter]);
 
   const clearErrors = () => { setFormError(""); setFieldErrors({}); };
   const closeEditor = () => { setEditing(null); clearErrors(); };
@@ -125,7 +136,7 @@ export default function Usuarios({ user }) {
     for (const field of ["nombres", "apellidos", "dni", "fecha_ingreso"]) {
       if (!String(editing[field] ?? "").trim()) errors[field] = "Este campo es obligatorio.";
     }
-    if (!["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(editing.rol) && !editing.tienda_id && isCentral) errors.tienda_id = "Selecciona una tienda.";
+    if (!["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(editing.rol) && !editing.tienda_id && isCentral && !(zonalTeam && editing.rol === "jefe_tienda")) errors.tienda_id = "Selecciona una tienda.";
     if (user?.rol === "gerente_comercial" && editing.rol === "jefe_zonal" && !editing.cluster_id) errors.cluster_id = "Selecciona un clúster.";
     if (editing.nombres && editing.nombres.trim().length < 2) errors.nombres = "Ingresa al menos 2 caracteres.";
     if (editing.apellidos && editing.apellidos.trim().length < 2) errors.apellidos = "Ingresa al menos 2 caracteres.";
@@ -271,13 +282,21 @@ export default function Usuarios({ user }) {
     && (!cluster.jefe_zonal_id || String(cluster.jefe_zonal_id) === String(editing?.id)),
   );
 
+  if (zonalTeam && workspace === "reportes") return <>
+    <PageHeader eyebrow="Jefe zonal" title="Mis equipos" subtitle="Personal, asistencia, amonestaciones, errores y capacitación de las tiendas de tu zona." />
+    {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
+    <div className="module-view-tabs"><button onClick={() => setWorkspace("equipo")}>Equipo</button><button className="active">Reportes y exportación</button></div>
+    <Reportes user={user} embedded initialKind="personal" allowedKinds={["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones"]} />
+  </>;
+
   return (
     <>
       <PageHeader
-        eyebrow={isCentral ? "Jerarquía" : "Mi tienda"}
-        title="Usuarios a mi cargo"
-        subtitle="Solo puedes administrar los rangos autorizados debajo de tu cargo."
+        eyebrow={zonalTeam ? "Jefe zonal" : isCentral ? "Jerarquía" : "Mi tienda"}
+        title={zonalTeam ? "Mis equipos" : "Usuarios a mi cargo"}
+        subtitle={zonalTeam ? "Consulta el equipo completo de cada tienda y administra las cuentas de sus administradores." : "Solo puedes administrar los rangos autorizados debajo de tu cargo."}
         action={<div className="header-actions">
+          {zonalTeam ? <button className="button button--primary" onClick={openNew}>Nuevo administrador</button> : <>
           {isCentral ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
             <button className="button button--ghost" onClick={() => importInput.current?.click()} disabled={busy}><FileUp size={15} />Importar Excel</button>
@@ -290,11 +309,15 @@ export default function Usuarios({ user }) {
             <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel} />
           </>}
           <button className="button button--primary" onClick={openNew}>Nuevo usuario</button>
+          </>}
         </div>}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
+      {zonalTeam && <div className="module-view-tabs"><button className="active">Equipo</button><button onClick={() => setWorkspace("reportes")}>Reportes y exportación</button></div>}
       <div className="toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre, DNI o usuario…" />
+        {zonalTeam && <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)}><option value="todos">Todas las tiendas</option><option value="sin_asignar">Sin tienda asignada</option>{tiendas.map((store) => <option key={store.id} value={String(store.id)}>{store.nombre}</option>)}</select>}
+        {zonalTeam && <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}><option value="todos">Todos los roles</option>{visibleRoles.map((role) => <option key={role} value={role}>{roleLabels[role] || role.replaceAll("_", " ")}</option>)}</select>}
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="todos">Todos los estados</option><option value="activo">Activos</option><option value="inactivo">Inactivos</option></select>
         <span>{filtered.length} usuarios</span>
       </div>
@@ -308,7 +331,7 @@ export default function Usuarios({ user }) {
               {!isCentral && <span>Rol</span>}
               <span>Estado</span><span />
             </div>
-            {filtered.map((item) => (
+            {visibleItems.map((item) => (
               <div className="data-table__row" key={item.id}>
                 <div className="person-cell">
                   <span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span>
@@ -325,12 +348,13 @@ export default function Usuarios({ user }) {
                 <span><StatusBadge value={item.estado} /></span>
                 <div className="row-actions">
                   <button onClick={() => openView(item)} aria-label="Ver ficha"><Eye size={15} /></button>
-                  <button onClick={() => openEdit(item)} aria-label="Editar"><Edit3 size={15} /></button>
-                  <button className="danger" onClick={() => setDeleting(item)} aria-label="Eliminar"><Trash2 size={15} /></button>
+                  {(!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} aria-label="Editar"><Edit3 size={15} /></button>}
+                  {!zonalTeam && <button className="danger" onClick={() => setDeleting(item)} aria-label="Eliminar"><Trash2 size={15} /></button>}
                 </div>
               </div>
             ))}
           </div>
+          <Pagination page={page} pages={pages} onChange={setPage} />
         </div>
       ) : (
         <EmptyState icon={UsersRound} title="Sin usuarios" text="Aún no hay usuarios registrados con ese criterio de búsqueda." />
@@ -339,8 +363,8 @@ export default function Usuarios({ user }) {
       <Modal
         open={!!editing}
         wide
-        title={editing?.id ? "Editar usuario" : "Nuevo usuario"}
-        subtitle="Los campos marcados son obligatorios."
+        title={zonalTeam ? (editing?.id ? "Editar administrador" : "Nuevo administrador") : (editing?.id ? "Editar usuario" : "Nuevo usuario")}
+        subtitle={zonalTeam ? "Completa la ficha laboral y, si tendrá acceso, sus credenciales de administrador." : "Los campos marcados son obligatorios."}
         onClose={closeEditor}
       >
         {editing && (
@@ -352,6 +376,7 @@ export default function Usuarios({ user }) {
             <Field label={editing.tipo_documento === "ce" ? "Número de CE" : "Número de DNI"} error={fieldErrors.dni} hint={`${editing.tipo_documento === "ce" ? 9 : 8} dígitos`}><input required inputMode="numeric" maxLength={editing.tipo_documento === "ce" ? 9 : 8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
             <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
             <Field label="Correo" hint="Se usa para notificaciones de incidencias"><input type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
+            {zonalTeam && <div className="form-section-title span-2"><strong>Credenciales de acceso</strong><span>Define usuario y contraseña para que el administrador pueda ingresar con su rol.</span></div>}
             <Field label="Usuario" error={fieldErrors.usuario} hint="Opcional. Sin usuario no podrá iniciar sesión."><input value={editing.usuario || ""} onChange={(e) => set("usuario", e.target.value)} /></Field>
             <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual." : "Opcional; mínimo 6 caracteres si se asigna."}>
               <input type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
@@ -369,9 +394,9 @@ export default function Usuarios({ user }) {
                     {availableRoles.map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
                   </select>
                 </Field>
-                {!isStoreAdmin && editing.rol !== "jefe_zonal" && <Field label="Tienda" error={fieldErrors.tienda_id}>
-                  <select required={isCentral} disabled={!isCentral} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
-                    <option value="">Selecciona una tienda</option>
+                {!isStoreAdmin && editing.rol !== "jefe_zonal" && <Field label={zonalTeam ? "Tienda asignada" : "Tienda"} error={fieldErrors.tienda_id} hint={zonalTeam ? "Puede quedar disponible y asignarse después desde Mis tiendas." : undefined}>
+                  <select required={isCentral && !(zonalTeam && editing.rol === "jefe_tienda")} disabled={!isCentral} value={editing.tienda_id} onChange={(e) => set("tienda_id", e.target.value)}>
+                    <option value="">{zonalTeam ? "Sin asignar (disponible)" : "Selecciona una tienda"}</option>
                     {tiendaOptions.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
                   </select>
                 </Field>}

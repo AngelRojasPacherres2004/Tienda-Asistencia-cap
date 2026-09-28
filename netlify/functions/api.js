@@ -210,9 +210,36 @@ function validateUserPayload(data) {
 }
 
 function validateTiendaPayload(data) {
-  requireFields(data, ["nombre", "estado"]);
-  if (cleanText(data.nombre).length < 2) throw httpError("El nombre de la tienda no es válido.", 400);
+  requireFields(data, ["nombre", "codigo", "direccion", "distrito", "provincia", "departamento", "formato", "fecha_apertura", "estado"]);
+  const nombre = cleanText(data.nombre);
+  const codigo = cleanText(data.codigo).toUpperCase();
+  if (nombre.length < 2 || nombre.length > 120) throw httpError("El nombre de la tienda debe tener entre 2 y 120 caracteres.", 400);
+  if (!/^[A-Z0-9-]{2,20}$/.test(codigo)) throw httpError("El código debe tener entre 2 y 20 caracteres y usar solo letras, números o guiones.", 400);
+  const direccion = cleanText(data.direccion);
+  if (direccion.length < 3 || direccion.length > 180) throw httpError("La dirección debe tener entre 3 y 180 caracteres.", 400);
+  for (const field of ["distrito", "provincia", "departamento"]) {
+    const value = cleanText(data[field]);
+    if (value.length < 2 || value.length > 80) throw httpError("Selecciona un departamento, provincia y distrito válidos.", 400);
+  }
+  if (!["PROPIA", "METRO"].includes(cleanText(data.formato).toUpperCase())) throw httpError("Selecciona un formato válido: Propia o Metro.", 400);
   if (!tiendaEstados.has(data.estado)) throw httpError("El estado no es válido.", 400);
+  for (const field of ["fecha_apertura", "fecha_cierre"]) {
+    if (data[field] && !isISODate(data[field])) throw httpError("Las fechas de la tienda no son válidas.", 400);
+  }
+  if (data.fecha_apertura && data.fecha_cierre && data.fecha_cierre < data.fecha_apertura) {
+    throw httpError("La fecha de cierre no puede ser anterior a la fecha de apertura.", 400);
+  }
+  if (data.estado === "inactivo" && !data.fecha_cierre) throw httpError("Indica la fecha de cierre de la tienda inactiva.", 400);
+  for (const field of ["metraje_m2", "capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp", "alquiler_mensual"]) {
+    if (data[field] !== "" && data[field] != null && (!Number.isFinite(Number(data[field])) || Number(data[field]) < 0)) {
+      throw httpError("Los valores operativos de la tienda deben ser números positivos.", 400);
+    }
+  }
+  for (const field of ["capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp"]) {
+    if (data[field] !== "" && data[field] != null && !Number.isInteger(Number(data[field]))) {
+      throw httpError("El stock y la cantidad de colaboradores deben ser números enteros.", 400);
+    }
+  }
 }
 
 function validateCursoPayload(data) {
@@ -354,7 +381,7 @@ async function assertUserScope(actor, role, tiendaId) {
   }
 }
 
-async function listUsers(actor, storeId = null) {
+async function listUsers(actor, storeId = null, options = {}) {
   if (actor.rol === "jefe_zonal" && storeId) {
     const ids = await zonalStoreIds(actor.id);
     if (!ids.includes(Number(storeId))) throw httpError("La tienda no está asignada a tu zona.", 403);
@@ -367,8 +394,14 @@ async function listUsers(actor, storeId = null) {
   if (actor.rol === "gerente_comercial" && !storeId) request = request.eq("rol", "jefe_zonal");
   if (actor.rol === "jefe_zonal" && !storeId) {
     const ids = await zonalStoreIds(actor.id);
-    request = request.eq("rol", "jefe_tienda");
-    request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${actor.id}`) : request.eq("zonal_creador_id", actor.id);
+    if (options.includeZonalTeam) {
+      request = ids.length
+        ? request.or(`tienda_id.in.(${ids.join(",")}),and(rol.eq.jefe_tienda,zonal_creador_id.eq.${actor.id})`)
+        : request.eq("zonal_creador_id", actor.id).eq("rol", "jefe_tienda");
+    } else {
+      request = request.eq("rol", "jefe_tienda");
+      request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${actor.id}`) : request.eq("zonal_creador_id", actor.id);
+    }
   }
   if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
@@ -567,11 +600,15 @@ async function importStoreUsers(event, actor) {
 
 async function updateUser(event, id, actor) {
   const data = bodyOf(event);
-  const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id,password").eq("id", id).maybeSingle();
+  const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id,password,zonal_creador_id").eq("id", id).maybeSingle();
   if (!current) throw httpError("Usuario no encontrado.", 404);
   if (storeManagementRoles.has(actor.rol)) data.tienda_id = actor.tienda_id;
   validateUserPayload(data);
+  if (actor.rol === "jefe_zonal" && current.rol === "jefe_tienda" && !current.tienda_id && Number(current.zonal_creador_id) !== Number(actor.id)) {
+    throw httpError("El administrador no pertenece a tu zona.", 403);
+  }
   await assertUserScope(actor, current.rol, current.tienda_id);
+  if (actor.rol === "jefe_zonal" && data.tienda_id) await assertUserScope(actor, data.rol, data.tienda_id);
   if (data.rol !== current.rol) throw httpError("No se permite cambiar el rango de un usuario existente.", 400);
   if (actor.rol === "gerente_comercial" && data.rol === "jefe_zonal") await validateZonalCluster(data.cluster_id, id);
   const usuario = cleanUsuario(data.usuario) || null;
@@ -579,10 +616,12 @@ async function updateUser(event, id, actor) {
   await ensureUniqueUser(usuario, dni, id);
   if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id), id);
+  const nextState = data.fecha_salida ? "inactivo" : data.estado;
+  const nextStoreId = data.rol === "jefe_tienda" && nextState === "inactivo" ? null : data.tienda_id;
   const payload = {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
-    tienda_id: centralRoles.has(data.rol) || !data.tienda_id ? null : Number(data.tienda_id), estado: data.fecha_salida ? "inactivo" : data.estado,
+    tienda_id: centralRoles.has(data.rol) || !nextStoreId ? null : Number(nextStoreId), estado: nextState,
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
@@ -605,7 +644,11 @@ async function updateUser(event, id, actor) {
   await saveOptionalPersonnelFields(id, data);
   await syncEmploymentPeriod(id, data, actor.id);
   await saveWeeklySchedule(id, data.horarios);
-  if (data.rol === "jefe_tienda" && data.tienda_id) await linkStoreChief(id, Number(data.tienda_id), current.tienda_id);
+  if (data.rol === "jefe_tienda" && nextStoreId) await linkStoreChief(id, Number(nextStoreId), current.tienda_id);
+  if (data.rol === "jefe_tienda" && !nextStoreId && current.tienda_id) {
+    const released = await supabase.from("tiendas").update({ jefe_id: null }).eq("id", current.tienda_id).eq("jefe_id", id);
+    if (released.error) throw dbError(released.error);
+  }
   if (data.rol === "jefe_zonal") await assignZonalCluster(id, Number(data.cluster_id));
 }
 
@@ -803,7 +846,7 @@ async function deleteCluster(id) {
 async function listTiendas(actor) {
   let request = supabase
     .from("tiendas")
-    .select("id,nombre,direccion,estado,fecha_creacion,jefe_id,cluster_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos),cluster:clusters(id,nombre,codigo)")
+    .select("id,nombre,codigo,direccion,distrito,provincia,departamento,zona,formato,fecha_apertura,fecha_cierre,metraje_m2,capacidad_stock_unid,cant_colaboradores_normal,colaboradores_camp,alquiler_mensual,estado,fecha_creacion,jefe_id,cluster_id,zonal_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos,estado),cluster:clusters(id,nombre,codigo)")
     .order("nombre");
   if (actor?.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(actor.id);
@@ -815,8 +858,31 @@ async function listTiendas(actor) {
   return data.map(({ jefe, cluster, ...row }) => ({
     ...row,
     jefe_nombre: jefe ? `${jefe.nombres} ${jefe.apellidos}` : null,
+    jefe_estado: jefe?.estado || null,
     cluster_nombre: cluster?.nombre || null,
   }));
+}
+
+async function listStoreCatalogs() {
+  const { data, error } = await supabase
+    .from("tiendas")
+    .select("departamento,provincia,distrito");
+  if (error) throw dbError(error);
+  const unique = new Map();
+  for (const row of data || []) {
+    const ubicacion = {
+      departamento: cleanText(row.departamento).toUpperCase(),
+      provincia: cleanText(row.provincia).toUpperCase(),
+      distrito: cleanText(row.distrito).toUpperCase(),
+    };
+    if (!ubicacion.departamento || !ubicacion.provincia || !ubicacion.distrito) continue;
+    unique.set(`${ubicacion.departamento}|${ubicacion.provincia}|${ubicacion.distrito}`, ubicacion);
+  }
+  return {
+    ubicaciones: [...unique.values()].sort((a, b) =>
+      `${a.departamento}|${a.provincia}|${a.distrito}`.localeCompare(`${b.departamento}|${b.provincia}|${b.distrito}`, "es")),
+    formatos: ["PROPIA", "METRO"],
+  };
 }
 
 async function syncJefe(tiendaId, jefeId) {
@@ -849,6 +915,24 @@ async function assertZonalChief(actor, chiefId) {
   if (!data || data.rol !== "jefe_tienda" || (Number(data.zonal_creador_id) !== Number(actor.id) && !ids.includes(Number(data.tienda_id)))) throw httpError("El administrador no pertenece a tu zona.", 403);
 }
 
+function tiendaPayload(data) {
+  const text = (value) => cleanText(value) || null;
+  const number = (value) => value === "" || value == null ? null : Number(value);
+  return {
+    nombre: cleanText(data.nombre), codigo: text(data.codigo)?.toUpperCase() || null,
+    direccion: text(data.direccion), distrito: text(data.distrito)?.toUpperCase() || null,
+    provincia: text(data.provincia)?.toUpperCase() || null,
+    departamento: text(data.departamento)?.toUpperCase() || null,
+    zona: text(data.zona)?.toUpperCase() || null, formato: text(data.formato)?.toUpperCase() || null,
+    fecha_apertura: data.fecha_apertura || null,
+    fecha_cierre: data.fecha_cierre || null, metraje_m2: number(data.metraje_m2),
+    capacidad_stock_unid: number(data.capacidad_stock_unid),
+    cant_colaboradores_normal: number(data.cant_colaboradores_normal),
+    colaboradores_camp: number(data.colaboradores_camp), alquiler_mensual: number(data.alquiler_mensual),
+    estado: data.estado, cluster_id: data.cluster_id ? Number(data.cluster_id) : null,
+  };
+}
+
 async function createTienda(event, actor) {
   const data = bodyOf(event);
   validateTiendaPayload(data);
@@ -857,11 +941,7 @@ async function createTienda(event, actor) {
   await ensureClusterActive(Number(data.cluster_id));
   await assertZonalChief(actor, data.jefe_id);
   const { data: created, error } = await supabase.from("tiendas")
-    .insert({
-      nombre: cleanText(data.nombre),
-      direccion: data.direccion ? cleanText(data.direccion) : null,
-      estado: data.estado, cluster_id: data.cluster_id ? Number(data.cluster_id) : null,
-    })
+    .insert(tiendaPayload(data))
     .select("id").single();
   if (error) throw dbError(error);
   if (data.jefe_id) {
@@ -889,10 +969,7 @@ async function updateTienda(event, id, actor) {
   const jefeId = data.jefe_id ? Number(data.jefe_id) : null;
   if (jefeId) await syncJefe(Number(id), jefeId);
   const { error } = await supabase.from("tiendas").update({
-    nombre: cleanText(data.nombre),
-    direccion: data.direccion ? cleanText(data.direccion) : null,
-    estado: data.estado,
-    jefe_id: jefeId, cluster_id: data.cluster_id ? Number(data.cluster_id) : null,
+    ...tiendaPayload(data), jefe_id: jefeId,
   }).eq("id", id);
   if (error) throw dbError(error);
   if (previousStore?.jefe_id && Number(previousStore.jefe_id) !== jefeId) {
@@ -2359,13 +2436,7 @@ async function getZonalModule(event, user, kind) {
   if (!ids.length && kind !== "personal") return kind === "asistencia" ? { fecha: todayISO(), tiendas: [] } : [];
   const query = event.queryStringParameters || {};
   if (kind === "personal") {
-    let request = supabase.from("usuarios")
-      .select("id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_ingreso,fecha_salida,tienda_id,zonal_creador_id,tiendas!usuarios_tienda_id_fkey(nombre)")
-      .eq("rol", "jefe_tienda").order("nombres");
-    if (user.rol === "jefe_zonal") request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${user.id}`) : request.eq("zonal_creador_id", user.id);
-    const { data, error } = await request;
-    if (error) throw dbError(error);
-    return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || "" }));
+    return listUsers(user, null, { includeZonalTeam: true });
   }
   if (kind === "asistencia") {
     const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
@@ -2505,11 +2576,14 @@ async function exportZonalIncidents(user) {
 const reportKinds = new Set([
   "personal", "asistencias", "documentos", "incidencias", "reclamaciones", "acciones",
   "bitacora", "requerimientos", "mejoras", "supervisiones", "capacitaciones", "tareas",
+  "amonestaciones", "errores-personal",
 ]);
 
 const reportExcelColumns = {
   personal: [["Nombre", "nombre", 30], ["Tienda", "tienda", 24], ["Cargo", "rol", 22], ["DNI", "dni", 13], ["Usuario", "usuario", 18], ["Celular", "telefono", 14], ["Fecha de ingreso", "fecha_ingreso", 17], ["Estado", "estado", 15]],
   asistencias: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Estado", "estado", 18], ["Observación", "observaciones", 42]],
+  amonestaciones: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Cargo", "rol", 22], ["Tipo", "tipo", 22], ["Motivo", "motivo", 55]],
+  "errores-personal": [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Cargo", "rol", 22], ["Categoría", "categoria", 22], ["Descripción", "descripcion", 55], ["Acción correctiva", "accion_correctiva", 48]],
   documentos: [["Tienda", "tienda", 24], ["Documento", "tipo_documento", 32], ["Código", "codigo", 16], ["Responsables", "responsables", 34], ["Frecuencia", "frecuencia_revision", 16], ["Emisión", "fecha_emision", 14], ["Vencimiento", "fecha_vencimiento", 16], ["Estado", "estado", 18]],
   incidencias: [["Código", "codigo", 15], ["Fecha", "fecha", 14], ["Tienda", "tienda", 30], ["Tipo", "tipo", 28], ["Alcance", "alcance", 22], ["Estado", "estado", 18], ["Descripción", "descripcion", 55], ["Responsable", "responsable", 28]],
   reclamaciones: [["Código", "codigo", 16], ["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Consumidor", "consumidor", 28], ["Producto o servicio", "producto_servicio", 30], ["Monto", "monto", 14], ["Tipo", "tipo", 14], ["Estado", "estado", 18], ["Responsable", "responsable", 25], ["Detalle", "detalle", 55]],
@@ -2567,13 +2641,25 @@ async function getReportRows(event, user, kind) {
     let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_ingreso,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
     request = applyStoreScope(request, scope);
     const data = await fetchAllReportPages(request);
-    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:humanize(row.rol), dni:row.dni || "", usuario:row.usuario || "", telefono:row.telefono || "", fecha_ingreso:row.fecha_ingreso || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
+    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", usuario:row.usuario || "", telefono:row.telefono || "", fecha_ingreso:row.fecha_ingreso || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
   }
   if (kind === "asistencias") {
     let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });
     request = applyStoreScope(request, scope);
     const data = await fetchAllReportPages(request);
     rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", estado:row.estado, observaciones:row.observaciones || "", _fecha:row.fecha, _estado:row.estado }));
+  }
+  if (kind === "amonestaciones") {
+    let request = supabase.from("amonestaciones").select("id,tienda_id,fecha,tipo,motivo,tiendas(nombre),usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos,dni,rol)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", rol:row.usuarios?.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.usuarios?.rol || ""), tipo:humanize(row.tipo), motivo:row.motivo, _fecha:row.fecha }));
+  }
+  if (kind === "errores-personal") {
+    let request = supabase.from("errores_personal").select("id,tienda_id,fecha,categoria,descripcion,accion_correctiva,tiendas(nombre),usuarios!errores_personal_usuario_id_fkey(nombres,apellidos,dni,rol)").order("fecha", { ascending:false });
+    request = applyStoreScope(request, scope);
+    const data = await fetchAllReportPages(request);
+    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", rol:row.usuarios?.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.usuarios?.rol || ""), categoria:row.categoria, descripcion:row.descripcion, accion_correctiva:row.accion_correctiva || "", _fecha:row.fecha }));
   }
   if (kind === "documentos") {
     let request = supabase.from("documentos_municipales").select("id,tienda_id,tipo_documento,codigo,responsables,area_responsable,frecuencia_revision,fecha_emision,fecha_vencimiento,estado,tiendas(nombre)").order("fecha_vencimiento");
@@ -2890,7 +2976,7 @@ export async function handler(event) {
       return json(200, await listUsers(user));
     }
     if (path === "/usuarios" && method === "POST") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(201, await createUser(event, user));
     }
     if (path === "/usuarios/import" && method === "POST") {
@@ -2909,7 +2995,7 @@ export async function handler(event) {
     }
     const userMatch = path.match(/^\/usuarios\/(\d+)$/);
     if (userMatch && method === "PUT") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       await updateUser(event, Number(userMatch[1]), user);
       return json(200, { ok: true });
     }
@@ -2925,15 +3011,16 @@ export async function handler(event) {
     if (clusterMatch && method === "DELETE") { ensureAuth(event, "gerente_comercial"); return json(200, await deleteCluster(Number(clusterMatch[1]))); }
 
     if (path === "/tiendas" && method === "GET") { ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]); return json(200, await listTiendas(user)); }
+    if (path === "/tiendas/catalogos" && method === "GET") { ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]); return json(200, await listStoreCatalogs()); }
     const tiendaUsersMatch = path.match(/^\/tiendas\/(\d+)\/usuarios$/);
     if (tiendaUsersMatch && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]);
       return json(200, await listUsers(user, Number(tiendaUsersMatch[1])));
     }
-    if (path === "/tiendas" && method === "POST") { ensureAuth(event, "gerente_comercial"); return json(201, await createTienda(event, user)); }
+    if (path === "/tiendas" && method === "POST") { ensureAuth(event, ["gerente_comercial", "jefe_zonal"]); return json(201, await createTienda(event, user)); }
     const tiendaMatch = path.match(/^\/tiendas\/(\d+)$/);
     if (tiendaMatch && method === "PUT") {
-      ensureAuth(event, "gerente_comercial");
+      ensureAuth(event, ["gerente_comercial", "jefe_zonal"]);
       await updateTienda(event, Number(tiendaMatch[1]), user);
       return json(200, { ok: true });
     }

@@ -20,8 +20,8 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
   }, [period]);
   const dates = useMemo(() => [...selectedDates].sort((a, b) => b.localeCompare(a)), [selectedDates]);
   const desde = dates.at(-1) || todayISO(); const hasta = dates[0] || desde;
-  const load = useCallback(() => { const current = ++requestId.current; setLoading(true); setError(""); const params = new URLSearchParams({ desde, hasta, ...(tiendaId ? { tienda_id: tiendaId } : {}) }); api(`/trafico/matriz?${params}`).then((result) => { if (current === requestId.current) setData(result); }).catch((e) => { if (current === requestId.current) setError(e.message); }).finally(() => { if (current === requestId.current) setLoading(false); }); }, [desde, hasta, tiendaId, refreshKey]);
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(() => { const current = ++requestId.current; setLoading(true); setError(""); const params = new URLSearchParams({ desde, hasta, ...(tiendaId ? { tienda_id: tiendaId } : {}) }); api(`/trafico/matriz?${params}`).then((result) => { if (current === requestId.current) setData(result); }).catch((e) => { if (current === requestId.current) setError(e.message); }).finally(() => { if (current === requestId.current) setLoading(false); }); }, [desde, hasta, tiendaId]);
+  useEffect(() => { load(); }, [load, refreshKey]);
   useEffect(() => { if (!expanded) return undefined; const previous = document.body.style.overflow; document.body.style.overflow = "hidden"; const close = (event) => event.key === "Escape" && setExpanded(false); window.addEventListener("keydown", close); return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", close); }; }, [expanded]);
   const view = useMemo(() => {
     const values = new Map(); for (const row of data?.registros || []) { const key = `${row.fecha}|${row.rango_hora}`; values.set(key, (values.get(key) || 0) + Number(row.cantidad || 0)); }

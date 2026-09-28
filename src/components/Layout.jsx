@@ -32,15 +32,14 @@ const navByRole = {
     { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
   ],
   jefe_zonal: [
-    { id: "dashboard", label: "Resumen zonal", icon: BarChart3, group: "Inicio" },
-    { id: "tiendas", label: "Mis tiendas", icon: Building2, group: "Operación zonal" },
-    { id: "zonal-asistencia", label: "Asistencia", icon: CalendarCheck2, group: "Operación zonal" },
-    { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck, group: "Operación zonal" },
-    { id: "zonal-supervisiones", label: "Supervisiones", icon: ClipboardCheck, group: "Operación zonal" },
-    { id: "zonal-incidencias", label: "Incidencias", icon: AlertTriangle, group: "Operación zonal" },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap, group: "Consulta y exportación" },
-    { id: "reportes", label: "Reportes", icon: FileSpreadsheet, group: "Consulta y exportación" },
-    { id: "historial", label: "Historial", icon: History, group: "Consulta y exportación" },
+    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "tiendas", label: "Mis tiendas", icon: Building2 },
+    { id: "zonal-personal", label: "Mis equipos", icon: Users },
+    { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck },
+    { id: "zonal-supervisiones", label: "Supervisiones", icon: ClipboardCheck },
+    { id: "zonal-incidencias", label: "Incidencias", icon: AlertTriangle },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "historial", label: "Historial", icon: History },
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Inicio", icon: BarChart3 },
@@ -87,12 +86,6 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const items = navByRole[user.rol] || [];
-  const groupedItems = items.reduce((groups, item) => {
-    const key = item.group || "Espacio de trabajo";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(item);
-    return groups;
-  }, new Map());
   useEffect(() => setMobileOpen(false), [page]);
 
   return (
@@ -105,14 +98,11 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
           <button className="sidebar-mobile-close" onClick={() => setMobileOpen(false)}><X size={20} /></button>
         </div>
         <nav>
-          {[...groupedItems.entries()].map(([group, groupItems]) => <div className="nav-group" key={group}>
-            <span className="nav-label">{group}</span>
-            {groupItems.map(({ id, label, icon: Icon }) => (
-              <button key={id} className={page === id ? "active" : ""} onClick={() => onNavigate(id)} title={label}>
-                <Icon size={19} /><span>{label}</span>
-              </button>
-            ))}
-          </div>)}
+          {items.map(({ id, label, icon: Icon }) => (
+            <button key={id} className={page === id ? "active" : ""} onClick={() => onNavigate(id)} title={label}>
+              <Icon size={19} /><span>{label}</span>
+            </button>
+          ))}
         </nav>
         <div className="sidebar__footer">
           <div className="user-chip">

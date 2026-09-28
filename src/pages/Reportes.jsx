@@ -4,7 +4,7 @@ import {
   FileCheck2, FileText, GraduationCap, ListChecks, Search, ShieldAlert, Sparkles, UsersRound,
 } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
-import { EmptyState, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
+import { EmptyState, Loading, Modal, Notice, PageHeader, Pagination, StatusBadge } from "../components/UI";
 
 const reportDefinitions = {
   personal: {
@@ -14,6 +14,14 @@ const reportDefinitions = {
   asistencias: {
     label: "Asistencia", description: "Asistencias, tardanzas, faltas y observaciones.", icon: CalendarCheck2,
     columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["trabajador", "Trabajador"], ["estado", "Estado", "status"], ["observaciones", "Observación"]],
+  },
+  amonestaciones: {
+    label: "Amonestaciones", description: "Medidas disciplinarias registradas por persona y tienda.", icon: ShieldAlert,
+    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["trabajador", "Trabajador"], ["rol", "Cargo"], ["tipo", "Tipo"], ["motivo", "Motivo"]],
+  },
+  "errores-personal": {
+    label: "Errores de personal", description: "Errores operativos y acciones correctivas del equipo.", icon: ClipboardCheck,
+    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["trabajador", "Trabajador"], ["rol", "Cargo"], ["categoria", "Categoría"], ["accion_correctiva", "Acción correctiva"]],
   },
   documentos: {
     label: "Documentos", description: "Documentación municipal y fechas de vencimiento.", icon: FileCheck2,
@@ -73,17 +81,29 @@ const statusOptions = {
 
 const initialFilters = { q: "", tienda_id: "", desde: "", hasta: "", estado: "" };
 
-export default function Reportes({ user }) {
-  const [kind, setKind] = useState("personal");
-  const [draft, setDraft] = useState(initialFilters);
-  const [filters, setFilters] = useState(initialFilters);
+const pageSize = 8;
+
+export default function Reportes({ user, initialKind = "personal", allowedKinds = null, embedded = false, fixedStoreId = "" }) {
+  const availableKinds = allowedKinds?.length ? allowedKinds.filter((id) => reportDefinitions[id]) : Object.keys(reportDefinitions);
+  const startingKind = availableKinds.includes(initialKind) ? initialKind : availableKinds[0];
+  const baseFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
+  const [kind, setKind] = useState(startingKind);
+  const [draft, setDraft] = useState(baseFilters);
+  const [filters, setFilters] = useState(baseFilters);
   const [rows, setRows] = useState(null);
   const [stores, setStores] = useState([]);
   const [notice, setNotice] = useState(null);
   const [selected, setSelected] = useState(null);
   const [exporting, setExporting] = useState(false);
-  const canSelectStore = ["gerencia_general", "gerente_comercial", "jefe_zonal"].includes(user?.rol);
+  const [page, setPage] = useState(1);
+  const canSelectStore = !fixedStoreId && ["gerencia_general", "gerente_comercial", "jefe_zonal"].includes(user?.rol);
   const definition = reportDefinitions[kind];
+
+  useEffect(() => {
+    const nextKind = reportDefinitions[initialKind] ? initialKind : "personal";
+    const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
+    setKind(nextKind); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1);
+  }, [initialKind, fixedStoreId]);
 
   useEffect(() => {
     if (canSelectStore) api("/tiendas").then(setStores).catch(() => setStores([]));
@@ -104,10 +124,11 @@ export default function Reportes({ user }) {
   useEffect(() => { load(); }, [load]);
 
   const selectReport = (next) => {
-    setKind(next); setDraft(initialFilters); setFilters(initialFilters); setSelected(null);
+    const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
+    setKind(next); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1);
   };
-  const applyFilters = (event) => { event.preventDefault(); setFilters(draft); };
-  const clearFilters = () => { setDraft(initialFilters); setFilters(initialFilters); };
+  const applyFilters = (event) => { event.preventDefault(); setFilters(draft); setPage(1); };
+  const clearFilters = () => { const next = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" }; setDraft(next); setFilters(next); setPage(1); };
   const exportExcel = async () => {
     setExporting(true); setNotice(null);
     try {
@@ -119,28 +140,33 @@ export default function Reportes({ user }) {
     }
   };
 
-  return <>
-    <PageHeader
+  const pages = Math.max(1, Math.ceil((rows?.length || 0) / pageSize));
+  const visibleRows = rows?.slice((page - 1) * pageSize, page * pageSize) || [];
+  const exportButton = <button className="button button--primary" disabled={exporting || !rows} onClick={exportExcel}><Download size={16}/>{exporting ? "Generando…" : "Descargar Excel"}</button>;
+
+  return <div className={embedded ? "embedded-report" : "report-page"}>
+    {!embedded && <PageHeader
       eyebrow={user?.rol === "jefe_tienda" ? "Mi tienda" : "Consulta y exportación"}
       title="Reportes"
       subtitle="Consulta la información registrada por las tiendas y descarga cada reporte en Excel."
-      action={<button className="button button--primary" disabled={exporting || !rows} onClick={exportExcel}><Download size={16}/>{exporting ? "Generando…" : "Descargar Excel"}</button>}
-    />
+      action={exportButton}
+    />}
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-    <section className="report-picker" aria-label="Tipos de reporte">
-      {Object.entries(reportDefinitions).map(([id, item]) => {
+    {availableKinds.length > 1 && <section className="report-picker" aria-label="Tipos de reporte">
+      {availableKinds.map((id) => {
+        const item = reportDefinitions[id];
         const Icon = item.icon;
         return <button key={id} className={kind === id ? "active" : ""} onClick={() => selectReport(id)}>
           <span><Icon size={18}/></span><strong>{item.label}</strong><small>{item.description}</small>
         </button>;
       })}
-    </section>
+    </section>}
 
     <section className="panel report-workspace">
       <header className="report-workspace__header">
         <div><span className="eyebrow">Reporte seleccionado</span><h2>{definition.label}</h2><p>{definition.description}</p></div>
-        <strong className="report-count">{rows ? rows.length : "—"} registros</strong>
+        <div className="report-workspace__actions"><strong className="report-count">{rows ? rows.length : "—"} registros</strong>{embedded && exportButton}</div>
       </header>
 
       <form className="report-filters" onSubmit={applyFilters}>
@@ -152,13 +178,13 @@ export default function Reportes({ user }) {
         <div className="report-filter-actions"><button type="button" className="button button--ghost button--small" onClick={clearFilters}>Limpiar filtros</button><button className="button button--primary button--small">Aplicar filtros</button></div>
       </form>
 
-      {!rows ? <Loading label="Preparando reporte…"/> : rows.length ? <div className="report-table-wrap"><table className="report-table"><thead><tr>{definition.columns.map(([key, label]) => <th key={key}>{label}</th>)}<th>Detalle</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{definition.columns.map(([key,, type]) => <td key={key}>{renderValue(row[key], type)}</td>)}<td><button className="report-detail-button" onClick={() => setSelected(row)}>Ver</button></td></tr>)}</tbody></table></div> : <EmptyState icon={Building2} title="Sin resultados" text="No hay registros que coincidan con los filtros seleccionados."/>}
+      {!rows ? <Loading label="Preparando reporte…"/> : rows.length ? <><div className="report-table-wrap"><table className="report-table"><thead><tr>{definition.columns.map(([key, label]) => <th key={key}>{label}</th>)}<th>Detalle</th></tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{definition.columns.map(([key,, type]) => <td key={key}>{renderValue(row[key], type)}</td>)}<td><button className="report-detail-button" onClick={() => setSelected(row)}>Ver</button></td></tr>)}</tbody></table></div><Pagination page={page} pages={pages} onChange={setPage}/></> : <EmptyState icon={Building2} title="Sin resultados" text="No hay registros que coincidan con los filtros seleccionados."/>}
     </section>
 
     <Modal open={!!selected} wide title={`Detalle · ${definition.label}`} subtitle="Información incluida en el reporte" onClose={() => setSelected(null)}>
       {selected && <dl className="report-detail-grid">{definition.columns.map(([key, label, type]) => <div key={key}><dt>{label}</dt><dd>{renderValue(selected[key], type)}</dd></div>)}</dl>}
     </Modal>
-  </>;
+  </div>;
 }
 
 function renderValue(value, type) {
