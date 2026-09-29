@@ -65,6 +65,7 @@ export default function Asistencias() {
     try {
       const result = await api("/asistencias/lote", { method: "PUT", body: { fecha, marcas } });
       setPending({}); await loadRoster();
+      if (result.notificacion?.estado === "error") setNotice({ type: "error", text: result.notificacion.detalle });
       setSuccess({ title: "Asistencia guardada", message: result.actualizados > 0 ? `Se guardaron los cambios de ${result.actualizados} trabajador(es).` : "La información ya estaba actualizada." });
     } catch (error) {
       setNotice({ type: "error", text: error.message });

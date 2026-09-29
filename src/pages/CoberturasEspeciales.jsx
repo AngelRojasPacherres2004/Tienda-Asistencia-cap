@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CalendarDays, Plus, Trash2 } from "lucide-react";
 import { api, todayISO } from "../lib/api";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
+import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
 
 const blank = () => ({ fecha_inicio: todayISO(), fecha_fin: todayISO(), tipo_dia: "sabado", motivo: "", estado: "borrador", trabajadores: [] });
 const blankWorker = () => ({ usuario_id: "", dni: "", area: "", hora_entrada: "", tipo_cobertura: "fijo", observacion: "" });
@@ -11,11 +12,11 @@ export default function CoberturasEspeciales() {
   const load = () => Promise.all([api("/coberturas-especiales"), api("/coberturas-personal")]).then(([coverages, users]) => { setRows(coverages); setPeople(users); }).catch((err) => setRows({ error: err.message }));
   useEffect(() => { load(); }, []);
   const addWorker = () => setForm((current) => ({ ...current, trabajadores: [...current.trabajadores, blankWorker()] }));
-  const areas = [...new Set(people.map((person) => person.area_laboral).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  const areas = laborAreaOptions(people.map((person) => person.area_laboral));
   const updateWorker = (index, field, value) => setForm((current) => ({ ...current, trabajadores: current.trabajadores.map((row, i) => i === index ? { ...row, [field]: value } : row) }));
-  const selectWorker = (index, person) => setForm((current) => ({ ...current, trabajadores: current.trabajadores.map((row, i) => i === index ? { ...row, usuario_id: person?.id ? String(person.id) : "", dni: person?.dni || row.dni, area: person?.area_laboral || row.area } : row) }));
-  const findWorkerByDni = (index, dni) => { const cleanDni = dni.replace(/\D/g, "").slice(0, 8); const person = cleanDni.length === 8 ? people.find((item) => item.dni === cleanDni) : null; setForm((current) => ({ ...current, trabajadores: current.trabajadores.map((row, i) => i === index ? { ...row, dni: cleanDni, usuario_id: person ? String(person.id) : "", area: person?.area_laboral || row.area } : row) })); };
-  const duplicate = () => { const previous = Array.isArray(rows) ? rows[0] : null; if (!previous) return; setForm({ ...blank(), tipo_dia: previous.tipo_dia, motivo: previous.motivo, trabajadores: previous.cobertura_trabajadores.map((row) => ({ usuario_id: String(row.usuario_id), area: row.area || "", hora_entrada: row.hora_entrada?.slice(0, 5) || "", tipo_cobertura: row.tipo_cobertura, observacion: row.observacion || "" })) }); };
+  const selectWorker = (index, person) => setForm((current) => ({ ...current, trabajadores: current.trabajadores.map((row, i) => i === index ? { ...row, usuario_id: person?.id ? String(person.id) : "", dni: person?.dni || row.dni, area: normalizeLaborArea(person?.area_laboral || row.area) } : row) }));
+  const findWorkerByDni = (index, dni) => { const cleanDni = dni.replace(/\D/g, "").slice(0, 8); const person = cleanDni.length === 8 ? people.find((item) => item.dni === cleanDni) : null; setForm((current) => ({ ...current, trabajadores: current.trabajadores.map((row, i) => i === index ? { ...row, dni: cleanDni, usuario_id: person ? String(person.id) : "", area: normalizeLaborArea(person?.area_laboral || row.area) } : row) })); };
+  const duplicate = () => { const previous = Array.isArray(rows) ? rows[0] : null; if (!previous) return; setForm({ ...blank(), tipo_dia: previous.tipo_dia, motivo: previous.motivo, trabajadores: previous.cobertura_trabajadores.map((row) => ({ usuario_id: String(row.usuario_id), area: normalizeLaborArea(row.area), hora_entrada: row.hora_entrada?.slice(0, 5) || "", tipo_cobertura: row.tipo_cobertura, observacion: row.observacion || "" })) }); };
   const save = async (state) => {
     setError("");
     if (!form.motivo.trim() || !form.trabajadores.length) return setError("Completa el motivo y agrega al menos un trabajador.");

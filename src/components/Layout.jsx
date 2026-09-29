@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, LogOut, Menu, PanelLeftClose, ShieldCheck, UserCircle2, Users, X,
+  FileSpreadsheet, History, LogOut, Menu, PanelLeftClose, Settings, ShieldCheck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -85,8 +85,9 @@ const roleLabels = {
 export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const items = navByRole[user.rol] || [];
-  useEffect(() => setMobileOpen(false), [page]);
+  useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
     <div className={`app-shell ${compact ? "app-shell--compact" : ""}`}>
@@ -105,7 +106,8 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
           ))}
         </nav>
         <div className="sidebar__footer">
-          <div className="user-chip">
+          {user.rol === "jefe_zonal" && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
+          <div className="user-chip" role={user.rol === "jefe_zonal" ? "button" : undefined} tabIndex={user.rol === "jefe_zonal" ? 0 : undefined} aria-expanded={user.rol === "jefe_zonal" ? userMenuOpen : undefined} aria-label={user.rol === "jefe_zonal" ? "Abrir menú de usuario" : undefined} onClick={() => { if (user.rol === "jefe_zonal") setUserMenuOpen(value => !value); }} onKeyDown={event => { if (user.rol === "jefe_zonal" && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
             <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>
             <div><strong>{user.nombres} {user.apellidos}</strong><small>{roleLabels[user.rol] || user.rol}</small></div>
           </div>

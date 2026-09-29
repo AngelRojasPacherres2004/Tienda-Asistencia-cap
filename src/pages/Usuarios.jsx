@@ -2,19 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExcelJS from "exceljs";
 import { Download, Edit3, Eye, FileSpreadsheet, FileUp, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
+import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
 import {
   ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 import Reportes from "./Reportes";
 
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
-const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"] };
+const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
 const weekDays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+const birthdayMonths = [["01", "Enero"], ["02", "Febrero"], ["03", "Marzo"], ["04", "Abril"], ["05", "Mayo"], ["06", "Junio"], ["07", "Julio"], ["08", "Agosto"], ["09", "Septiembre"], ["10", "Octubre"], ["11", "Noviembre"], ["12", "Diciembre"]];
+const districts = ["LIMA", "ATE", "BARRANCO", "BREÑA", "CARABAYLLO", "CHORRILLOS", "CIENEGUILLA", "COMAS", "EL AGUSTINO", "INDEPENDENCIA", "JESÚS MARÍA", "LA MOLINA", "LA VICTORIA", "LINCE", "LOS OLIVOS", "LURIGANCHO", "LURÍN", "MAGDALENA DEL MAR", "MIRAFLORES", "PACHACÁMAC", "PUCUSANA", "PUEBLO LIBRE", "PUENTE PIEDRA", "PUNTA HERMOSA", "PUNTA NEGRA", "RÍMAC", "SAN BARTOLO", "SAN BORJA", "SAN ISIDRO", "SAN JUAN DE LURIGANCHO", "SAN JUAN DE MIRAFLORES", "SAN LUIS", "SAN MARTÍN DE PORRES", "SAN MIGUEL", "SANTA ANITA", "SANTA MARÍA DEL MAR", "SANTA ROSA", "SANTIAGO DE SURCO", "SURQUILLO", "VILLA EL SALVADOR", "VILLA MARÍA DEL TRIUNFO"];
 const blankSchedule = () => weekDays.map((_, index) => ({ dia_semana: index + 1, trabaja: false, hora_entrada: "", hora_salida: "" }));
 const blank = {
   nombres: "", apellidos: "", dni: "", tipo_documento: "dni", usuario: "", password: "",
   telefono: "", email: "", rol: "trabajador", tienda_id: "", tienda_ids: [], estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
-  cluster_id: "", fecha_nacimiento: "", sueldo: "", sexo: "", nacionalidad: "", direccion: "", distrito: "", area_laboral: "", carrera: "", grado_academico: "",
+  cluster_id: "", fecha_nacimiento: "", mes_cumpleanos: "", sueldo: "", sexo: "", nacionalidad: "", direccion: "", distrito: "", area_laboral: "", carrera: "", grado_academico: "",
   ciclo_semestre: "", estado_civil: "", numero_hijos: "", talla_zapatillas: "", talla_polo: "",
   contacto_emergencia: "", telefono_emergencia: "", alergia: "", condicion_salud: "", motivo_salida: "",
   regimen_jornada: "", tipo_turno: "", tiene_parentesco: false, tipo_parentesco: "", familiar_vinculo: "", horarios: blankSchedule(),
@@ -86,7 +89,7 @@ export default function Usuarios({ user, zonalTeam = false }) {
   const openEdit = (item) => {
     clearErrors();
     const savedSchedule = new Map((item.horarios || []).map((row) => [Number(row.dia_semana), row]));
-    setEditing({ ...item, tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", password: "", horarios: blankSchedule().map((row) => {
+    setEditing({ ...item, tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "", horarios: blankSchedule().map((row) => {
       const saved = savedSchedule.get(row.dia_semana) || {};
       return { ...row, ...saved, hora_entrada: saved.hora_entrada?.slice(0, 5) || "", hora_salida: saved.hora_salida?.slice(0, 5) || "" };
     }) });
@@ -417,15 +420,15 @@ export default function Usuarios({ user, zonalTeam = false }) {
               </select>
             </Field>
             <Field label="Sexo"><select value={editing.sexo || "no_especificado"} onChange={(e) => set("sexo", e.target.value)}><option value="no_especificado">Sin especificar</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option></select></Field>
-            <Field label="Mes de cumpleaños"><input readOnly value={editing.fecha_nacimiento ? new Intl.DateTimeFormat("es-PE", { month: "long", timeZone: "UTC" }).format(new Date(`${editing.fecha_nacimiento}T12:00:00Z`)) : ""} /></Field>
+            <Field label="Mes de cumpleaños"><select value={editing.mes_cumpleanos || ""} onChange={(e) => set("mes_cumpleanos", e.target.value)}><option value="">Sin registrar</option>{birthdayMonths.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
             <Field label="Nacionalidad"><input value={editing.nacionalidad || ""} onChange={(e) => set("nacionalidad", e.target.value)} /></Field>
             <Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia}><input maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field>
             <Field label="Contacto de emergencia" hint="Nombres y apellidos"><input value={editing.contacto_emergencia || ""} onChange={(e) => set("contacto_emergencia", e.target.value)} /></Field>
-            <Field label="Distrito"><input value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)} /></Field>
+            <Field label="Distrito"><select value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)}><option value="">Selecciona un distrito</option>{editing.distrito && !districts.includes(String(editing.distrito).toUpperCase()) && <option value={editing.distrito}>{editing.distrito}</option>}{districts.map((district) => <option key={district} value={district}>{district}</option>)}</select></Field>
             <Field label="Dirección" className="span-2"><textarea rows={2} value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} /></Field>
             <Field label="Nivel de estudio"><select value={editing.grado_academico || "sin_especificar"} onChange={(e) => { set("grado_academico", e.target.value); if (e.target.value !== "universitario") set("ciclo_semestre", ""); }}><option value="sin_especificar">Sin especificar</option><option value="primaria">Primaria</option><option value="secundaria">Secundaria</option><option value="tecnico">Técnico</option><option value="universitario">Universitario</option>{!isStoreAdmin && <option value="postgrado">Posgrado</option>}</select></Field>
             {editing.grado_academico === "universitario" && <Field label="Ciclo / semestre"><input placeholder="Ej. 8vo ciclo" value={editing.ciclo_semestre || ""} onChange={(e) => set("ciclo_semestre", e.target.value)} /></Field>}
-            {!isStoreAdmin && <Field label="Área"><input placeholder="Ej. Caja, almacén o ventas" value={editing.area_laboral || ""} onChange={(e) => set("area_laboral", e.target.value)} /></Field>}
+            {!isStoreAdmin && <Field label="Área"><select value={normalizeLaborArea(editing.area_laboral)} onChange={(e) => set("area_laboral", e.target.value)}><option value="">Selecciona un área</option>{laborAreaOptions([editing.area_laboral]).map((area) => <option key={area} value={area}>{area}</option>)}</select></Field>}
             <Field label="Carrera"><input placeholder="Carrera técnica o profesional" value={editing.carrera || ""} onChange={(e) => set("carrera", e.target.value)} /></Field>
             <Field label="Régimen / jornada"><select value={editing.regimen_jornada || ""} onChange={(e) => set("regimen_jornada", e.target.value)}><option value="">Sin especificar</option><option value="4h">4 horas</option><option value="8h">8 horas</option><option value="12h">12 horas</option></select></Field>
             <Field label="Tipo de turno"><select value={editing.tipo_turno || ""} onChange={(e) => set("tipo_turno", e.target.value)}><option value="">Sin especificar</option><option value="apertura">Apertura</option><option value="intermedio">Intermedio</option><option value="cierre">Cierre</option><option value="part_time">Part time</option></select></Field>
