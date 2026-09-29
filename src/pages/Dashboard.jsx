@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, Building2, CheckCircle2, Clock3, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, UsersRound, X } from "lucide-react";
 import { api, estadoAsistenciaLabels, formatDate, todayISO } from "../lib/api";
 import { Loading, Notice, PageHeader } from "../components/UI";
@@ -55,6 +55,35 @@ function RotationPanel({ rows, totals, year }) {
       })}
     </div>
   </article>;
+}
+
+function WarningsByWorkerPanel({ data, periodLabel }) {
+  const rows = data?.rows || [];
+  return <article className="panel dashboard-worker-panel">
+    <header className="panel__header"><div><h2>Amonestaciones por trabajador</h2><p>Registros del período seleccionado</p></div><span className="panel-tag">{data?.total || 0} amonestaciones</span></header>
+    {rows.length ? <div className="dashboard-worker-table"><div className="dashboard-worker-table__head"><span>Fecha</span><span>Trabajador</span><span>Documento</span></div>{rows.map((row) => <div key={row.id}><span>{formatDate(row.fecha)}</span><strong title={row.trabajador}>{row.trabajador}</strong><span>{row.documento}</span></div>)}</div> : <div className="panel-empty"><CheckCircle2 size={24} /><span>No hay amonestaciones registradas en {periodLabel.toLowerCase()}.</span></div>}
+  </article>;
+}
+
+function WorkerNameTick({ x, y, payload, fill }) {
+  const words = String(payload?.value || "").trim().split(/\s+/);
+  const label = words.length > 2 ? `${words[0]} ${words[1]}` : words.join(" ");
+  return <text x={x} y={y} dy={4} textAnchor="end" fill={fill} fontSize={11} fontWeight={700}><title>{payload?.value}</title>{label}</text>;
+}
+
+function AttendanceByWorkerPanel({ rows, periodLabel, light = false }) {
+  const axisColor = light ? "#54708a" : "#9f9789";
+  const workerColor = light ? "#173b5b" : "#ddd4c7";
+  const totalColor = light ? "#174a75" : "#c8d3de";
+  return <article className="panel dashboard-worker-panel dashboard-worker-attendance">
+    <header className="panel__header"><div><h2>Asistencia por trabajador</h2><p>Puntual, tardanza y ausencia</p></div><span className="panel-tag">{periodLabel}</span></header>
+    {rows.length ? <div className="chart dashboard-worker-chart" style={{ height: Math.max(260, rows.length * 31 + 16) }}><ResponsiveContainer width="100%" height="100%"><BarChart data={rows} layout="vertical" margin={{ top: 8, right: 34, left: 4, bottom: 4 }} barSize={18}><CartesianGrid stroke={light ? "#d4e0e9" : "#2a2926"} horizontal={false} /><XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: axisColor, fontSize: 10 }} /><YAxis type="category" dataKey="nombre" width={142} axisLine={false} tickLine={false} tick={<WorkerNameTick fill={workerColor} />} /><Tooltip contentStyle={tooltipStyle} /><Bar dataKey="presente" name="Asistencia" stackId="asistencia" fill="#08b947" radius={[3, 0, 0, 3]} /><Bar dataKey="tardanza" name="Tardanza" stackId="asistencia" fill="#f2b33b" /><Bar dataKey="ausencia" name="Ausencia" stackId="asistencia" fill="#ef4055" radius={[0, 3, 3, 0]}><LabelList dataKey="total" position="right" fill={totalColor} fontSize={11} /></Bar></BarChart></ResponsiveContainer></div> : <div className="panel-empty"><CheckCircle2 size={24} /><span>No hay asistencias registradas en {periodLabel.toLowerCase()}.</span></div>}
+    <div className="dashboard-worker-legend"><span><i className="is-present" />Asistencia</span><span><i className="is-late" />Tardanza</span><span><i className="is-absent" />Ausencia</span></div>
+  </article>;
+}
+
+export function WorkerInsightsPanels({ warnings, attendance, periodLabel, light = false }) {
+  return <><WarningsByWorkerPanel data={warnings} periodLabel={periodLabel} /><AttendanceByWorkerPanel rows={attendance || []} periodLabel={periodLabel} light={light} /></>;
 }
 
 export function TrainingDevelopmentPanel({ rows, year }) {
@@ -150,6 +179,7 @@ export default function Dashboard({ user }) {
       <StatePeriodPanel rows={data.states} periodLabel={periodLabel} />
       <WorkloadPanel rows={data.workload} total={workloadTotal} isAdmin={isAdmin} periodLabel={periodLabel} />
       <RotationPanel rows={data.rotation} totals={rotationTotals} year={filters.anio} />
+      <WorkerInsightsPanels warnings={data.warningsByWorker} attendance={data.attendanceByWorker} periodLabel={periodLabel} />
       <ErrorsByResponsiblePanel rows={data.errorsByResponsible || []} periodLabel={periodLabel} />
       <article className="panel"><header className="panel__header"><div><h2>Progreso de capacitaciones</h2><p>Capacitaciones con más pendientes</p></div></header><div className="due-list">{data.progresoCursos.length ? data.progresoCursos.map((item, index) => { const total = item.completados + item.en_curso + item.pendientes; const porcentaje = total ? Math.round((item.completados / total) * 100) : 0; return <div key={`${item.titulo}-${index}`}><span className={`due-days ${item.pendientes > 0 ? "urgent" : ""}`}>{porcentaje}%</span><div><strong>{item.titulo}</strong><small>{item.completados} completados · {item.en_curso} en curso · {item.pendientes} pendientes</small></div></div>; }) : <div className="panel-empty"><CheckCircle2 size={24} /><span>Todavía no hay capacitaciones en el catálogo.</span></div>}</div></article>
     </section>

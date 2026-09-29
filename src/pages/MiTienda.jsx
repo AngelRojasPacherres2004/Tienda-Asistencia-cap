@@ -5,6 +5,7 @@ import { api, formatDate, todayISO } from "../lib/api";
 import { exportExcel } from "../lib/excelExport";
 import { Loading, Notice, Pagination } from "../components/UI";
 import TrafficHourMatrix from "../components/TrafficHourMatrix";
+import { WorkerInsightsPanels } from "./Dashboard";
 
 export default function MiTienda({ user, onNavigate }) {
   const isZonal = user.rol === "jefe_zonal";
@@ -67,7 +68,7 @@ export default function MiTienda({ user, onNavigate }) {
       <DashboardSection kicker="Afluencia de clientes" title={`Tráfico de ${storeName} por hora`} text={`Identifica las horas punta de ${storeName} y ajusta la cobertura del equipo según la demanda real.`} />
       <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
       <DashboardSection kicker="Personal de tienda" title={`Asistencia y movimientos de ${storeName}`} text={`Consulta asistencias, ingresos, salidas y permanencia del equipo de ${storeName}.`} />
-      {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} />}
+      {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} isZonal={isZonal} storeId={storeId} />}
       <TrainingDevelopmentHome />
     </div>
   </section>;
@@ -76,8 +77,27 @@ export default function MiTienda({ user, onNavigate }) {
 function DashboardPersonnelKpi({ label, value, detail }) { return <article className="store-dashboard-personnel-kpi"><div><strong>{label}</strong><small>{detail}</small></div><b>{value}</b></article>; }
 function DashboardPairedKpi({ label, first, second }) { return <article className="store-dashboard-paired-kpi"><h3>{label}</h3><div><span><strong>{first.value}</strong><small>{first.label}</small></span><span><strong>{second.value}</strong><small>{second.label}</small></span></div></article>; }
 function DashboardSingleKpi({ label, value, detail }) { return <article className="store-dashboard-paired-kpi store-dashboard-single-kpi"><h3>{label}</h3><div><span><strong>{value}</strong><small>{detail}</small></span></div></article>; }
-function DashboardUpcomingDocumentsKpi({ documents, total }) { return <article className="store-dashboard-paired-kpi store-dashboard-documents-kpi"><header><h3>Documentos próximos a vencer</h3><span>{total || 0} alerta{total === 1 ? "" : "s"}</span></header><section className="store-dashboard-document-list">{documents.length ? documents.map((document) => { const remainingDays = daysUntil(document.fecha_vencimiento); return <div key={document.id}><strong>{document.nombre || document.tipo_documento || "Documento"}</strong><small>Vence {formatDate(document.fecha_vencimiento)} · {remainingDays === 0 ? "vence hoy" : `en ${remainingDays} días`}</small></div>; }) : <small>No hay documentos dentro del plazo configurado</small>}</section></article>; }
+function DashboardUpcomingDocumentsKpi({ documents, total }) {
+  const [expanded, setExpanded] = useState(false);
+  return <article className={`store-dashboard-paired-kpi store-dashboard-documents-kpi ${expanded ? "is-expanded" : ""}`}><header><h3>Documentos próximos a vencer</h3><div><span>{total || 0} alerta{total === 1 ? "" : "s"}</span><button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{expanded ? "Contraer" : "Ver todos"}</button></div></header><section className="store-dashboard-document-list">{documents.length ? documents.map((document) => { const remainingDays = daysUntil(document.fecha_vencimiento); return <div key={document.id}><strong>{document.nombre || document.tipo_documento || "Documento"}</strong><small>Vence {formatDate(document.fecha_vencimiento)} · {remainingDays === 0 ? "vence hoy" : `en ${remainingDays} días`}</small></div>; }) : <small>No hay documentos dentro del plazo configurado</small>}</section></article>;
+}
 function DashboardSection({ kicker, title, text }) { return <header className="store-dashboard-section"><div><span>{kicker}</span><h2>{title}</h2></div><p>{text}</p></header>; }
+
+function StoreWorkerInsights({ isZonal, storeId }) {
+  const [insights, setInsights] = useState(null);
+  const today = todayISO();
+  useEffect(() => {
+    if (isZonal && (!storeId || storeId === "all")) { setInsights(null); return undefined; }
+    let active = true;
+    const params = new URLSearchParams({ desde: `${today.slice(0, 7)}-01`, hasta: today, rotation_year: today.slice(0, 4), ...(isZonal ? { tienda_id: storeId } : {}) });
+    api(`/dashboard?${params}`).then((result) => { if (active) setInsights(result); }).catch(() => { if (active) setInsights(null); });
+    return () => { active = false; };
+  }, [isZonal, storeId, today]);
+  if (!insights) return null;
+  const period = new Date(`${today}T12:00:00`).toLocaleDateString("es-PE", { month: "long", year: "numeric" });
+  const periodLabel = `${period.charAt(0).toUpperCase()}${period.slice(1)}`;
+  return <><DashboardSection kicker="Seguimiento del personal" title="Amonestaciones y asistencia del mes" text="Revisa las medidas aplicadas y el detalle de asistencia de cada trabajador." /><section className="store-dashboard-worker-insights"><WorkerInsightsPanels warnings={insights.warningsByWorker} attendance={insights.attendanceByWorker} periodLabel={periodLabel} light /></section></>;
+}
 
 function ZonalStoreComparison({ user, refreshKey, onSelectStore }) {
   const [period, setPeriod] = useState(() => { const now = todayISO(); return { year: now.slice(0, 4), monthNumber: now.slice(5, 7), week: "", day: now.slice(8, 10) }; });
@@ -189,7 +209,7 @@ const attendanceCodes = {
   suspension: { code: "S", label: "Suspensión" },
 };
 
-function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange }) {
+function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId }) {
   const currentDate = todayISO();
   const { year, monthNumber, week, day } = period;
   const setYear = (value) => onPeriodChange((current) => ({ ...current, year: value }));
@@ -299,14 +319,14 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
       </div>
     ) : <p className="store-empty-copy">No hay trabajadores para mostrar con estos filtros.</p>}
   </section>
-  <PersonnelCharts people={people} errors={errors} year={year} monthNumber={monthNumber} week={week} day={day} />
+  <PersonnelCharts people={people} errors={errors} year={year} monthNumber={monthNumber} week={week} day={day} isZonal={isZonal} storeId={storeId} />
   </>;
 }
 
 const chartTooltipStyle = { color: "#f3eee5", background: "#171719", border: "1px solid rgba(206,169,92,.3)", borderRadius: 12, fontSize: 11 };
 const exitReasonColors = ["#d9635f", "#c9932f", "#7668ba", "#4f8dc9", "#8d96a3", "#2f9e78"];
 
-function PersonnelCharts({ people, errors, year, monthNumber, week, day }) {
+function PersonnelCharts({ people, errors, year, monthNumber, week, day, isZonal, storeId }) {
   const [expandedChart, setExpandedChart] = useState("");
   const [visibleRotationSeries, setVisibleRotationSeries] = useState({ ingresos: true, salidas: true });
   const [movementDetail, setMovementDetail] = useState(null);
@@ -380,6 +400,7 @@ function PersonnelCharts({ people, errors, year, monthNumber, week, day }) {
       <header className="panel__header"><div><span className="eyebrow">Desvinculaciones</span><h2>Motivos de Salida del Personal · {selectedMonthName} {year}</h2><p>Distribución de los motivos registrados en las salidas.</p></div><div className="personnel-chart-actions"><span className="panel-tag">{departed.length} salidas</span><button className="icon-button" onClick={() => setExpandedChart(expandedChart === "reasons" ? "" : "reasons")} aria-label={expandedChart === "reasons" ? "Cerrar vista ampliada" : "Ampliar motivos de salida"}>{expandedChart === "reasons" ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></header>
       {exitReasons.length ? <><div className="personnel-donut"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={exitReasons} dataKey="cantidad" nameKey="motivo" innerRadius={57} outerRadius={84} paddingAngle={3}>{exitReasons.map((item, index) => <Cell key={item.motivo} fill={exitReasonColors[index % exitReasonColors.length]} />)}</Pie><Tooltip contentStyle={chartTooltipStyle} /></PieChart></ResponsiveContainer><div><strong>{departed.length}</strong><small>Total</small></div></div><div className="personnel-reasons">{exitReasons.map((item, index) => <span key={item.motivo}><i style={{ background: exitReasonColors[index % exitReasonColors.length] }} />{item.motivo}<strong>{item.cantidad}</strong></span>)}</div></> : <div className="personnel-chart-empty"><strong>0</strong><span>No hay salidas registradas en {selectedMonthName} de {year}.</span></div>}
     </article>
+    <StoreWorkerInsights isZonal={isZonal} storeId={storeId} />
     <DashboardSection kicker="Seguimiento del personal" title="Errores registrados" text="Responsables, categorías y acciones correctivas aplicadas en la tienda." />
     <article className={`panel personnel-chart-panel personnel-chart-panel--errors ${expandedChart === "errors" ? "personnel-chart-panel--expanded" : ""}`}>
       <header className="panel__header"><div><span className="eyebrow">Calidad operativa</span><h2>Errores por Usuario o Área · {selectedMonthName} {year}</h2><p>Errores agrupados por la persona responsable y su categoría.</p></div><div className="personnel-chart-actions"><span className="panel-tag">{periodErrors.length} errores</span><button className="icon-button" onClick={() => setExpandedChart(expandedChart === "errors" ? "" : "errors")} aria-label={expandedChart === "errors" ? "Cerrar vista ampliada" : "Ampliar errores"}>{expandedChart === "errors" ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></header>

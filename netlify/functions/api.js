@@ -1701,6 +1701,48 @@ async function getRotation(tiendaFilter, desde, hasta) {
   return months;
 }
 
+async function getWarningsByWorker(tiendaFilter, desde, hasta) {
+  let request = supabase.from("amonestaciones")
+    .select("id,fecha,tipo,usuario_id,usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos,usuario)")
+    .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false });
+  request = applyStoreScope(request, tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const documentLabels = { verbal: "Amonestación verbal", carta_amonestacion: "Carta de amonestación", memorandum: "Memorándum" };
+  return {
+    total: (data || []).length,
+    rows: (data || []).slice(0, 8).map((row) => ({
+      id: row.id, fecha: row.fecha,
+      trabajador: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim() || row.usuarios?.usuario || "Sin identificar",
+      documento: documentLabels[row.tipo] || row.tipo || "Amonestación",
+    })),
+  };
+}
+
+async function getAttendanceByWorker(tiendaFilter, desde, hasta) {
+  let request = supabase.from("asistencias").select("usuario_id,estado").gte("fecha", desde).lte("fecha", hasta);
+  request = applyStoreScope(request, tiendaFilter);
+  const { data, error } = await request;
+  if (error) throw dbError(error);
+  const groups = new Map();
+  for (const row of data || []) {
+    const group = groups.get(row.usuario_id) || { presente: 0, tardanza: 0, ausencia: 0 };
+    if (row.estado === "tardanza") group.tardanza += 1;
+    else if (presenteEstados.has(row.estado)) group.presente += 1;
+    else group.ausencia += 1;
+    groups.set(row.usuario_id, group);
+  }
+  const ids = [...groups.keys()];
+  if (!ids.length) return [];
+  const { data: users, error: userError } = await supabase.from("usuarios").select("id,nombres,apellidos,usuario").in("id", ids);
+  if (userError) throw dbError(userError);
+  const names = new Map((users || []).map((user) => [user.id, `${user.nombres || ""} ${user.apellidos || ""}`.trim() || user.usuario || "Sin identificar"]));
+  return [...groups.entries()].map(([id, counts]) => ({
+    nombre: names.get(id) || "Sin identificar", ...counts,
+    total: counts.presente + counts.tardanza + counts.ausencia,
+  })).sort((a, b) => b.total - a.total || a.nombre.localeCompare(b.nombre, "es")).slice(0, 10);
+}
+
 async function getErrorsByResponsible(tiendaFilter, desde, hasta) {
   let request = supabase.from("errores_personal")
     .select("id,fecha,categoria,descripcion,accion_correctiva,usuario_id,tienda_id,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos,usuario),tiendas(nombre)")
@@ -1743,7 +1785,7 @@ async function getDashboard(user, event) {
     if (requestedStoreId && !assignedStoreIds.includes(requestedStoreId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
     tiendaFilter = requestedStoreId || assignedStoreIds;
   }
-  const [summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible] = await Promise.all([
+  const [summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible, warningsByWorker, attendanceByWorker] = await Promise.all([
     getSummary(tiendaFilter, hasta, desde),
     getStates(tiendaFilter, desde, hasta),
     getTrend(tiendaFilter, rotationYear),
@@ -1751,8 +1793,10 @@ async function getDashboard(user, event) {
     getCourseProgress(tiendaFilter),
     getRotation(tiendaFilter, rotationDesde, rotationHasta),
     getErrorsByResponsible(tiendaFilter, desde, hasta),
+    getWarningsByWorker(tiendaFilter, desde, hasta),
+    getAttendanceByWorker(tiendaFilter, desde, hasta),
   ]);
-  return { summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
+  return { summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible, warningsByWorker, attendanceByWorker, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
 }
 
 // ---------- Documentos (Excel) ----------
