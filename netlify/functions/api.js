@@ -2418,6 +2418,32 @@ async function listTrafficMatrix(event, user) {
 
 // ---------- Supervisión zonal ----------
 
+const auditPayloadPrefix = "AUDITORIA_DIGITAL_V1:";
+const auditSectionIds = ["infraestructura", "marketing", "documentos_sistemas", "personal", "seguridad"];
+const auditItemIds = new Set([
+  ...Array.from({ length: 7 }, (_, index) => `1.${index + 1}`),
+  ...Array.from({ length: 9 }, (_, index) => `2.${index + 1}`),
+  "3.1", "3.2", ...Array.from({ length: 19 }, (_, index) => `3.${index + 6}`),
+  ...Array.from({ length: 6 }, (_, index) => `4.${index + 1}`),
+  ...Array.from({ length: 3 }, (_, index) => `5.${index + 1}`),
+]);
+
+function parseAuditDetails(value) {
+  const raw = String(value || "");
+  if (!raw.startsWith(auditPayloadPrefix)) return null;
+  try { return JSON.parse(raw.slice(auditPayloadPrefix.length)); }
+  catch { return null; }
+}
+
+function serializeVisit(visit) {
+  const detail = parseAuditDetails(visit.observacion_general);
+  return {
+    ...visit,
+    observacion_general: detail?.generalNote || (detail ? "" : visit.observacion_general),
+    detalle_checklist: detail,
+  };
+}
+
 async function zonalScope(user) {
   if (user.rol === "gerencia_general") {
     const { data, error } = await supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").order("nombre");
@@ -2470,9 +2496,85 @@ async function getZonalModule(event, user, kind) {
       supabase.from("observaciones_zonales").select("*,tiendas(nombre)").in("tienda_id", ids).order("created_at", { ascending: false }),
     ]);
     if (visitError) throw dbError(visitError); if (observationError) throw dbError(observationError);
-    return { visitas: visitas || [], observaciones: observaciones || [] };
+    return { visitas: (visitas || []).map(serializeVisit), observaciones: observaciones || [] };
   }
   throw httpError("Módulo zonal no válido.", 404);
+}
+
+async function createZonalSupervision(event, user) {
+  const data = bodyOf(event);
+  requireFields(data, ["tienda_id", "fecha", "periodo", "items"]);
+  const storeId = Number(data.tienda_id);
+  const storeIds = await zonalStoreIds(user.id);
+  if (!storeIds.includes(storeId)) throw httpError("La tienda no pertenece a tu zona.", 403);
+  if (!isISODate(data.fecha) || data.fecha > todayISO()) throw httpError("La fecha de auditoría no es válida.", 400);
+  if (!["primera_quincena", "segunda_quincena", "extraordinaria"].includes(data.periodo)) throw httpError("El periodo de auditoría no es válido.", 400);
+  if (!Array.isArray(data.items) || data.items.length !== auditItemIds.size) throw httpError(`Completa los ${auditItemIds.size} criterios del checklist.`, 400);
+
+  const seen = new Set();
+  const items = data.items.map((entry) => {
+    const id = cleanText(entry.id);
+    const sectionId = cleanText(entry.sectionId);
+    const score = Number(entry.score);
+    if (!auditItemIds.has(id) || seen.has(id)) throw httpError("El checklist contiene criterios inválidos o repetidos.", 400);
+    if (!auditSectionIds.includes(sectionId) || !Number.isInteger(score) || score < 1 || score > 5) throw httpError(`Revisa la calificación del criterio ${id}.`, 400);
+    seen.add(id);
+    const text = cleanText(entry.text);
+    const note = cleanText(entry.note);
+    const action = cleanText(entry.action);
+    const priority = cleanText(entry.priority) || "media";
+    const deadline = cleanText(entry.deadline);
+    if (!text || text.length > 700 || note.length > 1200 || action.length > 1200) throw httpError(`Revisa el contenido del criterio ${id}.`, 400);
+    if (!["baja", "media", "alta", "urgente"].includes(priority)) throw httpError(`La prioridad del criterio ${id} no es válida.`, 400);
+    if (score <= 3 && (!note || !action || !isISODate(deadline) || deadline < data.fecha)) throw httpError(`Completa el hallazgo, la acción y el plazo del criterio ${id}.`, 400);
+    return {
+      id, sectionId, section: cleanText(entry.section).slice(0, 120), text,
+      period: cleanText(entry.period).slice(0, 80), score, note, action, priority,
+      deadline: score <= 3 ? deadline : null,
+    };
+  });
+  if (seen.size !== auditItemIds.size || auditSectionIds.some((sectionId) => !items.some((item) => item.sectionId === sectionId))) throw httpError("El checklist está incompleto.", 400);
+
+  const sections = auditSectionIds.map((sectionId) => {
+    const entries = items.filter((item) => item.sectionId === sectionId);
+    return {
+      id: sectionId,
+      title: entries[0]?.section || sectionId,
+      percent: Math.round((entries.reduce((sum, item) => sum + item.score, 0) / (entries.length * 5)) * 100),
+    };
+  });
+  const score = Math.round(sections.reduce((sum, section) => sum + section.percent, 0) / sections.length);
+  const generalNote = cleanText(data.generalNote).slice(0, 1500);
+  const detail = { version: 1, generalNote, sections, items };
+  const created = await supabase.from("visitas_zonales").insert({
+    tienda_id: storeId,
+    jefe_zonal_id: user.id,
+    fecha: data.fecha,
+    periodo: data.periodo,
+    puntaje: score,
+    checklist_nombre: "Checklist digital de auditoría de tienda",
+    observacion_general: `${auditPayloadPrefix}${JSON.stringify(detail)}`,
+  }).select("id").single();
+  if (created.error) throw dbError(created.error);
+
+  const findings = items.filter((item) => item.score <= 3).map((item) => ({
+    visita_id: created.data.id,
+    tienda_id: storeId,
+    area_item: `${item.section} · ${item.id}`,
+    prioridad: item.priority,
+    fecha_limite: item.deadline,
+    descripcion: `${item.text}\n\nHallazgo: ${item.note}`,
+    accion_solicitada: item.action,
+    estado: "abierta",
+  }));
+  if (findings.length) {
+    const observations = await supabase.from("observaciones_zonales").insert(findings);
+    if (observations.error) {
+      await supabase.from("visitas_zonales").delete().eq("id", created.data.id);
+      throw dbError(observations.error);
+    }
+  }
+  return { id: created.data.id, puntaje: score, observaciones: findings.length };
 }
 
 async function getZonalComparison(event, user) {
@@ -2796,7 +2898,7 @@ async function getMiTienda(user) {
   return {
     tienda: { ...store.data, cluster: store.data?.clusters?.nombre || null, clusters: undefined },
     documentos: docs, reclamaciones: claims, acciones: acts, bitacora: bitacora.data || [], requerimientos: (requerimientos.data || []).map((item) => ({ ...item, seguimientos: (seguimientos.data || []).filter((entry) => entry.requerimiento_id === item.id) })),
-    visitas: visitas.data || [], observaciones: observaciones.data || [], mejoras: mejoras.data || [], apoyos_seguridad: apoyos.data || [],
+    visitas: (visitas.data || []).map(serializeVisit), observaciones: observaciones.data || [], mejoras: mejoras.data || [], apoyos_seguridad: apoyos.data || [],
     resumen: {
       documentos_por_vencer: docs.filter((x) => x.fecha_vencimiento && x.fecha_vencimiento >= today && Math.round((Date.parse(`${x.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(x.dias_alerta || 30)).length,
       reclamos_en_atencion: claims.filter((x) => ["registrado", "en_atencion"].includes(x.estado)).length,
@@ -2904,15 +3006,43 @@ async function addRequirementTracking(event, user, id) {
 async function updateZonalObservation(event, user, id) {
   const data = bodyOf(event);
   requireFields(data, ["accion_realizada"]);
+  const existing = await supabase.from("observaciones_zonales").select("id,estado").eq("id", id).eq("tienda_id", user.tienda_id).maybeSingle();
+  if (existing.error) throw dbError(existing.error);
+  if (!existing.data) throw httpError("La observación no existe.", 404);
+  if (!["abierta", "en_proceso", "rechazada"].includes(existing.data.estado)) throw httpError("Esta observación no admite un nuevo levantamiento en su estado actual.", 409);
   const payload = {
     accion_realizada: cleanText(data.accion_realizada), comentario: cleanText(data.comentario) || null,
     soporte_requerido: Boolean(data.soporte_requerido), evidencia_cierre_path: data.evidencia_cierre_path || null,
-    evidencia_cierre_nombre: data.evidencia_cierre_nombre || null, estado: "en_validacion", updated_at: new Date().toISOString(),
+    evidencia_cierre_nombre: data.evidencia_cierre_nombre || null, estado: "en_validacion",
+    validado_por: null, comentario_validacion: null, fecha_validacion: null, updated_at: new Date().toISOString(),
   };
   const { data: row, error } = await supabase.from("observaciones_zonales").update(payload).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
   if (error) throw dbError(error);
   if (!row) throw httpError("La observación no existe.", 404);
   return row;
+}
+
+async function validateZonalObservation(event, user, id) {
+  const data = bodyOf(event);
+  requireFields(data, ["resultado", "comentario"]);
+  if (!["validar", "reabrir"].includes(data.resultado)) throw httpError("La decisión de validación no es válida.", 400);
+  const comment = cleanText(data.comentario);
+  if (comment.length < 3 || comment.length > 1200) throw httpError("Ingresa un comentario de validación válido.", 400);
+  const ids = await zonalStoreIds(user.id);
+  const existing = await supabase.from("observaciones_zonales").select("id,estado").eq("id", id).in("tienda_id", ids).maybeSingle();
+  if (existing.error) throw dbError(existing.error);
+  if (!existing.data) throw httpError("La observación no pertenece a tu zona.", 404);
+  if (existing.data.estado !== "en_validacion") throw httpError("La observación todavía no está lista para validarse.", 409);
+  const now = new Date().toISOString();
+  const result = await supabase.from("observaciones_zonales").update({
+    estado: data.resultado === "validar" ? "levantada" : "rechazada",
+    validado_por: user.id,
+    comentario_validacion: comment,
+    fecha_validacion: now,
+    updated_at: now,
+  }).eq("id", id).in("tienda_id", ids).select().single();
+  if (result.error) throw dbError(result.error);
+  return result.data;
 }
 
 async function uploadMiTiendaFile(event, user) {
@@ -3126,7 +3256,7 @@ export async function handler(event) {
       ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta tareas, pero no puede modificarlas.", 403);
     }
     if (path === "/zonal/supervisiones" && method === "POST") {
-      ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta supervisiones, pero no puede crearlas.", 403);
+      ensureAuth(event, "jefe_zonal"); return json(201, await createZonalSupervision(event, user));
     }
     if (path === "/zonal/cluster" && method === "GET") {
       ensureAuth(event, "jefe_zonal"); return json(200, await getZonalCluster(user));
@@ -3139,7 +3269,7 @@ export async function handler(event) {
     }
     const zonalObservationValidationMatch=path.match(/^\/zonal\/observaciones\/(\d+)\/validar$/);
     if(zonalObservationValidationMatch&&method==="PUT"){
-      ensureAuth(event,"jefe_zonal");throw httpError("El rol zonal consulta observaciones, pero no puede validarlas.",403);
+      ensureAuth(event,"jefe_zonal");return json(200,await validateZonalObservation(event,user,Number(zonalObservationValidationMatch[1])));
     }
     if (path === "/zonal/incidencias" && method === "POST") {
       ensureAuth(event, "jefe_zonal"); return json(201, await createZonalIncident(event, user));
