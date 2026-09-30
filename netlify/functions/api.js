@@ -2189,7 +2189,7 @@ async function createIncident(event, user) {
   if (detencion && !detencionDetalle) {
     throw httpError("Describe los detalles de la detención.", 400);
   }
-  if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) {
+  if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "electro", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) {
     throw httpError("Selecciona un área o ubicación válida.", 400);
   }
   const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
@@ -2253,7 +2253,7 @@ async function updateIncident(event, user, id) {
   if (limaDateISO(existing.fecha) !== limaDateISO()) throw httpError("Esta incidencia ya no puede editarse porque corresponde a un día anterior.", 403);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-05:00$/.test(String(data.fecha)) || Number.isNaN(new Date(data.fecha).getTime())) throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
   if (!["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"].includes(data.tipo) || !["baja", "media", "alta"].includes(data.gravedad)) throw httpError("Revisa el tipo y la severidad.", 400);
-  if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) throw httpError("Selecciona un área válida.", 400);
+  if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "electro", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) throw httpError("Selecciona un área válida.", 400);
   const isPriceChange = data.tipo === "cambio_precio", detencion = !isPriceChange && Boolean(data.detencion);
   if (detencion && !cleanText(data.detencion_detalle)) throw httpError("Describe los detalles de la detención.", 400);
   for (const item of Array.isArray(data.productos) ? data.productos : []) {

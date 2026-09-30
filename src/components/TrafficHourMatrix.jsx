@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, CalendarDays, Maximize2, Minimize2, RefreshCw, UsersRound, X } from "lucide-react";
 import { api, todayISO } from "../lib/api";
 
-const HOURS = Array.from({ length: 13 }, (_, i) => `${String(i + 9).padStart(2, "0")}:00-${String(i + 10).padStart(2, "0")}:00`);
+const HOURS = Array.from({ length: 14 }, (_, i) => `${String(i + 9).padStart(2, "0")}:00-${String(i + 10).padStart(2, "0")}:00`);
 const daysAgo = (days) => { const date = new Date(`${todayISO()}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - days); return date.toISOString().slice(0, 10); };
 const shortDate = (value) => new Intl.DateTimeFormat("es-PE", { weekday: "short", day: "2-digit", month: "short" }).format(new Date(`${value}T12:00:00`));
 const rangeLabel = (range) => range.replaceAll(":00", "h").replace("-", "–");
