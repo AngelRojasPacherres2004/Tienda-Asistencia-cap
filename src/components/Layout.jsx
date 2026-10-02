@@ -27,6 +27,20 @@ const navByRole = {
     { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
     { id: "historial", label: "Historial", icon: History },
   ],
+  marketing: [
+    { id: "marketing-inicio", label: "Inicio", icon: BarChart3 },
+    { id: "marketing-personal", label: "Personal", icon: Users },
+    { id: "marketing-asistencia", label: "Asistencia", icon: CalendarCheck2 },
+    { id: "marketing-validacion", label: "Validación", icon: ClipboardCheck },
+    { id: "marketing-incidencias", label: "Incidencias", icon: AlertTriangle },
+    { id: "marketing-capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "marketing-entregables", label: "Entregables", icon: ClipboardCheck },
+    { id: "marketing-campanas", label: "Registro de campaña", icon: FileSpreadsheet },
+    { id: "marketing-amonestaciones", label: "Amonestaciones", icon: AlertTriangle },
+    { id: "marketing-errores", label: "Errores", icon: AlertTriangle },
+    { id: "marketing-seguidores", label: "Seguidores por redes", icon: Users },
+    { id: "profile", label: "Mi perfil", icon: UserCircle2 },
+  ],
   coach: [
     { id: "cursos", label: "Crear capacitaciones", icon: GraduationCap },
     { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
@@ -77,7 +91,7 @@ navByRole.caja = navByRole.trabajador;
 navByRole.almacenero = navByRole.trabajador;
 navByRole.jefe_area = navByRole.trabajador;
 const roleLabels = {
-  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach",
+  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", marketing: "Marketing", coach: "Coach",
   jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda",
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };

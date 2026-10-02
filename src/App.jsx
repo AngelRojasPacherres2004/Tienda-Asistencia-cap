@@ -29,9 +29,10 @@ const ZonalModule = lazy(() => import("./pages/ZonalModule"));
 const Reportes = lazy(() => import("./pages/Reportes"));
 const HistorialMovimientos = lazy(() => import("./pages/HistorialMovimientos"));
 const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
+const Marketing = lazy(() => import("./pages/Marketing"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", coach: "capacitaciones", jefe_zonal: "dashboard",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", marketing: "marketing-inicio", coach: "capacitaciones", jefe_zonal: "dashboard",
   jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
@@ -102,6 +103,17 @@ export default function App() {
     reportes: <Reportes user={user} />,
     historial: <HistorialMovimientos user={user} />,
     "ajustes-zonal": user.rol === "jefe_zonal" ? <AjustesZonal /> : <Profile />,
+    "marketing-inicio": <Marketing section="inicio" />,
+    "marketing-personal": <Marketing section="personal" />,
+    "marketing-asistencia": <Marketing section="asistencia" />,
+    "marketing-validacion": <Marketing section="validacion" />,
+    "marketing-incidencias": <Marketing section="incidencias" />,
+    "marketing-capacitaciones": <Marketing section="capacitaciones" />,
+    "marketing-entregables": <Marketing section="entregables" />,
+    "marketing-campanas": <Marketing section="campanas" />,
+    "marketing-amonestaciones": <Marketing section="amonestaciones" />,
+    "marketing-errores": <Marketing section="errores" />,
+    "marketing-seguidores": <Marketing section="seguidores" />,
   }[page] || <Dashboard user={user} />;
 
   return (
