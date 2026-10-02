@@ -109,10 +109,7 @@ export default function App() {
     "marketing-validacion": <Marketing section="validacion" />,
     "marketing-incidencias": <Marketing section="incidencias" />,
     "marketing-capacitaciones": <Marketing section="capacitaciones" />,
-    "marketing-entregables": <Marketing section="entregables" />,
     "marketing-campanas": <Marketing section="campanas" />,
-    "marketing-amonestaciones": <Marketing section="amonestaciones" />,
-    "marketing-errores": <Marketing section="errores" />,
     "marketing-seguidores": <Marketing section="seguidores" />,
   }[page] || <Dashboard user={user} />;
 

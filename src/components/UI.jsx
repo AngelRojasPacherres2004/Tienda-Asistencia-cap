@@ -34,9 +34,10 @@ export function Modal({ open, title, subtitle, children, onClose, wide = false, 
   );
 }
 
-export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy }) {
+export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy, error }) {
   return (
     <Modal open={open} title={title} onClose={onClose}>
+      {error && <div role="alert"><Notice type="error">{error}</Notice></div>}
       <div className="confirm-copy">
         <span className="confirm-icon"><AlertTriangle size={22} /></span>
         <p>{message}</p>

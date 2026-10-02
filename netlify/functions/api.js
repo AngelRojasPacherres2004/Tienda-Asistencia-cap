@@ -3264,7 +3264,7 @@ async function getMarketingData(user) {
     ownedPeople(supabase.from("amonestaciones_marketing").select("*,personal_marketing(nombres,apellidos)").order("fecha", { ascending:false })),
     ownedPeople(supabase.from("errores_marketing").select("*,personal_marketing(nombres,apellidos)").order("fecha", { ascending:false })),
     supabase.from("campanas_marketing").select("*").eq("creado_por", user.id).order("fecha_inicio", { ascending:false }),
-    supabase.from("validaciones_marketing").select("*,campanas_marketing!inner(nombre,creado_por)").eq("campanas_marketing.creado_por", user.id).order("created_at", { ascending:false }),
+    supabase.from("validaciones_marketing").select("*,campanas_marketing!validaciones_marketing_campana_id_fkey(nombre)").eq("registrado_por", user.id).order("created_at", { ascending:false }),
     supabase.from("incidencias_marketing").select("*,tiendas(nombre),campanas_marketing(nombre)").eq("registrado_por", user.id).order("created_at", { ascending:false }),
     supabase.from("entregables_marketing").select("*,campanas_marketing(nombre)").eq("registrado_por", user.id).order("created_at", { ascending:false }),
     supabase.from("seguidores_redes").select("*").eq("registrado_por", user.id).order("fecha", { ascending:false }),
@@ -3295,6 +3295,48 @@ function marketingStaffProfile(d) {
   return Object.fromEntries(marketingProfileFields.filter(key => Object.hasOwn(d, key)).map(key => [key, d[key]]));
 }
 
+async function registerApprovedMarketingCampaign(event, user) {
+  const d = bodyOf(event);
+  requireFields(d, ["validacion_id", "fecha_inicio", "fecha_fin", "rubros"]);
+  const validationResult = await supabase.from("validaciones_marketing").select("*").eq("id", Number(d.validacion_id)).eq("registrado_por", user.id).maybeSingle();
+  if (validationResult.error) throw dbError(validationResult.error);
+  const validation = validationResult.data;
+  if (!validation) throw httpError("La validación no pertenece a este equipo de Marketing.", 403);
+  if (validation.estado !== "aprobada") throw httpError("Solo puedes registrar campañas aprobadas en Validación.", 400);
+  if (validation.campana_id) throw httpError("Esta validación ya tiene una campaña registrada.", 409);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.fecha_inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(d.fecha_fin) || d.fecha_fin < d.fecha_inicio) throw httpError("Revisa las fechas de inicio y final de la campaña.", 400);
+  const realBudget = d.presupuesto_real === "" || d.presupuesto_real == null ? null : Number(d.presupuesto_real);
+  if (realBudget !== null && (!Number.isFinite(realBudget) || realBudget < 0)) throw httpError("El presupuesto real debe ser un número positivo.", 400);
+  const people = (d.trabajadores_ids || []).map(Number);
+  for (const id of people) await assertMarketingPerson(user, id);
+  const stores = (d.tiendas_ids || []).map(Number);
+  const allowedStores = await marketingStoreIds(user);
+  if (allowedStores !== null && stores.some(id => !allowedStores.includes(id))) throw httpError("Selecciona tiendas asignadas a este equipo de Marketing.", 403);
+  const result = await supabase.from("campanas_marketing").insert({
+    validacion_id: validation.id, nombre: validation.nombre, creado_por: user.id,
+    descripcion: cleanText(d.descripcion) || null, rubros: cleanText(d.rubros),
+    fecha_inicio: d.fecha_inicio, fecha_fin: d.fecha_fin,
+    trabajadores_ids: people, tiendas_ids: stores,
+    presupuesto_previsto: Number(validation.presupuesto),
+    presupuesto_real: realBudget, registro_completado: true,
+    estado_validacion: "aprobada", updated_at: new Date().toISOString(),
+  }).select().single();
+  if (result.error) throw dbError(result.error);
+  if (!result.data) throw httpError("Esta campaña ya está registrada. Actualiza la lista.", 409);
+  return result.data;
+}
+
+async function updateMarketingValidation(event, user, id) {
+  const d = bodyOf(event);
+  requireFields(d, ["nombre", "descripcion", "presupuesto", "estado"]);
+  if (!["aprobada", "cancelada", "pendiente"].includes(d.estado)) throw httpError("Selecciona Aprobado, Cancelado o Pendiente.", 400);
+  if (!Number.isFinite(Number(d.presupuesto)) || Number(d.presupuesto) < 0) throw httpError("Revisa el presupuesto de la validación.", 400);
+  const result = await supabase.from("validaciones_marketing").update({nombre:cleanText(d.nombre),descripcion:cleanText(d.descripcion),presupuesto:Number(d.presupuesto),estado:d.estado}).eq("id", Number(id)).eq("registrado_por", user.id).is("campana_id", null).select().maybeSingle();
+  if (result.error) throw dbError(result.error);
+  if (!result.data) throw httpError("La validación no existe o ya tiene una campaña registrada.", 409);
+  return result.data;
+}
+
 async function createMarketingRecord(event,user,kind){
   const d=bodyOf(event); let result;
   if(kind==="staff"){
@@ -3303,7 +3345,10 @@ async function createMarketingRecord(event,user,kind){
   }else if(kind==="attendance"){
     requireFields(d,["personal_id","fecha","estado"]);validateMarketingDate(d.fecha);if(!marketingAttendanceStates.has(d.estado))throw httpError("Estado de asistencia inválido.",400);await assertMarketingPerson(user,d.personal_id);result=await supabase.from("asistencias_marketing").upsert({personal_id:Number(d.personal_id),fecha:d.fecha,estado:d.estado,observaciones:cleanText(d.observaciones)||null,registrado_por:user.id},{onConflict:"personal_id,fecha"}).select().single();
   }else if(kind==="validations"){
-    requireFields(d,["campana_id","descripcion","presupuesto"]);await assertMarketingCampaign(user,d.campana_id);result=await supabase.from("validaciones_marketing").insert({campana_id:Number(d.campana_id),descripcion:cleanText(d.descripcion),presupuesto:Number(d.presupuesto),estado:d.estado||"pendiente",registrado_por:user.id}).select().single();
+    if (!["aprobada", "cancelada", "pendiente"].includes(d.estado || "pendiente")) throw httpError("Selecciona Aprobado, Cancelado o Pendiente.", 400);
+    requireFields(d,["nombre","descripcion","presupuesto"]);
+    if (!Number.isFinite(Number(d.presupuesto)) || Number(d.presupuesto) < 0) throw httpError("Revisa el presupuesto de la validación.",400);
+    result=await supabase.from("validaciones_marketing").insert({nombre:cleanText(d.nombre),descripcion:cleanText(d.descripcion),presupuesto:Number(d.presupuesto),estado:d.estado||"pendiente",registrado_por:user.id}).select().single();
   }else if(kind==="trainings"){
     requireFields(d,["titulo","fecha"]);const p=(d.personal_ids||[]).map(Number);for(const id of p)await assertMarketingPerson(user,id);result=await supabase.from("capacitaciones_marketing").insert({titulo:cleanText(d.titulo),descripcion:cleanText(d.descripcion)||null,fecha:d.fecha,instructor:cleanText(d.instructor)||null,estado:d.estado||"programada",personal_ids:p,creado_por:user.id}).select().single();
   }else if(kind==="warnings"){
@@ -3385,6 +3430,9 @@ export async function handler(event) {
     if(path === "/marketing/attendance" && method === "GET" || path === "/marketing/attendance/lote" && method === "PUT") { ensureAuth(event,"marketing");return json(200,await marketingAttendance(user,event,method)); }
     const marketingStaffMatch=path.match(/^\/marketing\/staff\/(\d+)$/);
     if(marketingStaffMatch && ["PUT","PATCH","DELETE"].includes(method)){ensureAuth(event,"marketing");return json(200,await changeMarketingStaff(event,user,marketingStaffMatch[1],method));}
+    const marketingValidationMatch = path.match(/^\/marketing\/validations\/(\d+)$/);
+    if (marketingValidationMatch && method === "PUT") { ensureAuth(event, "marketing"); return json(200, await updateMarketingValidation(event, user, marketingValidationMatch[1])); }
+    if (path === "/marketing/campaigns/register" && method === "POST") { ensureAuth(event, "marketing"); return json(200, await registerApprovedMarketingCampaign(event, user)); }
     const marketingMatch = path.match(/^\/marketing\/(staff|attendance|validations|trainings|warnings|errors|campaigns|incidents|deliverables|followers)$/);
     if (marketingMatch && method === "POST") { ensureAuth(event, "marketing"); return json(201, await createMarketingRecord(event, user, marketingMatch[1])); }
 

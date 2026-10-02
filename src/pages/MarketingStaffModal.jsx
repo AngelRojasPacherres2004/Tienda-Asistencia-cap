@@ -1,5 +1,7 @@
+import { fieldWarning, marketingError } from "./marketingErrors";
+import { MarketingFeedback } from "./marketingFeedback";
 import { useState } from "react";
-import { Field, Modal, Notice } from "../components/UI";
+import { Field, Modal } from "../components/UI";
 import { todayISO } from "../lib/api";
 import { weekDays } from "./marketingStaff";
 
@@ -13,19 +15,19 @@ export default function MarketingStaffModal({ open, editing, setEditing, roles, 
   const set = (key, value) => setEditing(current => ({ ...current, [key]: value }));
   const setSchedule = (day, key, value) => setEditing(current => ({ ...current, horarios: current.horarios.map(row => row.dia_semana === day ? { ...row, [key]: value } : row) }));
   return <Modal open={open} wide title={editing.id ? "Editar personal de Marketing" : "Agregar personal"} subtitle="Completa la ficha personal, laboral y el horario semanal." onClose={saving ? () => {} : onClose}>
-    <form className="form-grid" noValidate onSubmit={event => {
+    <form className="form-grid" noValidate onSubmit={async event => {
       event.preventDefault();
       const invalid = [...event.currentTarget.elements].find(control => control.willValidate && !control.checkValidity());
       if (invalid) {
-        const label = invalid.closest(".field")?.querySelector("span")?.textContent || invalid.getAttribute("aria-label") || "el campo indicado";
-        setValidationError(`Revisa ${label}: ${invalid.validationMessage}`);
+
+        setValidationError(fieldWarning(invalid));
         invalid.focus();
         return;
       }
       setValidationError(null);
-      onSubmit(event);
+      try { await onSubmit(event); } catch (exception) { setValidationError(marketingError(exception)); }
     }}>
-      {(validationError || error) && <div className="span-2"><Notice type="error">{validationError || error}</Notice></div>}
+      <MarketingFeedback message={validationError || error} />
             <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
             <Field label="Apellidos" error={fieldErrors.apellidos}><input required value={editing.apellidos} onChange={(e) => set("apellidos", e.target.value)} /></Field>
             <Field label="Tipo de documento"><select value={editing.tipo_documento || "dni"} onChange={(e) => { set("tipo_documento", e.target.value); set("dni", ""); }}><option value="dni">DNI</option><option value="ce">Carné de extranjería (CE)</option></select></Field>
