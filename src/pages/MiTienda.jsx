@@ -280,6 +280,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
     <div className="attendance-matrix-legend">
       {Object.entries(attendanceCodes).map(([state, item]) => <span key={state}><i className={`attendance-matrix-dot attendance-matrix-dot--${state}`}>{item.code}</i>{item.label}</span>)}
     </div>
+    {visiblePeople.length > 0 && <p className="attendance-matrix-hint">Desliza la matriz hacia los lados para ver todos los días.</p>}
     {loadingRecords && <div className="attendance-matrix-sync"><span />Actualizando datos de {year}…</div>}
     <button className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)}><Filter size={16} /><span>Periodo</span></button>
     {filtersOpen && <aside className="attendance-filter-popover">
@@ -294,7 +295,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
       <button className="button button--ghost button--small" onClick={resetFilters}><RotateCcw size={14} />Restablecer</button>
     </aside>}
     {error ? <Notice type="error">{error}</Notice> : records === null ? <Loading /> : visiblePeople.length ? (
-      <div className="attendance-matrix-scroll">
+      <div className="attendance-matrix-scroll" role="region" aria-label="Matriz de asistencia, desplazable horizontalmente" tabIndex={0}>
         <div className="attendance-matrix" style={{ "--attendance-days": days.length }}>
           <div className="attendance-matrix-row attendance-matrix-row--totals">
             <strong className="attendance-matrix-person">Total asistencia</strong>
