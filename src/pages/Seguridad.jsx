@@ -1,10 +1,10 @@
+import { NORMAL_TRAFFIC_HOURS } from "../../shared/metrics.js";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ShieldAlert, UsersRound } from "lucide-react";
 import { api, formatDateTime, todayISO } from "../lib/api";
 import { EmptyState, Loading, Notice, PageHeader } from "../components/UI";
 
-const TOTAL_RANGOS_TRAFICO = 12;
-const RANGOS_CAMPANIA = new Set(["22:00-23:00"]);
+const TOTAL_RANGOS_TRAFICO = NORMAL_TRAFFIC_HOURS.length;
 
 export default function Seguridad({ user }) {
   const [traffic, setTraffic] = useState(null);
@@ -14,7 +14,7 @@ export default function Seguridad({ user }) {
   const todayTraffic = useMemo(() => {
     const records = (traffic || []).filter((row) => row.fecha === todayISO());
     if (!records.length) return null;
-    const normalRanges = new Set(records.map((row) => row.rango_hora).filter((range) => range && !RANGOS_CAMPANIA.has(range)));
+    const normalRanges = new Set(records.map((row) => row.rango_hora).filter((range) => NORMAL_TRAFFIC_HOURS.includes(range)));
     return {
       cantidad: records.reduce((total, row) => total + Number(row.cantidad || 0), 0),
       rangosRegistrados: Math.min(normalRanges.size, TOTAL_RANGOS_TRAFICO),
@@ -23,7 +23,7 @@ export default function Seguridad({ user }) {
   }, [traffic]);
   const todayIncidents = (incidents || []).filter((r) => limaDate(r.fecha) === todayISO());
   const activity = useMemo(() => [...(traffic || []).map((r) => ({ date: r.updated_at, text: `Tráfico registrado · ${r.cantidad} visitantes` })), ...(incidents || []).map((r) => ({ date: r.created_at || r.fecha, text: `${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}` }))].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5), [traffic, incidents]);
-  if (!traffic || !incidents) return <Loading />;
+  if (!traffic || !incidents) return notice ? <Notice type="error">{notice.text}</Notice> : <Loading />;
   const registeredRanges = todayTraffic?.rangosRegistrados ?? 0;
   const missingRanges = Math.max(TOTAL_RANGOS_TRAFICO - registeredRanges, 0);
   return <>
@@ -38,5 +38,5 @@ export default function Seguridad({ user }) {
 }
 function Metric({ icon: Icon, tone, label, value, footer }) { return <article className="security-metric"><span className={`security-metric__icon security-metric__icon--${tone}`}><Icon size={20} /></span><div><small>{label}</small><strong>{value}</strong><em className={`tone-${tone}`}>{footer}</em></div></article>; }
 function Pending({ icon: Icon, tone, title, detail }) { return <div className={`pending-row pending-row--${tone}`}><Icon size={18} /><div><strong>{title}</strong><small>{detail}</small></div><span>{tone === "done" ? "Completado" : "Requiere acción"}</span></div>; }
-function timeOf(value) { return value ? new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
+function timeOf(value) { return value ? new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
 function limaDate(value) { const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); return `${parts.year}-${parts.month}-${parts.day}`; }

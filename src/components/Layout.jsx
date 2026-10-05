@@ -49,6 +49,7 @@ const navByRole = {
     { id: "zonal-supervisiones", label: "Auditorías", icon: ClipboardCheck },
     { id: "zonal-incidencias", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
     { id: "historial", label: "Historial", icon: History },
   ],
   jefe_tienda: [

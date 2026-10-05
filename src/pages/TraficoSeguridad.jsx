@@ -59,7 +59,7 @@ export default function TraficoSeguridad({ user }) {
     }
   };
 
-  if (!rows) return <Loading />;
+  if (!rows) return notice ? <Notice type="error">{notice.text}</Notice> : <Loading />;
   return <>
     <PageHeader eyebrow="Seguridad" title="Tráfico de clientes" subtitle="Registro diario e histórico de afluencia" action={<button className="button button--primary" onClick={openForm}><Plus size={16} /> Registrar tráfico</button>} />
     <section className="panel security-history">

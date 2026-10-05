@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity, BookOpenCheck, Building2, CalendarCheck2, ClipboardCheck, Download,
-  FileCheck2, FileText, GraduationCap, ListChecks, Search, ShieldAlert, Sparkles, UsersRound,
+  BookOpenCheck, Building2, CalendarCheck2, ClipboardCheck, Download,
+  FileCheck2, FileText, GraduationCap, ListChecks, Search, ShieldAlert, UsersRound,
 } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Loading, Modal, Notice, PageHeader, Pagination, StatusBadge } from "../components/UI";
@@ -39,17 +39,9 @@ const reportDefinitions = {
     label: "Acciones", description: "Planes, activaciones y acciones operativas.", icon: ListChecks,
     columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["accion", "Acción"], ["tipo", "Tipo"], ["responsable", "Responsable"], ["estado", "Estado", "status"]],
   },
-  bitacora: {
-    label: "Bitácora", description: "Cierre diario, ventas, tráfico y eventos de tienda.", icon: Activity,
-    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["categoria", "Categoría"], ["evento", "Evento"], ["venta_dia", "Venta del día", "money"], ["trafico", "Tráfico"]],
-  },
   requerimientos: {
     label: "Requerimientos", description: "Necesidades de tienda y estado de atención.", icon: ClipboardCheck,
     columns: [["codigo", "Código"], ["tienda", "Tienda"], ["requerimiento", "Requerimiento"], ["urgencia", "Urgencia"], ["fecha_inicio", "Inicio", "date"], ["estado", "Estado", "status"]],
-  },
-  mejoras: {
-    label: "Mejoras", description: "Mejoras continuas registradas por las tiendas.", icon: Sparkles,
-    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["seccion", "Sección"], ["area", "Área"], ["responsable", "Responsable"], ["estado", "Estado", "status"]],
   },
   supervisiones: {
     label: "Supervisiones", description: "Visitas, puntajes y observaciones zonales.", icon: ClipboardCheck,
@@ -73,7 +65,6 @@ const statusOptions = {
   reclamaciones: [["registrado", "Registrado"], ["en_atencion", "En atención"], ["respondido", "Respondido"], ["cerrado", "Cerrado"]],
   acciones: [["pendiente", "Pendiente"], ["en_progreso", "En progreso"], ["completada", "Completada"], ["cancelada", "Cancelada"]],
   requerimientos: [["pendiente", "Pendiente"], ["en_proceso", "En proceso"], ["atendido", "Atendido"], ["cancelado", "Cancelado"]],
-  mejoras: [["registrada", "Registrada"], ["en_progreso", "En progreso"], ["completada", "Completada"]],
   supervisiones: [["por_validar", "Por validar"], ["en_seguimiento", "En seguimiento"], ["cerrada", "Cerrada"]],
   capacitaciones: [["pendiente", "Pendiente"], ["en_curso", "En curso"], ["completado", "Completado"]],
   tareas: [["pendiente", "Pendiente"], ["en_progreso", "En progreso"], ["completada", "Completada"], ["cancelada", "Cancelada"]],
@@ -81,10 +72,18 @@ const statusOptions = {
 
 const initialFilters = { q: "", tienda_id: "", desde: "", hasta: "", estado: "" };
 
+const reportKindsByRole = {
+  jefe_tienda: ["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones"],
+  jefe_zonal: ["personal", "asistencias", "amonestaciones", "errores-personal", "incidencias", "supervisiones", "capacitaciones", "tareas"],
+};
+
 const pageSize = 8;
 
 export default function Reportes({ user, initialKind = "personal", allowedKinds = null, embedded = false, fixedStoreId = "" }) {
-  const availableKinds = allowedKinds?.length ? allowedKinds.filter((id) => reportDefinitions[id]) : Object.keys(reportDefinitions);
+  const availableKinds = useMemo(() => {
+    const roleKinds = reportKindsByRole[user?.rol] || Object.keys(reportDefinitions);
+    return allowedKinds?.length ? allowedKinds.filter(id => reportDefinitions[id] && roleKinds.includes(id)) : roleKinds;
+  }, [allowedKinds, user?.rol]);
   const startingKind = availableKinds.includes(initialKind) ? initialKind : availableKinds[0];
   const baseFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
   const [kind, setKind] = useState(startingKind);
@@ -100,10 +99,10 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
   const definition = reportDefinitions[kind];
 
   useEffect(() => {
-    const nextKind = reportDefinitions[initialKind] ? initialKind : "personal";
+    const nextKind = availableKinds.includes(initialKind) ? initialKind : availableKinds[0];
     const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
     setKind(nextKind); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1);
-  }, [initialKind, fixedStoreId]);
+  }, [availableKinds, initialKind, fixedStoreId]);
 
   useEffect(() => {
     if (canSelectStore) api("/tiendas").then(setStores).catch(() => setStores([]));

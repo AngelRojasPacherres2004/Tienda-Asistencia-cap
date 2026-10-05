@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { limaDate, nextReportRun, validateSchedule, reportSummary, attendanceCsv, sendScheduledReport } from "../netlify/lib/attendance-reports.js";
+import { limaDate, nextReportRun, validateSchedule, reportSummary, attendanceCsv, attendanceReportHtml, sendScheduledReport } from "../netlify/lib/attendance-reports.js";
 
 test("la programación respeta Lima en el cambio de día UTC", () => {
   const now = new Date("2026-09-29T03:20:00Z");
@@ -25,6 +25,18 @@ test("cuenta seis personas y distingue faltas, permisos y ausencia de registro",
   const csv = attendanceCsv([{ nombre: '=HYPERLINK("x")', tienda: "Plaza Unión", estado: "sin_registro" }]);
   assert.ok(csv.includes("'=HYPERLINK"));
   assert.ok(csv.includes("sin registro"));
+});
+test("el correo agrupa por tienda y escapa nombres ingresados por usuarios", () => {
+  const stores = [{ id: 8, nombre: "Plaza <Unión>" }, { id: 9, nombre: "Centro" }];
+  const summary = reportSummary([{ id: 1, nombres: "Ana &", apellidos: "Luz", tienda_id: 8 }], [{ usuario_id: 1, estado: "tardanza" }], stores);
+  const html = attendanceReportHtml(summary, stores, "2026-10-01");
+  assert.match(html, /Plaza &lt;Unión&gt;/);
+  assert.match(html, /Ana &amp; Luz/);
+  assert.match(html, /Centro/);
+  assert.match(html, /Tardanza/);
+  assert.match(html, /colspan="2"/);
+  assert.doesNotMatch(html, /width="20%"/);
+  assert.doesNotMatch(html, /Plaza <Unión>/);
 });
 
 function mockDb({ stores = [{ id: 8, nombre: "Plaza Unión" }], duplicate = false } = {}) {
@@ -54,6 +66,10 @@ test("envío manual adjunta CSV y no altera el próximo envío", async () => {
   assert.equal(result.estado, "enviado");
   assert.equal(email[3][0].filename, `asistencia-${limaDate()}.csv`);
   assert.match(email[2], /Total: 6/);
+  assert.match(email[4], /Reporte diario de asistencia/);
+  assert.match(email[4], /Sin registro/);
+  assert.match(email[4], /Persona 1 Prueba/);
+  assert.match(email[4], /<h2[^>]*>Detalle de asistencia<\/h2>[\s\S]*<table[^>]*>[\s\S]*Persona 1 Prueba/);
   const final = db.writes.find(row => row.values.estado === "enviado");
   assert.deepEqual([final.values.asistentes, final.values.faltas, final.values.sin_registro], [3, 1, 1]);
   assert.ok(db.writes.filter(row => row.table === "programaciones_asistencia_zonal").every(row => !('proximo_envio' in row.values)));

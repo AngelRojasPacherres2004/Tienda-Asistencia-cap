@@ -1,3 +1,4 @@
+import { businessDate } from "../../shared/metrics.js";
 export async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     credentials: "include",
@@ -21,8 +22,11 @@ export async function api(path, options = {}) {
 
 export const formatDate = (value, options = {}) => {
   if (!value) return "—";
-  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  const dateOnly = String(value).length === 10;
+  const date = new Date(dateOnly ? `${value}T12:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("es-PE", {
+    timeZone: "America/Lima",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -82,12 +86,8 @@ export async function downloadFile(url, fallbackName) {
 export const formatDateTime = (value) => {
   if (!value) return "—";
   return new Intl.DateTimeFormat("es-PE", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Lima",
   }).format(new Date(value));
 };
 
-export const todayISO = () => {
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  return new Date(now.getTime() - offset * 60_000).toISOString().slice(0, 10);
-};
+export const todayISO = businessDate;

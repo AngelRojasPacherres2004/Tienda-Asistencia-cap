@@ -107,14 +107,21 @@ export default function Capacitaciones({ user }) {
 function CoachComparisonPanel({ cursos }) {
   const [cursoId, setCursoId] = useState(cursos[0]?.id ?? "");
   const [people, setPeople] = useState(null);
-  useEffect(() => { if (cursoId) { setPeople(null); api(`/capacitaciones/trabajadores?curso_id=${cursoId}&estado=activo`).then(setPeople).catch(() => setPeople([])); } }, [cursoId]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setPeople(null); setError("");
+    if (!cursoId) { setPeople([]); return undefined; }
+    api(`/capacitaciones/trabajadores?curso_id=${cursoId}&estado=activo`).then(rows => { if (active) setPeople(rows); }).catch(err => { if (active) setError(err.message); });
+    return () => { active = false; };
+  }, [cursoId]);
   const summarize = (keyOf) => [...(people || []).reduce((map, person) => {
     const key = keyOf(person) || "Sin asignar";
     const row = map.get(key) || { name: key, total: 0, completado: 0, en_curso: 0, pendiente: 0 };
     row.total += 1; row[person.progreso_estado || "pendiente"] += 1; map.set(key, row); return map;
   }, new Map()).values()].sort((a, b) => (b.completado / b.total) - (a.completado / a.total));
   const groups = [{ title: "Comparativa entre tiendas", rows: summarize((p) => p.tienda_nombre) }, { title: "Progreso por rol", rows: summarize((p) => roleLabels[p.rol] || p.rol) }];
-  return <section className="panel" style={{ marginTop: 24 }}><header className="panel__header"><div><span className="eyebrow">Comparativas</span><h2>Avance de capacitaciones</h2><p>Detecta qué tiendas y roles completaron la capacitación y cuáles requieren seguimiento.</p></div><select value={cursoId} onChange={(e) => setCursoId(e.target.value)}>{cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}</select></header>{!people ? <Loading /> : <div className="training-comparison-grid">{groups.map((group) => <div key={group.title}><h3>{group.title}</h3>{group.rows.map((row) => { const pct = row.total ? Math.round(row.completado * 100 / row.total) : 0; return <article className="training-comparison-row" key={row.name}><div><strong>{row.name}</strong><small>{row.completado} completadas · {row.en_curso} en curso · {row.pendiente} pendientes</small></div><div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${pct}%`, background: estadoPalette.completado }} /></div><b>{pct}%</b></article>; })}</div>)}</div>}</section>;
+  return <section className="panel" style={{ marginTop: 24 }}><header className="panel__header"><div><span className="eyebrow">Comparativas</span><h2>Avance de capacitaciones</h2><p>Detecta qué tiendas y roles completaron la capacitación y cuáles requieren seguimiento.</p></div><select value={cursoId} onChange={(e) => setCursoId(e.target.value)}>{cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}</select></header>{error ? <Notice type="error">{error}</Notice> : !people ? <Loading /> : <div className="training-comparison-grid">{groups.map((group) => <div key={group.title}><h3>{group.title}</h3>{group.rows.map((row) => { const pct = row.total ? Math.round(row.completado * 100 / row.total) : 0; return <article className="training-comparison-row" key={row.name}><div><strong>{row.name}</strong><small>{row.completado} completadas · {row.en_curso} en curso · {row.pendiente} pendientes</small></div><div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${pct}%`, background: estadoPalette.completado }} /></div><b>{pct}%</b></article>; })}</div>)}</div>}</section>;
 }
 
 function TrabajadorPerfilView({ id, onClose, readOnly = false }) {

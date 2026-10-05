@@ -1,3 +1,4 @@
+import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RefreshCw, RotateCcw, Sun, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -23,8 +24,8 @@ export default function MiTienda({ user, onNavigate }) {
     const suffix = isZonal ? `?tienda_id=${storeId}` : "";
     const selectedStore = stores.find((store) => String(store.id) === String(storeId));
     const profileRequest = isZonal ? Promise.resolve({ tienda_nombre: selectedStore?.nombre, tienda_direccion: selectedStore?.direccion, tienda_alquiler_mensual: selectedStore?.alquiler_mensual }) : api("/perfil");
-    const peopleRequest = isZonal ? api(`/tiendas/${storeId}/usuarios`) : api("/usuarios");
-    return Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest, api(`/documentos-alertas${suffix}`).catch(() => []), api(`/errores-personal${suffix}`).catch(() => []), api(`/incidencias${suffix}`).catch(() => [])]).then(([p, s, team, docs, errorRows, incidentRows]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(s); setPeople(team); setDocuments(docs); setErrors(errorRows); setIncidents(incidentRows); setNotice(null); }).catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); }).finally(() => { if (requestId === dashboardRequestId.current) setRefreshing(false); });
+    const peopleRequest = api(`/personal/resumen${suffix}`);
+    return Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest, api(`/documentos-alertas${suffix}`), api(`/errores-personal${suffix}`), api(`/incidencias${suffix}`)]).then(([p, s, team, docs, errorRows, incidentRows]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(s); setPeople(team); setDocuments(docs); setErrors(errorRows); setIncidents(incidentRows); setNotice(null); }).catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); }).finally(() => { if (requestId === dashboardRequestId.current) setRefreshing(false); });
   }, [isZonal, storeId, stores]);
   useEffect(() => { if (!isZonal) return; api("/tiendas").then((rows) => { setStores(rows); setStoreId((current) => current || rows[0]?.id || ""); }).catch((e) => setNotice({ type: "error", text: e.message })); }, [isZonal]);
   useEffect(() => { if (!isZonal) return; api("/zonal/asistencia").then((attendance) => setZonalAlerts({ attendance })).catch(() => setZonalAlerts(null)); }, [isZonal]);
@@ -38,7 +39,7 @@ export default function MiTienda({ user, onNavigate }) {
     {notice && <Notice type={notice.type}>{notice.text}</Notice>}
     <ZonalStoreComparison user={user} refreshKey={dashboardKey} onSelectStore={changeStore} />
   </section>;
-  if (!profile || !summary) return isZonal ? <section ref={dashboardRef} className={`store-dashboard-shell ${lightMode ? "is-light" : ""}`}><div className="store-dashboard-topbar"><div><i /><strong>SUPERVISIÓN ZONAL</strong></div><div><label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label></div></div><div className="store-dashboard-body">{notice ? <Notice type="error">{notice.text}</Notice> : <Loading />}</div></section> : <Loading />;
+  if (!profile || !summary) return isZonal ? <section ref={dashboardRef} className={`store-dashboard-shell ${lightMode ? "is-light" : ""}`}><div className="store-dashboard-topbar"><div><i /><strong>SUPERVISIÓN ZONAL</strong></div><div><label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label></div></div><div className="store-dashboard-body">{notice ? <Notice type="error">{notice.text}</Notice> : <Loading />}</div></section> : notice ? <Notice type="error">{notice.text}</Notice> : <Loading />;
   const storeName = profile.tienda_nombre || "Tienda asignada";
   const expiring = documents
     .filter((document) => {
@@ -85,15 +86,18 @@ function DashboardSection({ kicker, title, text }) { return <header className="s
 
 function StoreWorkerInsights({ isZonal, storeId }) {
   const [insights, setInsights] = useState(null);
+  const [insightsError, setInsightsError] = useState("");
   const today = todayISO();
   useEffect(() => {
     if (isZonal && (!storeId || storeId === "all")) { setInsights(null); return undefined; }
     let active = true;
+    setInsights(null); setInsightsError("");
     const params = new URLSearchParams({ desde: `${today.slice(0, 7)}-01`, hasta: today, rotation_year: today.slice(0, 4), ...(isZonal ? { tienda_id: storeId } : {}) });
-    api(`/dashboard?${params}`).then((result) => { if (active) setInsights(result); }).catch(() => { if (active) setInsights(null); });
+    api(`/dashboard?${params}`).then((result) => { if (active) setInsights(result); }).catch(error => { if (active) setInsightsError(error.message); });
     return () => { active = false; };
   }, [isZonal, storeId, today]);
-  if (!insights) return null;
+  if (insightsError) return <Notice type="error">{insightsError}</Notice>;
+  if (!insights) return <Loading />;
   const period = new Date(`${today}T12:00:00`).toLocaleDateString("es-PE", { month: "long", year: "numeric" });
   const periodLabel = `${period.charAt(0).toUpperCase()}${period.slice(1)}`;
   return <><DashboardSection kicker="Seguimiento del personal" title="Amonestaciones y asistencia del mes" text="Revisa las medidas aplicadas y el detalle de asistencia de cada trabajador." /><section className="store-dashboard-worker-insights"><WorkerInsightsPanels warnings={insights.warningsByWorker} attendance={insights.attendanceByWorker} periodLabel={periodLabel} light /></section></>;
@@ -161,7 +165,7 @@ function ZonalStoreComparison({ user, refreshKey, onSelectStore }) {
         <article><header><h3>Visitas por tienda</h3><p>Clientes registrados · {periodLabel}</p></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 16, left: 4, bottom: 10 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 11 }} /><YAxis type="category" dataKey="nombre" width={132} tick={{ fill: "#173b60", fontSize: 11, fontWeight: 700 }} /><Tooltip formatter={(value) => Number(value).toLocaleString("es-PE")} /><Bar dataKey="visitas" name="Visitas" fill="#0d6fa1" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div></div></article>
         <article className="zonal-comparison-charts-wide"><header><h3>Incidencias y errores por tienda</h3><p>Registros · {periodLabel}</p></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 16, left: 4, bottom: 10 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 11 }} /><YAxis type="category" dataKey="nombre" width={132} tick={{ fill: "#173b60", fontSize: 11, fontWeight: 700 }} /><Tooltip /><Legend /><Bar dataKey="incidencias_administrativas" name="Incidencias administrativas" stackId="incidencias" fill="#e6a23c" /><Bar dataKey="incidencias_seguridad" name="Incidencias de seguridad" stackId="incidencias" fill="#d75b66" /><Bar dataKey="errores" name="Errores del personal" fill="#4b86bb" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div></div></article>
       </div>
-      <section className="zonal-comparison-traffic"><header><div><span>Tráfico consolidado</span><h2>Movimiento por hora · todas las tiendas</h2></div><p>Suma de visitas de la zona · {periodLabel}.</p></header><TrafficHourMatrix user={user} scopeName="todas las tiendas" period={appliedPeriod} refreshKey={refreshKey} /></section>
+      <section className="zonal-comparison-traffic"><header><div><span>Tráfico consolidado</span><h2>Movimiento por hora · todas las tiendas</h2></div><p>Suma de visitas de la zona · {periodLabel}.</p></header><TrafficHourMatrix user={user} scopeName="todas las tiendas" period={appliedPeriod} comparisonStores={rows} refreshKey={refreshKey} /></section>
       <section className="zonal-comparison-table-card"><header><h3>Detalle por tienda</h3><p>Selecciona una tienda para abrir su panel completo.</p></header><div className="zonal-comparison-table-scroll"><table><thead><tr><th>Tienda</th><th>Personal</th><th>Presentes</th><th>Tardanzas</th><th>Faltas</th><th>Pendientes</th><th>Visitas</th><th>Inc. admin.</th><th>Inc. seguridad</th><th>Errores</th><th>Documentos por vencer</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><th><button type="button" onClick={() => onSelectStore(String(row.id))}>{row.nombre}</button></th><td>{row.personal}</td><td>{row.presentes}</td><td>{row.tardanzas}</td><td>{row.faltas}</td><td>{row.pendientes}</td><td>{row.visitas.toLocaleString("es-PE")}</td><td>{row.incidencias_administrativas}</td><td>{row.incidencias_seguridad}</td><td>{row.errores}</td><td>{row.documentos_por_vencer}</td></tr>)}</tbody></table></div></section>
     </> : <p className="zonal-comparison-empty">No hay tiendas asignadas a tu zona.</p>}
     </>}
@@ -171,7 +175,7 @@ function ZonalStoreComparison({ user, refreshKey, onSelectStore }) {
 function TrainingDevelopmentHome() {
   const [courses, setCourses] = useState([]); const [courseId, setCourseId] = useState(""); const [people, setPeople] = useState([]); const [status, setStatus] = useState("todos"); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [page, setPage] = useState(1);
-  useEffect(() => { api("/cursos").then((rows) => { setCourses(rows.filter((row) => row.activo)); }).catch(() => { setCourses([]); setLoading(false); }); }, []);
+  useEffect(() => { api("/cursos").then((rows) => { setCourses(rows.filter((row) => row.activo)); }).catch(err => { setError(err.message); setLoading(false); }); }, []);
   useEffect(() => {
     if (!courses.length) { setPeople([]); setLoading(false); return; }
     let current = true;
@@ -236,12 +240,13 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
   const availableMonths = year === currentYear ? monthNames.slice(0, currentMonthNumber) : monthNames;
 
   useEffect(() => {
-    const cached = recordsCache.current.get(year);
+    const cacheKey = `${tiendaId || "own"}|${year}`;
+    const cached = recordsCache.current.get(cacheKey);
     if (cached) { setRecords(cached); setError(""); return; }
     let active = true;
     setLoadingRecords(true); setError("");
     api(`/asistencias/historial?desde=${year}-01-01&hasta=${year}-12-31&estado_usuario=todos&orden=asc${tiendaId ? `&tienda_id=${tiendaId}` : ""}`)
-      .then((rows) => { if (!active) return; recordsCache.current.set(year, rows); setRecords(rows); })
+      .then((rows) => { if (!active) return; recordsCache.current.set(cacheKey, rows); setRecords(rows); })
       .catch((err) => { if (active) setError(err.message); })
       .finally(() => { if (active) setLoadingRecords(false); });
     return () => { active = false; };
@@ -336,13 +341,16 @@ function PersonnelCharts({ people, errors, year, monthNumber, week, day, isZonal
   const monthNames = year === now.slice(0, 4) ? allMonthNames.slice(0, Number(now.slice(5, 7))) : allMonthNames;
   const rotation = monthNames.map((monthName, monthIndex) => {
     const start = `${year}-${String(monthIndex + 1).padStart(2, "0")}-01`;
-    const end = new Date(Number(year), monthIndex + 1, 0).toISOString().slice(0, 10);
+    const monthEnd = new Date(Date.UTC(Number(year), monthIndex + 1, 0)).toISOString().slice(0, 10);
+    const end = monthEnd < now ? monthEnd : now;
+    const periods = people.flatMap(person => employmentPeriods(person).map(period => ({ ...person, ...period })));
+    const balances = rotationCounts(periods, start, end);
     return {
       mes: monthName,
-      ingresos: people.filter((person) => person.fecha_ingreso >= start && person.fecha_ingreso <= end),
-      salidas: people.filter((person) => person.fecha_salida >= start && person.fecha_salida <= end),
-      personalInicio: people.filter((person) => person.fecha_ingreso <= start && (!person.fecha_salida || person.fecha_salida >= start)).length,
-      personalFin: people.filter((person) => person.fecha_ingreso <= end && (!person.fecha_salida || person.fecha_salida >= end)).length,
+      ingresos: periods.filter((person) => person.fecha_ingreso >= start && person.fecha_ingreso <= end),
+      salidas: periods.filter((person) => person.fecha_salida >= start && person.fecha_salida <= end),
+      personalInicio: balances.personal_inicio,
+      personalFin: balances.personal_fin,
     };
   });
   const selectedMonthName = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][Number(monthNumber) - 1];

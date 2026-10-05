@@ -53,8 +53,6 @@ export const storeAuditChecklist = [
       ["3.18", "Folder físico o virtual de formatos de tienda.", "mensual"],
       ["3.19", "Manuales físicos o virtuales de funciones, ventas, textil, calzado y seguridad.", "mensual"],
       ["3.20", "Recepción de guías registrada en el sistema.", "diario"],
-      ["3.21", "Formato de mejora continua con fecha de actualización.", "semanal"],
-      ["3.22", "Bitácora diaria actualizada.", "diario"],
       ["3.23", "Formato de levantamiento de observaciones del checklist.", "quincenal"],
       ["3.24", "Libro de reclamaciones actualizado.", "quincenal"],
     ],
