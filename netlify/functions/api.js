@@ -1,5 +1,6 @@
 import { readRows } from "../lib/read-rows.js";
 import { retrySupabaseRead } from "../lib/retry-supabase-fetch.js";
+import { fetchFacebookInsights } from "../lib/facebook-insights.js";
 import { businessDate, addDays, attendanceCounts, courseProgress, rotationCounts, employmentPeriods, pendingAttendance } from "../../shared/metrics.js";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
@@ -3417,6 +3418,17 @@ export async function handler(event) {
     const user = ensureAuth(event);
 
     if (path === "/marketing" && method === "GET") { ensureAuth(event, "marketing"); return json(200, await getMarketingData(user)); }
+    if (path === "/marketing/facebook-insights" && method === "GET") {
+      ensureAuth(event, "marketing");
+      try {
+        return json(200, await fetchFacebookInsights(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY));
+      } catch (error) {
+        console.error("Facebook insights:", error instanceof Error ? error.message : error);
+        const message = error instanceof Error && /token de Meta/.test(error.message)
+          ? error.message : "No se pudieron cargar los datos de Facebook. Revisa la conexión en Supabase.";
+        throw httpError(message, 502);
+      }
+    }
     if(path === "/marketing/attendance" && method === "GET" || path === "/marketing/attendance/lote" && method === "PUT") { ensureAuth(event,"marketing");return json(200,await marketingAttendance(user,event,method)); }
     const marketingStaffMatch=path.match(/^\/marketing\/staff\/(\d+)$/);
     if(marketingStaffMatch && ["PUT","PATCH","DELETE"].includes(method)){ensureAuth(event,"marketing");return json(200,await changeMarketingStaff(event,user,marketingStaffMatch[1],method));}

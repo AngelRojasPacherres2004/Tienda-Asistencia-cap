@@ -1828,6 +1828,16 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .campaign-feedback:empty { display: none; }
 
 .marketing-home { display: grid; gap: 22px; }
+.marketing-facebook { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; padding: 22px 24px; margin-bottom: 18px; border-radius: 16px; }
+.marketing-home > .marketing-facebook { margin-bottom: 0; }
+.marketing-facebook > div:first-child { flex: 1 1 260px; }
+.marketing-facebook h2 { margin: 6px 0; color: #f3ebde; font-size: 19px; }
+.marketing-facebook p,.marketing-facebook small { color: #a59a89; font-size: 11px; line-height: 1.6; }
+.marketing-facebook__value { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.marketing-facebook__value strong { color: #e5c57e; font-size: 30px; font-variant-numeric: tabular-nums; }
+.marketing-facebook__value span { color: #c5bcad; font-size: 11px; }
+.marketing-facebook .marketing-facebook__error { flex-basis: 100%; margin: 0; color: #e6a6a0; }
+.marketing-facebook > small { flex-basis: 100%; }
 .marketing-home__metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; }
 .marketing-home__metric { min-width: 0; padding: 22px; border: 1px solid rgba(205,169,95,.2); border-radius: 16px; background: linear-gradient(145deg,#22201c,#171719); }
 .marketing-home__metric-top { display: flex; align-items: center; gap: 11px; }
