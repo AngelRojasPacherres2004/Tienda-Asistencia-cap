@@ -1,8 +1,9 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, LogOut, Menu, PanelLeftClose, Settings, ShieldCheck, UserCircle2, Users, X,
+  FileSpreadsheet, History, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import "../marketing-light.css";
 
 const navByRole = {
   gerencia_general: [
@@ -97,11 +98,21 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [marketingTheme, setMarketingTheme] = useState(() => {
+    try { return localStorage.getItem("marketing-theme") === "dark" ? "dark" : "light"; }
+    catch { return "light"; }
+  });
+  const isMarketing = page.startsWith("marketing-");
+  const toggleMarketingTheme = () => {
+    const next = marketingTheme === "light" ? "dark" : "light";
+    setMarketingTheme(next);
+    try { localStorage.setItem("marketing-theme", next); } catch { /* Keep switching available when storage is disabled. */ }
+  };
   const items = navByRole[user.rol] || [];
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell ${compact ? "app-shell--compact" : ""}`}>
+    <div className={`app-shell ${compact ? "app-shell--compact" : ""} ${isMarketing ? `marketing-theme marketing-${marketingTheme}` : ""}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
@@ -132,7 +143,15 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
           <strong>Asiste</strong>
         </div>
         <button className="compact-toggle" onClick={() => setCompact(!compact)} title="Contraer menú"><PanelLeftClose size={18} /></button>
-        <div className="workspace__content">{children}</div>
+        <div className="workspace__content">
+          {isMarketing && <div className="marketing-theme-toolbar">
+            <button type="button" className="button button--ghost marketing-theme-toggle" onClick={toggleMarketingTheme} aria-label={`Cambiar a modo ${marketingTheme === "light" ? "oscuro" : "claro"}`}>
+              {marketingTheme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+              Modo {marketingTheme === "light" ? "oscuro" : "claro"}
+            </button>
+          </div>}
+          {children}
+        </div>
       </main>
     </div>
   );
