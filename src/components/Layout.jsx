@@ -106,7 +106,7 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const isDashboard = ["dashboard", "mi-tienda"].includes(page);
+  const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
   const [marketingTheme, setMarketingTheme] = useState(() => {
     try { return (localStorage.getItem("app-theme") || localStorage.getItem("marketing-theme")) === "dark" ? "dark" : "light"; }
     catch { return "light"; }
