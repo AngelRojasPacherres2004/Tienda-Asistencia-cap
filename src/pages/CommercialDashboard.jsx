@@ -1,6 +1,6 @@
 import { addDays } from "../../shared/metrics.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Building2, CalendarCheck2, FileClock, GraduationCap, Layers3, Maximize2, RefreshCw, Sun, Target, Users } from "lucide-react";
+import { AlertTriangle, Building2, CalendarCheck2, FileClock, GraduationCap, Layers3, Maximize2, RefreshCw, Target, Users } from "lucide-react";
 import { api, formatDate, todayISO } from "../lib/api";
 import { Loading, Notice, StatusBadge } from "../components/UI";
 import { TrainingDevelopmentPanel } from "./Dashboard";
@@ -9,7 +9,7 @@ const openStates = new Set(["abierta", "pendiente", "en_proceso", "en_atencion"]
 
 export default function CommercialDashboard({ onNavigate }) {
   const shellRef = useRef(null);
-  const [data,setData] = useState(null), [error,setError] = useState(""), [refreshing,setRefreshing] = useState(false), [lightMode,setLightMode] = useState(true);
+  const [data,setData] = useState(null), [error,setError] = useState(""), [refreshing,setRefreshing] = useState(false);
   const load = useCallback(() => {
     setRefreshing(true); setError("");
     const today=todayISO(), month=`${today.slice(0,7)}-01`;
@@ -33,8 +33,8 @@ export default function CommercialDashboard({ onNavigate }) {
   if(!data) return <Loading/>;
   const summary=data.dashboard.summary;
   const toggleFullscreen=async()=>{if(document.fullscreenElement) await document.exitFullscreen(); else await shellRef.current?.requestFullscreen();};
-  return <section ref={shellRef} className={`store-dashboard-shell commercial-dashboard ${lightMode?"is-light":""}`}>
-    <div className="store-dashboard-topbar"><div><i/><strong>GERENCIA COMERCIAL</strong><span>Vista ejecutiva de tiendas, alertas, asistencia y capacitaciones</span></div><div><button onClick={load}><RefreshCw size={17} className={refreshing?"is-spinning":""}/>Actualizar datos</button><button onClick={()=>setLightMode((value)=>!value)}><Sun size={17}/>{lightMode?"Modo claro":"Modo oscuro"}</button><button onClick={toggleFullscreen}><Maximize2 size={17}/>Pantalla completa</button></div></div>
+  return <section ref={shellRef} className="store-dashboard-shell commercial-dashboard is-light">
+    <div className="store-dashboard-topbar"><div><i/><strong>GERENCIA COMERCIAL</strong><span>Vista ejecutiva de tiendas, alertas, asistencia y capacitaciones</span></div><div><button onClick={load}><RefreshCw size={17} className={refreshing?"is-spinning":""}/>Actualizar datos</button><button onClick={toggleFullscreen}><Maximize2 size={17}/>Pantalla completa</button></div></div>
     <header className="store-dashboard-hero"><div><span><Building2 size={38}/></span><div><h1>PANEL COMERCIAL</h1><p>Situación general de la red de tiendas y alertas que requieren atención</p></div></div><span className="store-dashboard-status"><i/>Datos sincronizados · {new Date().toLocaleTimeString("es-PE",{hour:"2-digit",minute:"2-digit"})}</span></header>
     <div className="store-dashboard-body">
       <section className="store-dashboard-personnel-kpis"><CommercialKpi icon={Building2} label="Tiendas activas" value={summary.tiendas_activas} detail={`${alerts.affected.size} con alertas críticas`}/><CommercialKpi icon={Layers3} label="Zonas comerciales" value={data.zones.filter((row)=>row.estado==="activo").length} detail="Con jefaturas y tiendas asignadas"/><CommercialKpi icon={Users} label="Personal activo" value={summary.usuarios_activos} detail="Dotación total de tiendas"/></section>

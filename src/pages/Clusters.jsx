@@ -66,7 +66,7 @@ export default function Clusters() {
     {!items ? <Loading /> : items.length ? <div className="company-grid">{items.map((item) => <article className="company-card" key={item.id}>
       <div className="company-card__head"><span className="company-logo">{item.codigo.slice(0, 2)}</span><StatusBadge value={item.estado} /></div>
       <h3>{item.nombre}</h3><p>{item.codigo}</p><dl><div><dt>Jefe zonal</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div><div><dt>Tiendas</dt><dd>{item.tiendas.length}</dd></div></dl>
-      <div className="company-card__footer"><span>{item.tiendas.map((store) => store.nombre).join(", ") || "Sin tiendas"}</span><button onClick={() => openEditor(item)}><Pencil size={14} />Editar</button><button className="danger" onClick={() => setDeleting(item)}><Trash2 size={14} />Eliminar</button></div>
+      <div className="company-card__footer"><span>{item.tiendas.map((store) => store.nombre).join(", ") || "Sin tiendas"}</span><button title="Editar clúster" aria-label="Editar clúster" onClick={() => openEditor(item)}><Pencil size={18} /></button><button className="danger" title="Eliminar clúster" aria-label="Eliminar clúster" onClick={() => setDeleting(item)}><Trash2 size={18} /></button></div>
     </article>)}</div> : <EmptyState icon={Layers3} title="Sin clústeres" text="Crea el primer clúster, selecciona sus tiendas y asigna un jefe zonal." />}
     <Modal open={!!editing} title={editing?.id ? "Editar clúster" : "Nuevo clúster"} subtitle="Cada tienda y cada jefe zonal solo pueden pertenecer a un clúster." onClose={() => setEditing(null)}>
       {editing && <form className="form-grid" onSubmit={save}>

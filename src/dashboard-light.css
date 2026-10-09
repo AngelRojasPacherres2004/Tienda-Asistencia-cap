@@ -1,0 +1,37 @@
+/* Sidebar stays readable on every route; dashboard layout remains independent. */
+.app-shell .sidebar--readable { color: #f6f2e8; background: #111923; border-right: 1px solid #293340; }
+.sidebar--readable .brand strong { color: #fff; font-size: 21px; }
+.sidebar--readable .brand small { color: #c2cedb; font-size: 14px; }
+.sidebar--readable .brand__mark { color: #fffdf8; background: #bf4943; }
+.sidebar--readable nav button { color: #d2dce6; font-size: 16px; min-height: 46px; height: auto; padding-block: 10px; white-space: normal; }
+.sidebar--readable nav button svg { flex-shrink: 0; }
+.sidebar--readable nav button:hover { color: #fff; background: #1d2c3e; }
+.sidebar--readable nav button.active { color: #fff; background: #245b91; }
+.sidebar--readable nav button.active svg { color: #fff; }
+.sidebar--readable nav button.active::before { background: #ef9b8c; }
+.sidebar--readable .sidebar__footer { border-color: #293340; }
+.sidebar--readable .user-chip strong { color: #fff; font-size: 15px; }
+.sidebar--readable .user-chip small { color: #c2cedb; font-size: 13px; }
+.sidebar--readable .user-chip > span { color: #bad4ed; background: #20344b; }
+.sidebar--readable .logout-button { color: #d2dce6; font-size: 15px; }
+
+/* Only colors and heading sizes change here, never table/grid spacing. */
+.dashboard-light .panel__header h2 { color: #171717; font-size: 17px; }
+.dashboard-light .metric-card__top small, .dashboard-light .security-metric small, .dashboard-light .marketing-home__metric h2 { color: #171717; font-size: 14px; font-weight: 800; }
+.dashboard-light .marketing-home__panel-header h2 { color: #171717; font-size: 22px; }
+.dashboard-light .store-dashboard-shell.is-light .panel__header h2 { color: #171717; font-size: 17px; }
+.dashboard-light .store-dashboard-shell.is-light .dashboard-worker-panel .panel__header h2 { color: #fff; }
+.dashboard-light .general-comparison__header h2 { color: #171717; font-size: clamp(26px,2.5vw,34px); }
+.dashboard-light .store-dashboard-topbar { border-bottom-color: #bf4943; }
+.dashboard-light .dashboard-worker-table { border-color: #d9dfe3; }
+.dashboard-light .dashboard-worker-table > div > * { color: #203b56; border-color: #d9dfe3; }
+.dashboard-light .dashboard-worker-table__head > * { color: #fff; }
+.dashboard-light :is(.donut-center strong, .rotation-summary strong, .personnel-detail-row strong) { color: #203b56; }
+.dashboard-light :is(.panel-empty, .donut-center small, .dashboard-filter-summary) { color: #4b5563; }
+.dashboard-light .dashboard-filter-popover { background: #fffdf8; }
+.dashboard-light .dashboard-filter-popover__head h2 { color: #171717; }
+.dashboard-light .dashboard-filter-popover .field > span { color: #4b5563; }
+.dashboard-light .dashboard-filter-popover .button--ghost { color: #245b91; background: #fffdf8; }
+.dashboard-light .store-dashboard-personnel-kpi strong { color: #171717; font-size: 18px; }
+.dashboard-light .store-dashboard-paired-kpi h3 { color: #fff; font-size: 20px; }
+.dashboard-light .commercial-progress-grid small { color: #171717; font-size: 12px; }

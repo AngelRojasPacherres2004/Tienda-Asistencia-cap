@@ -350,9 +350,9 @@ export default function Usuarios({ user, zonalTeam = false }) {
                 </>}
                 <span><StatusBadge value={item.estado} /></span>
                 <div className="row-actions">
-                  <button onClick={() => openView(item)} aria-label="Ver ficha"><Eye size={15} /></button>
-                  {(!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} aria-label="Editar"><Edit3 size={15} /></button>}
-                  {!zonalTeam && <button className="danger" onClick={() => setDeleting(item)} aria-label="Eliminar"><Trash2 size={15} /></button>}
+                  <button onClick={() => openView(item)} title="Ver ficha" aria-label="Ver ficha"><Eye size={15} /></button>
+                  {(!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit3 size={15} /></button>}
+                  {!zonalTeam && <button className="danger" onClick={() => setDeleting(item)} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
                 </div>
               </div>
             ))}

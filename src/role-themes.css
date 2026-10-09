@@ -1,0 +1,190 @@
+@import "./role-typography.css";
+
+.app-light { --gold: #245b91; --text: #203b56; --muted: #4b5563; --surface: #fffdf8; --surface-strong: #fff; --line: #dedfdc; --border: #dedfdc; }
+.app-light :is(.metric-card, .table-panel, .task-catalog-card, .company-card, .assignment-card, .calendar-panel, .worker-task, .profile-details, .detail-person, .compact-metrics > div, .worker-summary > div, .history-timeline > article, .report-picker > button, .report-detail-grid > div, .audit-section, .audit-summary, .audit-wizard__intro, .audit-items > article, .audit-observation-list > article, .audit-history-list > article, .alert-settings__list article, .dashboard-detail-modal > section, .dashboard-filter-popover, .save-success-card, .success-dialog) {
+  color: #203b56; background: #fffdf8; border-color: #dedfdc; box-shadow: 0 8px 26px rgba(36,61,86,.06);
+}
+.app-light :is(.metric-card, .company-card, .panel, .profile-details, .worker-task, .assignment-card, .history-timeline, .audit-wizard, .report-detail-grid, .dashboard-detail-modal, .success-dialog, .save-success-card) :is(h2, h3) { color: #171717; }
+.app-light :is(.metric-card > strong, .metric-card__value, .cell-primary, .company-card dd, .due-list strong, .chart-legend strong, .security-table__row strong, .history-timeline strong, .history-change strong, .assignment-date strong, .profile-details dd, .compact-metrics strong, .worker-summary strong) { color: #203b56; }
+.app-light :is(.metric-card > p, .metric-card__top small, .company-card > p, .company-card dt, .company-card__footer > span, .profile-details dt, .detail-person small, .worker-summary small, .due-list small, .due-list time, .chart-legend span, .assignment-main p, .assignment-people small, .assignment-date, .history-timeline p, .history-timeline small, .report-detail-grid dt, .report-picker p, .report-picker small, .success-dialog__message, .save-success-copy) { color: #4b5563; }
+.app-light :is(.report-filters, .history-change, .audit-wizard__progress, .audit-wizard__intro > aside, .audit-summary__sections > div, .audit-wizard__steps button, .form-tabs, .dashboard-filter-tabs) { background: #f0eee6; color: #41566a; border-color: #dedfdc; }
+.app-light :is(.report-picker > button.active, .audit-wizard__steps button.active) { background: #e8f0f8; color: #245b91; border-color: #8babca; }
+.app-light :is(.metric-card__top > span, .catalog-icon, .company-logo, .history-timeline__icon, .report-picker > button > span, .audit-wizard__icon, .audit-item__title > span, .save-success-icon) { color: #245b91; background: #e8f0f8; }
+.app-light :is(.toolbar select, .report-filters input, .report-filters select, .report-search > div, .data-table__row select, .header-actions select, .attendance-matrix-actions input, .attendance-overview-actions input, .audit-center__filters input, .audit-center__filters select, .alert-settings__list input, .dashboard-filter-popover input, .dashboard-filter-popover select) { color: #203b56; background: #fff; border-color: #d9dfe3; color-scheme: light; }
+.app-light :is(.data-table__head, .security-table__head, .report-table th) { color: #365570; background: #edf2f7; border-color: #dedfdc; }
+.app-light :is(.data-table__row, .security-table__row, .report-table td, .report-detail-grid dd) { color: #41566a; border-color: #e4e3dc; }
+.app-light :is(.data-table__row:hover, .security-table__row:hover, .report-table tr:hover td) { background: #f5f2e9; }
+.app-light :is(.person-link, .data-table--usuarios-tienda .person-link) { color: #203b56; }
+.app-light :is(.data-table__row div > small, .person-cell small) { color: #4b5563; }
+.app-light :is(.personnel-role, .panel-tag, .role--admin, .role--trabajador, .report-count, .report-detail-button) { color: #245b91; background: #e8f0f8; border-color: #c5d6e5; }
+.app-light :is(.row-actions button, .company-card__footer button, .pagination button, .calendar-toolbar button) { color: #365570; background: #fffdf8; border-color: #d9dfe3; }
+.app-light :is(.row-actions button, .company-card__footer button):hover { color: #194976; background: #e8f0f8; }
+.app-light .row-actions .danger, .app-light .company-card__footer .danger { color: #b1433d; }
+.app-light .recharts-cartesian-axis-tick text { fill: #41566a; }
+.app-light .recharts-cartesian-grid line { stroke: #d9dfe3; }
+.app-theme :is(.row-actions, .company-card__footer) { gap: 10px; flex-wrap: wrap; }
+.app-theme .row-actions button, .app-theme .company-card__footer button { width: 40px; min-height: 40px; flex: 0 0 auto; padding: 0; }
+.app-theme :is(.table-panel, .data-table, .security-table, .report-table-wrap) { max-width: 100%; overflow-x: auto; }
+.app-theme :is(.data-table__head, .data-table__row, .security-table__head, .security-table__row) { column-gap: 24px; padding: 16px 20px; }
+.app-theme :is(.data-table__head, .data-table__row) > * { min-width: 0; overflow-wrap: anywhere; white-space: normal; line-height: 1.5; }
+.app-theme :is(.data-table--users, .data-table--usuarios) > :is(.data-table__head, .data-table__row) { min-width: 1300px; }
+.app-theme .data-table--usuarios-tienda > :is(.data-table__head, .data-table__row) { min-width: 1250px; }
+.app-theme .data-table--cursos > :is(.data-table__head, .data-table__row) { min-width: 850px; }
+.app-theme .data-table--historial > :is(.data-table__head, .data-table__row) { min-width: 950px; }
+.app-theme :is(.data-table--users, .data-table--usuarios) :is(.data-table__head, .data-table__row) { grid-template-columns: 1.55fr .9fr 1.2fr .8fr .8fr 1fr 140px; }
+.app-theme .data-table--usuarios :is(.data-table__head, .data-table__row) { grid-template-columns: 1.5fr .8fr 1fr .8fr .9fr 1fr .7fr 140px; }
+.app-theme .data-table--cursos :is(.data-table__head, .data-table__row) { grid-template-columns: 1.4fr 1.2fr .7fr 100px; }
+.app-theme :is(.security-table__head, .security-table__row) { min-width: 950px; }
+.app-theme :is(.security-table__head--traffic, .security-table__row--traffic) { min-width: 1080px; }
+.app-theme :is(.security-table__head--incidents, .security-table__row--incidents) { min-width: 1180px; }
+.app-theme :is(.security-table__head, .security-table__row) > * { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.app-theme table :is(th, td) { padding: 14px 18px; line-height: 1.5; }
+.app-theme table th { white-space: normal; min-width: 110px; }
+.app-theme :is(.header-actions, .toolbar, .panel__header, .page-header, .form-actions, .calendar-toolbar) { flex-wrap: wrap; gap: 14px; }
+.app-theme .recharts-legend-wrapper { line-height: 1.6; }
+.app-theme .sidebar nav button svg { flex-shrink: 0; }
+.app-light :is(.security-metric, .incident-product, .incident-person, .incident-review, .product-code-options, .task-detail-summary > div, .progress-row, .calendar-day, .attendance-filter-popover, .movement-modal > section, .cluster-store-picker label, .requirement-areas, .file-picker, .attendance-report-settings .panel, .attendance-schedule-card) { background: #fffdf8; color: #203b56; border-color: #dedfdc; }
+.app-light :is(.security-metric strong, .pending-row strong, .ops-row strong, .product-code-options button, .task-detail-summary strong, .calendar-day strong, .calendar-title, .incident-review h2) { color: #171717; }
+.app-light :is(.security-metric small, .security-metric em, .pending-row small, .activity-row span, .ops-row small, .incident-review p, .incident-review__metrics small, .task-detail-summary small, .progress-row small, .attendance-report-banner p, .attendance-report-metrics small, .attendance-schedule-card dt, .attendance-schedule-time small, .attendance-last-send, .attendance-report-history > p, .attendance-history-footer > small, .calendar-day--empty) { color: #4b5563; }
+.app-light :is(.incident-steps button, .incident-choice button, .segmented, .generator-preview, .calendar-day--empty, .attendance-schedule-time, .attendance-report-metrics article) { color: #41566a; background: #f0eee6; border-color: #dedfdc; }
+.app-light :is(.incident-steps button.active, .incident-choice button.active, .segmented button.active, .calendar-day--active) { color: #fff; background: #245b91; }
+.app-light :is(.activity-row time, .ops-row span, .product-code-options strong, .attendance-settings-tab, .attendance-report-icon, .attendance-schedule-card header small) { color: #245b91; }
+.app-light .security-metric__icon--green { color: #237c5d; }
+.app-light .security-metric__icon--amber { color: #8a601a; }
+.app-light .security-metric__icon--red { color: #b1433d; }
+.app-light .security-metric__icon--blue { color: #245b91; }
+.app-light .attendance-mail-status { color: #41566a; }
+.app-light .attendance-mail-status.is-ready { color: #237c5d; }
+.app-light .attendance-history-scroll th { color: #365570; background: #edf2f7; }
+.app-light .requirement-form .form-actions { background: #fffdf8; }
+.app-light :is(.progress-bar, .progress-row .progress-bar) { background: #dce3e9; }
+.app-light .attendance-matrix-person { color: #203b56 !important; background: #fffdf8; }
+.app-light .attendance-matrix-row--head .attendance-matrix-person { color: #365570 !important; background: #edf2f7; }
+.app-light :is(.attendance-matrix-row--head, .attendance-matrix-row--totals, .personnel-detail-row--head) { background: #edf2f7; color: #365570; }
+.app-light .attendance-filter-popover select { background: #fff; color: #203b56; border-color: #d9dfe3; }
+.app-light .store-dashboard-shell.is-light { background: #f6f2e8; }
+.app-light .store-dashboard-shell.is-light .panel__header h2 { color: #171717; }
+.app-light .store-dashboard-shell.is-light .dashboard-worker-panel .panel__header :is(h2, h3) { color: #fff; }
+.app-theme .attendance-history-scroll th { white-space: normal; }
+.app-theme :is(.report-filters, .history-filters) { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.app-theme :is(.general-comparison__header, .general-comparison__stores > header) { flex-wrap: wrap; }
+.app-theme .general-comparison__scope { white-space: normal; }
+.app-light :is(.people-picker button, .profile-hero, .form-note, .calendar-weekdays span) { background: #fffdf8; color: #203b56; border-color: #dedfdc; }
+.app-light :is(.people-picker button.selected, .people-picker button:hover) { background: #e8f0f8; border-color: #8babca; }
+.app-light :is(.people-picker button > span, .profile-avatar, .schedule-row time, .calendar-events button) { color: #245b91; background: #e8f0f8; }
+.app-light :is(.worker-task > p, .worker-task__footer, .schedule-row > div small, .progress-row small) { color: #4b5563; }
+.app-light :is(.profile-hero h1, .profile-hero h2, .worker-task__footer strong, .progress-row__label strong, .calendar-day > span) { color: #171717; }
+.app-light .profile-hero p { color: #4b5563; }
+.app-light .tone-green { color: #237c5d !important; }
+.app-light .tone-amber { color: #8a601a !important; }
+.app-light .tone-red { color: #b1433d !important; }
+
+@media screen {
+  /* Shared lists in users, courses, documents, attendance and reports. */
+  .app-theme .data-table__head, .app-theme .data-table__row {
+    column-gap: 24px;
+    padding: 16px 20px;
+  }
+  .app-theme .data-table__head { min-height: 64px; }
+  .app-theme :is(.data-table__head, .data-table__row) > * {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+  .app-theme .data-table--mi-asistencia > :is(.data-table__head, .data-table__row) {
+    min-width: 680px;
+    grid-template-columns: minmax(150px,1fr) minmax(160px,1fr) minmax(280px,2fr);
+  }
+  .app-theme :is(.data-table--documentos, .data-table--encargados) > :is(.data-table__head, .data-table__row) {
+    min-width: 660px;
+    grid-template-columns: minmax(280px,1.8fr) minmax(180px,1fr) 100px;
+  }
+  .app-theme .data-table--trabajadores > :is(.data-table__head, .data-table__row) {
+    min-width: 850px;
+    grid-template-columns: minmax(260px,1.6fr) minmax(180px,1fr) minmax(150px,.8fr) minmax(150px,.7fr);
+  }
+  .app-theme .data-table--asistencias-historial > :is(.data-table__head, .data-table__row) {
+    min-width: 1140px;
+    grid-template-columns: minmax(150px,.8fr) minmax(220px,1.2fr) minmax(150px,.8fr) minmax(160px,.9fr) minmax(240px,1.5fr) 60px;
+  }
+  .app-theme .data-table--log-asistencias > :is(.data-table__head, .data-table__row) {
+    min-width: 870px;
+    grid-template-columns: minmax(200px,1fr) minmax(160px,.8fr) minmax(200px,1.2fr) minmax(200px,1.2fr);
+  }
+  .app-theme .zonal-admin-table > :is(.data-table__head, .data-table__row) { min-width: 1130px; }
+  .app-theme .zonal-admin-table--readonly > :is(.data-table__head, .data-table__row) { min-width: 1010px; }
+  .app-theme :is(.security-table__head, .security-table__row) {
+    grid-template-columns: 150px 190px minmax(220px,1fr) 150px 160px;
+    min-width: 1010px;
+  }
+  .app-theme :is(.security-table__head--traffic, .security-table__row--traffic) {
+    grid-template-columns: 160px 140px 150px 160px minmax(260px,1fr) 60px;
+    min-width: 1090px;
+  }
+  .app-theme :is(.security-table__head--incidents, .security-table__row--incidents) {
+    grid-template-columns: 140px 200px minmax(200px,1fr) minmax(180px,1fr) 150px 160px 60px;
+    min-width: 1280px;
+  }
+  .app-theme :is(.security-table__head, .security-table__row) > * { white-space: normal; overflow-wrap: anywhere; line-height: 1.6; }
+  .app-theme .report-table { min-width: 100%; width: max-content; }
+  .app-theme :is(.report-table, .attendance-history-scroll table) th {
+    min-width: 160px;
+    max-width: 260px;
+    padding: 16px 24px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+  .app-theme :is(.report-table, .attendance-history-scroll table) td { padding: 14px 24px; }
+  .app-theme .personnel-detail-table { overflow-x: auto; }
+  .app-theme .personnel-detail-row { min-width: 760px; column-gap: 24px; }
+  .app-theme .personnel-detail-row > * { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.6; padding-block: 12px; }
+  .app-theme .supervision-register-row {
+    grid-template-columns: 120px minmax(180px,1fr) minmax(210px,1.2fr) 150px 140px 170px 140px 180px 110px;
+    min-width: 1600px;
+    column-gap: 20px;
+    padding: 8px 20px;
+  }
+  .app-theme .supervision-register-row > * {
+    min-width: 0;
+    padding: 10px 4px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+  .app-theme .supervision-register-row.head { min-height: 70px; }
+  .app-theme .zonal-incident-table { overflow-x: auto; }
+  .app-theme .zonal-incident-row {
+    grid-template-columns: 130px 150px minmax(180px,1fr) minmax(150px,1fr) minmax(190px,1fr) minmax(190px,1fr) 180px;
+    min-width: 1330px;
+    column-gap: 20px;
+    padding: 14px 20px;
+  }
+  .app-theme .zonal-incident-row > * { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.6; }
+  .app-theme .supervision-observation-table { overflow-x: auto; }
+  .app-theme .supervision-observation-table article {
+    grid-template-columns: 120px 160px minmax(240px,1fr) 120px 150px 160px 100px;
+    min-width: 1190px;
+    gap: 20px;
+  }
+  .app-theme .supervision-observation-table article > * { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+  .app-theme :is(.data-table__head, .marketing-table__head, .security-table__head, .attendance-head, .zonal-incident-row.head, .supervision-register-row.head) > * {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+}
+
+/* Uniform column headings, with enough room for multi-line labels. */
+.app-theme :is(.data-table__head, .marketing-table__head, .security-table__head, .attendance-head, .zonal-incident-row.head, .supervision-register-row.head, .personnel-detail-row--head, .pdf-preview__head, .training-history-head),
+.app-theme :is(.data-table__head, .marketing-table__head, .security-table__head, .attendance-head, .zonal-incident-row.head, .supervision-register-row.head, .personnel-detail-row--head, .pdf-preview__head, .training-history-head) > *,
+.app-theme table thead th,
+.app-theme .attendance-history-scroll th {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.app-theme .data-table--usuarios-tienda .data-table__head { font-size: 14px; }

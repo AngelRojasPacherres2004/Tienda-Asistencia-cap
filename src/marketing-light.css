@@ -6,7 +6,7 @@
   --blue-soft: #e8f0f8;
   --red: #bf4943;
   --gold: #245b91;
-  --muted: #687585;
+  --muted: #4b5563;
   --border: #e2dfd5;
   --line: #e2dfd5;
   --surface: #fffdf8;
@@ -33,6 +33,8 @@
 .marketing-theme .logout-button:hover { color: #f5b0a4; background: rgba(191,73,67,.15); }
 .marketing-theme-toolbar { display: flex; justify-content: flex-end; margin-bottom: 20px; }
 .marketing-theme-toggle { min-height: 38px; }
+.marketing-theme .marketing-action-icon { width: 40px; height: 40px; padding: 0; flex: 0 0 auto; }
+.marketing-theme .marketing-row-actions { gap: 10px; }
 .marketing-light .compact-toggle, .marketing-light .mobile-topbar { color: #245b91; border-color: var(--border); background: #fffdf8; }
 .marketing-light .page-header h1 { color: #173c65; }
 .marketing-light .page-header p, .marketing-light .panel__header p { color: var(--muted); }
@@ -72,11 +74,15 @@
 .marketing-light .marketing-home__metric:nth-child(even) { border-top-color: #bf4943; }
 .marketing-light .marketing-home__metric-top > span, .marketing-light .marketing-home__campaign-icon { color: #245b91; background: #e8f0f8; }
 .marketing-light .marketing-home__metric:nth-child(even) .marketing-home__metric-top > span { color: #b1433d; background: #fbece7; }
-.marketing-light .marketing-home__metric h2 { color: #52667a; }
+.marketing-light .marketing-home__metric h2 { color: #171717; }
 .marketing-light .marketing-home__metric > strong { color: #173c65; }
 .marketing-light .marketing-home__metric > p, .marketing-light .marketing-home__panel-header p, .marketing-light .marketing-home__campaign-info p, .marketing-light .marketing-home__campaign-info small, .marketing-light .marketing-home__campaign-budget small, .marketing-light .marketing-home__attendance p { color: var(--muted); }
 .marketing-light .marketing-home__panel-header, .marketing-light .marketing-home__campaign, .marketing-light .marketing-home__pending { border-color: #e9e6dd; }
-.marketing-light .marketing-home__panel-header h2, .marketing-light .marketing-home__campaign-info h3, .marketing-light .marketing-home__pending > strong { color: #203b56; }
+.marketing-light .marketing-home__panel-header h2, .marketing-light .marketing-home__campaign-info h3, .marketing-light .marketing-home__pending > strong { color: #171717; }
+.marketing-light .panel__header h2, .marketing-light .modal__header h2, .marketing-light .empty-state h3, .marketing-light .marketing-facebook h2 { color: #171717; }
+.marketing-light .marketing-facebook p, .marketing-light .marketing-facebook > small, .marketing-light .marketing-facebook__value > span { color: var(--muted); }
+.marketing-light .marketing-facebook__value strong { color: #173c65; }
+.marketing-light .marketing-facebook .marketing-facebook__error { color: #a3322d; }
 .marketing-light .marketing-home__count { color: #245b91; background: #e8f0f8; }
 .marketing-light .marketing-home__campaign-budget strong, .marketing-light .marketing-home__attendance strong { color: #245b91; }
 .marketing-light .marketing-home__attendance { border-color: #e2dfd5; background: #f6f2e8; }
@@ -126,12 +132,13 @@
 .marketing-theme .search-input input { font-size: 15px; }
 .marketing-theme .person-cell strong { font-size: 14px; }
 .marketing-theme .person-cell small { font-size: 12px; }
-.marketing-theme .attendance-head, .marketing-theme .attendance-obs { font-size: 13px; }
+.marketing-theme .attendance-head { font-size: 14px; }
+.marketing-theme .attendance-obs { font-size: 13px; }
 .marketing-theme .form-tabs button { font-size: 14px; }
 .marketing-theme .form-section-title strong { font-size: 14px; }
 .marketing-theme .form-section-title span { font-size: 12px; }
 .marketing-theme .weekly-schedule__row strong, .marketing-theme .weekly-schedule__row > input, .marketing-theme .schedule-check { font-size: 13px; }
-.marketing-theme .marketing-table__head { font-size: 13px; }
+.marketing-theme .marketing-table__head { font-size: 14px; }
 .marketing-theme .marketing-table__row { font-size: 14px; line-height: 1.6; }
 .marketing-theme .marketing-home__metric h2 { font-size: 15px; }
 .marketing-theme .marketing-home__metric > strong { font-size: clamp(26px, 2.1vw + 3px, 35px); }

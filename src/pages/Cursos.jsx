@@ -117,8 +117,8 @@ export default function Cursos({ user }) {
                   <span>{curso.competencia}<small style={{ display: "block", marginTop: 4 }}>{(curso.roles || []).map((role) => targetRoles.find(([id]) => id === role)?.[1] || role).join(", ")}</small></span>
                   <span><StatusBadge value={curso.activo ? "activo" : "inactivo"} /></span>
                   <div className="row-actions">
-                    <button onClick={() => { setCursoError(""); setEditingCurso({ ...curso }); }} aria-label="Editar"><Pencil size={15} /></button>
-                    <button className="danger" onClick={() => deleteCurso(curso)} aria-label="Eliminar"><Trash2 size={15} /></button>
+                    <button onClick={() => { setCursoError(""); setEditingCurso({ ...curso }); }} title="Editar" aria-label="Editar"><Pencil size={15} /></button>
+                    <button className="danger" onClick={() => deleteCurso(curso)} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>
                   </div>
                 </div>
               ))}
@@ -141,7 +141,7 @@ export default function Cursos({ user }) {
                   <span className="cell-primary">{encargado.nombre}</span>
                   <span><StatusBadge value={encargado.activo ? "activo" : "inactivo"} /></span>
                   <div className="row-actions">
-                    <button onClick={() => { setEncargadoError(""); setEditingEncargado({ ...encargado }); }} aria-label="Editar"><Pencil size={15} /></button>
+                    <button onClick={() => { setEncargadoError(""); setEditingEncargado({ ...encargado }); }} title="Editar" aria-label="Editar"><Pencil size={15} /></button>
                   </div>
                 </div>
               ))}

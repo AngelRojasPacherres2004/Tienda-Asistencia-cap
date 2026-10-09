@@ -90,7 +90,7 @@ export default function Documentos() {
                 </div>
                 <span className={`status status--${tienda.estado}`}><i />{tienda.estado}</span>
                 <div className="row-actions">
-                  <button disabled={busyId === tienda.id} onClick={() => downloadTienda(tienda)} aria-label="Descargar Excel">
+                  <button disabled={busyId === tienda.id} onClick={() => downloadTienda(tienda)} title="Descargar Excel" aria-label="Descargar Excel">
                     <FileSpreadsheet size={15} />
                   </button>
                 </div>

@@ -130,10 +130,10 @@ export default function Tiendas({ user }) {
                 <div><dt>Creada</dt><dd>{new Date(item.fecha_creacion).toLocaleDateString("es-PE")}</dd></div>
               </dl>
               <div className="company-card__footer">
-                <button onClick={() => openStore(item, "informacion")}><Info size={14} />Información</button>
-                <button onClick={() => openStore(item, "equipo")}><UsersRound size={14} />Equipo</button>
-                <button onClick={() => openStore(item, "reportes")}><FileSpreadsheet size={14} />Reportes</button>
-                {canEdit && <button onClick={() => openEdit(item)}><Pencil size={14} />Editar</button>}
+                <button title="Información de la tienda" aria-label="Información de la tienda" onClick={() => openStore(item, "informacion")}><Info size={18} /></button>
+                <button title="Equipo de la tienda" aria-label="Equipo de la tienda" onClick={() => openStore(item, "equipo")}><UsersRound size={18} /></button>
+                <button title="Reportes de la tienda" aria-label="Reportes de la tienda" onClick={() => openStore(item, "reportes")}><FileSpreadsheet size={18} /></button>
+                {canEdit && <button title="Editar tienda" aria-label="Editar tienda" onClick={() => openEdit(item)}><Pencil size={18} /></button>}
               </div>
             </article>
           ))}

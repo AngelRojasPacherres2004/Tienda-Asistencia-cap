@@ -3,7 +3,9 @@ import {
   FileSpreadsheet, History, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import "../role-themes.css";
 import "../marketing-light.css";
+import "../dashboard-light.css";
 
 const navByRole = {
   gerencia_general: [
@@ -98,23 +100,25 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const isDashboard = ["dashboard", "mi-tienda"].includes(page);
   const [marketingTheme, setMarketingTheme] = useState(() => {
-    try { return localStorage.getItem("marketing-theme") === "dark" ? "dark" : "light"; }
+    try { return (localStorage.getItem("app-theme") || localStorage.getItem("marketing-theme")) === "dark" ? "dark" : "light"; }
     catch { return "light"; }
   });
-  const isMarketing = page.startsWith("marketing-");
-  const toggleMarketingTheme = () => {
-    const next = marketingTheme === "light" ? "dark" : "light";
+  const setLightMode = value => {
+    const light = typeof value === "function" ? value(marketingTheme === "light") : value;
+    const next = light ? "light" : "dark";
     setMarketingTheme(next);
-    try { localStorage.setItem("marketing-theme", next); } catch { /* Keep switching available when storage is disabled. */ }
+    try { localStorage.setItem("app-theme", next); } catch { /* Keep switching available when storage is disabled. */ }
   };
+  const toggleMarketingTheme = () => setLightMode(marketingTheme !== "light");
   const items = navByRole[user.rol] || [];
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell ${compact ? "app-shell--compact" : ""} ${isMarketing ? `marketing-theme marketing-${marketingTheme}` : ""}`}>
+    <div className={`app-shell ${compact ? "app-shell--compact" : ""} ${isDashboard ? "app-light marketing-light dashboard-light" : `app-theme app-${marketingTheme} marketing-theme marketing-${marketingTheme}`}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
-      <aside className={`sidebar ${mobileOpen ? "sidebar--open" : ""}`}>
+      <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
           <span className="brand__mark">A</span>
           <div><strong>Asiste</strong><small>Tiendas &amp; equipos</small></div>
@@ -144,7 +148,7 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
         </div>
         <button className="compact-toggle" onClick={() => setCompact(!compact)} title="Contraer menú"><PanelLeftClose size={18} /></button>
         <div className="workspace__content">
-          {isMarketing && <div className="marketing-theme-toolbar">
+          {!isDashboard && <div className="marketing-theme-toolbar">
             <button type="button" className="button button--ghost marketing-theme-toggle" onClick={toggleMarketingTheme} aria-label={`Cambiar a modo ${marketingTheme === "light" ? "oscuro" : "claro"}`}>
               {marketingTheme === "light" ? <Moon size={16} /> : <Sun size={16} />}
               Modo {marketingTheme === "light" ? "oscuro" : "claro"}
