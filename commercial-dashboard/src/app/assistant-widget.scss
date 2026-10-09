@@ -1,0 +1,46 @@
+:host { position: fixed; right: 0; bottom: 24px; z-index: 1200; font-family: "Segoe UI", Arial, sans-serif; }
+button, textarea { font: inherit; }
+.assistant-launcher {
+  display: grid; width: 43px; height: 38px; place-items: center; padding: 0;
+  border: 1px solid rgba(255,255,255,.34); border-right: 0; border-radius: 18px 0 0 18px; background: #123a8c; color: #fff;
+  box-shadow: 0 8px 22px rgba(15,35,70,.22); cursor: pointer; opacity: .78; transition: width .18s ease, opacity .18s ease;
+}
+.assistant-launcher:hover, .assistant-launcher:focus-visible, .assistant-launcher[aria-expanded="true"] { width: 52px; opacity: 1; }
+.assistant-launcher span { font-size: .66rem; font-weight: 950; letter-spacing: .03em; }
+.assistant-panel {
+  position: absolute; right: 10px; bottom: 50px; display: grid; grid-template-rows: auto auto minmax(180px, 1fr) auto auto auto;
+  width: min(390px, calc(100vw - 28px)); height: min(590px, calc(100dvh - 95px)); overflow: hidden;
+  border: 1px solid #cbd5e1; border-radius: 17px; background: #fff; box-shadow: 0 24px 70px rgba(15,35,70,.28);
+}
+.assistant-panel header { display: flex; align-items: center; justify-content: space-between; padding: 14px 15px; background: #123a8c; color: #fff; }
+.assistant-panel header div { display: grid; gap: 2px; }
+.assistant-panel header span { color: #bfdbfe; font-size: .56rem; font-weight: 850; letter-spacing: .13em; }
+.assistant-panel header strong { font-size: .78rem; letter-spacing: .05em; }
+.assistant-panel header button { width: 31px; height: 31px; border: 0; border-radius: 50%; background: rgba(255,255,255,.13); color: #fff; cursor: pointer; font-size: 1.2rem; }
+.assistant-suggestions { display: flex; gap: 7px; padding: 10px 12px 3px; overflow-x: auto; }
+.assistant-suggestions button { flex: 0 0 auto; min-height: 29px; padding: 0 10px; border: 1px solid #b8c8df; border-radius: 15px; background: #f7faff; color: #123a8c; cursor: pointer; font-size: .57rem; font-weight: 850; }
+.assistant-messages { display: grid; align-content: start; gap: 10px; padding: 12px; overflow: auto; overscroll-behavior: contain; }
+.assistant-messages article { display: grid; justify-items: start; gap: 4px; max-width: 88%; }
+.assistant-messages article.user { justify-self: end; justify-items: end; }
+.assistant-messages article span { color: #64748b; font-size: .52rem; font-weight: 900; }
+.assistant-messages p { margin: 0; padding: 9px 11px; border-radius: 5px 13px 13px 13px; background: #eef3fa; color: #253247; font-size: .72rem; line-height: 1.45; white-space: pre-wrap; }
+.assistant-messages article.user p { border-radius: 13px 5px 13px 13px; background: #123a8c; color: #fff; }
+.assistant-thinking { color: #64748b !important; font-style: italic; }
+.assistant-error { margin: 0 12px 7px; padding: 7px 9px; border-radius: 7px; background: #fff1f2; color: #b91c1c; font-size: .62rem; font-weight: 750; }
+.assistant-composer { display: grid; gap: 7px; padding: 10px 12px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+.assistant-composer textarea { box-sizing: border-box; width: 100%; min-height: 58px; max-height: 110px; resize: vertical; padding: 9px 10px; border: 1px solid #b8c3d4; border-radius: 9px; outline: none; color: #172033; font-size: .72rem; }
+.assistant-composer textarea:focus { border-color: #123a8c; box-shadow: 0 0 0 3px rgba(18,58,140,.1); }
+.assistant-composer > div { display: flex; justify-content: space-between; gap: 8px; }
+.assistant-composer button { height: 34px; border: 0; border-radius: 8px; cursor: pointer; font-size: .62rem; font-weight: 900; }
+.assistant-composer button:disabled { cursor: not-allowed; opacity: .5; }
+.assistant-upload { display: grid; place-items: center; width: 42px; height: 34px; border-radius: 8px; background: #e8eef8; color: #123a8c; cursor: pointer; }
+.assistant-upload input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.assistant-mic { width: 42px; background: #e8eef8; color: #123a8c; }
+.assistant-mic.recording { background: #fee2e2; color: #dc2626; animation: pulse 1s infinite; }
+.assistant-send { min-width: 88px; padding: 0 16px; background: #123a8c; color: #fff; }
+.assistant-panel > small { padding: 0 12px 10px; background: #f8fafc; color: #64748b; font-size: .53rem; text-align: center; }
+@keyframes pulse { 50% { opacity: .55; } }
+@media (max-width: 620px) {
+  :host { right: 0; bottom: 12px; }
+  .assistant-panel { right: 8px; bottom: 48px; width: calc(100vw - 16px); height: min(620px, calc(100dvh - 70px)); border-radius: 14px; }
+}

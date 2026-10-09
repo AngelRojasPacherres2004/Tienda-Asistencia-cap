@@ -1923,3 +1923,5 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
   .attendance-matrix-panel--expanded { inset: 4px; width: auto !important; max-width: none !important; }
   .attendance-overview--expanded .attendance-matrix-scroll { max-height: calc(100dvh - 245px); }
 }
+.commercial-portal { width: 100%; min-height: calc(100vh - 2rem); }
+.commercial-portal iframe { display: block; width: 100%; min-height: calc(100vh - 2rem); border: 0; border-radius: 14px; background: #eaf2f8; }

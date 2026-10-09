@@ -1,0 +1,39 @@
+<button type="button" class="assistant-launcher" (click)="toggle()" [attr.aria-expanded]="open()" aria-label="Abrir asistente comercial">
+  <span>Ast</span>
+</button>
+
+@if (open()) {
+  <section class="assistant-panel" aria-label="Asistente comercial con inteligencia artificial">
+    <header>
+      <div><span>IA · GROQ</span><strong>ASISTENTE COMERCIAL</strong></div>
+      <button type="button" (click)="toggle()" aria-label="Cerrar asistente">×</button>
+    </header>
+
+    <div class="assistant-suggestions" aria-label="Consultas sugeridas">
+      <button type="button" (click)="send('RESUMEN KPI ESTRUCTURADO. Entrega exactamente: 1) LECTURA EJECUTIVA de los KPIs visibles; 2) FÓRMULAS CLAVE, explicando cómo se calcula venta bruta, venta neta, ticket promedio, conversión, venta promedio diaria, venta por colaborador, sell-through y cumplimiento; 3) PLAN PRIORIZADO con tres acciones concretas. Usa solamente el contexto disponible, omite métricas no visibles y no pidas más información.')">RESUMIR KPIs</button>
+      <button type="button" (click)="send('PLAN COMERCIAL. Resume qué está impulsando o frenando la venta visible, identifica dos oportunidades concretas y entrega un plan priorizado de tres pasos. Usa solo las cifras disponibles y no solicites información adicional.')">PLAN COMERCIAL</button>
+      <button type="button" (click)="send('RIESGO Y REPOSICIÓN. Lee los indicadores visibles de stock, cobertura, rotación y reposición; señala las dos alertas más importantes y plantea tres acciones ordenadas por prioridad. Usa solo los datos disponibles y no pidas aclaraciones.')">RIESGO Y STOCK</button>
+    </div>
+
+    <div #messageList class="assistant-messages" aria-live="polite">
+      @for (message of messages(); track $index) {
+        <article [class.user]="message.role === 'user'">
+          <span>{{ message.role === 'user' ? 'TÚ' : 'IA' }}</span>
+          <p>{{ message.content }}</p>
+        </article>
+      }
+      @if (busy()) { <article><span>IA</span><p class="assistant-thinking">Analizando…</p></article> }
+    </div>
+
+    @if (error()) { <p class="assistant-error" role="alert">{{ error() }}</p> }
+
+    <form class="assistant-composer" (ngSubmit)="send()">
+      <textarea rows="2" name="assistantQuestion" maxlength="2000" placeholder="Pregunta sobre los datos visibles…" [ngModel]="draft()" (ngModelChange)="draft.set($event)" [disabled]="busy()"></textarea>
+      <div>
+        <label class="assistant-upload" title="Grabar o elegir un audio">🎧<input type="file" accept="audio/*" capture="user" (change)="selectAudio($event)" [disabled]="busy()" /></label>
+        @if (canRecord()) { <button type="button" class="assistant-mic" (click)="toggleRecording()" [disabled]="busy()" [class.recording]="recording()" [attr.aria-label]="recording() ? 'Detener grabación' : 'Hablar por micrófono'">{{ recording() ? '■' : '🎤' }}</button> }
+        <button type="submit" class="assistant-send" [disabled]="busy() || !draft().trim()">ENVIAR</button>
+      </div>
+    </form>
+  </section>
+}

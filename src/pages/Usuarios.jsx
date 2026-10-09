@@ -147,8 +147,8 @@ export default function Usuarios({ user, zonalTeam = false }) {
     if (editing.dni && !new RegExp(`^\\d{${documentLength}}$`).test(editing.dni)) errors.dni = `Debe tener exactamente ${documentLength} dígitos.`;
     if (editing.telefono && !/^\d{9}$/.test(editing.telefono)) errors.telefono = "Debe tener exactamente 9 dígitos.";
     if (editing.telefono_emergencia && !/^\d{9}$/.test(editing.telefono_emergencia)) errors.telefono_emergencia = "Debe tener exactamente 9 dígitos.";
-    if (editing.usuario && (editing.usuario.trim().length < 3 || !/^[a-z0-9._-]+$/i.test(editing.usuario.trim()))) errors.usuario = "Usa al menos 3 caracteres: letras, números, punto o guion.";
-    if (editing.password && editing.password.length < 6) errors.password = "Debe tener al menos 6 caracteres.";
+    if (editing.usuario && (editing.usuario.trim().length < 2 || !/^[a-z0-9._-]+$/i.test(editing.usuario.trim()))) errors.usuario = "Usa al menos 2 caracteres: letras, números, punto o guion.";
+    if (editing.password && editing.password.length < 3) errors.password = "Debe tener al menos 3 caracteres.";
     if (editing.fecha_salida && !String(editing.motivo_salida || "").trim()) errors.motivo_salida = "Indica el motivo de salida.";
     if (editing.tiene_parentesco && !String(editing.tipo_parentesco || "").trim()) errors.tipo_parentesco = "Selecciona el parentesco.";
     if (editing.tiene_parentesco && !String(editing.familiar_vinculo || "").trim()) errors.familiar_vinculo = "Indica el nombre del familiar o vínculo.";
@@ -381,7 +381,7 @@ export default function Usuarios({ user, zonalTeam = false }) {
             <Field label="Correo" hint="Se usa para notificaciones de incidencias"><input type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
             {zonalTeam && <div className="form-section-title span-2"><strong>Credenciales de acceso</strong><span>Define usuario y contraseña para que el administrador pueda ingresar con su rol.</span></div>}
             <Field label="Usuario" error={fieldErrors.usuario} hint="Opcional. Sin usuario no podrá iniciar sesión."><input value={editing.usuario || ""} onChange={(e) => set("usuario", e.target.value)} /></Field>
-            <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual." : "Opcional; mínimo 6 caracteres si se asigna."}>
+            <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual." : "Opcional; mínimo 3 caracteres si se asigna."}>
               <input type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
             <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>

@@ -18,7 +18,8 @@ const navByRole = {
     { id: "historial", label: "Historial", icon: History },
   ],
   gerente_comercial: [
-    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
+    { id: "asiste-operativo", label: "Gestión Asiste", icon: ClipboardCheck },
     { id: "clusters", label: "Zonas", icon: Building2 },
     { id: "tiendas", label: "Tiendas", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
@@ -42,7 +43,8 @@ const navByRole = {
     { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
   ],
   jefe_zonal: [
-    { id: "dashboard", label: "Resumen", icon: BarChart3 },
+    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
+    { id: "asiste-operativo", label: "Gestión Asiste", icon: ClipboardCheck },
     { id: "tiendas", label: "Mis tiendas", icon: Building2 },
     { id: "zonal-personal", label: "Mis equipos", icon: Users },
     { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck },
@@ -53,7 +55,8 @@ const navByRole = {
     { id: "historial", label: "Historial", icon: History },
   ],
   jefe_tienda: [
-    { id: "dashboard", label: "Inicio", icon: BarChart3 },
+    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
+    { id: "asiste-operativo", label: "Gestión Asiste", icon: ClipboardCheck },
     { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
@@ -80,6 +83,9 @@ const navByRole = {
     { id: "seguridad-trafico", label: "Tráfico", icon: Users },
     { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
   ],
+  sistemas: [
+    { id: "sistemas", label: "Carga de datos", icon: FileSpreadsheet },
+  ],
 };
 navByRole.jefe_seguridad = navByRole.seguridad;
 navByRole.vendedor = navByRole.trabajador;
@@ -88,7 +94,7 @@ navByRole.caja = navByRole.trabajador;
 navByRole.almacenero = navByRole.trabajador;
 navByRole.jefe_area = navByRole.trabajador;
 const roleLabels = {
-  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", marketing: "Marketing", coach: "Coach",
+  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", sistemas: "Sistemas", marketing: "Marketing", coach: "Coach",
   jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda",
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
