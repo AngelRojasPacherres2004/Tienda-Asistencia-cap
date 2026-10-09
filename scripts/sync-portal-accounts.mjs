@@ -4,6 +4,7 @@
  * supabase/sql/unified_portal_access.sql y la API compatible con texto literal.
  */
 import process from "node:process";
+import { portalStores } from "./portal-store-catalog.mjs";
 
 const URL_BASE = process.env.SUPABASE_URL?.replace(/\/$/, "");
 const KEY = process.env.SUPABASE_SECRET_KEY;
@@ -11,18 +12,6 @@ const PASSWORD = process.env.PORTAL_INITIAL_PASSWORD;
 const APPLY = process.argv.includes("--apply");
 if (!URL_BASE || !KEY) throw new Error("Faltan SUPABASE_URL y SUPABASE_SECRET_KEY en el entorno del servidor.");
 if (APPLY && !PASSWORD) throw new Error("Falta PORTAL_INITIAL_PASSWORD; no se aplicaron cambios.");
-
-const expectedStores = [
-  ["T001", "LA MARINA", "mar", "A"], ["T002", "ARAMBURÚ", "ara", "B"],
-  ["T003", "EMANCIPACIÓN", "ema", "A"], ["T004", "INDEPENDENCIA", "ind", "A"],
-  ["T005", "ALFONSO UGARTE", "alf", "B"], ["T006", "ANGAMOS", "ang", "B"],
-  ["T007", "PERSHING", "per", "A"], ["T008", "ALIPIO", "ali", "B"],
-  ["T009", "CHORRILLOS", "cho", "B"], ["T010", "TRUJILLO", "tru", "A"],
-  ["T011", "PUENTE PIEDRA", "pp", "A"], ["T012", "AYACUCHO", "aya", "A"],
-  ["T013", "CALLAO", "cal", "B"], ["T014", "TUMBES", "agu", "A"],
-  ["T015", "PLAZA UNIÓN", "pzu", "B"], ["T016", "JR. DE LA UNIÓN 797", "jru", "B"],
-  ["T017", "ARGENTINA", "arg", "B"],
-];
 
 async function rest(resource, method = "GET", body) {
   const response = await fetch(`${URL_BASE}/rest/v1/${resource}`, {
@@ -43,7 +32,7 @@ async function rest(resource, method = "GET", body) {
 }
 
 const [users, stores, clusters, roles, mapping] = await Promise.all([
-  rest("usuarios?select=id,usuario,rol,tienda_id,estado,dni&limit=5000"),
+  rest("usuarios?select=id,usuario,rol,tienda_id,estado,dni,portal_only&limit=5000"),
   rest("tiendas?select=id,nombre,cluster_id,estado&limit=100"),
   rest("clusters?select=id,codigo,jefe_zonal_id,estado&limit=100"),
   rest("roles?select=codigo,activo&limit=100"),
@@ -53,22 +42,26 @@ const [users, stores, clusters, roles, mapping] = await Promise.all([
   }),
 ]);
 if (APPLY && !roles.some(row => row.codigo === "sistemas" && row.activo)) throw new Error("Falta aplicar el esquema del rol Sistemas.");
+if (APPLY && !roles.some(row => row.codigo === "seguridad" && row.activo)) throw new Error("Falta el rol activo de Seguridad.");
 const byUsername = new Map(users.filter(row => row.usuario).map(row => [row.usuario.toLowerCase(), row]));
 const byStoreId = new Map(stores.map(row => [row.id, row]));
 const byCode = new Map(mapping.map(row => [row.dashboard_store_id, row]));
 if (!APPLY && !mapping.length) {
-  for (const [code, name, , cluster] of expectedStores) {
+  for (const [code, name, , cluster] of portalStores) {
     const store = stores.find(row => row.nombre === name);
     if (store) byCode.set(code, { dashboard_store_id: code, tienda_id: store.id, cluster_code: cluster });
   }
 }
 const plan = [];
 
-function add({ username, role, existing, scopeType, scopeValue = null, create = false }) {
+function add({ username, role, existing, scopeType, scopeValue = null, storeId = null, create = false }) {
   const collision = byUsername.get(username);
   if (collision && collision.id !== existing?.id) throw new Error(`El usuario ${username} ya está asignado a otra persona.`);
   if (existing && existing.rol !== role) throw new Error(`El usuario ${username} tiene el rol inesperado ${existing.rol}.`);
-  plan.push({ username, role, id: existing?.id ?? null, scopeType, scopeValue, create });
+  if (role === "seguridad" && existing && (!existing.portal_only || Number(existing.tienda_id) !== Number(storeId))) {
+    throw new Error(`La cuenta ${username} ya existe, pero no es una cuenta de Seguridad de la tienda esperada.`);
+  }
+  plan.push({ username, role, id: existing?.id ?? null, scopeType, scopeValue, storeId, create });
 }
 
 const managers = users.filter(row => row.rol === "gerente_comercial");
@@ -84,7 +77,7 @@ for (const code of ["A", "B"]) {
   if (!zonal) throw new Error(`Falta el zonal activo del clúster ${code}.`);
   add({ username: `zonal${code.toLowerCase()}`, role: "jefe_zonal", existing: zonal, scopeType: "cluster", scopeValue: code });
 }
-for (const [code, storeName, username, cluster] of expectedStores) {
+for (const [code, storeName, username, cluster] of portalStores) {
   const link = byCode.get(code);
   const store = byStoreId.get(link?.tienda_id);
   if (!link || store?.nombre !== storeName || link.cluster_code !== cluster || store.estado !== "activo") {
@@ -93,6 +86,10 @@ for (const [code, storeName, username, cluster] of expectedStores) {
   const chiefs = users.filter(row => row.rol === "jefe_tienda" && row.tienda_id === store.id && row.estado === "activo");
   if (chiefs.length !== 1) throw new Error(`${storeName} tiene ${chiefs.length} administradores activos; se esperaba uno.`);
   add({ username, role: "jefe_tienda", existing: chiefs[0], scopeType: "store", scopeValue: code });
+  const securityUsername = `seguridad${username}`;
+  const securityAccount = byUsername.get(securityUsername);
+  add({ username: securityUsername, role: "seguridad", existing: securityAccount,
+    scopeType: null, storeId: store.id, create: !securityAccount });
 }
 for (const username of ["sistemas1", "sistemas2"]) {
   add({ username, role: "sistemas", existing: byUsername.get(username), scopeType: null, create: !byUsername.has(username) });
@@ -101,23 +98,26 @@ if (new Set(plan.map(row => row.id).filter(Boolean)).size !== plan.filter(row =>
   throw new Error("Dos credenciales apuntan al mismo usuario existente.");
 }
 
-console.log(JSON.stringify({ mode: APPLY ? "apply" : "dry-run", accountCount: plan.length, updates: plan.filter(row => row.id).length, creates: plan.filter(row => row.create).length, accounts: plan.map(({ username, role, scopeType, scopeValue }) => ({ username, role, scopeType, scopeValue })) }, null, 2));
+console.log(JSON.stringify({ mode: APPLY ? "apply" : "dry-run", accountCount: plan.length, updates: plan.filter(row => row.id).length, creates: plan.filter(row => row.create).length, accounts: plan.map(({ username, role, scopeType, scopeValue, storeId }) => ({ username, role, scopeType, scopeValue, storeId })) }, null, 2));
 if (!APPLY) process.exit(0);
 
 for (const row of plan) {
   let userId = row.id;
   if (row.create) {
     const created = await rest("usuarios", "POST", {
-      nombres: row.role === "sistemas" ? "Sistemas" : "Comercial",
-      apellidos: row.username.replace(/\D/g, "") || "Portal",
+      nombres: row.role === "sistemas" ? "Sistemas" : row.role === "seguridad" ? "Seguridad" : "Comercial",
+      apellidos: row.role === "seguridad" ? row.username.slice("seguridad".length).toUpperCase() : row.username.replace(/\D/g, "") || "Portal",
       dni: null, usuario: row.username, password: PASSWORD,
-      rol: row.role, tienda_id: null, estado: "activo", portal_only: true,
+      rol: row.role, tienda_id: row.storeId, estado: "activo", portal_only: true,
       fecha_ingreso: new Date().toISOString().slice(0, 10),
     });
     userId = created[0]?.id;
     if (!userId) throw new Error(`No se pudo crear ${row.username}.`);
   } else {
-    await rest(`usuarios?id=eq.${userId}`, "PATCH", { usuario: row.username, password: PASSWORD, estado: "activo" });
+    await rest(`usuarios?id=eq.${userId}`, "PATCH", {
+      usuario: row.username, password: PASSWORD, estado: "activo",
+      ...(row.role === "seguridad" ? { tienda_id: row.storeId } : {}),
+    });
   }
   if (row.scopeType) {
     await rest("commercial_user_scopes?on_conflict=usuario_id", "POST", {
