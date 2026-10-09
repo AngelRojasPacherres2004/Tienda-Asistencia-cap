@@ -6,6 +6,7 @@ import { Loading } from "./components/UI";
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const CommercialDashboard = lazy(() => import("./pages/CommercialDashboard"));
+const CommercialPortal = lazy(() => import("./pages/CommercialPortal"));
 const Usuarios = lazy(() => import("./pages/Usuarios"));
 const Tiendas = lazy(() => import("./pages/Tiendas"));
 const Cursos = lazy(() => import("./pages/Cursos"));
@@ -32,7 +33,7 @@ const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", marketing: "marketing-inicio", coach: "capacitaciones", jefe_zonal: "dashboard",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", sistemas: "sistemas", marketing: "marketing-inicio", coach: "capacitaciones", jefe_zonal: "dashboard",
   jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
@@ -76,7 +77,9 @@ export default function App() {
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
-    dashboard: user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" ? storeHome : isStoreManagement ? storeHome : <Dashboard user={user} />,
+    dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda"].includes(user.rol)
+      ? <CommercialPortal /> : user.rol === "sistemas" ? <div className="notice">La carga comercial aún no está habilitada.</div> : <Dashboard user={user} />,
+    "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
     tiendas: <Tiendas user={user} />,
@@ -111,6 +114,7 @@ export default function App() {
     "marketing-capacitaciones": <Marketing section="capacitaciones" />,
     "marketing-campanas": <Marketing section="campanas" />,
     "marketing-seguidores": <Marketing section="seguidores" />,
+    sistemas: <div className="notice">La carga comercial aún no está habilitada.</div>,
   }[page] || <Dashboard user={user} />;
 
   return (

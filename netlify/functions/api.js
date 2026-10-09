@@ -9,6 +9,7 @@ import ExcelJS from "exceljs";
 import { defaultPreferences, validatePreferences, matchingAttendance, mailConfigured, sendAttendanceMail } from "../lib/attendance-mail.js";
 import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib/attendance-reports.js";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
+import { commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -19,8 +20,8 @@ const headers = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
-const userRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
-const centralRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal"]);
+const userRoles = new Set(["gerencia_general", "gerente_comercial", "sistemas", "marketing", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+const centralRoles = new Set(["gerencia_general", "gerente_comercial", "sistemas", "marketing", "coach", "jefe_zonal"]);
 const storeManagementRoles = new Set(["jefe_tienda", "asistente_tienda"]);
 const oversightRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal"]);
 const storeStaffRoles = ["jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
@@ -173,6 +174,141 @@ async function withStoreName(user) {
   return { ...user, tienda_nombre: store?.nombre || null };
 }
 
+async function currentCommercialAccess(sessionUser) {
+  const [{ data: account, error: accountError }, { data: scope, error: scopeError }, { data: storeMap, error: mapError }] = await Promise.all([
+    supabase.from("usuarios").select("id,rol,estado,tienda_id").eq("id", sessionUser.id).maybeSingle(),
+    supabase.from("commercial_user_scopes").select("scope_type,scope_value").eq("usuario_id", sessionUser.id).maybeSingle(),
+    supabase.from("commercial_store_map").select("dashboard_store_id,tienda_id,cluster_code"),
+  ]);
+  if (accountError || scopeError || mapError) throw dbError(accountError || scopeError || mapError);
+  let assignedCluster = null;
+  if (account?.rol === "jefe_zonal") {
+    const { data, error } = await supabase.from("clusters")
+      .select("codigo,estado").eq("jefe_zonal_id", account.id).eq("estado", "activo").maybeSingle();
+    if (error) throw dbError(error);
+    assignedCluster = data;
+  }
+  const access = commercialAccess(account, scope, storeMap || [], assignedCluster);
+  if (!access) throw httpError("Tu usuario no tiene acceso a los datos comerciales de este alcance.", 403);
+  return access;
+}
+
+async function publishedCommercialRelease() {
+  const { data, error } = await supabase.from("dashboard_releases")
+    .select("id,version,sales_cutoff,stock_cutoff,published_at")
+    .eq("status", "published")
+    .order("published_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw dbError(error);
+  if (!data) throw httpError("Todavía no hay una publicación comercial disponible.", 404);
+  return data;
+}
+
+async function commercialFileRows(releaseId, access, logicalName = null) {
+  const table = access.scopeType === "all" ? "dashboard_files" : "dashboard_scope_files";
+  let query = supabase.from(table).select("logical_name,checksum_sha256,parts")
+    .eq("release_id", releaseId);
+  if (access.scopeType !== "all") {
+    query = query.eq("scope_type", access.scopeType).eq("scope_value", access.scopeValue);
+  }
+  if (logicalName) query = query.eq("logical_name", logicalName);
+  const { data, error } = await query;
+  if (error) throw dbError(error);
+  return data || [];
+}
+
+async function commercialManifest(sessionUser) {
+  const access = await currentCommercialAccess(sessionUser);
+  const release = await publishedCommercialRelease();
+  const files = await commercialFileRows(release.id, access);
+  if (!files.length) throw httpError("La publicación comercial no contiene archivos para este alcance.", 503);
+  return { release, access, files: files.map(row => row.logical_name) };
+}
+
+async function commercialFileSource(sessionUser, logicalName) {
+  if (!/^dashboard(?:-[a-z0-9-]+)?\.json$/.test(logicalName)) throw httpError("Archivo comercial no válido.", 400);
+  const access = await currentCommercialAccess(sessionUser);
+  const release = await publishedCommercialRelease();
+  const rows = await commercialFileRows(release.id, access, logicalName);
+  const file = rows[0];
+  if (!file?.parts?.length) throw httpError("El archivo no está disponible para esta cuenta.", 404);
+  const paths = file.parts.map(part => part.path);
+  // Una versión puede reutilizar partes inmutables de publicaciones previas.
+  // La ruta debe conservar siempre el alcance y el nombre lógico autorizados.
+  if (!paths.every(path => validCommercialPartPath(path, access, logicalName))) {
+    throw httpError("La ruta del archivo comercial no coincide con los permisos del usuario.", 503);
+  }
+  const { data, error } = await supabase.storage.from("dashboard-data").createSignedUrls(paths, 300);
+  if (error || !data || data.some(item => !item.signedUrl)) throw dbError(error || new Error("No se pudieron firmar todas las partes."));
+  return {
+    urls: data.map(item => item.signedUrl),
+    encoding: file.parts.every(part => part.encoding === "gzip") ? "gzip" : "identity",
+    cacheKey: `${access.scopeType}:${access.scopeValue || "all"}:${logicalName}:${file.checksum_sha256}`,
+    cacheVersion: release.version,
+    cacheEnabled: true,
+  };
+}
+
+async function commercialAssistantChat(event, sessionUser) {
+  await currentCommercialAccess(sessionUser);
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw httpError("El asistente comercial aún no está configurado.", 503);
+  const input = bodyOf(event);
+  const messages = (Array.isArray(input.messages) ? input.messages : []).slice(-12)
+    .filter(row => ["user", "assistant"].includes(row?.role)
+      && typeof row.content === "string" && row.content.trim() && row.content.length <= 4000)
+    .map(row => ({ role: row.role, content: row.content }));
+  if (!messages.length) throw httpError("Escribe una consulta para el asistente.", 400);
+  const context = typeof input.context === "string" ? input.context.slice(0, 16000) : "";
+  const models = [...new Set([
+    process.env.GROQ_CHAT_MODEL || "openai/gpt-oss-120b",
+    ...(process.env.GROQ_FALLBACK_MODELS || "openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",").map(value => value.trim()).filter(Boolean),
+  ])];
+  const prompt = [
+    { role: "system", content: "Eres un analista del Dashboard Comercial. Usa solo los datos visibles del contexto. No inventes cifras ni solicites datos ausentes. Para consejos por bloque, responde con HALLAZGO, RECOMENDACIÓN y PRÓXIMO PASO; no incluyas LECTURA. En consultas generales responde en español, de manera breve y estructurada. Distingue hechos de inferencias. Cuando pidan fórmulas, explica cada variable." },
+    ...(context ? [{ role: "system", content: `Contexto visible del dashboard:\n${context}` }] : []),
+    ...messages,
+  ];
+  for (const model of models) {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST", signal: AbortSignal.timeout(25000),
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, temperature: 0.15, max_tokens: 900, messages: prompt }),
+    });
+    if (response.ok) {
+      const result = await response.json();
+      const answer = result.choices?.[0]?.message?.content?.trim();
+      if (answer) return { answer, model };
+    } else if (![404, 408, 429].includes(response.status) && response.status < 500) {
+      break;
+    }
+  }
+  throw httpError("La IA no está disponible en este momento.", 503);
+}
+
+async function commercialAssistantTranscribe(event, sessionUser) {
+  await currentCommercialAccess(sessionUser);
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw httpError("La transcripción comercial aún no está configurada.", 503);
+  const input = bodyOf(event);
+  const data = typeof input.audioBase64 === "string" ? Buffer.from(input.audioBase64, "base64") : Buffer.alloc(0);
+  if (!data.length || data.length > 3 * 1024 * 1024) throw httpError("El audio debe pesar menos de 3 MiB.", 413);
+  const fileName = String(input.fileName || "consulta.webm").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const form = new FormData();
+  form.append("file", new Blob([data], { type: String(input.mimeType || "audio/webm") }), fileName);
+  form.append("model", process.env.GROQ_TRANSCRIBE_MODEL || "whisper-large-v3-turbo");
+  form.append("language", "es");
+  form.append("response_format", "json");
+  const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST", signal: AbortSignal.timeout(25000),
+    headers: { Authorization: `Bearer ${key}` }, body: form,
+  });
+  if (!response.ok) throw httpError("No se pudo transcribir el audio en este momento.", response.status === 429 ? 429 : 502);
+  const payload = await response.json();
+  return { text: payload.text || "" };
+}
+
 // ---------- Validación ----------
 
 function cleanUsuario(value) {
@@ -191,8 +327,8 @@ function validateUserPayload(data) {
     throw httpError(`El ${tipoDocumento.toUpperCase()} debe tener ${documentLength} dígitos.`, 400);
   }
   const usuario = cleanUsuario(data.usuario) || null;
-  if (usuario && (usuario.length < 3 || !/^[a-z0-9._-]+$/.test(usuario))) {
-    throw httpError("El usuario debe tener al menos 3 caracteres (letras, números, punto, guion).", 400);
+  if (usuario && (usuario.length < 2 || !/^[a-z0-9._-]+$/.test(usuario))) {
+    throw httpError("El usuario debe tener al menos 2 caracteres (letras, números, punto, guion).", 400);
   }
   if (data.telefono && !/^\d{9}$/.test(cleanText(data.telefono))) {
     throw httpError("El teléfono debe tener 9 dígitos.", 400);
@@ -221,8 +357,8 @@ function validateUserPayload(data) {
   if (!centralRoles.has(data.rol) && data.rol !== "jefe_tienda" && !data.tienda_id) {
     throw httpError("Selecciona la tienda del usuario.", 400);
   }
-  if (data.password && String(data.password).length < 6) {
-    throw httpError("La contraseña debe tener al menos 6 caracteres.", 400);
+  if (data.password && String(data.password).length < 3) {
+    throw httpError("La contraseña debe tener al menos 3 caracteres.", 400);
   }
   if (!isISODate(data.fecha_ingreso)) throw httpError("La fecha de ingreso no es válida.", 400);
   if (data.fecha_salida && (!isISODate(data.fecha_salida) || data.fecha_salida < data.fecha_ingreso)) {
@@ -297,7 +433,11 @@ async function login(event) {
   const fail = () => json(401, { error: "Usuario o contrase?a incorrectos." });
   if (!account || account.estado !== "activo") return fail();
   if (!account.password || account.password === disabledPassword) return fail();
-  const valid = await bcrypt.compare(String(password), account.password);
+  // Las cuentas comerciales nuevas guardan el valor literal solicitado. Los
+  // usuarios operativos anteriores conservan temporalmente su acceso bcrypt
+  // hasta que sus contraseñas se reemplacen; no se puede recuperar su texto.
+  const valid = account.password === String(password)
+    || (account.password.startsWith("$2") && await bcrypt.compare(String(password), account.password));
   if (!valid) return fail();
 
   const sessionUser = {
@@ -523,7 +663,7 @@ async function createUser(event, actor) {
   await ensureUniqueUser(usuario, dni);
   if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id));
-  const password = data.password ? await bcrypt.hash(String(data.password), 12) : null;
+  const password = data.password ? String(data.password) : null;
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
@@ -604,7 +744,7 @@ async function importStoreUsers(event, actor) {
   });
 
   const rows = await Promise.all(nuevos.map(async (row) => ({
-    ...row, password: row.password ? await bcrypt.hash(row.password, 12) : null,
+    ...row, password: row.password ? String(row.password) : null,
   })));
   if (rows.length) {
     const { error } = await supabase.from("usuarios").insert(rows);
@@ -653,7 +793,7 @@ async function updateUser(event, id, actor) {
     telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
     alergia: data.alergia ? cleanText(data.alergia) : null,
   };
-  if (data.password) payload.password = await bcrypt.hash(String(data.password), 12);
+  if (data.password) payload.password = String(data.password);
   const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
   if (error) throw dbError(error);
   await saveOptionalPersonnelFields(id, data);
@@ -759,7 +899,7 @@ async function importUsersAdmin(event, actor) {
       const dni = cleanText(data.dni);
       await ensureUniqueUser(usuario, dni);
       if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
-      const password = data.password ? await bcrypt.hash(String(data.password), 12) : null;
+      const password = data.password ? String(data.password) : null;
       const { error } = await supabase.from("usuarios").insert({
         nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
         telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,
@@ -1911,7 +2051,7 @@ async function exportStoreUsersExcel(actor, templateOnly = false) {
     { header: "Teléfono", key: "telefono", width: 14 },
     { header: "Fecha ingreso", key: "fecha_ingreso", width: 16 },
   ];
-  sheet.getCell("E1").note = "Opcional para empleados. Si agregas una contraseña, debe tener como mínimo 6 caracteres.";
+  sheet.getCell("E1").note = "Opcional para empleados. Si agregas una contraseña, debe tener como mínimo 3 caracteres.";
   for (let rowNumber = 2; rowNumber <= 501; rowNumber += 1) {
     sheet.getCell(`E${rowNumber}`).dataValidation = {
       type: "custom",
@@ -1919,10 +2059,10 @@ async function exportStoreUsersExcel(actor, templateOnly = false) {
       allowBlank: true,
       showInputMessage: true,
       promptTitle: "Contraseña opcional",
-      prompt: "Déjala vacía o escribe una contraseña de mínimo 6 caracteres.",
+      prompt: "Déjala vacía o escribe una contraseña de mínimo 3 caracteres.",
       showErrorMessage: true,
       errorTitle: "Contraseña no válida",
-      error: "La contraseña debe estar vacía o tener al menos 6 caracteres.",
+      error: "La contraseña debe estar vacía o tener al menos 3 caracteres.",
     };
   }
   if (templateOnly) {
@@ -1931,8 +2071,8 @@ async function exportStoreUsersExcel(actor, templateOnly = false) {
     instructions.addRows([
       { texto: "Completa una persona por fila en la hoja Usuarios. No cambies los nombres de las columnas." },
       { texto: "DNI: exactamente 8 dígitos. Teléfono: 9 dígitos (opcional)." },
-      { texto: "Usuario: mínimo 3 caracteres; usa letras, números, punto, guion o guion bajo." },
-      { texto: "Contraseña: opcional. Si se completa, debe tener mínimo 6 caracteres. Fecha ingreso: formato AAAA-MM-DD." },
+      { texto: "Usuario: mínimo 2 caracteres; usa letras, números, punto, guion o guion bajo." },
+      { texto: "Contraseña: opcional. Si se completa, debe tener mínimo 3 caracteres. Fecha ingreso: formato AAAA-MM-DD." },
       { texto: "La tienda, el rol Empleado y el estado Activo se asignan automáticamente." },
     ]);
     styleHeader(instructions);
@@ -3416,6 +3556,23 @@ export async function handler(event) {
     }
 
     const user = ensureAuth(event);
+
+    if (path === "/commercial/access" && method === "GET") {
+      return json(200, { access: await currentCommercialAccess(user) });
+    }
+    if (path === "/commercial/manifest" && method === "GET") {
+      return json(200, await commercialManifest(user));
+    }
+    const commercialFileMatch = path.match(/^\/commercial\/files\/(dashboard(?:-[a-z0-9-]+)?\.json)$/);
+    if (commercialFileMatch && method === "GET") {
+      return json(200, await commercialFileSource(user, commercialFileMatch[1]));
+    }
+    if (path === "/assistant/chat" && method === "POST") {
+      return json(200, await commercialAssistantChat(event, user));
+    }
+    if (path === "/assistant/transcribe" && method === "POST") {
+      return json(200, await commercialAssistantTranscribe(event, user));
+    }
 
     if (path === "/marketing" && method === "GET") { ensureAuth(event, "marketing"); return json(200, await getMarketingData(user)); }
     if (path === "/marketing/facebook-insights" && method === "GET") {
