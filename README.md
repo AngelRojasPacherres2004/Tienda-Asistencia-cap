@@ -62,6 +62,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 No configures secretos con el prefijo `VITE_`: ese prefijo los haría visibles en el frontend.
 
+## Facebook en Marketing
+
+En el proyecto Supabase `bd-app`, guarda `META_ACCESS_TOKEN` y `META_PAGE_ID` en **Edge Functions → Secrets**. La función `supabase/functions/facebook-insights` consulta los seguidores actuales de la página. El token de Meta permanece en Supabase; Netlify solo usa su clave de servicio existente para invocar la función desde la ruta privada `/api/marketing/facebook-insights`, después de validar la sesión y el rol Marketing.
+
+Las campañas de la pantalla son registros internos de la aplicación. Las campañas publicitarias de Meta Ads requieren una cuenta publicitaria (`act_...`) y permisos de Marketing API adicionales; no se mezclan con estos registros. Si Meta rechaza el token, la pantalla muestra un estado de error en vez de inventar una cifra.
+
 ## Seguridad incorporada
 
 - Sesión firmada en cookie `HttpOnly`, `Secure` y `SameSite=Lax`.

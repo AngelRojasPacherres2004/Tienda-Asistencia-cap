@@ -1,0 +1,2 @@
+[functions.facebook-insights]
+verify_jwt = false

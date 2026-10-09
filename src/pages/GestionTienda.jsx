@@ -59,7 +59,7 @@ export default function GestionTienda({ user }) {
   const load = useCallback(() => {
     if (!storeId) return;
     const query = `?tienda_id=${storeId}`;
-    Promise.all([api(`/operaciones/resumen${query}`), api(`/errores-personal${query}`).catch(() => []), api(`/amonestaciones${query}`).catch(() => []), api(`/documentos-tienda${query}`).catch(() => [])])
+    Promise.all([api(`/operaciones/resumen${query}`), api(`/errores-personal${query}`), api(`/amonestaciones${query}`), api(`/documentos-tienda${query}`)])
       .then(([summary, errors, warnings, documents]) => setData({ summary, errors, warnings, documents })).catch((err) => setNotice({ type: "error", text: err.message }));
     if (!central.has(user.rol) || user.rol === "jefe_zonal") api("/usuarios").then(setWorkers).catch(() => setWorkers([]));
   }, [storeId, user.rol]);

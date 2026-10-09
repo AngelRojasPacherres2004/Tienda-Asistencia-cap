@@ -1,3 +1,4 @@
+import { PRESENT_STATES } from "../../shared/metrics.js";
 import { useEffect, useMemo, useState } from "react";
 import { CalendarCheck2 } from "lucide-react";
 import { api, estadoAsistenciaLabels, formatDate, todayISO } from "../lib/api";
@@ -10,14 +11,17 @@ export default function MiAsistencia() {
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    api(`/mis-asistencias?desde=${desde}&hasta=${hasta}`).then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
+    let active = true;
+    setItems(null); setNotice(null);
+    api(`/mis-asistencias?desde=${desde}&hasta=${hasta}`).then(rows => { if (active) setItems(rows); }).catch(err => { if (active) setNotice({ type: "error", text: err.message }); });
+    return () => { active = false; };
   }, [desde, hasta]);
 
   const resumen = useMemo(() => {
     if (!items) return null;
     const total = items.length;
-    const presentes = items.filter((row) => row.estado === "presente").length;
-    return { total, presentes, tasa: total ? Math.round((presentes / total) * 100) : 0 };
+    const presentes = items.filter((row) => PRESENT_STATES.has(row.estado)).length;
+    return { total, presentes, tasa: total ? `${Math.round((presentes / total) * 100)}%` : "Sin registros" };
   }, [items]);
 
   return (
@@ -29,7 +33,7 @@ export default function MiAsistencia() {
         <section className="compact-metrics">
           <div><span>Días registrados</span><strong>{resumen.total}</strong></div>
           <div className="green"><span>Presentes</span><strong>{resumen.presentes}</strong></div>
-          <div className="amber"><span>Tasa de asistencia</span><strong>{resumen.tasa}%</strong></div>
+          <div className="amber"><span>Tasa de asistencia</span><strong>{resumen.tasa}</strong></div>
         </section>
       )}
 
@@ -40,7 +44,7 @@ export default function MiAsistencia() {
         <input type="date" value={hasta} max={todayISO()} onChange={(e) => setHasta(e.target.value)} />
       </div>
 
-      {!items ? <Loading /> : items.length ? (
+      {!items ? (notice ? null : <Loading />) : items.length ? (
         <div className="table-panel">
           <div className="data-table data-table--mi-asistencia">
             <div className="data-table__head"><span>Fecha</span><span>Estado</span><span>Observaciones</span></div>

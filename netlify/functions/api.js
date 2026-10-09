@@ -1,3 +1,7 @@
+import { readRows } from "../lib/read-rows.js";
+import { retrySupabaseRead } from "../lib/retry-supabase-fetch.js";
+import { fetchFacebookInsights } from "../lib/facebook-insights.js";
+import { businessDate, addDays, attendanceCounts, courseProgress, rotationCounts, employmentPeriods, pendingAttendance } from "../../shared/metrics.js";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -8,13 +12,13 @@ import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
+  global: { fetch: retrySupabaseRead },
 });
 
 const headers = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
-const loginAttempts = new Map();
 const userRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
 const centralRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal"]);
 const storeManagementRoles = new Set(["jefe_tienda", "asistente_tienda"]);
@@ -89,7 +93,7 @@ function normalizeLaborArea(value) {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return businessDate();
 }
 
 function isISODate(value) {
@@ -281,13 +285,6 @@ function validIds(list) {
 // ---------- Autenticación ----------
 
 async function login(event) {
-  const clientIp = event.headers["x-nf-client-connection-ip"]
-    || event.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-    || "local";
-  const attempt = loginAttempts.get(clientIp);
-  if (attempt?.blockedUntil > Date.now()) {
-    return json(429, { error: "Demasiados intentos. Espera unos minutos antes de volver a intentar." });
-  }
   const { usuario, password } = bodyOf(event);
   requireFields({ usuario, password }, ["usuario", "password"]);
   const { data: account, error } = await supabase
@@ -297,17 +294,12 @@ async function login(event) {
     .maybeSingle();
   if (error) throw dbError(error);
 
-  const fail = () => {
-    const count = (attempt?.count || 0) + 1;
-    loginAttempts.set(clientIp, { count, blockedUntil: count >= 5 ? Date.now() + 15 * 60_000 : 0 });
-    return json(401, { error: "Usuario o contraseña incorrectos." });
-  };
+  const fail = () => json(401, { error: "Usuario o contrase?a incorrectos." });
   if (!account || account.estado !== "activo") return fail();
   if (!account.password || account.password === disabledPassword) return fail();
   const valid = await bcrypt.compare(String(password), account.password);
   if (!valid) return fail();
 
-  loginAttempts.delete(clientIp);
   const sessionUser = {
     id: account.id, nombres: account.nombres, apellidos: account.apellidos,
     usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
@@ -354,7 +346,7 @@ async function zonalStoreIds(userId) {
   const { data: cluster, error: clusterError } = await supabase.from("clusters").select("id").eq("jefe_zonal_id", userId).maybeSingle();
   if (clusterError) throw dbError(clusterError);
   if (!cluster) return [];
-  const { data, error } = await supabase.from("tiendas").select("id").eq("cluster_id", cluster.id);
+  const { data, error } = await readAllResult(supabase.from("tiendas").select("id").eq("cluster_id", cluster.id));
   if (error) throw dbError(error);
   return (data || []).map((row) => row.id);
 }
@@ -371,10 +363,17 @@ async function resolveStoreScope(user, requestedStoreId = null) {
     return requestedId || ids;
   }
   if (storeManagementRoles.has(user.rol)) {
+    if (!user.tienda_id) throw httpError("Tu usuario no tiene una tienda asignada.", 403);
     if (requestedId && Number(user.tienda_id) !== requestedId) throw httpError("Solo puedes consultar los datos de tu tienda.", 403);
     return user.tienda_id;
   }
   return user.tienda_id || null;
+}
+
+async function activeStoreIds() {
+  const { data, error } = await readAllResult(supabase.from("tiendas").select("id").eq("estado", "activo"));
+  if (error) throw dbError(error);
+  return (data || []).map((store) => store.id);
 }
 
 function allowedCreatedRoles(actor) {
@@ -423,13 +422,12 @@ async function listUsers(actor, storeId = null, options = {}) {
   if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   if (storeId) request = request.eq("tienda_id", storeId);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   if (!data?.length) return [];
   const [{ data: optionalRows }, { data: schedules, error: scheduleError }] = await Promise.all([
     supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", data.map((row) => row.id)),
     supabase.from("horarios_trabajadores").select("usuario_id,dia_semana,trabaja,hora_entrada,hora_salida").in("usuario_id", data.map((row) => row.id)).order("dia_semana"),
-  ]);
+  ].map(request => readAllResult(request)));
   if (scheduleError) throw dbError(scheduleError);
   const optionalById = new Map((optionalRows || []).map((row) => [row.id, row]));
   const rows = data.map((row) => ({
@@ -797,9 +795,9 @@ async function exportUsersExcelAdmin(actor, template = false) {
 // ---------- Clústeres y tiendas ----------
 
 async function listClusters() {
-  const { data, error } = await supabase.from("clusters")
+  const { data, error } = await readAllResult(supabase.from("clusters")
     .select("id,nombre,codigo,estado,jefe_zonal_id,created_at,jefe:usuarios!clusters_jefe_zonal_id_fkey(id,nombres,apellidos,usuario),tiendas(id,nombre,estado)")
-    .order("nombre");
+    .order("nombre"));
   if (error) throw dbError(error);
   return data.map(({ jefe, tiendas, ...row }) => ({ ...row, jefe_nombre: jefe ? `${jefe.nombres} ${jefe.apellidos}` : null, jefe_usuario: jefe?.usuario || null, tiendas: tiendas || [] }));
 }
@@ -821,7 +819,7 @@ async function syncClusterStores(clusterId, storeIds) {
     : await supabase.from("tiendas").update({ cluster_id: null }).eq("cluster_id", clusterId);
   if (clearError) throw dbError(clearError);
   if (!ids.length) return;
-  const { data: stores, error: storeError } = await supabase.from("tiendas").select("id").in("id", ids);
+  const { data: stores, error: storeError } = await readAllResult(supabase.from("tiendas").select("id").in("id", ids));
   if (storeError) throw dbError(storeError);
   if (stores.length !== ids.length) throw httpError("Una de las tiendas seleccionadas no existe.", 400);
   const { error } = await supabase.from("tiendas").update({ cluster_id: clusterId }).in("id", ids);
@@ -870,8 +868,7 @@ async function listTiendas(actor) {
     if (!ids.length) return [];
     request = request.in("id", ids);
   }
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   return data.map(({ jefe, cluster, ...row }) => ({
     ...row,
     jefe_nombre: jefe ? `${jefe.nombres} ${jefe.apellidos}` : null,
@@ -1008,8 +1005,8 @@ async function listAsistenciasDia(event, user) {
   let registrosQuery = supabase.from("asistencias").select("*").eq("fecha", fecha);
   registrosQuery = applyStoreScope(registrosQuery, tiendaScope);
   const [{ data: empleados, error: e1 }, { data: registros, error: e2 }] = await Promise.all([
-    empleadosQuery,
-    registrosQuery,
+    readAllResult(empleadosQuery),
+    readAllResult(registrosQuery),
   ]);
   if (e1) throw dbError(e1);
   if (e2) throw dbError(e2);
@@ -1029,16 +1026,16 @@ async function guardarAsistenciasLote(event, user) {
   if (!isISODate(data.fecha)) throw httpError("La fecha no es válida.", 400);
   if (!Array.isArray(data.marcas) || !data.marcas.length) throw httpError("No hay marcas para guardar.", 400);
   const usuarioIds = validIds(data.marcas.map((marca) => marca.usuario_id));
-  const { data: empleados, error: eError } = await supabase.from("usuarios")
-    .select("id,tienda_id").in("id", usuarioIds);
+  const { data: empleados, error: eError } = await readAllResult(supabase.from("usuarios")
+    .select("id,tienda_id").in("id", usuarioIds));
   if (eError) throw dbError(eError);
   if (empleados.length !== usuarioIds.length || empleados.some((emp) => emp.tienda_id !== user.tienda_id)) {
     throw httpError("Uno de los trabajadores seleccionados no pertenece a tu tienda.", 400);
   }
   const tiendaByUser = new Map(empleados.map((emp) => [emp.id, emp.tienda_id]));
 
-  const { data: existentes, error: exError } = await supabase.from("asistencias")
-    .select("usuario_id,estado,observaciones").eq("fecha", data.fecha).in("usuario_id", usuarioIds);
+  const { data: existentes, error: exError } = await readAllResult(supabase.from("asistencias")
+    .select("usuario_id,estado,observaciones").eq("fecha", data.fecha).in("usuario_id", usuarioIds));
   if (exError) throw dbError(exError);
   const existenteByUser = new Map(existentes.map((row) => [row.usuario_id, row]));
 
@@ -1079,9 +1076,9 @@ async function zonalNotificationPreferences(user, input = null) {
     const { error } = await supabase.from("notificaciones_asistencia_zonal").upsert({ usuario_id: user.id, ...preferences, updated_at: new Date().toISOString() });
     if (error) throw dbError(error);
   }
-  const { data, error } = await supabase.from("notificaciones_asistencia_zonal").select("activo,registros,faltas,tardanzas,destinatarios").eq("usuario_id", user.id).maybeSingle();
+  const { data, error } = await supabase.from("notificaciones_asistencia_zonal").select("activo,registros,faltas,tardanzas,trafico,documentos_vencidos,destinatarios").eq("usuario_id", user.id).maybeSingle();
   if (error) throw dbError(error);
-  return { ...(data || defaultPreferences), remitente: process.env.GMAIL_USER || "thisisalexa363@gmail.com", correo_configurado: mailConfigured() };
+  return { ...defaultPreferences, ...data, remitente: process.env.GMAIL_USER || "thisisalexa363@gmail.com", correo_configurado: mailConfigured() };
 }
 
 async function notifyZonalAttendance(storeId, date, rows) {
@@ -1096,12 +1093,25 @@ async function notifyZonalAttendance(storeId, date, rows) {
   if (!preferences.activo || !preferences.destinatarios.length) return { estado: "desactivada" };
   const matches = matchingAttendance(rows, preferences);
   if (!matches.length) return { estado: "sin_coincidencias" };
-  const { data: people, error } = await supabase.from("usuarios").select("id,nombres,apellidos").in("id", matches.map(row => row.usuario_id));
+  const { data: people, error } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos").in("id", matches.map(row => row.usuario_id)));
   if (error) throw dbError(error);
   const names = new Map(people.map(person => [person.id, `${person.nombres} ${person.apellidos}`]));
   const text = [`Tienda: ${store.nombre}`, `Fecha de asistencia: ${date}`, "", ...matches.map(row => `${names.get(row.usuario_id) || "Trabajador"}: ${row.estado.replaceAll("_", " ")}`), "", "Consulta Asiste para revisar el detalle de los registros."].join("\n");
   await sendAttendanceMail(preferences, `Asiste · Asistencias de ${store.nombre} · ${date}`, text);
   return { estado: "enviada", destinatarios: preferences.destinatarios.length };
+}
+
+async function notifyZonalTraffic(storeId, row) {
+  const { data: store, error } = await supabase.from("tiendas").select("nombre,cluster:clusters(jefe_zonal_id)").eq("id", storeId).single();
+  if (error) throw dbError(error);
+  if (!store.cluster?.jefe_zonal_id) return;
+  const { data: zonal, error: zonalError } = await supabase.from("usuarios").select("id").eq("id", store.cluster.jefe_zonal_id).eq("rol", "jefe_zonal").eq("estado", "activo").maybeSingle();
+  if (zonalError) throw dbError(zonalError);
+  if (!zonal) return;
+  const preferences = await zonalNotificationPreferences(zonal);
+  if (!preferences.activo || !preferences.trafico || !preferences.destinatarios.length) return;
+  const text = [`Tienda: ${store.nombre}`, `Fecha: ${row.fecha}`, `Horario: ${row.rango_hora}`, `Tráfico registrado: ${row.cantidad}`, row.observaciones ? `Observaciones: ${row.observaciones}` : "", "", "Consulta Asiste para revisar el tráfico de las tiendas."].filter(Boolean).join("\n");
+  await sendAttendanceMail(preferences, `Asiste · Tráfico de ${store.nombre} · ${row.fecha}`, text);
 }
 
 async function eliminarAsistencia(id, user) {
@@ -1120,7 +1130,8 @@ async function eliminarAsistencia(id, user) {
 
 async function listAsistenciasHistorial(event, user) {
   const query = event.queryStringParameters || {};
-  const tiendaScope = await resolveStoreScope(user, query.tienda_id);
+  let tiendaScope = await resolveStoreScope(user, query.tienda_id);
+  if (user.rol === "gerencia_general" && !query.tienda_id && query.solo_tiendas_activas === "true") tiendaScope = await activeStoreIds();
   const desde = query.desde && isISODate(query.desde) ? query.desde : `${todayISO().slice(0, 7)}-01`;
   const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
   const ascending = query.orden === "asc";
@@ -1131,8 +1142,7 @@ async function listAsistenciasHistorial(event, user) {
   if (query.estado_usuario === "activo" || query.estado_usuario === "inactivo") {
     request = request.eq("usuarios.estado", query.estado_usuario);
   }
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   return data.map((row) => ({
     ...row, usuarios: undefined,
     nombre: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "",
@@ -1149,11 +1159,10 @@ async function listLogAsistencias(event, user) {
       + "usuarios!log_asistencias_usuario_id_fkey(nombres,apellidos),"
       + "realizador:usuarios!log_asistencias_realizado_por_fkey(nombres,apellidos)")
     .eq("tienda_id", user.tienda_id)
-    .gte("created_at", `${desde}T00:00:00`).lte("created_at", `${hasta}T23:59:59`)
+    .gte("created_at", `${desde}T00:00:00-05:00`).lte("created_at", `${hasta}T23:59:59.999-05:00`)
     .order("created_at", { ascending: false });
   if (operacionesLog.has(query.operacion)) request = request.eq("operacion", query.operacion);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   return data.map((row) => ({
     id: row.id, fecha: row.fecha, operacion: row.operacion, created_at: row.created_at,
     estado_anterior: row.estado_anterior ? (estadoLabels[row.estado_anterior] || row.estado_anterior) : null,
@@ -1167,16 +1176,16 @@ async function misAsistencias(event, user) {
   const query = event.queryStringParameters || {};
   const desde = query.desde && isISODate(query.desde) ? query.desde : `${todayISO().slice(0, 7)}-01`;
   const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
-  const { data, error } = await supabase.from("asistencias").select("*")
-    .eq("usuario_id", user.id).gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false });
-  if (error) throw dbError(error);
+  if (desde > hasta) throw httpError("La fecha inicial no puede ser posterior a la final.", 400);
+  const data = await fetchAllReportPages(supabase.from("asistencias").select("*")
+    .eq("usuario_id", user.id).gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false }).order("id"));
   return data;
 }
 
 // ---------- Cursos y Encargados (catálogo, solo admin) ----------
 
 async function listCursos(user) {
-  const { data, error } = await supabase.from("cursos").select("*,curso_roles(rol_codigo)").order("nombre");
+  const { data, error } = await readAllResult(supabase.from("cursos").select("*,curso_roles(rol_codigo)").order("nombre"));
   if (error) throw dbError(error);
   const targets = new Set(trainingTargetRoles(user.rol));
   return data
@@ -1232,7 +1241,7 @@ async function deleteCurso(id) {
 }
 
 async function listEncargados() {
-  const { data, error } = await supabase.from("encargados").select("*").order("nombre");
+  const { data, error } = await readAllResult(supabase.from("encargados").select("*").order("nombre"));
   if (error) throw dbError(error);
   return data;
 }
@@ -1276,8 +1285,8 @@ async function listTrabajadores(event, user) {
   const query = event.queryStringParameters || {};
   let targetRoles = trainingTargetRoles(user.rol);
   if (query.curso_id) {
-    const { data: roleRows, error: roleError } = await supabase.from("curso_roles")
-      .select("rol_codigo").eq("curso_id", Number(query.curso_id));
+    const { data: roleRows, error: roleError } = await readAllResult(supabase.from("curso_roles")
+      .select("rol_codigo").eq("curso_id", Number(query.curso_id)).order("rol_codigo"), "curso_id");
     if (roleError) throw dbError(roleError);
     const assignedRoles = new Set(roleRows.map((row) => row.rol_codigo));
     targetRoles = targetRoles.filter((role) => assignedRoles.has(role));
@@ -1294,14 +1303,13 @@ async function listTrabajadores(event, user) {
   }
   request = request.order("nombres");
   if (query.estado === "activo" || query.estado === "inactivo") request = request.eq("estado", query.estado);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const people = data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || null }));
   if (!query.curso_id) return people;
   const cursoId = Number(query.curso_id);
   const ids = people.map((t) => t.id);
-  const { data: progreso, error: pError } = await supabase.from("capacitacion_progreso")
-    .select("usuario_id,estado").eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]);
+  const { data: progreso, error: pError } = await readAllResult(supabase.from("capacitacion_progreso")
+    .select("usuario_id,estado").eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]));
   if (pError) throw dbError(pError);
   const byUser = new Map(progreso.map((row) => [row.usuario_id, row.estado]));
   return people.map((t) => ({ ...t, progreso_estado: byUser.get(t.id) || "pendiente" }));
@@ -1327,9 +1335,9 @@ async function getTrabajadorPerfil(id, user) {
   if (error) throw dbError(error);
   await assertTrainingTarget(user, trabajador);
 
-  const { data: progresoRows, error: progresoError } = await supabase.from("capacitacion_progreso")
+  const { data: progresoRows, error: progresoError } = await readAllResult(supabase.from("capacitacion_progreso")
     .select("curso_id,estado,duracion_horas,nota,resultado,fecha_finalizacion")
-    .eq("usuario_id", id);
+    .eq("usuario_id", id));
   if (progresoError) throw dbError(progresoError);
   const progresoByCurso = new Map(progresoRows.map((row) => [row.curso_id, row]));
 
@@ -1341,8 +1349,8 @@ async function getTrabajadorPerfil(id, user) {
   const { data: cursos, error: cursosError } = await cursosQuery.order("nombre");
   if (cursosError) throw dbError(cursosError);
 
-  const { data: roleRows, error: roleError } = await supabase.from("curso_roles")
-    .select("curso_id").eq("rol_codigo", trabajador.rol);
+  const { data: roleRows, error: roleError } = await readAllResult(supabase.from("curso_roles")
+    .select("curso_id").eq("rol_codigo", trabajador.rol).order("rol_codigo"), "curso_id");
   if (roleError) throw dbError(roleError);
   const assignedCursoIds = new Set(roleRows.map((row) => row.curso_id));
 
@@ -1396,8 +1404,8 @@ async function getResumenCurso(event, user) {
   if (!Number.isInteger(cursoId) || cursoId < 1) throw httpError("Selecciona un curso.", 400);
   const tiendaId = oversightRoles.has(user.rol) ? (query.tienda_id ? Number(query.tienda_id) : null) : user.tienda_id;
 
-  const { data: roleRows, error: roleError } = await supabase.from("curso_roles")
-    .select("rol_codigo").eq("curso_id", cursoId);
+  const { data: roleRows, error: roleError } = await readAllResult(supabase.from("curso_roles")
+    .select("rol_codigo").eq("curso_id", cursoId).order("rol_codigo"), "curso_id");
   if (roleError) throw dbError(roleError);
   const assignedRoles = new Set(roleRows.map((row) => row.rol_codigo));
   const targetRoles = trainingTargetRoles(user.rol).filter((role) => assignedRoles.has(role));
@@ -1415,9 +1423,9 @@ async function getResumenCurso(event, user) {
   if (tError) throw dbError(tError);
 
   const ids = trabajadores.map((t) => t.id);
-  const { data: progresoRows, error: pError } = await supabase.from("capacitacion_progreso")
+  const { data: progresoRows, error: pError } = await readAllResult(supabase.from("capacitacion_progreso")
     .select("usuario_id,estado,duracion_horas,nota,fecha_finalizacion")
-    .eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]);
+    .eq("curso_id", cursoId).in("usuario_id", ids.length ? ids : [0]));
   if (pError) throw dbError(pError);
   const byUser = new Map(progresoRows.map((row) => [row.usuario_id, row]));
 
@@ -1453,8 +1461,8 @@ async function asignarLote(event, user) {
     .select("id").eq("id", encargadoId).maybeSingle();
   if (eError) throw dbError(eError);
   if (!encargado) throw httpError("El encargado seleccionado no existe.", 400);
-  const { data: trabajadores, error: tError } = await supabase.from("usuarios")
-    .select("id,tienda_id,rol").in("id", ids);
+  const { data: trabajadores, error: tError } = await readAllResult(supabase.from("usuarios")
+    .select("id,tienda_id,rol").in("id", ids));
   if (tError) throw dbError(tError);
   if (trabajadores.length !== ids.length) throw httpError("Una de las personas seleccionadas no existe.", 400);
   for (const trabajador of trabajadores) {
@@ -1477,12 +1485,12 @@ async function asignarLote(event, user) {
 }
 
 async function misCapacitaciones(user) {
-  const { data: progresoRows, error } = await supabase.from("capacitacion_progreso")
+  const { data: progresoRows, error } = await readAllResult(supabase.from("capacitacion_progreso")
     .select("curso_id,estado,duracion_horas,nota,fecha_finalizacion,cursos(id,nombre,competencia,activo)")
-    .eq("usuario_id", user.id);
+    .eq("usuario_id", user.id));
   if (error) throw dbError(error);
   const progresoByCurso = new Map(progresoRows.filter((row) => row.cursos).map((row) => [row.curso_id, row]));
-  const { data: asignaciones, error: aError } = await supabase.from("curso_roles").select("curso_id").eq("rol_codigo", user.rol);
+  const { data: asignaciones, error: aError } = await readAllResult(supabase.from("curso_roles").select("curso_id").eq("rol_codigo", user.rol).order("rol_codigo"), "curso_id");
   if (aError) throw dbError(aError);
   const assignedIds = asignaciones.map((row) => row.curso_id);
   const { data: cursosActivos, error: cError } = assignedIds.length
@@ -1513,8 +1521,9 @@ async function getPerfil(user) {
   if (error) throw dbError(error);
   const monthStart = `${todayISO().slice(0, 7)}-01`;
   const today = todayISO();
-  const { data: mes } = await supabase.from("asistencias").select("estado")
-    .eq("usuario_id", user.id).gte("fecha", monthStart).lte("fecha", today);
+  const { data: mes, error: attendanceError } = await readAllResult(supabase.from("asistencias").select("estado")
+    .eq("usuario_id", user.id).gte("fecha", monthStart).lte("fecha", today));
+  if (attendanceError) throw dbError(attendanceError);
   const total = mes?.length || 0;
   const presentes = mes?.filter((row) => presenteEstados.has(row.estado)).length || 0;
   return {
@@ -1576,7 +1585,7 @@ async function getSummary(tiendaFilter, today, monthStart) {
     tiendas_activas: tiendasActivas,
     usuarios_activos: usuariosActivos,
     asistencias_hoy: hoyPresentes,
-    tasa_asistencia_mes: mesTotal ? Math.round((mesPresentes / mesTotal) * 100) : 0,
+    tasa_asistencia_mes: mesTotal ? Math.round((mesPresentes / mesTotal) * 100) : null,
     cursos_en_curso: cursosEnCurso,
   };
 }
@@ -1584,8 +1593,7 @@ async function getSummary(tiendaFilter, today, monthStart) {
 async function getStates(tiendaFilter, monthStart, today) {
   let request = supabase.from("asistencias").select("estado").gte("fecha", monthStart).lte("fecha", today);
   request = applyStoreScope(request, tiendaFilter);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const counts = {};
   for (const row of data) counts[row.estado] = (counts[row.estado] || 0) + 1;
   return Object.entries(counts).map(([estado, cantidad]) => ({ estado, cantidad })).sort((a, b) => b.cantidad - a.cantidad);
@@ -1603,18 +1611,17 @@ async function getTrend(tiendaFilter, selectedYear) {
   return Promise.all(months.map(async ({ label, start, end }) => {
     let request = supabase.from("asistencias").select("estado").gte("fecha", start).lte("fecha", end);
     request = applyStoreScope(request, tiendaFilter);
-    const { data } = await request;
-    const total = data?.length || 0;
+    const data = await fetchAllReportPages(request.order("id"));
+    const total = data.length;
     const presentes = data?.filter((row) => presenteEstados.has(row.estado)).length || 0;
-    return { mes: label, tasa: total ? Math.round((presentes / total) * 100) : 0 };
+    return { mes: label, registros: total, tasa: total ? Math.round((presentes / total) * 100) : null };
   }));
 }
 
 async function getWorkload(tiendaFilter, monthStart, today) {
   let request = supabase.from("asistencias").select("usuario_id,tienda_id,estado").gte("fecha", monthStart).lte("fecha", today);
   request = applyStoreScope(request, tiendaFilter);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const groupKey = Array.isArray(tiendaFilter) || !hasStoreScope(tiendaFilter) ? "tienda_id" : "usuario_id";
   const groups = new Map();
   for (const row of data) {
@@ -1638,64 +1645,34 @@ async function getWorkload(tiendaFilter, monthStart, today) {
   }
   return [...groups.entries()]
     .map(([id, group]) => ({ nombre: names.get(id) || `#${id}`, ...group }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 8);
+    .sort((a, b) => b.total - a.total);
 }
 
 async function getCourseProgress(tiendaFilter) {
-  const { data: cursos, error: cError } = await supabase.from("cursos").select("id,nombre").eq("activo", true).order("nombre");
-  if (cError) throw dbError(cError);
-  if (!cursos.length) return [];
-  const cursoIds = cursos.map((curso) => curso.id);
-
-  let progresoQuery = supabase.from("capacitacion_progreso").select("curso_id,estado").in("curso_id", cursoIds);
-  progresoQuery = applyStoreScope(progresoQuery, tiendaFilter);
-  const { data: progreso, error: pError } = await progresoQuery;
-  if (pError) throw dbError(pError);
-
-  let trabajadoresQuery = supabase.from("usuarios").select("id", { count: "exact", head: true })
-    .eq("estado", "activo").in("rol", storeStaffRoles);
-  trabajadoresQuery = applyStoreScope(trabajadoresQuery, tiendaFilter);
-  const { count: totalTrabajadores, error: tError } = await trabajadoresQuery;
-  if (tError) throw dbError(tError);
-
-  const counts = new Map(cursos.map((curso) => [curso.id, { completados: 0, en_curso: 0 }]));
-  for (const row of progreso) {
-    const bucket = counts.get(row.curso_id);
-    if (!bucket) continue;
-    if (row.estado === "completado") bucket.completados += 1;
-    else if (row.estado === "en_curso") bucket.en_curso += 1;
-  }
-  return cursos
-    .map((curso) => {
-      const bucket = counts.get(curso.id);
-      const pendientes = Math.max((totalTrabajadores || 0) - bucket.completados - bucket.en_curso, 0);
-      return { titulo: curso.nombre, completados: bucket.completados, en_curso: bucket.en_curso, pendientes };
-    })
-    .sort((a, b) => b.pendientes - a.pendientes)
-    .slice(0, 6);
+  const [courses, people, progress] = await Promise.all([
+    fetchAllReportPages(supabase.from("cursos").select("id,nombre,curso_roles(rol_codigo)").eq("activo", true).order("id")),
+    fetchAllReportPages(applyStoreScope(supabase.from("usuarios").select("id,rol").eq("estado", "activo").in("rol", storeStaffRoles), tiendaFilter).order("id")),
+    fetchAllReportPages(applyStoreScope(supabase.from("capacitacion_progreso").select("curso_id,usuario_id,estado"), tiendaFilter).order("id")),
+  ]);
+  return courseProgress(courses, people, progress);
 }
 
 async function getRotation(tiendaFilter, desde, hasta) {
   const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id").in("rol", storeStaffRoles);
+  let request = supabase.from("usuarios").select("fecha_ingreso,fecha_salida,tienda_id,periodos_laborales!periodos_laborales_usuario_id_fkey(fecha_ingreso,fecha_salida)").in("rol", storeStaffRoles);
   request = applyStoreScope(request, tiendaFilter);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const months = [];
   const cursor = new Date(`${desde}T00:00:00Z`);
-  const limit = new Date(`${hasta}T00:00:00Z`);
+  const observedEnd = hasta < todayISO() ? hasta : todayISO();
+  const limit = new Date(`${observedEnd}T00:00:00Z`);
   cursor.setUTCDate(1);
   while (cursor <= limit && months.length < 24) {
     const year = cursor.getUTCFullYear();
     const month = cursor.getUTCMonth();
     const start = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
     const end = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
-    const ingreso = (data || []).filter((row) => row.fecha_ingreso >= start && row.fecha_ingreso <= end).length;
-    const salida = (data || []).filter((row) => row.fecha_salida && row.fecha_salida >= start && row.fecha_salida <= end).length;
-    const personalInicio = (data || []).filter((row) => row.fecha_ingreso <= start && (!row.fecha_salida || row.fecha_salida >= start)).length;
-    const personalFin = (data || []).filter((row) => row.fecha_ingreso <= end && (!row.fecha_salida || row.fecha_salida >= end)).length;
-    months.push({ mes: monthLabels[month], anio: year, ingreso, salida, personal_inicio: personalInicio, personal_fin: personalFin });
+    months.push({ mes: monthLabels[month], anio: year, ...rotationCounts(data.flatMap(employmentPeriods), start, end < observedEnd ? end : observedEnd) });
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
   return months;
@@ -1706,8 +1683,7 @@ async function getWarningsByWorker(tiendaFilter, desde, hasta) {
     .select("id,fecha,tipo,usuario_id,usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos,usuario)")
     .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false });
   request = applyStoreScope(request, tiendaFilter);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const documentLabels = { verbal: "Amonestación verbal", carta_amonestacion: "Carta de amonestación", memorandum: "Memorándum" };
   return {
     total: (data || []).length,
@@ -1722,25 +1698,20 @@ async function getWarningsByWorker(tiendaFilter, desde, hasta) {
 async function getAttendanceByWorker(tiendaFilter, desde, hasta) {
   let request = supabase.from("asistencias").select("usuario_id,estado").gte("fecha", desde).lte("fecha", hasta);
   request = applyStoreScope(request, tiendaFilter);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const groups = new Map();
   for (const row of data || []) {
-    const group = groups.get(row.usuario_id) || { presente: 0, tardanza: 0, ausencia: 0 };
-    if (row.estado === "tardanza") group.tardanza += 1;
-    else if (presenteEstados.has(row.estado)) group.presente += 1;
-    else group.ausencia += 1;
-    groups.set(row.usuario_id, group);
+    if (!groups.has(row.usuario_id)) groups.set(row.usuario_id, []);
+    groups.get(row.usuario_id).push(row);
   }
   const ids = [...groups.keys()];
   if (!ids.length) return [];
-  const { data: users, error: userError } = await supabase.from("usuarios").select("id,nombres,apellidos,usuario").in("id", ids);
+  const { data: users, error: userError } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos,usuario").in("id", ids));
   if (userError) throw dbError(userError);
   const names = new Map((users || []).map((user) => [user.id, `${user.nombres || ""} ${user.apellidos || ""}`.trim() || user.usuario || "Sin identificar"]));
   return [...groups.entries()].map(([id, counts]) => ({
-    nombre: names.get(id) || "Sin identificar", ...counts,
-    total: counts.presente + counts.tardanza + counts.ausencia,
-  })).sort((a, b) => b.total - a.total || a.nombre.localeCompare(b.nombre, "es")).slice(0, 10);
+    nombre: names.get(id) || "Sin identificar", ...attendanceCounts(counts),
+  })).sort((a, b) => b.total - a.total || a.nombre.localeCompare(b.nombre, "es"));
 }
 
 async function getErrorsByResponsible(tiendaFilter, desde, hasta) {
@@ -1748,13 +1719,13 @@ async function getErrorsByResponsible(tiendaFilter, desde, hasta) {
     .select("id,fecha,categoria,descripcion,accion_correctiva,usuario_id,tienda_id,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos,usuario),tiendas(nombre)")
     .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false });
   request = applyStoreScope(request, tiendaFilter);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   const groups = new Map();
   for (const row of data || []) {
     const personName = `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim();
     const name = personName || row.usuarios?.usuario || row.categoria || "Sin identificar";
-    const group = groups.get(name) || { name, value: 0, areas: new Set(), rows: [] };
+    const key = row.usuario_id || `area:${row.tienda_id}:${row.categoria}`;
+    const group = groups.get(key) || { id: key, name, value: 0, areas: new Set(), rows: [] };
     group.value += 1;
     if (row.categoria) group.areas.add(row.categoria);
     group.rows.push({
@@ -1762,7 +1733,7 @@ async function getErrorsByResponsible(tiendaFilter, desde, hasta) {
       descripcion: row.descripcion || "", accion_correctiva: row.accion_correctiva || "",
       tienda: row.tiendas?.nombre || "Tienda sin identificar",
     });
-    groups.set(name, group);
+    groups.set(key, group);
   }
   return [...groups.values()]
     .map((group) => ({ ...group, area: [...group.areas].join(", ") || "Sin área", areas: undefined }))
@@ -1775,10 +1746,12 @@ async function getDashboard(user, event) {
   const defaultStart = `${today.slice(0, 4)}-01-01`;
   const desde = isISODate(query.desde) ? query.desde : defaultStart;
   const hasta = isISODate(query.hasta) ? query.hasta : today;
+  if (desde > hasta) throw httpError("La fecha inicial no puede ser posterior a la final.", 400);
   const rotationYear = /^\d{4}$/.test(String(query.rotation_year || "")) ? String(query.rotation_year) : today.slice(0, 4);
   const rotationDesde = `${rotationYear}-01-01`;
   const rotationHasta = `${rotationYear}-12-31`;
-  let tiendaFilter = oversightRoles.has(user.rol) ? Number(query.tienda_id) || null : user.tienda_id;
+  let tiendaFilter = await resolveStoreScope(user, query.tienda_id);
+  if (["gerencia_general", "gerente_comercial"].includes(user.rol) && !tiendaFilter) tiendaFilter = await activeStoreIds();
   if (user.rol === "jefe_zonal") {
     const assignedStoreIds = await zonalStoreIds(user.id);
     const requestedStoreId = Number(query.tienda_id) || null;
@@ -1796,6 +1769,7 @@ async function getDashboard(user, event) {
     getWarningsByWorker(tiendaFilter, desde, hasta),
     getAttendanceByWorker(tiendaFilter, desde, hasta),
   ]);
+  summary.cursos_en_curso = progresoCursos.reduce((sum, row) => sum + row.en_curso, 0);
   return { summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible, warningsByWorker, attendanceByWorker, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
 }
 
@@ -1853,8 +1827,7 @@ async function fetchAsistenciasExport(tiendaId, desde, hasta) {
   if (tiendaId) request = request.eq("tienda_id", tiendaId);
   if (desde && isISODate(desde)) request = request.gte("fecha", desde);
   if (hasta && isISODate(hasta)) request = request.lte("fecha", hasta);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order("id"));
   return data.map((row) => ({
     fecha: row.fecha, empleado: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(),
     dni: row.usuarios?.dni || "", estado: estadoLabels[row.estado] || row.estado,
@@ -1867,10 +1840,9 @@ async function fetchCapacitacionesExport(tiendaId, desde, hasta) {
     .select("estado,duracion_horas,nota,fecha_finalizacion,updated_at,cursos(nombre,competencia),encargados(nombre),usuarios!capacitacion_progreso_usuario_id_fkey(nombres,apellidos,usuario)")
     .order("updated_at", { ascending: false });
   if (tiendaId) request = request.eq("tienda_id", tiendaId);
-  if (desde && isISODate(desde)) request = request.gte("updated_at", `${desde}T00:00:00`);
-  if (hasta && isISODate(hasta)) request = request.lte("updated_at", `${hasta}T23:59:59`);
-  const { data, error } = await request;
-  if (error) throw dbError(error);
+  if (desde && isISODate(desde)) request = request.gte("updated_at", `${desde}T00:00:00-05:00`);
+  if (hasta && isISODate(hasta)) request = request.lte("updated_at", `${hasta}T23:59:59.999-05:00`);
+  const data = await fetchAllReportPages(request.order("id"));
   return data.map((row) => ({
     curso: row.cursos?.nombre || "", competencia: row.cursos?.competencia || "",
     empleado: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(),
@@ -1965,9 +1937,9 @@ async function exportStoreUsersExcel(actor, templateOnly = false) {
     ]);
     styleHeader(instructions);
   } else {
-    const { data, error } = await supabase.from("usuarios")
+    const { data, error } = await readAllResult(supabase.from("usuarios")
       .select("nombres,apellidos,dni,usuario,telefono,fecha_ingreso")
-      .eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]).order("nombres");
+      .eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]).order("nombres"));
     if (error) throw dbError(error);
     sheet.addRows(data.map((row) => ({ ...row, password: "" })));
   }
@@ -2002,7 +1974,7 @@ async function exportMiHistorialExcel(event, user) {
 async function exportTodoExcel(event) {
   const query = event.queryStringParameters || {};
   const tipo = query.tipo === "capacitaciones" ? "capacitaciones" : "asistencias";
-  const { data: tiendas, error } = await supabase.from("tiendas").select("id,nombre").order("nombre");
+  const { data: tiendas, error } = await readAllResult(supabase.from("tiendas").select("id,nombre").order("nombre"));
   if (error) throw dbError(error);
   const workbook = new ExcelJS.Workbook();
   if (!tiendas.length) {
@@ -2045,8 +2017,7 @@ async function listOperational(table, event, user, select = "*") {
   }
   if (event.queryStringParameters?.desde) request = request.gte("fecha", event.queryStringParameters.desde);
   if (event.queryStringParameters?.hasta) request = request.lte("fecha", event.queryStringParameters.hasta);
-  const { data, error } = await request.order(table === "documentos_tienda" ? "fecha_vencimiento" : "fecha", { ascending: false });
-  if (error) throw dbError(error);
+  const data = await fetchAllReportPages(request.order(table === "documentos_tienda" ? "fecha_vencimiento" : "fecha", { ascending: false }).order("id"));
   return data;
 }
 
@@ -2076,6 +2047,7 @@ async function saveTraffic(event, user) {
     registrado_por: user.id, updated_at: limaTimestamp(),
   }, { onConflict: "tienda_id,fecha,rango_hora" }).select().single();
   if (error) throw dbError(error);
+  await notifyZonalTraffic(tiendaId, row).catch(error => console.error("Aviso de tráfico:", error));
   return row;
 }
 
@@ -2089,6 +2061,7 @@ async function updateTraffic(event, user, id) {
   if (String(existing.fecha).slice(0, 10) !== limaDateISO()) throw httpError("Este registro ya no puede editarse porque corresponde a un día anterior.", 403);
   const { data: row, error } = await supabase.from("trafico_tienda").update({ fecha: data.fecha, rango_hora: data.rango_hora, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null, updated_at: limaTimestamp() }).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
   if (error) throw dbError(error);
+  await notifyZonalTraffic(user.tienda_id, row).catch(error => console.error("Aviso de tráfico:", error));
   return row;
 }
 
@@ -2293,7 +2266,7 @@ async function listIncidents(event, user) {
 }
 
 async function listBrands() {
-  const { data, error } = await supabase.from("marcas").select("id,nombre").order("nombre");
+  const { data, error } = await readAllResult(supabase.from("marcas").select("id,nombre").order("nombre"));
   if (error) throw dbError(error);
   return data;
 }
@@ -2438,17 +2411,17 @@ async function createStoreDocument(event, user) {
 }
 
 async function listSpecialCoverages(user) {
-  const { data, error } = await supabase.from("coberturas_especiales")
+  const { data, error } = await readAllResult(supabase.from("coberturas_especiales")
     .select("*,cobertura_trabajadores(*,usuarios(nombres,apellidos),origen:tiendas!cobertura_trabajadores_tienda_origen_id_fkey(nombre),destino:tiendas!cobertura_trabajadores_tienda_destino_id_fkey(nombre))")
-    .eq("tienda_destino_id", user.tienda_id).order("fecha_inicio", { ascending: false });
+    .eq("tienda_destino_id", user.tienda_id).order("fecha_inicio", { ascending: false }));
   if (error) throw dbError(error);
   return data;
 }
 
 async function listCoverageCandidates(_user) {
-  const { data, error } = await supabase.from("usuarios")
+  const { data, error } = await readAllResult(supabase.from("usuarios")
     .select("id,nombres,apellidos,dni,area_laboral,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
-    .eq("estado", "activo").in("rol", storeStaffRoles).order("nombres");
+    .eq("estado", "activo").in("rol", storeStaffRoles).order("nombres"));
   if (error) throw dbError(error);
   return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || null }));
 }
@@ -2485,6 +2458,20 @@ async function saveSpecialCoverage(event, user) {
   return coverage;
 }
 
+async function executiveAlerts() {
+  const ids = await activeStoreIds();
+  const [incidents, documents] = await Promise.all([
+    fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,fecha,tipo,asunto,gravedad,estado,tiendas(nombre)").in("tienda_id", ids.length ? ids : [0]).order("fecha", { ascending: false }).order("id")),
+    fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id,tipo_documento,fecha_vencimiento,dias_alerta,tiendas(nombre)").in("tienda_id", ids.length ? ids : [0]).order("id")),
+  ]);
+  return { incidents, documents };
+}
+
+async function dashboardPeople(event, user) {
+  const scope = await resolveStoreScope(user, event.queryStringParameters?.tienda_id);
+  return fetchAllReportPages(applyStoreScope(supabase.from("usuarios").select("id,nombres,apellidos,rol,estado,tienda_id,fecha_ingreso,fecha_salida,motivo_salida,periodos_laborales!periodos_laborales_usuario_id_fkey(fecha_ingreso,fecha_salida,motivo_salida)").in("rol", storeStaffRoles), scope).order("nombres").order("id"));
+}
+
 async function operationalSummary(event, user) {
   const storeId = await operationalStoreId(event, user);
   const today = todayISO();
@@ -2497,6 +2484,7 @@ async function operationalSummary(event, user) {
     supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
     supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", storeStaffRoles),
   ]);
+  for (const result of [traffic, incidents, warnings, errors]) if (result.error) throw dbError(result.error);
   if (administration.error) throw dbError(administration.error);
   if (activePersonnel.error) throw dbError(activePersonnel.error);
   if (documents.error) throw dbError(documents.error);
@@ -2507,10 +2495,10 @@ async function operationalSummary(event, user) {
 async function listTrafficMatrix(event, user) {
   const query = event.queryStringParameters || {};
   const today = todayISO();
-  const desde = isISODate(query.desde) ? query.desde : new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const desde = isISODate(query.desde) ? query.desde : addDays(today, -6);
   const hasta = isISODate(query.hasta) ? query.hasta : today;
-  let scope = user.tienda_id;
-  if (user.rol === "gerencia_general") scope = Number(query.tienda_id) || null;
+  let scope = await resolveStoreScope(user, query.tienda_id);
+  if (user.rol === "gerencia_general") scope = Number(query.tienda_id) || await activeStoreIds();
   if (user.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(user.id);
     const requested = Number(query.tienda_id) || null;
@@ -2553,13 +2541,13 @@ function serializeVisit(visit) {
 
 async function zonalScope(user) {
   if (user.rol === "gerencia_general") {
-    const { data, error } = await supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").order("nombre");
+    const { data, error } = await readAllResult(supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").order("nombre"));
     if (error) throw dbError(error);
     return { ids: (data || []).map((store) => store.id), stores: data || [] };
   }
   const ids = await zonalStoreIds(user.id);
   if (!ids.length) return { ids: [], stores: [] };
-  const { data, error } = await supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").in("id", ids).order("nombre");
+  const { data, error } = await readAllResult(supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").in("id", ids).order("nombre"));
   if (error) throw dbError(error);
   return { ids, stores: data || [] };
 }
@@ -2574,25 +2562,25 @@ async function getZonalModule(event, user, kind) {
   if (kind === "asistencia") {
     const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
     const [{ data: people, error: peopleError }, { data: attendance, error: attendanceError }] = await Promise.all([
-      supabase.from("usuarios").select("id,tienda_id").in("tienda_id", ids).eq("estado", "activo").in("rol", storeStaffRoles),
+      supabase.from("usuarios").select("id,tienda_id,fecha_ingreso,fecha_salida").in("tienda_id", ids).in("rol", storeStaffRoles).lte("fecha_ingreso", fecha).or(`fecha_salida.is.null,fecha_salida.gte.${fecha}`),
       supabase.from("asistencias").select("tienda_id,usuario_id,estado,created_at").in("tienda_id", ids).eq("fecha", fecha),
-    ]);
+    ].map(request => readAllResult(request)));
     if (peopleError) throw dbError(peopleError); if (attendanceError) throw dbError(attendanceError);
     return { fecha, tiendas: stores.map((store) => {
       const staff = people.filter((person) => Number(person.tienda_id) === Number(store.id));
       const rows = attendance.filter((row) => Number(row.tienda_id) === Number(store.id));
       const latest = rows.map((row) => row.created_at).filter(Boolean).sort().at(-1) || null;
-      return { ...store, personal: staff.length, registrados: rows.length, faltas: rows.filter((row) => row.estado === "falta").length, tardanzas: rows.filter((row) => row.estado === "tardanza").length, pendientes: Math.max(staff.length - rows.length, 0), ultimo_envio: latest };
+      return { ...store, personal: staff.length, registrados: rows.length, faltas: rows.filter((row) => row.estado === "falta").length, tardanzas: rows.filter((row) => row.estado === "tardanza").length, pendientes: staff.filter(person => !rows.some(row => row.usuario_id === person.id)).length, ultimo_envio: latest };
     }) };
   }
   if (kind === "incidencias") {
     let request = supabase.from("incidencias_zonales").select("*,origen:tiendas!incidencias_zonales_tienda_origen_id_fkey(nombre),afectada:tiendas!incidencias_zonales_tienda_afectada_id_fkey(nombre)").order("fecha", { ascending: false });
     if (user.rol === "jefe_zonal") request = request.eq("jefe_zonal_id", user.id);
-    const { data, error } = await request;
+    const { data, error } = await readAllResult(request);
     if (error) throw dbError(error); return data;
   }
   if (kind === "tareas") {
-    const { data, error } = await supabase.from("tareas_zonales").select("*,tiendas(nombre)").eq("jefe_zonal_id", user.id).in("tienda_id", ids).order("fecha_limite");
+    const { data, error } = await readAllResult(supabase.from("tareas_zonales").select("*,tiendas(nombre)").eq("jefe_zonal_id", user.id).in("tienda_id", ids).order("fecha_limite"));
     if (error) throw dbError(error); return data;
   }
   if (kind === "supervisiones") {
@@ -2601,7 +2589,7 @@ async function getZonalModule(event, user, kind) {
     const [{ data: visitas, error: visitError }, { data: observaciones, error: observationError }] = await Promise.all([
       visitsRequest,
       supabase.from("observaciones_zonales").select("*,tiendas(nombre)").in("tienda_id", ids).order("created_at", { ascending: false }),
-    ]);
+    ].map(request => readAllResult(request)));
     if (visitError) throw dbError(visitError); if (observationError) throw dbError(observationError);
     return { visitas: (visitas || []).map(serializeVisit), observaciones: observaciones || [] };
   }
@@ -2692,31 +2680,33 @@ async function getZonalComparison(event, user) {
   const hasta = isISODate(query.hasta) ? query.hasta : fecha;
   if (desde > hasta || desde.slice(0, 7) !== hasta.slice(0, 7) || hasta > fecha) throw httpError("Selecciona un periodo valido dentro del mes y hasta hoy.", 400);
   if (!ids.length) return { fecha, desde, hasta, tiendas: [] };
-  const daysInRange = Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86400000) + 1;
   const alertWindow = new Date(`${fecha}T12:00:00Z`);
   alertWindow.setUTCDate(alertWindow.getUTCDate() + 365);
   const deadline = alertWindow.toISOString().slice(0, 10);
   const [people, attendance, traffic, incidents, errors, documents] = await Promise.all([
-    fetchAllReportPages(supabase.from("usuarios").select("id,tienda_id").in("tienda_id", ids).eq("estado", "activo").in("rol", storeStaffRoles).order("id")),
+    fetchAllReportPages(supabase.from("usuarios").select("id,tienda_id,fecha_ingreso,fecha_salida,periodos_laborales!periodos_laborales_usuario_id_fkey(fecha_ingreso,fecha_salida)").in("tienda_id", ids).in("rol", storeStaffRoles).order("id")),
     fetchAllReportPages(supabase.from("asistencias").select("id,tienda_id,usuario_id,fecha,estado").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,cantidad").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
-    fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,tipo").in("tienda_id", ids).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59-05:00`).order("id")),
+    fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,tipo").in("tienda_id", ids).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59.999-05:00`).order("id")),
     fetchAllReportPages(supabase.from("errores_personal").select("id,tienda_id").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id,fecha_vencimiento,dias_alerta").in("tienda_id", ids).gte("fecha_vencimiento", fecha).lte("fecha_vencimiento", deadline).order("id")),
   ]);
   const securityTypes = new Set(["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]);
   return { fecha, desde, hasta, tiendas: stores.map((store) => {
-    const staff = people.filter((person) => Number(person.tienda_id) === Number(store.id));
-    const staffIds = new Set(staff.map((person) => person.id));
-    const marks = attendance.filter((row) => Number(row.tienda_id) === Number(store.id) && staffIds.has(row.usuario_id));
+    const staff = people.filter(person => Number(person.tienda_id) === Number(store.id));
+    const marks = attendance.filter(row => Number(row.tienda_id) === Number(store.id));
+    const headcount = staff.filter(person => employmentPeriods(person).some(period => period.fecha_ingreso <= hasta && (!period.fecha_salida || period.fecha_salida >= hasta))).length;
     const storeIncidents = incidents.filter((row) => Number(row.tienda_id) === Number(store.id));
     return {
-      id: store.id, nombre: store.nombre, personal: staff.length,
+      id: store.id, nombre: store.nombre, personal: headcount,
       presentes: marks.filter((row) => row.estado === "presente").length,
       tardanzas: marks.filter((row) => row.estado === "tardanza").length,
       faltas: marks.filter((row) => row.estado === "falta").length,
+      asistentes: marks.filter((row) => presenteEstados.has(row.estado)).length,
+      marcas: new Set(marks.map((row) => `${row.usuario_id}|${row.fecha}`)).size,
       otros: marks.filter((row) => !["presente", "tardanza", "falta"].includes(row.estado)).length,
-      pendientes: Math.max(staff.length * daysInRange - new Set(marks.map((row) => `${row.usuario_id}|${row.fecha}`)).size, 0),
+      pendientes: pendingAttendance(staff, marks, desde, hasta),
+      conteos_trafico: traffic.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
       visitas: traffic.filter((row) => Number(row.tienda_id) === Number(store.id)).reduce((sum, row) => sum + Number(row.cantidad || 0), 0),
       incidencias_seguridad: storeIncidents.filter((row) => securityTypes.has(row.tipo)).length,
       incidencias_administrativas: storeIncidents.filter((row) => !securityTypes.has(row.tipo)).length,
@@ -2724,6 +2714,28 @@ async function getZonalComparison(event, user) {
       documentos_por_vencer: documents.filter((row) => Number(row.tienda_id) === Number(store.id) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${fecha}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length,
     };
   }) };
+}
+
+async function getGeneralComparison(event, user) {
+  const [comparison, stores, clusters] = await Promise.all([getZonalComparison(event, user), listTiendas(user), listClusters()]);
+  const activeStores = stores.filter((store) => store.estado === "activo");
+  const activeIds = new Set(activeStores.map((store) => Number(store.id)));
+  const storeDetails = new Map(activeStores.map((store) => [Number(store.id), store]));
+  const rows = comparison.tiendas.filter((store) => activeIds.has(Number(store.id))).map((store) => {
+    const detail = storeDetails.get(Number(store.id));
+    return { ...store, cluster_id: detail.cluster_id || null, cluster_nombre: detail.cluster_nombre || "Sin clúster" };
+  });
+  const clusterNames = new Map(clusters.map((cluster) => [Number(cluster.id), cluster.nombre]));
+  const groups = new Map();
+  for (const store of rows) {
+    const key = Number(store.cluster_id) || 0;
+    if (!groups.has(key)) groups.set(key, { id: key, nombre: clusterNames.get(key) || "Sin clúster", tiendas: 0, personal: 0, asistentes: 0, tardanzas: 0, faltas: 0, pendientes: 0, marcas: 0, conteos_trafico: 0, visitas: 0, incidencias: 0, errores: 0 });
+    const group = groups.get(key);
+    group.tiendas += 1;
+    for (const field of ["personal", "asistentes", "tardanzas", "faltas", "pendientes", "marcas", "conteos_trafico", "visitas", "errores"]) group[field] += store[field] || 0;
+    group.incidencias += store.incidencias_administrativas + store.incidencias_seguridad;
+  }
+  return { desde: comparison.desde, hasta: comparison.hasta, tiendas: rows, clusters: [...groups.values()].sort((a, b) => b.visitas - a.visitas || a.nombre.localeCompare(b.nombre, "es")) };
 }
 
 async function getZonalCluster(user) {
@@ -2784,9 +2796,14 @@ async function exportZonalIncidents(user) {
 
 const reportKinds = new Set([
   "personal", "asistencias", "documentos", "incidencias", "reclamaciones", "acciones",
-  "bitacora", "requerimientos", "mejoras", "supervisiones", "capacitaciones", "tareas",
+  "requerimientos", "supervisiones", "capacitaciones", "tareas",
   "amonestaciones", "errores-personal",
 ]);
+
+const reportKindsByRole = {
+  jefe_tienda: new Set(["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones", "documentos", "reclamaciones", "acciones", "requerimientos", "supervisiones"]),
+  jefe_zonal: new Set(["personal", "asistencias", "amonestaciones", "errores-personal", "incidencias", "supervisiones", "capacitaciones", "tareas"]),
+};
 
 const reportExcelColumns = {
   personal: [["Nombre", "nombre", 30], ["Tienda", "tienda", 24], ["Cargo", "rol", 22], ["DNI", "dni", 13], ["Usuario", "usuario", 18], ["Celular", "telefono", 14], ["Fecha de ingreso", "fecha_ingreso", 17], ["Estado", "estado", 15]],
@@ -2797,9 +2814,7 @@ const reportExcelColumns = {
   incidencias: [["Código", "codigo", 15], ["Fecha", "fecha", 14], ["Tienda", "tienda", 30], ["Tipo", "tipo", 28], ["Alcance", "alcance", 22], ["Estado", "estado", 18], ["Descripción", "descripcion", 55], ["Responsable", "responsable", 28]],
   reclamaciones: [["Código", "codigo", 16], ["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Consumidor", "consumidor", 28], ["Producto o servicio", "producto_servicio", 30], ["Monto", "monto", 14], ["Tipo", "tipo", 14], ["Estado", "estado", 18], ["Responsable", "responsable", 25], ["Detalle", "detalle", 55]],
   acciones: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Acción", "accion", 36], ["Tipo", "tipo", 18], ["Responsable", "responsable", 26], ["Estado", "estado", 18], ["Objetivo", "objetivo", 42], ["Observación", "observacion", 42]],
-  bitacora: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Categoría", "categoria", 20], ["Evento", "evento", 34], ["Venta del día", "venta_dia", 16], ["Tráfico", "trafico", 12], ["Descripción", "descripcion", 48]],
   requerimientos: [["Código", "codigo", 15], ["Tienda", "tienda", 24], ["Requerimiento", "requerimiento", 45], ["Cantidad", "cantidad", 12], ["Áreas responsables", "areas", 34], ["Urgencia", "urgencia", 18], ["Inicio", "fecha_inicio", 14], ["Fecha objetivo", "fecha_objetivo", 16], ["Estado", "estado", 18], ["Comentario", "comentario", 40]],
-  mejoras: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Sección", "seccion", 20], ["Área", "area", 20], ["Responsable", "responsable", 25], ["Mejora", "mejora", 45], ["Cómo se hizo", "como_se_hizo", 48], ["Estado", "estado", 18], ["Resultado", "resultado", 42]],
   supervisiones: [["Código", "codigo", 15], ["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Administrador", "administrador", 28], ["Periodo", "periodo", 18], ["Puntaje", "puntaje", 12], ["Observaciones", "observaciones", 16], ["Por validar", "por_validar", 14], ["Estado", "estado", 18]],
   capacitaciones: [["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["Curso", "curso", 32], ["Competencia", "competencia", 24], ["Avance", "avance", 14], ["Duración (h)", "duracion", 14], ["Nota", "nota", 12], ["Estado", "estado", 18], ["Finalización", "fecha_finalizacion", 16]],
   tareas: [["Tienda", "tienda", 24], ["Tarea", "titulo", 36], ["Responsable", "responsable", 26], ["Inicio", "fecha_inicio", 14], ["Fecha límite", "fecha_limite", 16], ["Prioridad", "prioridad", 14], ["Estado", "estado", 18], ["Descripción", "descripcion", 48]],
@@ -2819,7 +2834,8 @@ function reportText(value) {
 function applyReportFilters(rows, query) {
   const search = cleanText(query.q).toLocaleLowerCase("es");
   return rows.filter((row) => {
-    const date = String(row._fecha || "").slice(0, 10);
+    const rawDate = String(row._fecha || "");
+    const date = rawDate.length > 10 ? businessDate(rawDate) : rawDate;
     if (query.desde && isISODate(query.desde) && date && date < query.desde) return false;
     if (query.hasta && isISODate(query.hasta) && date && date > query.hasta) return false;
     if (query.estado && row._estado !== query.estado) return false;
@@ -2829,19 +2845,18 @@ function applyReportFilters(rows, query) {
   }).map(({ _fecha, _estado, _prioridades, ...row }) => row);
 }
 
+async function readAllResult(request, orderColumn = "id") {
+  return { data: await fetchAllReportPages(request.order(orderColumn)), error: null };
+}
+
 async function fetchAllReportPages(request, pageSize = 1000) {
-  const rows = [];
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await request.range(from, from + pageSize - 1);
-    if (error) throw dbError(error);
-    rows.push(...(data || []));
-    if (!data || data.length < pageSize) break;
-  }
-  return rows;
+  try { return await readRows(request, pageSize); }
+  catch (error) { throw dbError(error); }
 }
 
 async function getReportRows(event, user, kind) {
   if (!reportKinds.has(kind)) throw httpError("El reporte solicitado no existe.", 404);
+  if (reportKindsByRole[user.rol] && !reportKindsByRole[user.rol].has(kind)) throw httpError("Este reporte no corresponde a tu rol.", 403);
   const query = event.queryStringParameters || {};
   const scope = await resolveStoreScope(user, query.tienda_id);
   let rows = [];
@@ -2849,73 +2864,61 @@ async function getReportRows(event, user, kind) {
   if (kind === "personal") {
     let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_ingreso,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", usuario:row.usuario || "", telefono:row.telefono || "", fecha_ingreso:row.fecha_ingreso || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
   }
   if (kind === "asistencias") {
     let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", estado:row.estado, observaciones:row.observaciones || "", _fecha:row.fecha, _estado:row.estado }));
   }
   if (kind === "amonestaciones") {
     let request = supabase.from("amonestaciones").select("id,tienda_id,fecha,tipo,motivo,tiendas(nombre),usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos,dni,rol)").order("fecha", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", rol:row.usuarios?.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.usuarios?.rol || ""), tipo:humanize(row.tipo), motivo:row.motivo, _fecha:row.fecha }));
   }
   if (kind === "errores-personal") {
     let request = supabase.from("errores_personal").select("id,tienda_id,fecha,categoria,descripcion,accion_correctiva,tiendas(nombre),usuarios!errores_personal_usuario_id_fkey(nombres,apellidos,dni,rol)").order("fecha", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", rol:row.usuarios?.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.usuarios?.rol || ""), categoria:row.categoria, descripcion:row.descripcion, accion_correctiva:row.accion_correctiva || "", _fecha:row.fecha }));
   }
   if (kind === "documentos") {
     let request = supabase.from("documentos_municipales").select("id,tienda_id,tipo_documento,codigo,responsables,area_responsable,frecuencia_revision,fecha_emision,fecha_vencimiento,estado,tiendas(nombre)").order("fecha_vencimiento");
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, tienda:row.tiendas?.nombre || "", tipo_documento:row.tipo_documento, codigo:row.codigo || "", responsables:(row.responsables?.length ? row.responsables : [row.area_responsable]).filter(Boolean).join(" · "), frecuencia_revision:row.frecuencia_revision || "", fecha_emision:row.fecha_emision || "", fecha_vencimiento:row.fecha_vencimiento || "", estado:row.estado, _fecha:row.fecha_vencimiento || row.fecha_emision, _estado:row.estado }));
   }
   if (kind === "reclamaciones") {
     let request = supabase.from("reclamaciones_tienda").select("id,tienda_id,codigo_hoja,fecha,consumidor_nombre,producto_servicio,monto,tipo,detalle,responsable,estado,tiendas(nombre)").order("fecha", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, codigo:row.codigo_hoja, fecha:row.fecha, tienda:row.tiendas?.nombre || "", consumidor:row.consumidor_nombre, producto_servicio:row.producto_servicio, monto:row.monto ?? "", tipo:humanize(row.tipo), estado:row.estado, responsable:row.responsable || "", detalle:row.detalle, _fecha:row.fecha, _estado:row.estado }));
   }
   if (kind === "acciones") {
     let request = supabase.from("acciones_tienda").select("id,tienda_id,fecha,tipo,responsable,accion,estado,objetivo,observacion,tiendas(nombre)").order("fecha", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", accion:row.accion, tipo:humanize(row.tipo), responsable:row.responsable, estado:row.estado, objetivo:row.objetivo || "", observacion:row.observacion || "", _fecha:row.fecha, _estado:row.estado }));
-  }
-  if (kind === "bitacora") {
-    let request = supabase.from("bitacora_tienda").select("id,tienda_id,fecha,venta_dia,trafico,categoria,evento,descripcion,tiendas(nombre)").order("fecha", { ascending:false });
-    request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
-    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", categoria:row.categoria, evento:row.evento || "", venta_dia:row.venta_dia ?? 0, trafico:row.trafico ?? 0, descripcion:row.descripcion || "", _fecha:row.fecha }));
   }
   if (kind === "requerimientos") {
     let request = supabase.from("requerimientos_tienda").select("id,tienda_id,requerimiento,cantidad,areas_responsables,urgencia,fecha_inicio,fecha_fin_objetivo,estado,comentario,tiendas(nombre)").order("fecha_inicio", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, codigo:`REQ-${String(row.id).padStart(4,"0")}`, tienda:row.tiendas?.nombre || "", requerimiento:row.requerimiento, cantidad:row.cantidad ?? "", areas:(row.areas_responsables || []).join(" · "), urgencia:humanize(row.urgencia), fecha_inicio:row.fecha_inicio, fecha_objetivo:row.fecha_fin_objetivo || "", estado:row.estado, comentario:row.comentario || "", _fecha:row.fecha_inicio, _estado:row.estado }));
-  }
-  if (kind === "mejoras") {
-    let request = supabase.from("mejoras_continuas").select("id,tienda_id,fecha,seccion,area,responsable,que_mejoro,como_se_hizo,estado,resultado_beneficio,tiendas(nombre)").order("fecha", { ascending:false });
-    request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
-    rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", seccion:row.seccion, area:row.area, responsable:row.responsable, mejora:row.que_mejoro, como_se_hizo:row.como_se_hizo, estado:row.estado, resultado:row.resultado_beneficio || "", _fecha:row.fecha, _estado:row.estado }));
   }
   if (kind === "capacitaciones") {
     let request = supabase.from("capacitacion_progreso").select("id,tienda_id,estado,duracion_horas,nota,fecha_finalizacion,updated_at,tiendas(nombre),cursos(nombre,competencia),usuarios!capacitacion_progreso_usuario_id_fkey(nombres,apellidos)").order("updated_at", { ascending:false });
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), curso:row.cursos?.nombre || "", competencia:row.cursos?.competencia || "", avance:row.estado === "completado" ? "100%" : row.estado === "en_curso" ? "En progreso" : "0%", duracion:row.duracion_horas ?? "", nota:row.nota ?? "", estado:row.estado, fecha_finalizacion:row.fecha_finalizacion || "", _fecha:row.fecha_finalizacion || row.updated_at, _estado:row.estado }));
   }
   if (kind === "tareas") {
     let request = supabase.from("tareas_zonales").select("id,tienda_id,titulo,descripcion,responsable,fecha_inicio,fecha_limite,prioridad,estado,tiendas(nombre)").order("fecha_limite");
     request = applyStoreScope(request, scope);
-    const data = await fetchAllReportPages(request);
+    const data = await fetchAllReportPages(request.order("id"));
     rows = (data || []).map((row) => ({ id:row.id, tienda:row.tiendas?.nombre || "", titulo:row.titulo, responsable:row.responsable, fecha_inicio:row.fecha_inicio, fecha_limite:row.fecha_limite, prioridad:row.prioridad, estado:row.estado, descripcion:row.descripcion || "", _fecha:row.fecha_limite || row.fecha_inicio, _estado:row.estado }));
   }
   if (kind === "supervisiones") {
@@ -2931,7 +2934,7 @@ async function getReportRows(event, user, kind) {
     let zonalRequest = supabase.from("incidencias_zonales").select("id,jefe_zonal_id,tipo,alcance,tienda_origen_id,tienda_afectada_id,fecha,descripcion,estado,responsable_seguimiento,origen:tiendas!incidencias_zonales_tienda_origen_id_fkey(nombre),afectada:tiendas!incidencias_zonales_tienda_afectada_id_fkey(nombre)").order("fecha", { ascending:false });
     if (user.rol === "jefe_zonal") zonalRequest = zonalRequest.eq("jefe_zonal_id", user.id);
     const [local, zonal] = await Promise.all([fetchAllReportPages(localRequest), fetchAllReportPages(zonalRequest)]);
-    const localRows=(local || []).map((row) => ({ id:`local-${row.id}`, codigo:incidentCode(row), fecha:String(row.fecha).slice(0,10), tienda:row.tiendas?.nombre || "", tipo:humanize(row.tipo), alcance:"Una tienda", estado:row.estado, descripcion:row.descripcion, responsable:row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "", _fecha:row.fecha, _estado:row.estado }));
+    const localRows=(local || []).map((row) => ({ id:`local-${row.id}`, codigo:incidentCode(row), fecha:businessDate(row.fecha), tienda:row.tiendas?.nombre || "", tipo:humanize(row.tipo), alcance:"Una tienda", estado:row.estado, descripcion:row.descripcion, responsable:row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "", _fecha:row.fecha, _estado:row.estado }));
     const zonalRows=(zonal || []).filter((row) => reportScopeContains(scope,row.tienda_origen_id) || reportScopeContains(scope,row.tienda_afectada_id)).map((row) => ({ id:`zonal-${row.id}`, codigo:`IZ-${String(row.id).padStart(4,"0")}`, fecha:row.fecha, tienda:[row.origen?.nombre,row.afectada?.nombre].filter(Boolean).join(" → "), tipo:row.tipo === "diferencia_transferencia" ? "Mercadería liberada / diferencia en transferencia" : humanize(row.tipo), alcance:humanize(row.alcance), estado:row.estado, descripcion:row.descripcion, responsable:row.responsable_seguimiento || "", _fecha:row.fecha, _estado:row.estado }));
     rows=[...localRows,...zonalRows].sort((a,b) => String(b._fecha).localeCompare(String(a._fecha)));
   }
@@ -2979,39 +2982,34 @@ const miTiendaTables = {
   documentos: "documentos_municipales",
   reclamaciones: "reclamaciones_tienda",
   acciones: "acciones_tienda",
-  bitacora: "bitacora_tienda",
   requerimientos: "requerimientos_tienda",
-  mejoras: "mejoras_continuas",
 };
 
 async function getMiTienda(user) {
   const storeId = user.tienda_id;
-  const [store, documentos, reclamaciones, acciones, bitacora, requerimientos, seguimientos, visitas, observaciones, mejoras, apoyos] = await Promise.all([
+  const [store, documentos, reclamaciones, acciones, requerimientos, seguimientos, visitas, observaciones, apoyos] = await Promise.all([
     supabase.from("tiendas").select("id,codigo,nombre,zona,formato,distrito,direccion,alquiler_mensual,estado,clusters(nombre)").eq("id", storeId).single(),
     supabase.from("documentos_municipales").select("*").eq("tienda_id", storeId).order("fecha_vencimiento"),
     supabase.from("reclamaciones_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("acciones_tienda").select("*").eq("tienda_id", storeId).order("fecha"),
-    supabase.from("bitacora_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("requerimientos_tienda").select("*").eq("tienda_id", storeId).order("created_at", { ascending: false }),
     supabase.from("requerimiento_seguimientos").select("*,requerimientos_tienda!inner(tienda_id),usuarios(nombres,apellidos)").eq("requerimientos_tienda.tienda_id", storeId).order("created_at", { ascending: false }),
     supabase.from("visitas_zonales").select("*,usuarios(nombres,apellidos)").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("observaciones_zonales").select("*").eq("tienda_id", storeId).order("created_at", { ascending: false }),
-    supabase.from("mejoras_continuas").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("apoyos_seguridad").select("*,usuarios!apoyos_seguridad_usuario_id_fkey(nombres,apellidos,telefono,estado)").eq("tienda_id", storeId).order("created_at", { ascending: false }),
-  ]);
-  for (const result of [store, documentos, reclamaciones, acciones, bitacora, requerimientos, seguimientos, visitas, observaciones, mejoras, apoyos]) if (result.error) throw dbError(result.error);
+  ].map((request, index) => index === 0 ? request : readAllResult(request)));
+  for (const result of [store, documentos, reclamaciones, acciones, requerimientos, seguimientos, visitas, observaciones, apoyos]) if (result.error) throw dbError(result.error);
   const today = todayISO();
   const docs = documentos.data || [], claims = reclamaciones.data || [], acts = acciones.data || [];
   return {
     tienda: { ...store.data, cluster: store.data?.clusters?.nombre || null, clusters: undefined },
-    documentos: docs, reclamaciones: claims, acciones: acts, bitacora: bitacora.data || [], requerimientos: (requerimientos.data || []).map((item) => ({ ...item, seguimientos: (seguimientos.data || []).filter((entry) => entry.requerimiento_id === item.id) })),
-    visitas: (visitas.data || []).map(serializeVisit), observaciones: observaciones.data || [], mejoras: mejoras.data || [], apoyos_seguridad: apoyos.data || [],
+    documentos: docs, reclamaciones: claims, acciones: acts, requerimientos: (requerimientos.data || []).map((item) => ({ ...item, seguimientos: (seguimientos.data || []).filter((entry) => entry.requerimiento_id === item.id) })),
+    visitas: (visitas.data || []).map(serializeVisit), observaciones: observaciones.data || [], apoyos_seguridad: apoyos.data || [],
     resumen: {
       documentos_por_vencer: docs.filter((x) => x.fecha_vencimiento && x.fecha_vencimiento >= today && Math.round((Date.parse(`${x.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(x.dias_alerta || 30)).length,
       reclamos_en_atencion: claims.filter((x) => ["registrado", "en_atencion"].includes(x.estado)).length,
       observaciones_abiertas: (observaciones.data || []).filter((x) => !["levantada"].includes(x.estado)).length,
       proxima_accion: acts.find((x) => x.fecha >= today && !["completada", "cancelada"].includes(x.estado)) || null,
-      ultima_mejora: mejoras.data?.[0] || null, ultima_bitacora: bitacora.data?.[0] || null,
     },
   };
 }
@@ -3040,11 +3038,9 @@ async function saveMiTiendaRecord(event, user, kind, id = null) {
     documentos: ["area_responsable","responsables","codigo","tipo_documento","frecuencia_revision","fecha_emision","fecha_vencimiento","estado","dias_alerta","archivo_path","archivo_nombre"],
     reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","consumidor_documento","consumidor_contacto","producto_servicio","monto","tipo","detalle","pedido_consumidor","observaciones_proveedor","acciones_adoptadas","fecha_respuesta","responsable","estado","archivo_path","archivo_nombre"],
     acciones: ["fecha","tipo","responsable","accion","estado","objetivo","observacion","evidencia_path","evidencia_nombre"],
-    bitacora: ["fecha","venta_dia","categoria","evento","descripcion","evidencia_path","evidencia_nombre"],
     requerimientos: ["requerimiento","cantidad","areas_responsables","urgencia","fecha_inicio","fecha_fin_objetivo","estado","evidencia_path","evidencia_nombre","comentario"],
-    mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo","foto_antes_path","foto_antes_nombre","foto_despues_path","foto_despues_nombre","estado","resultado_beneficio"],
   }[kind];
-  const required = { documentos: ["responsables","tipo_documento"], reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","producto_servicio","tipo","detalle"], acciones: ["fecha","tipo","responsable","accion"], bitacora: ["fecha","venta_dia","categoria"], requerimientos: ["requerimiento","areas_responsables","urgencia","fecha_inicio"], mejoras: ["fecha","seccion","area","responsable","que_mejoro","como_se_hizo"] }[kind];
+  const required = { documentos: ["responsables","tipo_documento"], reclamaciones: ["codigo_hoja","fecha","consumidor_nombre","producto_servicio","tipo","detalle"], acciones: ["fecha","tipo","responsable","accion"], requerimientos: ["requerimiento","areas_responsables","urgencia","fecha_inicio"] }[kind];
   const isDocumentAlertUpdate = kind === "documentos" && id && Object.keys(data).every((key) => key === "dias_alerta");
   if (!isDocumentAlertUpdate) requireFields(data, required);
   if (kind === "reclamaciones" && data.estado !== undefined && !["registrado", "en_atencion", "respondido", "cerrado"].includes(data.estado)) throw httpError("El estado de la reclamación no es válido.", 400);
@@ -3054,11 +3050,6 @@ async function saveMiTiendaRecord(event, user, kind, id = null) {
   const payload = Object.fromEntries(allowed.filter((key) => data[key] !== undefined).map((key) => [key, typeof data[key] === "string" ? cleanText(data[key]) || null : data[key]]));
   if (kind === "documentos" && Array.isArray(data.responsables)) payload.area_responsable = data.responsables.join(", ");
   payload.updated_at = new Date().toISOString();
-  if (kind === "bitacora") {
-    const { data: traffic, error } = await supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", user.tienda_id).eq("fecha", data.fecha);
-    if (error) throw dbError(error);
-    payload.trafico = (traffic || []).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
-  }
   let query;
   if (id) query = supabase.from(table).update(payload).eq("id", id).eq("tienda_id", user.tienda_id);
   else query = supabase.from(table).insert({ ...payload, tienda_id: user.tienda_id, creado_por: user.id });
@@ -3183,7 +3174,7 @@ async function marketingStoreIds(user) {
   const { data: account, error } = await supabase.from("usuarios").select("acceso_todas_tiendas").eq("id", user.id).single();
   if (error) throw dbError(error);
   if (account.acceso_todas_tiendas) return null;
-  const { data, error: accessError } = await supabase.from("marketing_tiendas").select("tienda_id").eq("usuario_id", user.id);
+  const { data, error: accessError } = await readAllResult(supabase.from("marketing_tiendas").select("tienda_id").eq("usuario_id", user.id), "tienda_id");
   if (accessError) throw dbError(accessError);
   return (data || []).map((row) => row.tienda_id);
 }
@@ -3269,7 +3260,7 @@ async function getMarketingData(user) {
     supabase.from("entregables_marketing").select("*,campanas_marketing(nombre)").eq("registrado_por", user.id).order("created_at", { ascending:false }),
     supabase.from("seguidores_redes").select("*").eq("registrado_por", user.id).order("fecha", { ascending:false }),
     supabase.from("capacitaciones_marketing").select("*").eq("creado_por", user.id).order("fecha", { ascending:false }),
-  ]);
+  ].map(request => readAllResult(request)));
   const failed = results.find((result) => result.error); if (failed) throw dbError(failed.error);
   const [stores,traffic,attendance,warnings,errors,campaigns,validations,incidents,deliverables,followers,trainings] = results.map((result) => result.data || []);
   return { stores,people,traffic,attendance,warnings,errors,campaigns,validations,incidents,deliverables,followers,trainings,access:{allStores:ids===null,storeIds:ids||[]} };
@@ -3427,6 +3418,17 @@ export async function handler(event) {
     const user = ensureAuth(event);
 
     if (path === "/marketing" && method === "GET") { ensureAuth(event, "marketing"); return json(200, await getMarketingData(user)); }
+    if (path === "/marketing/facebook-insights" && method === "GET") {
+      ensureAuth(event, "marketing");
+      try {
+        return json(200, await fetchFacebookInsights(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY));
+      } catch (error) {
+        console.error("Facebook insights:", error instanceof Error ? error.message : error);
+        const message = error instanceof Error && /token de Meta/.test(error.message)
+          ? error.message : "No se pudieron cargar los datos de Facebook. Revisa la conexión en Supabase.";
+        throw httpError(message, 502);
+      }
+    }
     if(path === "/marketing/attendance" && method === "GET" || path === "/marketing/attendance/lote" && method === "PUT") { ensureAuth(event,"marketing");return json(200,await marketingAttendance(user,event,method)); }
     const marketingStaffMatch=path.match(/^\/marketing\/staff\/(\d+)$/);
     if(marketingStaffMatch && ["PUT","PATCH","DELETE"].includes(method)){ensureAuth(event,"marketing");return json(200,await changeMarketingStaff(event,user,marketingStaffMatch[1],method));}
@@ -3440,6 +3442,14 @@ export async function handler(event) {
     if (path === "/mis-asistencias" && method === "GET") return json(200, await misAsistencias(event, user));
     if (path === "/mis-capacitaciones" && method === "GET") return json(200, await misCapacitaciones(user));
 
+    if (path === "/gerencia/alertas" && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial"]);
+      return json(200, await executiveAlerts());
+    }
+    if (path === "/personal/resumen" && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      return json(200, await dashboardPeople(event, user));
+    }
     if (path === "/dashboard" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await getDashboard(user, event));
@@ -3644,6 +3654,10 @@ export async function handler(event) {
       ensureAuth(event, "jefe_zonal");
       return json(200, await getZonalComparison(event, user));
     }
+    if (path === "/gerencia/comparativa" && method === "GET") {
+      ensureAuth(event, "gerencia_general");
+      return json(200, await getGeneralComparison(event, user));
+    }
     const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias)$/);
     if (zonalModuleMatch && method === "GET") {
       ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
@@ -3779,7 +3793,7 @@ export async function handler(event) {
       return json(200, await listOperational("documentos_tienda", event, user));
     }
     if (path === "/documentos-alertas" && method === "GET") {
-      ensureAuth(event, ["jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listDashboardDocumentAlerts(event, user));
     }
     if (path === "/documentos-tienda" && method === "POST") {
@@ -3819,7 +3833,7 @@ export async function handler(event) {
     if (securitySupportMatch && method === "PUT") {
       ensureAuth(event, "jefe_tienda"); return json(200, await updateSecuritySupport(event, user, Number(securitySupportMatch[1])));
     }
-    const miTiendaRecordMatch = path.match(/^\/mi-tienda-gestion\/(documentos|reclamaciones|acciones|bitacora|requerimientos|mejoras)(?:\/(\d+))?$/);
+    const miTiendaRecordMatch = path.match(/^\/mi-tienda-gestion\/(documentos|reclamaciones|acciones|requerimientos)(?:\/(\d+))?$/);
     if (miTiendaRecordMatch && ["POST", "PUT"].includes(method)) {
       ensureAuth(event, "jefe_tienda");
       if (method === "PUT" && !miTiendaRecordMatch[2]) throw httpError("Falta indicar el registro.", 400);

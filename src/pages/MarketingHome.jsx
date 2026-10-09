@@ -5,7 +5,7 @@ import { formatDate } from "../lib/api";
 const money = value => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" }).format(Number(value || 0));
 const number = value => new Intl.NumberFormat("es-PE").format(value || 0);
 
-export default function MarketingHome({ data, metrics }) {
+export default function MarketingHome({ data, metrics, facebook }) {
   const pending = data.validations.filter(row => row.estado === "pendiente").length;
   const incidents = data.incidents.filter(row => row.estado !== "cerrada").length;
   const campaigns = [...data.campaigns].sort((a, b) => String(b.created_at || b.fecha_inicio).localeCompare(String(a.created_at || a.fecha_inicio))).slice(0, 5);
@@ -21,6 +21,12 @@ export default function MarketingHome({ data, metrics }) {
         <strong>{value}</strong><p>{detail}</p>
       </article>)}
     </div>
+    <section className="panel marketing-facebook">
+      <div><span className="marketing-home__eyebrow">Meta · Facebook</span><h2>{facebook.page?.name || "Página de Facebook"}</h2><p>Seguidores actuales de la página. Las campañas mostradas abajo son registros internos de Marketing.</p></div>
+      <div className="marketing-facebook__value"><strong>{facebook.loading ? "Cargando…" : facebook.page?.followers == null ? "—" : number(facebook.page.followers)}</strong><span>Seguidores</span></div>
+      {facebook.error && <p className="marketing-facebook__error" role="status">{facebook.error}</p>}
+      {facebook.fetchedAt && <small>Actualizado: {formatDate(facebook.fetchedAt, { hour: "2-digit", minute: "2-digit" })}</small>}
+    </section>
     <div className="marketing-home__grid">
       <section className="panel marketing-home__campaigns">
         <header className="marketing-home__panel-header"><div><span className="marketing-home__eyebrow">Actividad reciente</span><h2>Campañas recientes</h2><p>Últimas campañas registradas por el equipo.</p></div><span className="marketing-home__count">{number(metrics.campaigns)} en total</span></header>
