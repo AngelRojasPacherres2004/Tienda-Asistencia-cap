@@ -1,0 +1,153 @@
+/* This palette applies only while a Marketing page is open. */
+.marketing-light {
+  --navy: #173c65;
+  --navy-2: #244e79;
+  --blue: #245b91;
+  --blue-soft: #e8f0f8;
+  --red: #bf4943;
+  --gold: #245b91;
+  --muted: #687585;
+  --border: #e2dfd5;
+  --line: #e2dfd5;
+  --surface: #fffdf8;
+  --surface-strong: #ffffff;
+  --text: #203b56;
+  --shadow: 0 12px 35px rgba(36,61,86,.08);
+  color: var(--text);
+  color-scheme: light;
+  background: #f6f2e8;
+}
+.marketing-light .workspace { min-height: 100vh; background: #f6f2e8; }
+.marketing-light .workspace__content { background: transparent; }
+.marketing-theme .sidebar { color: #f6f2e8; background: #111923; border-right: 1px solid #293340; }
+.marketing-theme .brand__mark { color: #fffdf8; background: #bf4943; box-shadow: 0 7px 18px rgba(191,73,67,.16); }
+.marketing-theme .brand small, .marketing-theme .user-chip small { color: #9baabc; }
+.marketing-theme .sidebar nav button { color: #b4c0ce; }
+.marketing-theme .sidebar nav button:hover { color: #fff; background: #1d2c3e; }
+.marketing-theme .sidebar nav button.active { color: #fff; background: #245b91; box-shadow: 0 6px 16px rgba(36,91,145,.16); }
+.marketing-theme .sidebar nav button.active svg { color: #fff; }
+.marketing-theme .sidebar nav button.active::before { background: #ef9b8c; }
+.marketing-theme .sidebar__footer { border-color: #293340; }
+.marketing-theme .user-chip > span { color: #bad4ed; background: #20344b; }
+.marketing-theme .logout-button { color: #b4c0ce; }
+.marketing-theme .logout-button:hover { color: #f5b0a4; background: rgba(191,73,67,.15); }
+.marketing-theme-toolbar { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+.marketing-theme-toggle { min-height: 38px; }
+.marketing-light .compact-toggle, .marketing-light .mobile-topbar { color: #245b91; border-color: var(--border); background: #fffdf8; }
+.marketing-light .page-header h1 { color: #173c65; }
+.marketing-light .page-header p, .marketing-light .panel__header p { color: var(--muted); }
+.marketing-light .eyebrow, .marketing-light .marketing-home__eyebrow { color: #b1433d; }
+.marketing-light .button--primary { color: #fff; background: #245b91; box-shadow: 0 6px 16px rgba(36,91,145,.15); }
+.marketing-light .button--primary:hover { color: #fff; background: #194976; }
+.marketing-light .button--ghost { color: #365570; border-color: #d9dfe3; background: #fffdf8; }
+.marketing-light .button--ghost:hover { color: #194976; border-color: #9db4c9; background: #edf3f9; }
+.marketing-light .button--soft { color: #245b91; background: #e8f0f8; }
+.marketing-light .button--danger { color: #fff; background: #bf4943; }
+.marketing-light .panel, .marketing-light .toolbar, .marketing-light .attendance-table, .marketing-light .modal { color: var(--text); border-color: var(--border); background: #fffdf8; box-shadow: 0 8px 26px rgba(36,61,86,.05); }
+.marketing-light .panel__header, .marketing-light .modal__header, .marketing-light .form-actions, .marketing-light .form-section-title { border-color: var(--border); }
+.marketing-light .module-view-tabs, .marketing-light .form-tabs { background: #ece9df; border-color: var(--border); }
+.marketing-light .module-view-tabs button, .marketing-light .form-tabs button { color: #607080; }
+.marketing-light .module-view-tabs button.active, .marketing-light .form-tabs button.active { color: #fff; background: #245b91; }
+.marketing-light .field { color: #4e6275; }
+.marketing-light .field small, .marketing-light .modal__header p, .marketing-light .toolbar > span { color: var(--muted); }
+.marketing-light .field input, .marketing-light .field select, .marketing-light .field textarea, .marketing-light .toolbar select, .marketing-light .toolbar > input, .marketing-light .search-input, .marketing-light .attendance-obs { color: #203b56; border-color: #d9dfe3; background: #fff; color-scheme: light; }
+.marketing-light .search-input input { color: #203b56; }
+.marketing-light input::placeholder, .marketing-light textarea::placeholder { color: #7b8793; }
+.marketing-light .field input:focus, .marketing-light .field select:focus, .marketing-light .field textarea:focus, .marketing-light .search-input:focus-within { border-color: #6f99be; background: #fff; box-shadow: 0 0 0 3px rgba(36,91,145,.1); }
+.marketing-light .field input:disabled, .marketing-light .field select:disabled { color: #7b8793; background: #f0eee8; }
+.marketing-light .field .field__error { color: #b1433d; }
+.marketing-light .icon-button { color: #567087; background: #edf2f7; }
+.marketing-light .modal-backdrop { background: rgba(22,46,70,.45); }
+.marketing-light .empty-state { color: #203b56; border-color: #d9dfe3; background: #faf8f2; }
+.marketing-light .empty-state > span, .marketing-light .avatar { color: #245b91; background: #e8f0f8; }
+.marketing-light .marketing-table__head, .marketing-light .attendance-head { color: #365570; background: #edf2f7; border-color: var(--border); }
+.marketing-light .marketing-table__row, .marketing-light .marketing-list-row, .marketing-light .attendance-row { color: #41566a; border-color: #e9e6dd; }
+.marketing-light .marketing-table__row:hover, .marketing-light .attendance-row:hover { background: #f8f6f0; }
+.marketing-light .marketing-list-row small, .marketing-light .person-cell small { color: var(--muted); }
+.marketing-light .person-cell strong { color: #203b56; }
+.marketing-light .attendance-check:not(.checked) { border-color: #c7d2dc; background: #fff; }
+.marketing-light .attendance-obs:disabled { color: #7b8793; background: #f0eee8; }
+.marketing-light .attendance-obs:focus { border-color: #6f99be; background: #fff; box-shadow: 0 0 0 3px rgba(36,91,145,.1); }
+.marketing-light .marketing-home__metric { border-color: var(--border); border-top: 3px solid #245b91; background: #fffdf8; box-shadow: 0 8px 26px rgba(36,61,86,.05); }
+.marketing-light .marketing-home__metric:nth-child(even) { border-top-color: #bf4943; }
+.marketing-light .marketing-home__metric-top > span, .marketing-light .marketing-home__campaign-icon { color: #245b91; background: #e8f0f8; }
+.marketing-light .marketing-home__metric:nth-child(even) .marketing-home__metric-top > span { color: #b1433d; background: #fbece7; }
+.marketing-light .marketing-home__metric h2 { color: #52667a; }
+.marketing-light .marketing-home__metric > strong { color: #173c65; }
+.marketing-light .marketing-home__metric > p, .marketing-light .marketing-home__panel-header p, .marketing-light .marketing-home__campaign-info p, .marketing-light .marketing-home__campaign-info small, .marketing-light .marketing-home__campaign-budget small, .marketing-light .marketing-home__attendance p { color: var(--muted); }
+.marketing-light .marketing-home__panel-header, .marketing-light .marketing-home__campaign, .marketing-light .marketing-home__pending { border-color: #e9e6dd; }
+.marketing-light .marketing-home__panel-header h2, .marketing-light .marketing-home__campaign-info h3, .marketing-light .marketing-home__pending > strong { color: #203b56; }
+.marketing-light .marketing-home__count { color: #245b91; background: #e8f0f8; }
+.marketing-light .marketing-home__campaign-budget strong, .marketing-light .marketing-home__attendance strong { color: #245b91; }
+.marketing-light .marketing-home__attendance { border-color: #e2dfd5; background: #f6f2e8; }
+.marketing-light .marketing-home__attendance span, .marketing-light .marketing-home__pending > span { color: #41566a; }
+.marketing-light .marketing-home__pending svg { color: #bf4943; }
+.marketing-light .marketing-home__progress { background: #dce3e9; }
+.marketing-light .marketing-home__progress > span { background: #245b91; }
+.marketing-light :is(button, input, select, textarea):focus-visible { outline: 2px solid #245b91; outline-offset: 3px; }
+
+/* Larger typography for both Marketing themes. */
+.marketing-theme .attendance-table { min-width: 1610px; }
+.marketing-theme .attendance-head, .marketing-theme .attendance-row {
+  grid-template-columns: minmax(240px, 1.5fr) repeat(8, minmax(112px, 1fr)) minmax(250px, 1.5fr);
+  column-gap: 20px;
+  padding-inline: 20px;
+}
+.marketing-theme .attendance-head { min-height: 72px; line-height: 1.5; }
+.marketing-theme .attendance-head > span { min-width: 0; white-space: normal; overflow-wrap: anywhere; padding-inline: 4px; }
+.marketing-theme .attendance-row { padding-block: 12px; }
+.marketing-theme .person-cell, .marketing-theme .person-cell > div { min-width: 0; }
+.marketing-theme .person-cell strong { overflow-wrap: anywhere; }
+.marketing-theme .marketing-table__head, .marketing-theme .marketing-table__row { gap: 24px; padding: 16px 20px; }
+.marketing-theme .marketing-table__head > strong, .marketing-theme .marketing-table__row > span { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.marketing-theme .toolbar { flex-wrap: wrap; gap: 14px; }
+.marketing-theme { font-size: 19px; }
+.marketing-theme .sidebar nav button { font-size: 16px; }
+.marketing-theme .brand strong { font-size: 21px; }
+.marketing-theme .brand small { font-size: 14px; }
+.marketing-theme .user-chip strong, .marketing-theme .logout-button { font-size: 15px; }
+.marketing-theme .user-chip small { font-size: 13px; }
+.marketing-theme .page-header h1 { font-size: clamp(31px, 3vw + 3px, 39px); }
+.marketing-theme .page-header p { font-size: 17px; }
+.marketing-theme .eyebrow { font-size: 13px; }
+.marketing-theme .button { font-size: 15px; }
+.marketing-theme .button--large { font-size: 16px; }
+.marketing-theme .module-view-tabs button, .marketing-theme .marketing-tabs button { font-size: 14px; }
+.marketing-theme .notice, .marketing-theme .loading, .marketing-theme .confirm-copy p { font-size: 15px; }
+.marketing-theme .empty-state h3 { font-size: 19px; }
+.marketing-theme .empty-state p { font-size: 16px; }
+.marketing-theme .panel__header h2 { font-size: 17px; }
+.marketing-theme .panel__header p, .marketing-theme .modal__header p { font-size: 13px; }
+.marketing-theme .modal__header h2 { font-size: 20px; }
+.marketing-theme .field > span, .marketing-theme .status { font-size: 12px; }
+.marketing-theme .field input, .marketing-theme .field select, .marketing-theme .field textarea, .marketing-theme .toolbar select, .marketing-theme .toolbar > input, .marketing-theme .toolbar > span { font-size: 14px; }
+.marketing-theme .field small { font-size: 12px; }
+.marketing-theme .field-error, .marketing-theme .field .field__error { font-size: 13px; }
+.marketing-theme .search-input input { font-size: 15px; }
+.marketing-theme .person-cell strong { font-size: 14px; }
+.marketing-theme .person-cell small { font-size: 12px; }
+.marketing-theme .attendance-head, .marketing-theme .attendance-obs { font-size: 13px; }
+.marketing-theme .form-tabs button { font-size: 14px; }
+.marketing-theme .form-section-title strong { font-size: 14px; }
+.marketing-theme .form-section-title span { font-size: 12px; }
+.marketing-theme .weekly-schedule__row strong, .marketing-theme .weekly-schedule__row > input, .marketing-theme .schedule-check { font-size: 13px; }
+.marketing-theme .marketing-table__head { font-size: 13px; }
+.marketing-theme .marketing-table__row { font-size: 14px; line-height: 1.6; }
+.marketing-theme .marketing-home__metric h2 { font-size: 15px; }
+.marketing-theme .marketing-home__metric > strong { font-size: clamp(26px, 2.1vw + 3px, 35px); }
+.marketing-theme .marketing-home__metric > p, .marketing-theme .marketing-home__panel-header p, .marketing-theme .marketing-home__campaign-info p { font-size: 14px; }
+.marketing-theme .marketing-home__eyebrow { font-size: 12px; }
+.marketing-theme .marketing-home__panel-header h2 { font-size: 22px; }
+.marketing-theme .marketing-home__count, .marketing-theme .marketing-home__campaign-info small, .marketing-theme .marketing-home__campaign-budget small, .marketing-theme .marketing-home__attendance p { font-size: 13px; }
+.marketing-theme .marketing-home__campaign-info h3, .marketing-theme .marketing-home__campaign-budget strong { font-size: 17px; }
+.marketing-theme .marketing-home__attendance span, .marketing-theme .marketing-home__pending > span { font-size: 15px; }
+.marketing-theme .marketing-home__attendance strong { font-size: 27px; }
+.marketing-theme .marketing-home__pending > strong { font-size: 25px; }
+.marketing-theme .header-actions { flex-wrap: wrap; }
+.marketing-theme .sidebar nav button { height: auto; min-height: 46px; padding-block: 10px; white-space: normal; }
+.marketing-theme .marketing-home__panel-header { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .marketing-theme .marketing-home__metric > strong { font-size: 27px; }
+  .marketing-theme .page-header { flex-wrap: wrap; }
+  .marketing-theme .weekly-schedule__row { grid-template-columns: 1fr 1fr; }
+}
