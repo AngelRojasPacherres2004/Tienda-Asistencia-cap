@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, Crown, FileSpreadsheet, Info, Pencil, UsersRound } from "lucide-react";
 import { api } from "../lib/api";
+import { clusterLabel, isCommercialCluster } from "../lib/clusters";
 import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
@@ -23,6 +24,7 @@ export default function Tiendas({ user }) {
   const [catalogs, setCatalogs] = useState({ ubicaciones: [], formatos: ["PROPIA", "METRO"] });
   const [zonalCluster, setZonalCluster] = useState(null);
   const [search, setSearch] = useState("");
+  const [clusterFilter, setClusterFilter] = useState("todos");
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -39,12 +41,15 @@ export default function Tiendas({ user }) {
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
   useEffect(() => { load(); loadUsuarios(); api("/tiendas/catalogos").then(setCatalogs).catch(() => {}); if (user?.rol === "gerente_comercial") api("/clusters").then(setClusters).catch(() => {}); if(isZonal)api("/zonal/cluster").then(setZonalCluster).catch(()=>setZonalCluster(null)); }, [user?.rol,isZonal]);
 
+  const commercialClusters = useMemo(() => clusters.filter(cluster => cluster.estado === "activo" && isCommercialCluster(cluster)), [clusters]);
   const filtered = useMemo(() => (items || []).filter((item) =>
+    (user?.rol !== "gerente_comercial" || commercialClusters.some(cluster => String(cluster.id) === String(item.cluster_id))) &&
+    (clusterFilter === "todos" || String(item.cluster_id) === clusterFilter) &&
     [item.nombre, item.direccion, item.jefe_nombre].join(" ").toLowerCase().includes(search.toLowerCase()),
-  ), [items, search]);
+  ), [items, search, clusterFilter, commercialClusters, user?.rol]);
   const pages=Math.max(1,Math.ceil(filtered.length/6));
   const visibleItems=filtered.slice((page-1)*6,page*6);
-  useEffect(()=>setPage(1),[search]);
+  useEffect(()=>setPage(1),[search,clusterFilter]);
 
   const jefeOptions = usuarios.filter((u) => u.estado === "activo" && u.rol === "jefe_tienda");
   const departments = [...new Set(catalogs.ubicaciones.map((item) => item.departamento))];
@@ -103,14 +108,25 @@ export default function Tiendas({ user }) {
   return (
     <>
       <PageHeader
-        eyebrow={isZonal ? "Gestión zonal" : "Operación"}
-        title={isZonal ? "Mis tiendas" : "Tiendas"}
-        subtitle={isZonal ? "Administra las tiendas de tu zona sin depender del estado de su administrador." : "Crea tiendas, asigna su administrador y consulta al resto del personal."}
+        eyebrow={isZonal ? "Gestión zonal" : ""}
+        title={isZonal ? "Mis tiendas" : user?.rol === "gerente_comercial" ? "Tiendas y clústeres" : "Tiendas"}
+        subtitle={isZonal ? "Tiendas de tu zona" : ""}
         action={canEdit ? <button className="button button--primary" onClick={openNew}>Nueva tienda</button> : null}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
+      {user?.rol === "gerente_comercial" && <div className="commercial-cluster-overview">
+        {commercialClusters.map(cluster => {
+          const members = (items || []).filter(store => String(store.cluster_id) === String(cluster.id));
+          return <button key={cluster.id} className={clusterFilter === String(cluster.id) ? "active" : ""} onClick={() => setClusterFilter(current => current === String(cluster.id) ? "todos" : String(cluster.id))}>
+            <span>{clusterLabel(cluster.codigo || cluster.nombre)}</span>
+            <strong>{members.filter(store => store.estado === "activo").length} tiendas activas</strong>
+            {members.some(store => store.estado !== "activo") && <small>{members.length} en total</small>}
+          </button>;
+        })}
+      </div>}
       <div className="toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar tienda, dirección o jefe…" />
+        {user?.rol === "gerente_comercial" && <select aria-label="Filtrar por clúster" value={clusterFilter} onChange={event => setClusterFilter(event.target.value)}><option value="todos">Clústeres A y B</option>{commercialClusters.map(cluster => <option key={cluster.id} value={String(cluster.id)}>{clusterLabel(cluster.codigo || cluster.nombre)}</option>)}</select>}
         <span>{filtered.length} tiendas</span>
       </div>
 
@@ -125,9 +141,8 @@ export default function Tiendas({ user }) {
               <h3>{item.nombre}</h3>
               <p>{item.direccion || "Sin dirección registrada"}</p>
               <dl>
-                <div><dt>Clúster</dt><dd>{item.cluster_nombre || "Sin asignar"}</dd></div>
-                <div><dt>Jefe de tienda</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div>
-                <div><dt>Creada</dt><dd>{new Date(item.fecha_creacion).toLocaleDateString("es-PE")}</dd></div>
+                <div><dt>Clúster</dt><dd>{clusterLabel(item.cluster_nombre)}</dd></div>
+                <div><dt>Administrador de tienda</dt><dd>{item.jefe_nombre || "Sin asignar"}</dd></div>
               </dl>
               <div className="company-card__footer">
                 <button title="Información de la tienda" aria-label="Información de la tienda" onClick={() => openStore(item, "informacion")}><Info size={18} /></button>
@@ -147,7 +162,7 @@ export default function Tiendas({ user }) {
         open={!!editing}
         extraWide
         title={editing?.id ? "Editar tienda" : "Nueva tienda"}
-        subtitle="Registra la identificación, ubicación y capacidad operativa de la tienda."
+        subtitle="Datos y capacidad de la tienda"
         onClose={closeEditor}
       >
         {editing && (
@@ -173,16 +188,16 @@ export default function Tiendas({ user }) {
             <Field label="Colaboradores habituales"><input type="number" min="0" step="1" value={editing.cant_colaboradores_normal ?? ""} onChange={(e) => set("cant_colaboradores_normal", e.target.value)} /></Field>
             <Field label="Colaboradores en campaña"><input type="number" min="0" step="1" value={editing.colaboradores_camp ?? ""} onChange={(e) => set("colaboradores_camp", e.target.value)} /></Field>
             <Field label="Alquiler mensual (S/)"><input type="number" min="0" step="0.01" value={editing.alquiler_mensual ?? ""} onChange={(e) => set("alquiler_mensual", e.target.value)} /></Field>
-            <Field label="Jefe de tienda" hint="Solo usuarios activos.">
+            <Field label="Administrador de tienda">
               <select value={editing.jefe_id} onChange={(e) => set("jefe_id", e.target.value)}>
                 <option value="">Sin asignar</option>
                 {jefeOptions.map((u) => <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>)}
               </select>
             </Field>
-            {isZonal ? <Field label="Clúster asignado" hint="Las tiendas creadas quedan dentro de tu clúster."><input disabled value={zonalCluster?`${zonalCluster.nombre}${zonalCluster.codigo?` · ${zonalCluster.codigo}`:""}`:"Sin clúster asignado"}/></Field> : <Field label="Clúster">
+            {isZonal ? <Field label="Clúster asignado" hint="Las tiendas creadas quedan dentro de tu clúster."><input disabled value={zonalCluster?clusterLabel(zonalCluster.codigo || zonalCluster.nombre):"Sin clúster asignado"}/></Field> : <Field label="Clúster">
               <select required value={editing.cluster_id || ""} onChange={(e) => set("cluster_id", e.target.value)}>
                 <option value="">Selecciona un clúster</option>
-                {clusters.filter((c) => c.estado === "activo" || String(c.id) === String(editing.cluster_id)).map((c) => <option value={c.id} key={c.id}>{c.nombre}</option>)}
+                {clusters.filter((c) => (isCommercialCluster(c) && c.estado === "activo") || String(c.id) === String(editing.cluster_id)).map((c) => <option value={c.id} key={c.id}>{clusterLabel(c.codigo || c.nombre)}</option>)}
               </select>
             </Field>}
             <Field label="Estado *">
@@ -198,7 +213,7 @@ export default function Tiendas({ user }) {
           </form>
         )}
       </Modal>
-      <Modal open={!!viewing} extraWide title={viewing ? viewing.nombre : "Tienda"} subtitle="Consulta información, equipo y reportes sin mezclar sus responsabilidades." onClose={() => setViewing(null)}>
+        <Modal open={!!viewing} extraWide title={viewing ? viewing.nombre : "Tienda"} onClose={() => setViewing(null)}>
         {viewing && <>
           <div className="module-view-tabs">
             <button className={detailView==="informacion"?"active":""} onClick={()=>setDetailView("informacion")}>Información</button>
@@ -207,12 +222,12 @@ export default function Tiendas({ user }) {
           </div>
           {detailView === "reportes" && <Reportes user={user} embedded fixedStoreId={viewing.id} initialKind="documentos" allowedKinds={["documentos","reclamaciones","acciones","requerimientos","supervisiones"]}/>}
           {detailView === "informacion" && <dl className="store-detail-grid">
-            {[['Estado',<StatusBadge key="estado" value={viewing.estado}/>],['Código',viewing.codigo],['Dirección',viewing.direccion],['Distrito',viewing.distrito],['Provincia',viewing.provincia],['Departamento',viewing.departamento],['Zona',viewing.zona],['Formato',viewing.formato],['Fecha de apertura',viewing.fecha_apertura],['Fecha de cierre',viewing.fecha_cierre],['Metraje',viewing.metraje_m2!=null?`${viewing.metraje_m2} m²`:null],['Capacidad de stock',viewing.capacidad_stock_unid],['Dotación habitual',viewing.cant_colaboradores_normal],['Dotación en campaña',viewing.colaboradores_camp],['Alquiler mensual',viewing.alquiler_mensual!=null?`S/ ${Number(viewing.alquiler_mensual).toLocaleString('es-PE',{minimumFractionDigits:2})}`:null],['Clúster',viewing.cluster_nombre]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value === null || value === undefined || value === "" ? "Sin registrar" : value}</dd></div>)}
+            {[['Estado',<StatusBadge key="estado" value={viewing.estado}/>],['Código',viewing.codigo],['Dirección',viewing.direccion],['Distrito',viewing.distrito],['Provincia',viewing.provincia],['Departamento',viewing.departamento],['Zona',viewing.zona],['Formato',viewing.formato],['Fecha de apertura',viewing.fecha_apertura],['Fecha de cierre',viewing.fecha_cierre],['Metraje',viewing.metraje_m2!=null?`${viewing.metraje_m2} m²`:null],['Capacidad de stock',viewing.capacidad_stock_unid],['Dotación habitual',viewing.cant_colaboradores_normal],['Dotación en campaña',viewing.colaboradores_camp],['Alquiler mensual',viewing.alquiler_mensual!=null?`S/ ${Number(viewing.alquiler_mensual).toLocaleString('es-PE',{minimumFractionDigits:2})}`:null],['Clúster',clusterLabel(viewing.cluster_nombre)]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value === null || value === undefined || value === "" ? "Sin registrar" : value}</dd></div>)}
           </dl>}
           {detailView === "equipo" && (!storeUsers ? <Loading label="Cargando equipo de la tienda..." /> : <div className="store-users">
             <section className="store-users__leader">
               <div className="store-users__icon"><Crown size={18} /></div>
-              <div><span>Administrador de tienda</span><strong>{viewing.jefe_nombre || "Sin administrador asignado"}</strong><small>{viewing.jefe_nombre ? <>Estado: <StatusBadge value={viewing.jefe_estado}/></> : "La tienda puede continuar activa y recibir un nuevo administrador."}</small></div>
+              <div><span>Administrador de tienda</span><strong>{viewing.jefe_nombre || "Sin administrador asignado"}</strong><small>{viewing.jefe_nombre ? <StatusBadge value={viewing.jefe_estado}/> : "Pendiente de asignación"}</small></div>
             </section>
             <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{filteredTeam.length} de {teamMembers.length} personas</h3></div><select value={teamRole} onChange={(event)=>setTeamRole(event.target.value)}><option value="todos">Todos los roles</option>{teamRoles.map((role)=><option key={role} value={role}>{roleLabels[role] || role.replaceAll("_"," ")}</option>)}</select></div>
             {filteredTeam.length ? <><div className="store-users__list">{filteredTeam.slice((teamPage-1)*5,teamPage*5).map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>{roleLabels[item.rol] || item.rol?.replaceAll("_", " ")} · {item.usuario ? `@${item.usuario}` : "Sin credenciales"}</small></div><StatusBadge value={item.estado} /></div>)}</div><Pagination page={teamPage} pages={Math.max(1,Math.ceil(filteredTeam.length/5))} onChange={setTeamPage}/></> : <EmptyState icon={UsersRound} title="Sin personal con ese rol" text="Prueba con otro filtro o registra personal desde Mis equipos." />}

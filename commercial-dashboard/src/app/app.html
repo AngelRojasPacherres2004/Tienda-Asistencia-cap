@@ -1,4 +1,4 @@
-<main class="app-shell">
+<main class="app-shell" [class.portal-embed]="cloud.portalEnabled">
   @if (!cloud.authReady()) {
     <section class="status-panel"><span class="loader"></span><strong>Validando acceso seguro…</strong></section>
   } @else if (!cloud.hasAccess()) {
@@ -37,7 +37,7 @@
       </div>
       <div class="header-actions">
         <div class="cutoff"><span>CORTE COMERCIAL</span><strong>{{ formatDate(data()!.metadata.salesCutoff) }}</strong><small>{{ cloud.dataVersion() }}</small></div>
-        @if (cloud.remoteEnabled()) { <button type="button" class="logout" (click)="signOut()" [title]="cloud.userName()">SALIR</button> }
+        @if (cloud.remoteEnabled() && !cloud.portalEnabled) { <button type="button" class="logout" (click)="signOut()" [title]="cloud.userName()">SALIR</button> }
       </div>
     </header>
 

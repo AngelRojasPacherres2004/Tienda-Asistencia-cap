@@ -653,6 +653,10 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .login-card { padding: 22px 18px; border-radius: 14px; }
 }
 
+/* En Asiste el iframe ya ocupa el espacio de trabajo; no se añade otro marco. */
+.app-shell.portal-embed { max-width:none; padding:14px clamp(10px,1.3vw,22px) 30px; overflow-x:clip; }
+.portal-embed .filter-panel { margin-top:12px; }
+
 @media (min-width: 1900px) {
   .app-shell { max-width: 2200px; }
   .brand-header h1 { font-size: 2.55rem; }
@@ -1313,4 +1317,11 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .talent-card.capacity-card { grid-column:auto; }
   .capacity-facts { grid-template-columns: 1fr; }
   .section-advice-btn { padding:5px 6px; font-size:.5rem; }
+}
+
+@media (min-width: 901px) and (max-width: 1450px) {
+  :host { --dashboard-kpi-columns:4; }
+  .portal-embed .brand-header h1 { font-size:clamp(1.2rem,1.8vw,1.85rem); }
+  .static-charts { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .static-charts .price-range-card { grid-column:1 / -1; }
 }

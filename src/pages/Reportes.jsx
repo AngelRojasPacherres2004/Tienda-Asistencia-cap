@@ -8,12 +8,12 @@ import { EmptyState, Loading, Modal, Notice, PageHeader, Pagination, StatusBadge
 
 const reportDefinitions = {
   personal: {
-    label: "Personal", description: "Equipo y administradores asignados a cada tienda.", icon: UsersRound,
-    columns: [["nombre", "Persona"], ["tienda", "Tienda"], ["rol", "Cargo"], ["dni", "DNI"], ["fecha_ingreso", "Ingreso", "date"], ["estado", "Estado", "status"]],
+    label: "Personal", description: "Dotación por tienda, ficha laboral y resumen comparable con el registro de personal.", icon: UsersRound,
+    columns: [["tienda", "Tienda"], ["nombre", "Nombres y apellidos"], ["dni", "DNI"], ["sexo", "Sexo"], ["rol", "Cargo"], ["area", "Área"], ["jornada", "Jornada"], ["fecha_ingreso", "Fecha de ingreso", "date"], ["estado", "Estado", "status"]],
   },
   asistencias: {
-    label: "Asistencia", description: "Asistencias, tardanzas, faltas y observaciones.", icon: CalendarCheck2,
-    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["trabajador", "Trabajador"], ["estado", "Estado", "status"], ["observaciones", "Observación"]],
+    label: "Asistencia", description: "Marcas por fecha, tienda y persona; el Excel incluye un consolidado para administradores.", icon: CalendarCheck2,
+    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["trabajador", "Trabajador"], ["dni", "DNI"], ["estado", "Estado", "status"], ["observaciones", "Observación"]],
   },
   amonestaciones: {
     label: "Amonestaciones", description: "Medidas disciplinarias registradas por persona y tienda.", icon: ShieldAlert,
@@ -152,7 +152,8 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     />}
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-    {availableKinds.length > 1 && <section className="report-picker" aria-label="Tipos de reporte">
+    {availableKinds.length > 1 && user?.rol === "gerente_comercial" && <label className="commercial-report-selector">Tipo de reporte<select value={kind} onChange={event => selectReport(event.target.value)}>{availableKinds.map(id => <option key={id} value={id}>{reportDefinitions[id].label}</option>)}</select></label>}
+    {availableKinds.length > 1 && user?.rol !== "gerente_comercial" && <section className="report-picker" aria-label="Tipos de reporte">
       {availableKinds.map((id) => {
         const item = reportDefinitions[id];
         const Icon = item.icon;
@@ -164,15 +165,20 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
 
     <section className="panel report-workspace">
       <header className="report-workspace__header">
-        <div><span className="eyebrow">Reporte seleccionado</span><h2>{definition.label}</h2><p>{definition.description}</p></div>
+        <div>{!embedded && <span className="eyebrow">Reporte seleccionado</span>}<h2>{embedded && kind === "personal" ? "Registro de personal" : definition.label}</h2>{!embedded && <p>{definition.description}</p>}</div>
         <div className="report-workspace__actions"><strong className="report-count">{rows ? rows.length : "—"} registros</strong>{embedded && exportButton}</div>
       </header>
+      {kind === "asistencias" && <p className="report-method-note">El resumen cuenta únicamente marcas registradas. Una persona sin marca no se considera automáticamente una falta.</p>}
+      {kind === "personal" && <p className="report-method-note">El Excel incluye dotación y detalle laboral; las fechas filtran el ingreso.</p>}
+      {rows && (kind === "personal" || kind === "asistencias") && <div className="report-stat-strip">
+        {(kind === "personal" ? [["Personas",rows.length],["Activos",rows.filter(row=>row.estado==="activo").length],["Inactivos",rows.filter(row=>row.estado==="inactivo").length]] : [["Marcas",rows.length],["Asistencias",rows.filter(row=>row.estado==="presente").length],["Tardanzas",rows.filter(row=>row.estado==="tardanza").length],["Faltas registradas",rows.filter(row=>row.estado==="falta").length]]).map(([label,value])=><div key={label}><strong>{value}</strong><span>{label}</span></div>)}
+      </div>}
 
       <form className="report-filters" onSubmit={applyFilters}>
         <label className="report-search"><span>Buscar</span><div><Search size={16}/><input value={draft.q} onChange={(event) => setDraft({ ...draft, q: event.target.value })} placeholder="Código, persona, tienda o detalle"/></div></label>
         {canSelectStore && <label><span>Tienda</span><select value={draft.tienda_id} onChange={(event) => setDraft({ ...draft, tienda_id: event.target.value })}><option value="">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}
-        <label><span>Desde</span><input type="date" value={draft.desde} onChange={(event) => setDraft({ ...draft, desde: event.target.value })}/></label>
-        <label><span>Hasta</span><input type="date" max={todayISO()} value={draft.hasta} onChange={(event) => setDraft({ ...draft, hasta: event.target.value })}/></label>
+        <label><span>{kind === "personal" ? "Ingreso desde" : "Desde"}</span><input type="date" value={draft.desde} onChange={(event) => setDraft({ ...draft, desde: event.target.value })}/></label>
+        <label><span>{kind === "personal" ? "Ingreso hasta" : "Hasta"}</span><input type="date" max={todayISO()} value={draft.hasta} onChange={(event) => setDraft({ ...draft, hasta: event.target.value })}/></label>
         {statusOptions[kind] && <label><span>Estado</span><select value={draft.estado} onChange={(event) => setDraft({ ...draft, estado: event.target.value })}><option value="">Todos los estados</option>{statusOptions[kind].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
         <div className="report-filter-actions"><button type="button" className="button button--ghost button--small" onClick={clearFilters}>Limpiar filtros</button><button className="button button--primary button--small">Aplicar filtros</button></div>
       </form>
@@ -181,7 +187,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     </section>
 
     <Modal open={!!selected} wide title={`Detalle · ${definition.label}`} subtitle="Información incluida en el reporte" onClose={() => setSelected(null)}>
-      {selected && <dl className="report-detail-grid">{definition.columns.map(([key, label, type]) => <div key={key}><dt>{label}</dt><dd>{renderValue(selected[key], type)}</dd></div>)}</dl>}
+      {selected && <dl className="report-detail-grid">{(kind === "personal" ? [["tienda","Tienda"],["nombre","Nombres y apellidos"],["dni","DNI"],["sexo","Sexo"],["rol","Cargo"],["area","Área"],["nivel_estudios","Nivel de estudios"],["ciclo_semestre","Ciclo / semestre"],["carrera","Carrera"],["edad","Edad"],["fecha_nacimiento","Nacimiento","date"],["mes_cumpleanos","Mes de cumpleaños"],["fecha_ingreso","Fecha de ingreso","date"],["fecha_salida","Fecha de salida","date"],["motivo_salida","Motivo de salida"],["estado_civil","Estado civil"],["numero_hijos","N.º de hijos"],["telefono","Teléfono"],["direccion","Dirección"],["distrito","Distrito"],["nacionalidad","Nacionalidad"],["jornada","Jornada"],["estado","Estado","status"]] : definition.columns).map(([key, label, type]) => <div key={key}><dt>{label}</dt><dd>{renderValue(selected[key], type)}</dd></div>)}</dl>}
     </Modal>
   </div>;
 }

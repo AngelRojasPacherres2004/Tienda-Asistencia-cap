@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExcelJS from "exceljs";
 import { Download, Edit3, Eye, FileSpreadsheet, FileUp, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
+import { clusterLabel, isCommercialCluster } from "../lib/clusters";
 import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
+import { departureReasonOptions, normalizeDepartureReason, validDepartureReason } from "../lib/personnelCatalogs";
 import {
   ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
@@ -34,7 +36,7 @@ const excelDate = (value) => {
   return String(value || "").trim().slice(0, 10);
 };
 
-export default function Usuarios({ user, zonalTeam = false }) {
+export default function Usuarios({ user, zonalTeam = false, embedded = false }) {
   const isCentral = ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(user?.rol);
   const isStoreAdmin = user?.rol === "jefe_tienda";
   const availableRoles = rolesByManager[user?.rol] || [];
@@ -89,7 +91,7 @@ export default function Usuarios({ user, zonalTeam = false }) {
   const openEdit = (item) => {
     clearErrors();
     const savedSchedule = new Map((item.horarios || []).map((row) => [Number(row.dia_semana), row]));
-    setEditing({ ...item, tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "", horarios: blankSchedule().map((row) => {
+    setEditing({ ...item, motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "", horarios: blankSchedule().map((row) => {
       const saved = savedSchedule.get(row.dia_semana) || {};
       return { ...row, ...saved, hora_entrada: saved.hora_entrada?.slice(0, 5) || "", hora_salida: saved.hora_salida?.slice(0, 5) || "" };
     }) });
@@ -149,7 +151,8 @@ export default function Usuarios({ user, zonalTeam = false }) {
     if (editing.telefono_emergencia && !/^\d{9}$/.test(editing.telefono_emergencia)) errors.telefono_emergencia = "Debe tener exactamente 9 dígitos.";
     if (editing.usuario && (editing.usuario.trim().length < 2 || !/^[a-z0-9._-]+$/i.test(editing.usuario.trim()))) errors.usuario = "Usa al menos 2 caracteres: letras, números, punto o guion.";
     if (editing.password && editing.password.length < 3) errors.password = "Debe tener al menos 3 caracteres.";
-    if (editing.fecha_salida && !String(editing.motivo_salida || "").trim()) errors.motivo_salida = "Indica el motivo de salida.";
+    if (editing.estado === "inactivo" && !editing.fecha_salida) errors.fecha_salida = "Indica la fecha de salida.";
+    if (editing.fecha_salida && !validDepartureReason(editing.motivo_salida)) errors.motivo_salida = "Selecciona un motivo de salida.";
     if (editing.tiene_parentesco && !String(editing.tipo_parentesco || "").trim()) errors.tipo_parentesco = "Selecciona el parentesco.";
     if (editing.tiene_parentesco && !String(editing.familiar_vinculo || "").trim()) errors.familiar_vinculo = "Indica el nombre del familiar o vínculo.";
     if ((editing.horarios || []).some((row) => row.trabaja && (!row.hora_entrada || !row.hora_salida))) errors.horarios = "Completa la entrada y salida de todos los días trabajados.";
@@ -282,6 +285,7 @@ export default function Usuarios({ user, zonalTeam = false }) {
   const tiendaOptions = tiendas.filter((t) => t.estado === "activo" || String(t.id) === String(editing?.tienda_id));
   const clusterOptions = clusters.filter((cluster) =>
     cluster.estado === "activo"
+    && (user?.rol !== "gerente_comercial" || isCommercialCluster(cluster))
     && (!cluster.jefe_zonal_id || String(cluster.jefe_zonal_id) === String(editing?.id)),
   );
 
@@ -295,9 +299,9 @@ export default function Usuarios({ user, zonalTeam = false }) {
   return (
     <>
       <PageHeader
-        eyebrow={zonalTeam ? "Jefe zonal" : isCentral ? "Jerarquía" : "Mi tienda"}
-        title={zonalTeam ? "Mis equipos" : "Usuarios a mi cargo"}
-        subtitle={zonalTeam ? "Consulta el equipo completo de cada tienda y administra las cuentas de sus administradores." : "Solo puedes administrar los rangos autorizados debajo de tu cargo."}
+        eyebrow={embedded ? "" : zonalTeam ? "Jefe zonal" : isCentral ? "Jerarquía" : "Mi tienda"}
+        title={embedded ? "Jefes zonales" : zonalTeam ? "Mis equipos" : "Usuarios a mi cargo"}
+        subtitle={embedded ? "" : zonalTeam ? "Consulta el equipo completo de cada tienda y administra las cuentas de sus administradores." : "Solo puedes administrar los rangos autorizados debajo de tu cargo."}
         action={<div className="header-actions">
           {zonalTeam ? <button className="button button--primary" onClick={openNew}>Nuevo administrador</button> : <>
           {isCentral ? <>
@@ -311,7 +315,7 @@ export default function Usuarios({ user, zonalTeam = false }) {
             <button className="button button--soft" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={16} />Importar Excel</button>
             <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel} />
           </>}
-          <button className="button button--primary" onClick={openNew}>Nuevo usuario</button>
+          <button className="button button--primary" onClick={openNew}>{embedded ? "Nuevo jefe zonal" : "Nuevo usuario"}</button>
           </>}
         </div>}
       />
@@ -346,7 +350,7 @@ export default function Usuarios({ user, zonalTeam = false }) {
                 {!isCentral && <span className="personnel-role">{roleLabels[item.rol] || item.rol?.replaceAll("_", " ") || "Sin rol"}</span>}
                 {isCentral && <>
                   <span className={`role role--${item.rol}`}>{roleLabels[item.rol]}</span>
-                  <span>{item.rol === "jefe_zonal" ? (item.cluster_nombre || "Sin clúster") : (item.tienda_nombre || "—")}</span>
+                  <span>{item.rol === "jefe_zonal" ? clusterLabel(item.cluster_nombre) : (item.tienda_nombre || "—")}</span>
                 </>}
                 <span><StatusBadge value={item.estado} /></span>
                 <div className="row-actions">
@@ -388,8 +392,8 @@ export default function Usuarios({ user, zonalTeam = false }) {
             <Field label="Fecha de nacimiento"><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
             <Field label="Edad" hint="Se calcula según la fecha de nacimiento"><input readOnly value={editing.fecha_nacimiento ? Math.max(0, Math.floor((Date.now() - new Date(`${editing.fecha_nacimiento}T12:00:00`).getTime()) / 31557600000)) : ""} /></Field>
             <Field label="Sueldo"><input type="number" min="0" step="0.01" placeholder="0,00" value={editing.sueldo ?? ""} onChange={(e) => set("sueldo", e.target.value)} /></Field>
-            <Field label="Fecha de salida" error={fieldErrors.fecha_salida} hint={editing.id ? "Al guardarla, el trabajador quedará inactivo." : "Se registra únicamente al editar al trabajador."}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => { set("fecha_salida", e.target.value); if (e.target.value) set("estado", "inactivo"); else set("motivo_salida", ""); }} /></Field>
-            <Field label="Motivo de salida" error={fieldErrors.motivo_salida}><input required={Boolean(editing.fecha_salida)} disabled={!editing.id || !editing.fecha_salida} placeholder="Indica el motivo de la salida" value={editing.motivo_salida || ""} onChange={(e) => set("motivo_salida", e.target.value)} /></Field>
+            <Field label="Fecha de salida" error={fieldErrors.fecha_salida}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => setEditing((current) => ({ ...current, fecha_salida:e.target.value, estado:e.target.value ? "inactivo" : "activo", motivo_salida:e.target.value ? current.motivo_salida : "" }))} /></Field>
+            <Field label="Motivo de salida" error={fieldErrors.motivo_salida}><select required={Boolean(editing.fecha_salida)} disabled={!editing.id || !editing.fecha_salida} value={normalizeDepartureReason(editing.motivo_salida)} onChange={(e) => set("motivo_salida", e.target.value)}><option value="">Selecciona un motivo</option>{departureReasonOptions(editing.motivo_salida).map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></Field>
             {availableRoles.length > 0 && (
               <>
                 <Field label="Rol">
@@ -407,14 +411,14 @@ export default function Usuarios({ user, zonalTeam = false }) {
                   <Field label="Clúster asignado" error={fieldErrors.cluster_id} hint="Cada zonal puede estar a cargo de un solo clúster.">
                     <select required value={editing.cluster_id || ""} onChange={(e) => set("cluster_id", e.target.value)}>
                       <option value="">Selecciona un clúster</option>
-                      {clusterOptions.map((cluster) => <option key={cluster.id} value={cluster.id}>{cluster.nombre} ({cluster.codigo})</option>)}
+                      {clusterOptions.map((cluster) => <option key={cluster.id} value={cluster.id}>{clusterLabel(cluster.codigo || cluster.nombre)}</option>)}
                     </select>
                   </Field>
                 )}
               </>
             )}
             <Field label="Estado" className="span-2">
-              <select value={editing.estado} onChange={(e) => set("estado", e.target.value)}>
+              <select value={editing.estado} onChange={(e) => setEditing((current) => ({ ...current, estado:e.target.value, ...(e.target.value === "activo" ? {fecha_salida:"",motivo_salida:""} : {}) }))}>
                 <option value="activo">Activo</option>
                 <option value="inactivo">Inactivo</option>
               </select>

@@ -10,6 +10,8 @@ import { defaultPreferences, validatePreferences, matchingAttendance, mailConfig
 import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib/attendance-reports.js";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import { commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
+import { normalizeLaborArea } from "../../src/lib/laborAreas.js";
+import { normalizeDepartureReason, validDepartureReason } from "../../src/lib/personnelCatalogs.js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -77,20 +79,6 @@ function requireFields(data, fields) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
-}
-
-function normalizeLaborArea(value) {
-  const cleaned = cleanText(value).replace(/\s+/g, " ");
-  const key = cleaned.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-  const aliases = {
-    ADMINISTRACION: "Administración", ADMINISTRATIVA: "Administración", ALMACEN: "Almacén",
-    CAJA: "Caja", CALZADO: "Calzado", "CALZADO / TEXTIL": "Calzado / Textil",
-    ELECTRO: "Electro", "ELECTRO MENOR": "Electro menor", HOGAR: "Hogar",
-    "HOGAR / ELECTRO": "Hogar / Electro", "HOGAR / TECNOLOGIA": "Hogar / Tecnología",
-    "HOGAR Y MENAJE": "Hogar y Menaje", SEGURIDAD: "Seguridad", TECNOLOGIA: "Tecnología",
-    TEXTIL: "Textil", VENTAS: "Ventas",
-  };
-  return aliases[key] || cleaned;
 }
 
 function todayISO() {
@@ -342,9 +330,8 @@ function validateUserPayload(data) {
   if (data.fecha_salida && data.fecha_salida < data.fecha_ingreso) {
     throw httpError("La fecha de salida no puede ser anterior a la fecha de ingreso.", 400);
   }
-  if (data.fecha_salida && !cleanText(data.motivo_salida)) {
-    throw httpError("Indica el motivo de salida.", 400);
-  }
+  if (data.estado === "inactivo" && !data.fecha_salida) throw httpError("Indica la fecha de salida.", 400);
+  if (data.fecha_salida && !validDepartureReason(data.motivo_salida)) throw httpError("Selecciona un motivo de salida válido.", 400);
   if (data.regimen_jornada && !["4h", "8h", "12h"].includes(data.regimen_jornada)) throw httpError("La jornada no es válida.", 400);
   if (data.tipo_turno && !["apertura", "intermedio", "cierre", "part_time"].includes(data.tipo_turno)) throw httpError("El tipo de turno no es válido.", 400);
   if (data.tiene_parentesco && (!cleanText(data.tipo_parentesco) || !cleanText(data.familiar_vinculo))) {
@@ -572,6 +559,8 @@ async function listUsers(actor, storeId = null, options = {}) {
   const optionalById = new Map((optionalRows || []).map((row) => [row.id, row]));
   const rows = data.map((row) => ({
     ...mapUserRow(row), ...(optionalById.get(row.id) || {}),
+    area_laboral: normalizeLaborArea(row.area_laboral) || null,
+    motivo_salida: normalizeDepartureReason(optionalById.get(row.id)?.motivo_salida) || null,
     horarios: (schedules || []).filter((schedule) => schedule.usuario_id === row.id),
   }));
   if (["gerencia_general", "gerente_comercial"].includes(actor.rol) && rows.some((row) => row.rol === "jefe_zonal")) {
@@ -810,7 +799,7 @@ async function updateUser(event, id, actor) {
 async function saveOptionalPersonnelFields(id, data) {
   const { error } = await supabase.from("usuarios").update({
     contacto_emergencia: data.contacto_emergencia ? cleanText(data.contacto_emergencia) : null,
-    motivo_salida: data.motivo_salida ? cleanText(data.motivo_salida) : null,
+    motivo_salida: data.motivo_salida ? normalizeDepartureReason(data.motivo_salida) : null,
   }).eq("id", id);
   if (error && !["42703", "PGRST204"].includes(error.code)) throw dbError(error);
 }
@@ -851,7 +840,7 @@ async function syncEmploymentPeriod(userId, data, actorId) {
   const row = {
     fecha_ingreso: data.fecha_ingreso,
     fecha_salida: data.fecha_salida || null,
-    motivo_salida: data.fecha_salida ? cleanText(data.motivo_salida) : null,
+    motivo_salida: data.fecha_salida ? normalizeDepartureReason(data.motivo_salida) : null,
     registrado_por: actorId,
     updated_at: new Date().toISOString(),
   };
@@ -2946,8 +2935,8 @@ const reportKindsByRole = {
 };
 
 const reportExcelColumns = {
-  personal: [["Nombre", "nombre", 30], ["Tienda", "tienda", 24], ["Cargo", "rol", 22], ["DNI", "dni", 13], ["Usuario", "usuario", 18], ["Celular", "telefono", 14], ["Fecha de ingreso", "fecha_ingreso", 17], ["Estado", "estado", 15]],
-  asistencias: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Estado", "estado", 18], ["Observación", "observaciones", 42]],
+  personal: [["Tienda", "tienda", 26], ["Nombres y apellidos", "nombre", 32], ["DNI", "dni", 13], ["Sexo", "sexo", 13], ["Cargo", "rol", 24], ["Área", "area", 22], ["Nivel de estudios", "nivel_estudios", 22], ["Ciclo / semestre", "ciclo_semestre", 23], ["Carrera", "carrera", 28], ["Edad", "edad", 10], ["Fecha de nacimiento", "fecha_nacimiento", 20], ["Mes de cumpleaños", "mes_cumpleanos", 19], ["Fecha de ingreso", "fecha_ingreso", 18], ["Estado civil", "estado_civil", 17], ["N.º de hijos", "numero_hijos", 14], ["Teléfono", "telefono", 16], ["Dirección", "direccion", 38], ["Distrito", "distrito", 23], ["Nacionalidad", "nacionalidad", 20], ["Jornada", "jornada", 16], ["Estado", "estado", 15]],
+  asistencias: [["Fecha", "fecha", 15], ["Tienda", "tienda", 27], ["Trabajador", "trabajador", 32], ["DNI", "dni", 14], ["Estado", "estado", 20], ["Observación", "observaciones", 46]],
   amonestaciones: [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Cargo", "rol", 22], ["Tipo", "tipo", 22], ["Motivo", "motivo", 55]],
   "errores-personal": [["Fecha", "fecha", 14], ["Tienda", "tienda", 24], ["Trabajador", "trabajador", 30], ["DNI", "dni", 13], ["Cargo", "rol", 22], ["Categoría", "categoria", 22], ["Descripción", "descripcion", 55], ["Acción correctiva", "accion_correctiva", 48]],
   documentos: [["Tienda", "tienda", 24], ["Documento", "tipo_documento", 32], ["Código", "codigo", 16], ["Responsables", "responsables", 34], ["Frecuencia", "frecuencia_revision", 16], ["Emisión", "fecha_emision", 14], ["Vencimiento", "fecha_vencimiento", 16], ["Estado", "estado", 18]],
@@ -2985,6 +2974,16 @@ function applyReportFilters(rows, query) {
   }).map(({ _fecha, _estado, _prioridades, ...row }) => row);
 }
 
+function reportAge(date, cutoff = todayISO()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return "";
+  const birth = new Date(`${date}T12:00:00Z`);
+  const asOf = new Date(`${cutoff}T12:00:00Z`);
+  if (birth > asOf) return "";
+  let years = asOf.getUTCFullYear() - birth.getUTCFullYear();
+  if (asOf.getUTCMonth() < birth.getUTCMonth() || (asOf.getUTCMonth() === birth.getUTCMonth() && asOf.getUTCDate() < birth.getUTCDate())) years--;
+  return years;
+}
+
 async function readAllResult(request, orderColumn = "id") {
   return { data: await fetchAllReportPages(request.order(orderColumn)), error: null };
 }
@@ -3002,10 +3001,12 @@ async function getReportRows(event, user, kind) {
   let rows = [];
 
   if (kind === "personal") {
-    let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_ingreso,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
+    let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,sexo,area_laboral,grado_academico,ciclo_semestre,carrera,fecha_nacimiento,mes_cumpleanos,estado_civil,numero_hijos,direccion,distrito,nacionalidad,regimen_jornada,rol,estado,fecha_ingreso,fecha_salida,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
     request = applyStoreScope(request, scope);
     const data = await fetchAllReportPages(request.order("id"));
-    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", usuario:row.usuario || "", telefono:row.telefono || "", fecha_ingreso:row.fecha_ingreso || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
+    const departureRows = data?.length ? await fetchAllReportPages(supabase.from("usuarios").select("id,motivo_salida").in("id",data.map(row=>row.id)).order("id")) : [];
+    const departureReasons = new Map(departureRows.map(row=>[row.id,row.motivo_salida || ""]));
+    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", sexo:humanize(row.sexo), area:normalizeLaborArea(row.area_laboral) || "", nivel_estudios:humanize(row.grado_academico), ciclo_semestre:row.ciclo_semestre || "", carrera:row.carrera || "", edad:reportAge(row.fecha_nacimiento, isISODate(query.hasta) ? query.hasta : todayISO()), fecha_nacimiento:row.fecha_nacimiento || "", mes_cumpleanos:row.mes_cumpleanos || row.fecha_nacimiento?.slice(5,7) || "", estado_civil:humanize(row.estado_civil), numero_hijos:row.numero_hijos ?? "", telefono:row.telefono || "", direccion:row.direccion || "", distrito:row.distrito || "", nacionalidad:row.nacionalidad || "", jornada:row.regimen_jornada || "", fecha_ingreso:row.fecha_ingreso || "", fecha_salida:row.fecha_salida || "", motivo_salida:normalizeDepartureReason(departureReasons.get(row.id)) || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
   }
   if (kind === "asistencias") {
     let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });
@@ -3089,8 +3090,65 @@ function addReportSheet(workbook, kind, rows) {
   styleHeader(sheet); return sheet;
 }
 
+function addPersonnelSummary(workbook, rows) {
+  const summary = new Map();
+  for (const person of rows) {
+    const key = person.tienda || "Sin asignar";
+    if (!summary.has(key)) summary.set(key, { tienda:key, jornada_8h_mujeres:0, jornada_8h_hombres:0, otras_mujeres:0, otros_hombres:0, sin_especificar:0, total:0 });
+    const entry = summary.get(key);
+    const gender = String(person.sexo || "").toLowerCase();
+    const isEight = String(person.jornada || "").toLowerCase() === "8h";
+    if (gender === "mujer") entry[isEight ? "jornada_8h_mujeres" : "otras_mujeres"]++;
+    else if (gender === "hombre") entry[isEight ? "jornada_8h_hombres" : "otros_hombres"]++;
+    else entry.sin_especificar++;
+    entry.total++;
+  }
+  const sheet = workbook.addWorksheet("Resumen por tienda");
+  sheet.columns = [["Tienda","tienda",27],["8 h · mujeres","jornada_8h_mujeres",18],["8 h · hombres","jornada_8h_hombres",18],["Otras jornadas · mujeres","otras_mujeres",24],["Otras jornadas · hombres","otros_hombres",24],["Sexo sin especificar","sin_especificar",22],["Total personas","total",18]].map(([header,key,width])=>({header,key,width}));
+  sheet.addRows([...summary.values()].sort((a,b)=>a.tienda.localeCompare(b.tienda,"es")));
+  const totals = { tienda:"TOTAL" };
+  for (const key of ["jornada_8h_mujeres","jornada_8h_hombres","otras_mujeres","otros_hombres","sin_especificar","total"]) totals[key] = [...summary.values()].reduce((sum,row)=>sum+row[key],0);
+  sheet.addRow(totals);
+  styleHeader(sheet);
+  sheet.autoFilter = { from:"A1", to:"G1" };
+  sheet.views = [{ state:"frozen", ySplit:1 }];
+}
+
+function addPersonnelDepartures(workbook, rows) {
+  const sheet=workbook.addWorksheet("Salidas");
+  sheet.columns=[["Tienda","tienda",26],["Nombres y apellidos","nombre",32],["DNI","dni",14],["Sexo","sexo",15],["Cargo","rol",25],["Área","area",23],["Fecha de ingreso","fecha_ingreso",18],["Fecha de salida","fecha_salida",18],["Motivo de salida","motivo_salida",42]].map(([header,key,width])=>({header,key,width}));
+  sheet.addRows(rows.filter(row=>row.fecha_salida).sort((a,b)=>String(b.fecha_salida).localeCompare(String(a.fecha_salida))));
+  styleHeader(sheet);
+  sheet.autoFilter={from:"A1",to:"I1"};
+  sheet.views=[{state:"frozen",ySplit:1}];
+}
+
+function addAttendanceSummary(workbook, rows) {
+  const summary = new Map();
+  const states = ["presente","tardanza","medio_turno","apoyo","falta","permiso","descanso_medico","suspension"];
+  for (const person of rows) {
+    const key = `${person.fecha}|${person.tienda}`;
+    if (!summary.has(key)) summary.set(key,{ fecha:person.fecha, tienda:person.tienda, total:0, ...Object.fromEntries(states.map(state=>[state,0])) });
+    const entry = summary.get(key);
+    entry.total++;
+    if (states.includes(person.estado)) entry[person.estado]++;
+  }
+  const sheet = workbook.addWorksheet("Resumen de asistencia");
+  sheet.columns = [["Fecha","fecha",15],["Tienda","tienda",27],["Marcas registradas","total",20],["Asistencia","presente",16],["Tardanza","tardanza",16],["Medio turno","medio_turno",17],["Apoyo","apoyo",15],["Falta","falta",15],["Permiso","permiso",15],["Descanso médico","descanso_medico",20],["Suspensión","suspension",16]].map(([header,key,width])=>({header,key,width}));
+  sheet.addRows([...summary.values()].sort((a,b)=>b.fecha.localeCompare(a.fecha)||a.tienda.localeCompare(b.tienda,"es")));
+  styleHeader(sheet);
+  sheet.autoFilter = { from:"A1", to:"K1" };
+  sheet.views = [{ state:"frozen", ySplit:1 }];
+  sheet.addRow([]);
+  sheet.addRow(["Una persona sin marca no se clasifica automáticamente como falta."]);
+}
+
 async function exportReportExcel(event, user, kind) {
-  const rows=await getReportRows(event,user,kind); const workbook=new ExcelJS.Workbook(); workbook.creator="Asiste"; workbook.created=new Date(); addReportSheet(workbook,kind,rows);
+  const rows=await getReportRows(event,user,kind); const workbook=new ExcelJS.Workbook(); workbook.creator="Asiste"; workbook.created=new Date();
+  if (kind === "personal") { addPersonnelSummary(workbook,rows.filter(person=>person.estado==="activo")); addPersonnelDepartures(workbook,rows); }
+  if (kind === "asistencias") addAttendanceSummary(workbook,rows);
+  const detail=addReportSheet(workbook,kind,rows);
+  if (kind === "personal" || kind === "asistencias") { detail.name=kind === "personal" ? "Detalle personal" : "Detalle asistencia"; detail.autoFilter={from:"A1",to:`${detail.getColumn(detail.columnCount).letter}1`}; detail.views=[{state:"frozen",ySplit:1}]; }
   return excelResponse(workbook,`reporte-${kind}-${todayISO()}.xlsx`);
 }
 
