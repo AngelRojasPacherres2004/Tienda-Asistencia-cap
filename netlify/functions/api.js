@@ -2634,7 +2634,7 @@ async function listTrafficMatrix(event, user) {
     if (requested && !ids.includes(requested)) throw httpError("La tienda no pertenece a tu zona.", 403);
     scope = requested || ids;
   }
-  let request = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,tiendas(nombre)").gte("fecha", desde).lte("fecha", hasta);
+  let request = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,observaciones,tiendas(nombre)").gte("fecha", desde).lte("fecha", hasta);
   request = applyStoreScope(request, scope);
   const registros = await fetchAllReportPages(request.order("fecha", { ascending: false }).order("rango_hora").order("id"));
   return { desde, hasta, alcance: hasStoreScope(scope) && !Array.isArray(scope) ? "tienda" : "consolidado", registros };
@@ -2670,13 +2670,13 @@ function serializeVisit(visit) {
 
 async function zonalScope(user) {
   if (user.rol === "gerencia_general") {
-    const { data, error } = await readAllResult(supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").order("nombre"));
+    const { data, error } = await readAllResult(supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id,cant_colaboradores_normal,colaboradores_camp").order("nombre"));
     if (error) throw dbError(error);
     return { ids: (data || []).map((store) => store.id), stores: data || [] };
   }
   const ids = await zonalStoreIds(user.id);
   if (!ids.length) return { ids: [], stores: [] };
-  const { data, error } = await readAllResult(supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id").in("id", ids).order("nombre"));
+  const { data, error } = await readAllResult(supabase.from("tiendas").select("id,nombre,direccion,estado,jefe_id,cant_colaboradores_normal,colaboradores_camp").in("id", ids).order("nombre"));
   if (error) throw dbError(error);
   return { ids, stores: data || [] };
 }
@@ -2825,9 +2825,12 @@ async function getZonalComparison(event, user) {
     const staff = people.filter(person => Number(person.tienda_id) === Number(store.id));
     const marks = attendance.filter(row => Number(row.tienda_id) === Number(store.id));
     const headcount = staff.filter(person => employmentPeriods(person).some(period => period.fecha_ingreso <= hasta && (!period.fecha_salida || period.fecha_salida >= hasta))).length;
+    const campaign = ["02", "07", "12"].includes(hasta.slice(5, 7));
+    const target = Number(campaign ? store.colaboradores_camp || store.cant_colaboradores_normal : store.cant_colaboradores_normal) || null;
     const storeIncidents = incidents.filter((row) => Number(row.tienda_id) === Number(store.id));
     return {
       id: store.id, nombre: store.nombre, personal: headcount,
+      meta_personal: target, brecha_personal: target === null ? null : headcount - target, meta_campana: campaign,
       presentes: marks.filter((row) => row.estado === "presente").length,
       tardanzas: marks.filter((row) => row.estado === "tardanza").length,
       faltas: marks.filter((row) => row.estado === "falta").length,
@@ -3001,12 +3004,10 @@ async function getReportRows(event, user, kind) {
   let rows = [];
 
   if (kind === "personal") {
-    let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,sexo,area_laboral,grado_academico,ciclo_semestre,carrera,fecha_nacimiento,mes_cumpleanos,estado_civil,numero_hijos,direccion,distrito,nacionalidad,regimen_jornada,rol,estado,fecha_ingreso,fecha_salida,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
+    let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,sexo,area_laboral,grado_academico,ciclo_semestre,carrera,fecha_nacimiento,mes_cumpleanos,estado_civil,numero_hijos,direccion,distrito,nacionalidad,regimen_jornada,rol,estado,fecha_ingreso,fecha_salida,motivo_salida,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
     request = applyStoreScope(request, scope);
     const data = await fetchAllReportPages(request.order("id"));
-    const departureRows = data?.length ? await fetchAllReportPages(supabase.from("usuarios").select("id,motivo_salida").in("id",data.map(row=>row.id)).order("id")) : [];
-    const departureReasons = new Map(departureRows.map(row=>[row.id,row.motivo_salida || ""]));
-    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", sexo:humanize(row.sexo), area:normalizeLaborArea(row.area_laboral) || "", nivel_estudios:humanize(row.grado_academico), ciclo_semestre:row.ciclo_semestre || "", carrera:row.carrera || "", edad:reportAge(row.fecha_nacimiento, isISODate(query.hasta) ? query.hasta : todayISO()), fecha_nacimiento:row.fecha_nacimiento || "", mes_cumpleanos:row.mes_cumpleanos || row.fecha_nacimiento?.slice(5,7) || "", estado_civil:humanize(row.estado_civil), numero_hijos:row.numero_hijos ?? "", telefono:row.telefono || "", direccion:row.direccion || "", distrito:row.distrito || "", nacionalidad:row.nacionalidad || "", jornada:row.regimen_jornada || "", fecha_ingreso:row.fecha_ingreso || "", fecha_salida:row.fecha_salida || "", motivo_salida:normalizeDepartureReason(departureReasons.get(row.id)) || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
+    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", sexo:humanize(row.sexo), area:normalizeLaborArea(row.area_laboral) || "", nivel_estudios:humanize(row.grado_academico), ciclo_semestre:row.ciclo_semestre || "", carrera:row.carrera || "", edad:reportAge(row.fecha_nacimiento, isISODate(query.hasta) ? query.hasta : todayISO()), fecha_nacimiento:row.fecha_nacimiento || "", mes_cumpleanos:row.mes_cumpleanos || row.fecha_nacimiento?.slice(5,7) || "", estado_civil:humanize(row.estado_civil), numero_hijos:row.numero_hijos ?? "", telefono:row.telefono || "", direccion:row.direccion || "", distrito:row.distrito || "", nacionalidad:row.nacionalidad || "", jornada:row.regimen_jornada || "", fecha_ingreso:row.fecha_ingreso || "", fecha_salida:row.fecha_salida || "", motivo_salida:normalizeDepartureReason(row.motivo_salida) || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
   }
   if (kind === "asistencias") {
     let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });

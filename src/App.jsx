@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useState } from "react";
+import { Component, Fragment, lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./lib/api";
 import Layout from "./components/Layout";
 import { Loading } from "./components/UI";
@@ -34,17 +34,17 @@ const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", sistemas: "sistemas", marketing: "marketing-inicio", coach: "capacitaciones", jefe_zonal: "dashboard",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
   jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
 class PageErrorBoundary extends Component {
-  state = { error: null };
+  state = { error: null, retry: 0 };
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error) { console.error("Error al cargar la sección:", error); }
   render() {
-    if (this.state.error) return <div className="notice notice--error">No se pudo cargar esta sección. Actualiza la página para obtener la versión más reciente.</div>;
-    return this.props.children;
+    if (this.state.error) return <div className="notice notice--error" role="alert"><span>No se pudo abrir esta sección.</span><button type="button" className="button button--ghost button--small" onClick={() => this.setState((state) => ({ error: null, retry: state.retry + 1 }))}>Reintentar</button></div>;
+    return <Fragment key={this.state.retry}>{this.props.children}</Fragment>;
   }
 }
 
@@ -78,7 +78,7 @@ export default function App() {
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
-    dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda"].includes(user.rol)
+    dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
       ? <CommercialPortal /> : user.rol === "sistemas" ? <div className="notice">La carga comercial aún no está habilitada.</div> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,

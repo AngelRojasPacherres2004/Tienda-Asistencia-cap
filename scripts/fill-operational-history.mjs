@@ -69,7 +69,8 @@ for (const store of stores) {
       const rhythm = hour >= 17 && hour <= 20 ? 27 : hour >= 12 && hour <= 14 ? 14 : 0;
       const variation = (store.id * 17 + dayNumber * 7 + hour * 13) % 17;
       traffic.push({ tienda_id: store.id, fecha: date, hora: `${String(hour).padStart(2, "0")}:00:00`,
-        rango_hora: range, cantidad: base + rhythm + variation + (weekend ? 12 : 0), registrado_por: registrar.id });
+        rango_hora: range, cantidad: base + rhythm + variation + (weekend ? 12 : 0),
+        observaciones: "Afluencia simulada", registrado_por: registrar.id });
     }
     for (const person of roster) {
       if (!employmentPeriods(person).some(period => period.fecha_ingreso <= date && (!period.fecha_salida || period.fecha_salida >= date))) continue;

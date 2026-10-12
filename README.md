@@ -27,6 +27,8 @@ npm run dev
 
 La aplicación queda disponible en `http://127.0.0.1:5180`. El comando inicia tanto React como la API local.
 
+Para revisar gráficos operativos con una muestra separada, abre `http://127.0.0.1:5180/?demo=1`. Esta vista solo funciona en desarrollo local y simula tráfico por hora y el comparativo zonal en Gestión Asiste. Muestra una etiqueta DEMO; no inserta registros en Supabase ni modifica los indicadores de la vista normal. Las pantallas de captura y los reportes siguen mostrando los datos reales.
+
 Variables requeridas en `.env` (ver `.env.example`):
 
 ```env

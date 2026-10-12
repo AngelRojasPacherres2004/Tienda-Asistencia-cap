@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import "../role-themes.css";
 import "../marketing-light.css";
 import "../dashboard-light.css";
+import { isOperationalDemo } from "../lib/operationalDemo";
 
 const navByRole = {
   gerencia_general: [
@@ -40,6 +41,7 @@ const navByRole = {
     { id: "marketing-seguidores", label: "Seguidores por redes", icon: Users },
   ],
   coach: [
+    { id: "dashboard", label: "Dashboard Ventas", icon: BarChart3 },
     { id: "cursos", label: "Crear capacitaciones", icon: GraduationCap },
     { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
   ],
@@ -96,7 +98,7 @@ navByRole.almacenero = navByRole.trabajador;
 navByRole.jefe_area = navByRole.trabajador;
 const roleLabels = {
   gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", sistemas: "Sistemas", marketing: "Marketing", coach: "Coach",
-  jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda",
+  jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
 
@@ -105,7 +107,7 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
-  const isCommercial = user.rol === "gerente_comercial";
+  const isCommercial = ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol);
   const [marketingTheme, setMarketingTheme] = useState(() => {
     try { return (localStorage.getItem("app-theme") || localStorage.getItem("marketing-theme")) === "dark" ? "dark" : "light"; }
     catch { return "light"; }
@@ -125,8 +127,6 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
-          <span className="brand__mark">A</span>
-          <div><strong>Asiste</strong><small>Tiendas &amp; equipos</small></div>
           <button className="sidebar-mobile-close" onClick={() => setMobileOpen(false)}><X size={20} /></button>
         </div>
         <nav>
@@ -148,11 +148,11 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
       <main className="workspace">
         <div className="mobile-topbar">
           <button onClick={() => setMobileOpen(true)}><Menu /></button>
-          <span className="brand__mark brand__mark--small">A</span>
-          <strong>Asiste</strong>
+          <strong>Menú</strong>
         </div>
         <button className="compact-toggle" onClick={() => setCompact(!compact)} title="Contraer menú"><PanelLeftClose size={18} /></button>
         <div className="workspace__content">
+          {page === "asiste-operativo" && isOperationalDemo() && <div className="operational-demo-banner" role="status"><strong>VISTA DEMO LOCAL</strong><span>Tráfico y comparativo zonal simulados. No se guardan en bd-app ni alteran los KPI reales.</span><a href={window.location.pathname}>Ver datos reales</a></div>}
           {!isDashboard && !isCommercial && <div className="marketing-theme-toolbar">
             <button type="button" className="button button--ghost marketing-theme-toggle" onClick={toggleMarketingTheme} aria-label={`Cambiar a modo ${marketingTheme === "light" ? "oscuro" : "claro"}`}>
               {marketingTheme === "light" ? <Moon size={16} /> : <Sun size={16} />}

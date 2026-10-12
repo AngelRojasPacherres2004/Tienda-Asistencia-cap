@@ -1,7 +1,11 @@
-const commercialRoles = new Set(["gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+const commercialRoles = new Set(["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"]);
 
 export function commercialAccess(account, scope, storeMap, assignedCluster) {
-  if (!account || account.estado !== "activo" || !commercialRoles.has(account.rol) || !scope) return null;
+  if (!account || account.estado !== "activo" || !commercialRoles.has(account.rol)) return null;
+  if (account.rol === "coach") {
+    return { scopeType: "all", scopeValue: null, storeIds: storeMap.map(row => row.dashboard_store_id) };
+  }
+  if (!scope) return null;
   if (account.rol === "gerente_comercial") {
     return scope.scope_type === "all" && scope.scope_value == null
       ? { scopeType: "all", scopeValue: null, storeIds: storeMap.map(row => row.dashboard_store_id) }

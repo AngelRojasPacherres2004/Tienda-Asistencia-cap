@@ -28,11 +28,11 @@ export default function ZonalModule({ section, user }) {
   const changeIncident = async (id, estado) => { try { await api(`/zonal/incidencias/${id}`, { method: "PUT", body: { estado } }); await load(); } catch (error) { setNotice({ type: "error", text: error.message }); } };
   const title = labels[section] || ["Resumen", ""];
   const openForm=(values=blank(section))=>{setForm({...values,password:""});setOpen(true);};
-  const headerAction=user?.rol === "jefe_zonal" && view === "consulta" && (section === "personal" || section === "incidencias" || section === "supervisiones")
+  const headerAction=user?.rol === "jefe_zonal" && view === "consulta" && (section === "personal" || section === "supervisiones")
     ? <button className="button button--primary" onClick={()=>section === "supervisiones" ? setAuditOpen(true) : openForm()}><Plus size={16}/>{section === "personal" ? "Nuevo administrador" : section === "supervisiones" ? "Nueva auditoría" : "Nueva incidencia"}</button>
     : null;
   return <>
-    <PageHeader eyebrow={user?.rol === "gerencia_general" ? "Gerencia general" : "Jefe zonal"} title={title[0]} subtitle={user?.rol === "gerencia_general" && section === "supervisiones" ? "Consulta las visitas, resultados y hallazgos de todas las tiendas." : title[1]} action={headerAction} />
+    <PageHeader eyebrow={user?.rol === "gerencia_general" ? "Gerencia general" : "Jefe zonal"} title={title[0]} action={headerAction} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <div className="module-view-tabs"><button className={view==="consulta"?"active":""} onClick={()=>setView("consulta")}>Vista general</button><button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div>
     {view === "reporte" ? <Reportes user={user} embedded initialKind={reportBySection[section]} allowedKinds={[reportBySection[section]]}/> : <>

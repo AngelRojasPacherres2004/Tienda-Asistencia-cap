@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck, Building2, CalendarCheck2, ClipboardCheck, Download,
   FileCheck2, FileText, GraduationCap, ListChecks, Search, ShieldAlert, UsersRound,
@@ -78,12 +78,15 @@ const reportKindsByRole = {
 };
 
 const pageSize = 8;
+const reportCache = new Map();
+const reportCacheMs = 30000;
 
 export default function Reportes({ user, initialKind = "personal", allowedKinds = null, embedded = false, fixedStoreId = "" }) {
+  const allowedKindsKey = allowedKinds?.join(",") || "";
   const availableKinds = useMemo(() => {
     const roleKinds = reportKindsByRole[user?.rol] || Object.keys(reportDefinitions);
-    return allowedKinds?.length ? allowedKinds.filter(id => reportDefinitions[id] && roleKinds.includes(id)) : roleKinds;
-  }, [allowedKinds, user?.rol]);
+    return allowedKindsKey ? allowedKindsKey.split(",").filter(id => reportDefinitions[id] && roleKinds.includes(id)) : roleKinds;
+  }, [allowedKindsKey, user?.rol]);
   const startingKind = availableKinds.includes(initialKind) ? initialKind : availableKinds[0];
   const baseFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
   const [kind, setKind] = useState(startingKind);
@@ -92,6 +95,8 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
   const [rows, setRows] = useState(null);
   const [stores, setStores] = useState([]);
   const [notice, setNotice] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [selected, setSelected] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
@@ -114,20 +119,33 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     return params.toString();
   }, [filters]);
 
-  const load = useCallback(() => {
-    setRows(null); setNotice(null);
-    api(`/reportes/${kind}${query ? `?${query}` : ""}`)
-      .then((result) => setRows(result.rows || []))
-      .catch((error) => { setRows([]); setNotice({ type: "error", text: error.message }); });
-  }, [kind, query]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const key = `${user?.id || user?.usuario}|${kind}|${query}`;
+    const cached = reportCache.get(key);
+    setNotice(null);
+    setLoadError("");
+    if (!loadAttempt && cached && Date.now() - cached.at < reportCacheMs) setRows(cached.rows);
+    else {
+      setRows(null);
+      api(`/reportes/${kind}${query ? `?${query}` : ""}`, { signal: controller.signal })
+        .then((result) => {
+          const nextRows = result.rows || [];
+          reportCache.set(key, { at: Date.now(), rows: nextRows });
+          if (active) setRows(nextRows);
+        })
+        .catch((error) => { if (active) { setRows([]); setLoadError(error.message); } });
+    }
+    return () => { active = false; controller.abort(); };
+  }, [kind, query, loadAttempt, user?.id, user?.usuario]);
 
   const selectReport = (next) => {
     const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
-    setKind(next); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1);
+    setRows(null); setKind(next); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1); setLoadAttempt((value) => value + 1);
   };
-  const applyFilters = (event) => { event.preventDefault(); setFilters(draft); setPage(1); };
-  const clearFilters = () => { const next = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" }; setDraft(next); setFilters(next); setPage(1); };
+  const applyFilters = (event) => { event.preventDefault(); setRows(null); setFilters(draft); setPage(1); setLoadAttempt((value) => value + 1); };
+  const clearFilters = () => { const next = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" }; setRows(null); setDraft(next); setFilters(next); setPage(1); setLoadAttempt((value) => value + 1); };
   const exportExcel = async () => {
     setExporting(true); setNotice(null);
     try {
@@ -147,29 +165,18 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     {!embedded && <PageHeader
       eyebrow={user?.rol === "jefe_tienda" ? "Mi tienda" : "Consulta y exportación"}
       title="Reportes"
-      subtitle="Consulta la información registrada por las tiendas y descarga cada reporte en Excel."
       action={exportButton}
     />}
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-    {availableKinds.length > 1 && user?.rol === "gerente_comercial" && <label className="commercial-report-selector">Tipo de reporte<select value={kind} onChange={event => selectReport(event.target.value)}>{availableKinds.map(id => <option key={id} value={id}>{reportDefinitions[id].label}</option>)}</select></label>}
-    {availableKinds.length > 1 && user?.rol !== "gerente_comercial" && <section className="report-picker" aria-label="Tipos de reporte">
-      {availableKinds.map((id) => {
-        const item = reportDefinitions[id];
-        const Icon = item.icon;
-        return <button key={id} className={kind === id ? "active" : ""} onClick={() => selectReport(id)}>
-          <span><Icon size={18}/></span><strong>{item.label}</strong><small>{item.description}</small>
-        </button>;
-      })}
-    </section>}
+    {availableKinds.length > 1 && <label className="commercial-report-selector">Tipo de reporte<select value={kind} onChange={event => selectReport(event.target.value)}>{availableKinds.map(id => <option key={id} value={id}>{reportDefinitions[id].label}</option>)}</select></label>}
 
     <section className="panel report-workspace">
       <header className="report-workspace__header">
-        <div>{!embedded && <span className="eyebrow">Reporte seleccionado</span>}<h2>{embedded && kind === "personal" ? "Registro de personal" : definition.label}</h2>{!embedded && <p>{definition.description}</p>}</div>
+        <div><h2>{embedded && kind === "personal" ? "Registro de personal" : definition.label}</h2></div>
         <div className="report-workspace__actions"><strong className="report-count">{rows ? rows.length : "—"} registros</strong>{embedded && exportButton}</div>
       </header>
       {kind === "asistencias" && <p className="report-method-note">El resumen cuenta únicamente marcas registradas. Una persona sin marca no se considera automáticamente una falta.</p>}
-      {kind === "personal" && <p className="report-method-note">El Excel incluye dotación y detalle laboral; las fechas filtran el ingreso.</p>}
       {rows && (kind === "personal" || kind === "asistencias") && <div className="report-stat-strip">
         {(kind === "personal" ? [["Personas",rows.length],["Activos",rows.filter(row=>row.estado==="activo").length],["Inactivos",rows.filter(row=>row.estado==="inactivo").length]] : [["Marcas",rows.length],["Asistencias",rows.filter(row=>row.estado==="presente").length],["Tardanzas",rows.filter(row=>row.estado==="tardanza").length],["Faltas registradas",rows.filter(row=>row.estado==="falta").length]]).map(([label,value])=><div key={label}><strong>{value}</strong><span>{label}</span></div>)}
       </div>}
@@ -183,7 +190,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
         <div className="report-filter-actions"><button type="button" className="button button--ghost button--small" onClick={clearFilters}>Limpiar filtros</button><button className="button button--primary button--small">Aplicar filtros</button></div>
       </form>
 
-      {!rows ? <Loading label="Preparando reporte…"/> : rows.length ? <><div className="report-table-wrap"><table className="report-table"><thead><tr>{definition.columns.map(([key, label]) => <th key={key}>{label}</th>)}<th>Detalle</th></tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{definition.columns.map(([key,, type]) => <td key={key}>{renderValue(row[key], type)}</td>)}<td><button className="report-detail-button" onClick={() => setSelected(row)}>Ver</button></td></tr>)}</tbody></table></div><Pagination page={page} pages={pages} onChange={setPage}/></> : <EmptyState icon={Building2} title="Sin resultados" text="No hay registros que coincidan con los filtros seleccionados."/>}
+      {loadError ? <div className="commercial-load-error"><Notice type="error">{loadError}</Notice><button type="button" className="button button--ghost" onClick={() => setLoadAttempt((value) => value + 1)}>Reintentar</button></div> : !rows ? <Loading label="Preparando reporte…"/> : rows.length ? <><div className="report-table-wrap"><table className="report-table"><thead><tr>{definition.columns.map(([key, label]) => <th key={key}>{label}</th>)}<th>Detalle</th></tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{definition.columns.map(([key,, type]) => <td key={key}>{renderValue(row[key], type)}</td>)}<td><button className="report-detail-button" onClick={() => setSelected(row)}>Ver</button></td></tr>)}</tbody></table></div><Pagination page={page} pages={pages} onChange={setPage}/></> : <EmptyState icon={Building2} title="Sin resultados" text="No hay registros que coincidan con los filtros seleccionados."/>}
     </section>
 
     <Modal open={!!selected} wide title={`Detalle · ${definition.label}`} subtitle="Información incluida en el reporte" onClose={() => setSelected(null)}>

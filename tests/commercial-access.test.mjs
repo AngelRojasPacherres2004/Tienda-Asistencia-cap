@@ -12,6 +12,12 @@ test("commercial manager can see all stores", () => {
     { scopeType: "all", scopeValue: null, storeIds: ["T001", "T002"] });
 });
 
+test("coach can read the full sales dashboard without a pre-existing commercial scope", () => {
+  assert.deepEqual(commercialAccess({ rol: "coach", estado: "activo" }, null, map),
+    { scopeType: "all", scopeValue: null, storeIds: ["T001", "T002"] });
+  assert.equal(commercialAccess({ rol: "coach", estado: "inactivo" }, null, map), null);
+});
+
 test("store chief is limited to the mapped store", () => {
   const account = { rol: "jefe_tienda", estado: "activo", tienda_id: 22 };
   assert.deepEqual(commercialAccess(account, { scope_type: "store", scope_value: "T001" }, map).storeIds, ["T001"]);

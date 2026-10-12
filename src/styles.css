@@ -2017,3 +2017,120 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .commercial-role .store-users__heading select { min-height:40px; border:1px solid #b8cee1; border-radius:8px; color:#173c65; background:#fff; }
 @media(max-width:1400px) { .commercial-role .company-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:700px) { .app-shell--commercial-dashboard .workspace { height:100dvh; padding-top:56px; }.app-shell--commercial-dashboard .workspace__content { padding:0; }.commercial-role .company-grid { grid-template-columns:1fr; }.commercial-role .company-card { min-height:0; } }
+
+/* Commercial, zonal and store management share one visual system. */
+.commercial-role .store-dashboard-shell { border-color:#cbd9e5; border-radius:14px; background:#eaf2f8; box-shadow:0 12px 35px rgba(21,55,83,.1); }
+.commercial-role .store-dashboard-topbar { min-height:54px; padding:10px 20px; border-bottom:0; background:#173c65; }
+.commercial-role .store-dashboard-topbar > div:first-child > i { background:#e11d2e; }
+.commercial-role .store-dashboard-hero { min-height:96px; padding:14px 20px; background:#eaf2f8; }
+.commercial-role .store-dashboard-hero > div { gap:14px; min-width:0; padding:14px 20px; border-top:4px solid #e11d2e; border-radius:12px; background:linear-gradient(115deg,#153e76,#0d5897); box-shadow:0 8px 20px rgba(21,55,83,.12); }
+.commercial-role .store-dashboard-hero h1 { font-size:clamp(20px,2.2vw,30px); }
+.commercial-role .store-dashboard-hero p { font-size:12px; }
+.commercial-role .store-dashboard-body { gap:16px; padding:20px; background:#eaf2f8; }
+.commercial-role .store-dashboard-section { margin-top:2px; padding:10px 4px; border-bottom-color:#cbd9e5; }
+.commercial-role .store-dashboard-section span { color:#c52237; font-size:11px; }
+.commercial-role .store-dashboard-section p { font-size:12px; }
+.commercial-role .store-dashboard-personnel-kpis,
+.commercial-role .store-dashboard-paired-kpis { gap:12px; }
+.commercial-role .store-dashboard-personnel-kpi,
+.commercial-role .store-dashboard-paired-kpi,
+.commercial-role .zonal-comparison-summary article { border:1px solid #cbd9e5; border-radius:12px; box-shadow:0 6px 18px rgba(25,65,105,.06); }
+.commercial-role .store-dashboard-paired-kpi h3 { background:#173c65; }
+.commercial-role .store-dashboard-actions { border-color:#cbd9e5; background:#fff; }
+.commercial-role .store-dashboard-actions button { min-height:38px; font-size:11px; }
+.commercial-role .zonal-comparison-summary { grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.commercial-role .zonal-comparison-summary article { min-height:93px; gap:5px; padding:15px 17px; border-top:3px solid #245b91; }
+.commercial-role .zonal-comparison-summary article.needs-attention { border-top-color:#e11d2e; }
+.commercial-role .zonal-comparison-summary small { font-size:11px; line-height:1.3; }
+.commercial-role .zonal-comparison-summary strong { font-size:26px; }
+.commercial-role .zonal-comparison-charts { gap:14px; }
+.commercial-role .zonal-comparison-charts article,
+.commercial-role .zonal-comparison-table-card { border:1px solid #cbd9e5; border-radius:12px; box-shadow:0 6px 18px rgba(25,65,105,.06); }
+.commercial-role .zonal-comparison-charts header,
+.commercial-role .zonal-comparison-table-card header { background:#173c65; }
+.commercial-role .traffic-matrix-estimate { margin:2px 0 0; padding:8px 12px; border-left:3px solid #245b91; border-radius:6px; color:#365876; background:#edf5fb; font-size:12px; }
+.commercial-role .store-dashboard-shell.is-light .traffic-matrix-card { border-color:#cbd9e5; color:#173c65; background:#fff; }
+.commercial-role .store-dashboard-shell.is-light .traffic-matrix-grid { background:#f7fbff; }
+.commercial-role .store-dashboard-shell.is-light .traffic-matrix-corner,
+.commercial-role .store-dashboard-shell.is-light .traffic-matrix-hour { color:#365876; background:#e7f0f7; }
+@media(max-width:1150px) { .commercial-role .zonal-comparison-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:650px) { .commercial-role .store-dashboard-body { padding:14px; }.commercial-role .zonal-comparison-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }.commercial-role .store-dashboard-hero > div { width:100%; padding:14px; } }
+
+/* Dense, comparable retail operations views. */
+.commercial-role .brand { min-height:30px; padding-bottom:6px; }
+.commercial-dashboard .store-dashboard-hero { min-height:82px; }
+.commercial-dashboard .store-dashboard-hero > div { padding:12px 18px; }
+.commercial-dashboard .commercial-store-personnel { width:min(100%,880px); }
+.commercial-dashboard .commercial-store-personnel > div { grid-template-columns:minmax(165px,1.8fr) 55px 55px minmax(96px,.75fr) minmax(125px,1fr); min-width:580px; gap:9px; padding:8px 12px; }
+.commercial-dashboard .commercial-store-personnel > div > strong small { display:block; margin-top:2px; color:#60778d; font-size:10px; font-weight:600; }
+.commercial-dashboard .commercial-store-personnel .is-short { color:#c52237; font-weight:800; }
+.commercial-personnel-coverage { display:flex; align-items:center; gap:7px; }
+.commercial-personnel-coverage i { width:70px; height:7px; overflow:hidden; border-radius:99px; background:#e6edf3; }
+.commercial-personnel-coverage em { display:block; height:100%; border-radius:99px; background:#148877; }
+.commercial-personnel-coverage strong { color:#173c65; font-size:11px; }
+.commercial-dashboard .commercial-priority-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.commercial-dashboard .commercial-progress-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.commercial-dashboard .training-development { width:min(100%,900px); margin:0; padding:15px; border-radius:14px; }
+.commercial-dashboard .training-development > header { padding-bottom:9px; }
+.commercial-dashboard .training-development > header h2 { font-size:20px; }
+.commercial-dashboard .training-development-filters { gap:9px; margin:11px 0; }
+.commercial-dashboard .training-development-filters label { width:min(210px,45%); padding:8px 10px; border-width:1px; border-radius:9px; }
+.commercial-dashboard .training-development-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.commercial-dashboard .training-development-grid > article { border-radius:10px; }
+.commercial-dashboard .training-development-grid > article > header { min-height:44px; padding:10px 12px; }
+.commercial-dashboard .training-development-legend { gap:7px; padding:10px; }
+.commercial-dashboard .training-development-bars { max-height:280px; gap:6px; padding:8px 10px; }
+.commercial-dashboard .training-history { max-height:280px; }
+.commercial-dashboard .training-history > div { min-width:0; grid-template-columns:minmax(105px,1fr) 65px 65px 65px; }
+.commercial-dashboard .training-history > div > * { padding:9px 7px; }
+.commercial-role .store-dashboard-view-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.commercial-role .store-dashboard-hero > .store-dashboard-view-controls { min-width:0; width:auto; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+.commercial-role .store-dashboard-view-controls button { min-height:38px; display:inline-flex; align-items:center; gap:6px; padding:0 12px; border:1px solid #b8cee1; border-radius:8px; color:#173c65; background:#fff; font-size:11px; font-weight:800; cursor:pointer; }
+.commercial-role .zonal-comparison { gap:12px; padding-top:15px; }
+.commercial-role .zonal-comparison .store-dashboard-section { align-items:center; }
+.commercial-role .zonal-store-select { min-width:210px; box-shadow:none; }
+.commercial-role .zonal-comparison-summary { gap:9px; }
+.commercial-role .zonal-comparison-summary article { min-height:75px; padding:10px 14px; }
+.commercial-role .zonal-comparison-summary strong { font-size:24px; }
+.commercial-role .zonal-comparison-charts { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.commercial-role .zonal-comparison-chart { min-width:0; padding:6px 4px; }
+.commercial-role .zonal-comparison-charts article header { padding:10px 12px; }
+.commercial-role .zonal-comparison-charts h3 { font-size:14px; }
+.commercial-role .zonal-comparison-charts .recharts-default-legend { display:flex; justify-content:center; flex-wrap:wrap; gap:2px 6px; font-size:10px; }
+.commercial-role .zonal-comparison-table-scroll th,
+.commercial-role .zonal-comparison-table-scroll td { padding:9px 10px; }
+.commercial-role .zonal-comparison-table-card header { padding:11px 14px; }
+.commercial-role .zonal-comparison-table-card .is-short { color:#c52237; font-weight:800; }
+.commercial-load-error { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.commercial-load-error .notice { margin:0; }
+.commercial-role .training-development > header > p,
+.commercial-role .attendance-matrix-header p { display:none; }
+@container (max-width:1250px) { .commercial-role .zonal-comparison-charts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@container (max-width:850px) { .commercial-role .zonal-comparison-charts { grid-template-columns:1fr; }.commercial-role .zonal-comparison .store-dashboard-section { align-items:flex-start; flex-direction:column; }.commercial-role .zonal-store-select { width:100%; } }
+@media(max-width:750px) { .commercial-dashboard .commercial-priority-kpis,.commercial-dashboard .commercial-progress-grid,.commercial-dashboard .training-development-grid { grid-template-columns:1fr; }.commercial-dashboard .training-development-filters label { width:100%; } }
+
+/* Compact store overview and shared navigation controls. */
+.commercial-role .store-dashboard-personnel-kpi { min-height:68px; }
+.commercial-role .store-dashboard-personnel-kpi > div { padding:10px 13px; }
+.commercial-role .store-dashboard-personnel-kpi strong { color:#173c65; font-size:13px; }
+.commercial-role .store-dashboard-personnel-kpi small { margin-top:3px; font-size:11px; }
+.commercial-role .store-dashboard-personnel-kpi > b { min-width:68px; font-size:24px; }
+.commercial-role .store-dashboard-paired-kpi h3 { padding:8px 12px; font-size:14px; }
+.commercial-role .store-dashboard-paired-kpi span { min-height:59px; padding:6px 10px; }
+.commercial-role .store-dashboard-paired-kpi strong { font-size:23px; }
+.commercial-role .store-dashboard-paired-kpi small { font-size:11px; }
+.commercial-role .store-dashboard-actions { padding:9px; gap:7px; }
+.commercial-role :is(.mini-tabs,.subsection-tabs,.module-view-tabs) { border:1px solid #cbd9e5; background:#e7f0f7; }
+.commercial-role :is(.mini-tabs,.subsection-tabs,.module-view-tabs) button { min-height:37px; color:#365876; font-size:12px; }
+.commercial-role :is(.mini-tabs,.subsection-tabs,.module-view-tabs) button.active { color:#fff; background:#245b91; box-shadow:0 3px 9px rgba(23,60,101,.15); }
+.commercial-role :is(.mini-tabs,.subsection-tabs,.module-view-tabs) button:hover:not(.active) { color:#173c65; background:#fff; }
+.commercial-role :is(.mini-tabs,.subsection-tabs,.module-view-tabs) button:focus-visible { outline:3px solid #e11d2e; outline-offset:2px; }
+.operational-demo-banner { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:10px 14px; border:1px solid #e5c98c; border-left:4px solid #c18a20; border-radius:8px; color:#173c65; background:#fff8e9; font-size:12px; }
+.operational-demo-banner strong { letter-spacing:.06em; }
+.operational-demo-banner a { margin-left:auto; color:#173c65; font-weight:800; text-decoration:underline; }
+.commercial-inline-loading { margin:0; padding:16px; border:1px solid #cbd9e5; border-radius:10px; color:#365876; background:#fff; font-size:12px; }
+.commercial-role .records-panel .empty-state { min-height:168px; padding:20px; }
+.commercial-role .records-panel .empty-state > span { width:40px; height:40px; border-radius:10px; }
+.commercial-role .records-panel .empty-state h3 { margin:9px 0 4px; font-size:14px; }
+.commercial-role .records-panel .empty-state p { margin:0; font-size:11px; }
+@media(max-width:750px) { .commercial-role .store-dashboard-personnel-kpis,.commercial-role .store-dashboard-paired-kpis { grid-template-columns:1fr; }.operational-demo-banner a { margin-left:0; } }

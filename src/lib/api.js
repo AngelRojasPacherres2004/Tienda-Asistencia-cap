@@ -1,8 +1,13 @@
 import { businessDate } from "../../shared/metrics.js";
 export async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, {
+  let response;
+  const timeoutSignal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(45000) : undefined;
+  const signal = options.signal && timeoutSignal && typeof AbortSignal.any === "function"
+    ? AbortSignal.any([options.signal, timeoutSignal]) : options.signal || timeoutSignal;
+  try { response = await fetch(`/api${path}`, {
     credentials: "include",
     ...options,
+    signal,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
@@ -10,7 +15,10 @@ export async function api(path, options = {}) {
     body: options.body && typeof options.body !== "string"
       ? JSON.stringify(options.body)
       : options.body,
-  });
+  }); } catch (error) {
+    if (["TimeoutError", "AbortError"].includes(error?.name)) throw new Error("La consulta tardó demasiado. Intenta nuevamente.");
+    throw error;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || "No se pudo completar la operación.");
