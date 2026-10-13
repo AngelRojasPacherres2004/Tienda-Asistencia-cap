@@ -140,6 +140,27 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .period-filter-tabs button { height: 34px; border: 0; border-radius: 7px; color: #91897d; background: transparent; font-size: 11px; font-weight: 700; cursor: pointer; }
 .period-filter-tabs button.active { color: #17130c; background: linear-gradient(135deg,#e4c277,#b78b3c); }
 .dashboard-filter-summary { color: #8f887c; font-size: 10px; text-align: center; }
+.commercial-dashboard .dashboard-filter-fab,
+.commercial-dashboard .dashboard-filter-fab.open { color: #fff; background: #125487; border-color: #125487; box-shadow: 0 8px 24px rgba(21, 62, 118, .24); }
+.commercial-dashboard .dashboard-filter-fab:hover { background: #153e76; }
+.commercial-dashboard .dashboard-filter-popover { color: #173b60; background: #fff; border: 1px solid #c7d9e9; border-left: 4px solid #125487; box-shadow: 0 12px 35px rgba(21, 62, 118, .2); }
+.commercial-dashboard .dashboard-filter-popover__head h2 { color: #153e76; }
+.commercial-dashboard .dashboard-filter-popover .eyebrow { color: #c52237; }
+.commercial-dashboard .dashboard-filter-popover .field > span,
+.commercial-dashboard .dashboard-filter-summary { color: #45617c; }
+.commercial-dashboard .dashboard-filter-popover .field select { color: #173b60; background: #f3f8fc; border: 1px solid #b6cde1; color-scheme: light; }
+.commercial-dashboard .dashboard-filter-popover .field select:focus-visible { outline: 2px solid #125487; outline-offset: 2px; }
+.commercial-dashboard .dashboard-filter-popover .button--ghost { color: #125487; background: #fff; border-color: #b6cde1; }
+.commercial-dashboard .dashboard-filter-popover .button--ghost:hover { background: #eaf2f8; }
+.commercial-dashboard .dashboard-filter-popover .icon-button { color: #125487; background: #eaf2f8; border-color: #c7d9e9; }
+.commercial-dashboard .commercial-attendance-period { margin: 0; color: #45617c; font-size: 14px; }
+.commercial-dashboard .commercial-progress-grid .commercial-attendance-card { display: block; }
+.commercial-attendance-card header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; color: #125487; }
+.commercial-attendance-card header h3 { margin: 0; font-size: 16px; }
+.commercial-attendance-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 10px; }
+.commercial-attendance-totals > div + div { border-left: 1px solid #c7d9e9; padding-left: 12px; }
+.commercial-dashboard .commercial-attendance-card > p { font-size: 12px; line-height: 1.5; }
+.commercial-dashboard .commercial-attendance-totals > div > p { font-size: 14px; font-weight: 700; line-height: 1.5; color: #45617c; }
 .dashboard-filter-selectors { display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: 8px; }
 .recharts-default-tooltip { border: 1px solid rgba(205,169,95,.28) !important; border-radius: 10px !important; background: #171719 !important; box-shadow: 0 12px 30px rgba(0,0,0,.4) !important; }
 .recharts-tooltip-label, .recharts-tooltip-item, .recharts-tooltip-item-name, .recharts-tooltip-item-separator { color: #f3eee5 !important; }
@@ -2060,7 +2081,7 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .commercial-role .brand { min-height:30px; padding-bottom:6px; }
 .commercial-dashboard .store-dashboard-hero { min-height:82px; }
 .commercial-dashboard .store-dashboard-hero > div { padding:12px 18px; }
-.commercial-dashboard .commercial-store-personnel { width:min(100%,880px); }
+.commercial-dashboard .commercial-store-personnel { width:min(100%,880px); margin-inline:auto; }
 .commercial-dashboard .commercial-store-personnel > div { grid-template-columns:minmax(165px,1.8fr) 55px 55px minmax(96px,.75fr) minmax(125px,1fr); min-width:580px; gap:9px; padding:8px 12px; }
 .commercial-dashboard .commercial-store-personnel > div > strong small { display:block; margin-top:2px; color:#60778d; font-size:10px; font-weight:600; }
 .commercial-dashboard .commercial-store-personnel .is-short { color:#c52237; font-weight:800; }

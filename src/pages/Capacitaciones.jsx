@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle, BarChart3, CheckCircle2, Clock3, GraduationCap,
+  AlertTriangle, BarChart3, CheckCircle2, Clock3, GraduationCap, Filter, X,
 } from "lucide-react";
 import { api, formatDate } from "../lib/api";
 import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 import Reportes from "./Reportes";
+import { clusterLabel } from "../lib/clusters";
 
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const estadoPalette = { completado: "#2f9e78", en_curso: "#df9f39", pendiente: "#d9635f" };
@@ -23,6 +24,14 @@ function Metric({ icon: Icon, label, value, note, tone }) {
 
 export default function Capacitaciones({ user }) {
   const isCoach = user?.rol === "coach";
+  const commercial = user?.rol === "gerente_comercial";
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [scope, setScope] = useState("zonales");
+  const [scopeId, setScopeId] = useState("");
+  const [stores, setStores] = useState([]);
+  const [clusters, setClusters] = useState([]);
+  const [zonales, setZonales] = useState([]);
+  const scopeQuery = commercial ? new URLSearchParams(scope === "tiendas" ? { tienda_id: scopeId } : scopeId ? { zonal_id: scopeId } : {}).toString() : "";
   const zonal = user?.rol === "jefe_zonal";
   const central = ["gerencia_general", "gerente_comercial", "coach"].includes(user?.rol);
   const supervisedLabels = {
@@ -33,7 +42,7 @@ export default function Capacitaciones({ user }) {
     jefe_tienda: "asistentes, trabajadores y seguridad",
     asistente_tienda: "trabajadores y seguridad",
   };
-  const supervisedLabel = supervisedLabels[user?.rol] || "personas";
+  const supervisedLabel = commercial && scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre || "personal de tienda" : supervisedLabels[user?.rol] || "personas";
   const [trabajadores, setTrabajadores] = useState(null);
   const [showInactivos, setShowInactivos] = useState(false);
   const [perfilId, setPerfilId] = useState(null);
@@ -42,11 +51,23 @@ export default function Capacitaciones({ user }) {
   const [view,setView]=useState("seguimiento");
   const [page,setPage]=useState(1);
 
-  const loadTrabajadores = () => api("/capacitaciones/trabajadores").then(setTrabajadores).catch((err) => setNotice({ type: "error", text: err.message }));
   useEffect(() => {
-    loadTrabajadores();
     api("/cursos").then((data) => setCursos(data.filter((c) => c.activo))).catch((err) => setNotice({ type: "error", text: err.message }));
   }, []);
+  useEffect(() => {
+    if (!commercial) return;
+    Promise.all([api("/tiendas"), api("/clusters"), api("/capacitaciones/trabajadores")]).then(([storeRows, clusterRows, leaders]) => {
+      setStores(storeRows.filter(store => store.estado === "activo")); setClusters(clusterRows); setZonales(leaders);
+    }).catch(err => setNotice({ type: "error", text: err.message }));
+  }, [commercial]);
+  useEffect(() => {
+    let active = true;
+    setTrabajadores(null); setPerfilId(null); setPage(1);
+    if (commercial && scope === "tiendas" && !scopeId) { setTrabajadores([]); return undefined; }
+    api(`/capacitaciones/trabajadores?${scopeQuery}`).then(rows => { if (active) setTrabajadores(rows); }).catch(err => { if (active) setNotice({ type: "error", text: err.message }); });
+    return () => { active = false; };
+  }, [scopeQuery, commercial, scope, scopeId]);
+  const zonalCluster = id => clusters.filter(cluster => Number(cluster.jefe_zonal_id) === Number(id)).map(cluster => clusterLabel(cluster.codigo || cluster.nombre)).join(", ") || "Sin clúster asignado";
 
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
@@ -58,6 +79,13 @@ export default function Capacitaciones({ user }) {
 
   return (
     <>
+      {commercial && <div className="commercial-dashboard">
+        <button type="button" className={`dashboard-filter-fab ${filterOpen ? "open" : ""}`} aria-expanded={filterOpen} aria-controls="training-scope-filters" onClick={() => setFilterOpen(open => !open)}><Filter size={17}/><span>{filterOpen ? "Ocultar" : "Filtros"}</span></button>
+        {filterOpen && <aside id="training-scope-filters" className="dashboard-filter-popover" aria-label="Filtros de capacitaciones"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Capacitaciones</span><h2>Tiendas y zonales</h2></div><button type="button" className="icon-button" aria-label="Cerrar filtros" onClick={() => setFilterOpen(false)}><X size={17}/></button></div>
+          <label className="field"><span>Consultar</span><select value={scope} onChange={event => { setScope(event.target.value); setScopeId(""); }}><option value="zonales">Jefes zonales</option><option value="tiendas">Personal de tienda</option></select></label>
+          <label className="field"><span>{scope === "tiendas" ? "Tienda" : "Jefe zonal y clúster"}</span><select value={scopeId} onChange={event => setScopeId(event.target.value)}><option value="">{scope === "tiendas" ? "Selecciona una tienda" : "Todos los zonales"}</option>{scope === "tiendas" ? stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>) : zonales.map(person => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos} · {zonalCluster(person.id)}</option>)}</select></label>
+        </aside>}
+      </div>}
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       {zonal && <><PageHeader eyebrow="Jefe zonal" title="Capacitaciones" subtitle="Consulta el avance por persona o prepara el reporte de capacitación con los mismos filtros de tu zona."/><div className="module-view-tabs"><button className={view==="seguimiento"?"active":""} onClick={()=>setView("seguimiento")}>Personas y avance</button><button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div></>}
@@ -79,7 +107,7 @@ export default function Capacitaciones({ user }) {
               <div className="data-table__row" key={t.id} onClick={() => setPerfilId(t.id)}>
                 <div className="person-cell">
                   <span className="avatar">{t.nombres.charAt(0).toUpperCase()}</span>
-                  <div><strong>{t.nombres} {t.apellidos}</strong><small>{t.tienda_nombre || ""}</small></div>
+                  <div><strong>{t.nombres} {t.apellidos}</strong><small>{commercial && t.rol === "jefe_zonal" ? zonalCluster(t.id) : t.tienda_nombre || ""}</small></div>
                 </div>
                 <span>{t.usuario}</span>
                 <span className={`role role--${t.rol}`}>{roleLabels[t.rol]}</span>
@@ -95,7 +123,7 @@ export default function Capacitaciones({ user }) {
 
       {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2><p>Filtra una capacitación y revisa el estado de los administradores supervisados.</p></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />}
       {!cursos ? <Loading /> : cursos.length ? (
-        <><ResumenPanel cursos={cursos} />{user?.rol === "coach" && <CoachComparisonPanel cursos={cursos} />}</>
+        <>{commercial && scope === "tiendas" && !scopeId ? <p>Selecciona una tienda en el filtro para revisar sus capacitaciones.</p> : <ResumenPanel cursos={cursos} scopeQuery={scopeQuery} scopeLabel={commercial ? scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre : scopeId ? `${zonales.find(person => String(person.id) === scopeId)?.nombres || "Jefe zonal"} · ${zonalCluster(scopeId)}` : "Todos los jefes zonales" : ""}/ >}{user?.rol === "coach" && <CoachComparisonPanel cursos={cursos} />}</>
       ) : (
         <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que dé de alta una capacitación en el catálogo." />
       )}
@@ -225,7 +253,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
   );
 }
 
-function ResumenPanel({ cursos }) {
+function ResumenPanel({ cursos, scopeQuery = "", scopeLabel = "" }) {
   const [cursoId, setCursoId] = useState(cursos[0]?.id ?? "");
   const [resumen, setResumen] = useState(null);
   const [loadingResumen, setLoadingResumen] = useState(true);
@@ -236,12 +264,16 @@ function ResumenPanel({ cursos }) {
   useEffect(() => {
     if (!cursoId) return;
     setLoadingResumen(true);
+    setNotice(null);
+    setResumen(null);
     setModalGrupo(null);
-    api(`/capacitaciones/resumen?curso_id=${cursoId}`)
-      .then(setResumen)
-      .catch((err) => setNotice({ type: "error", text: err.message }))
-      .finally(() => setLoadingResumen(false));
-  }, [cursoId]);
+    let active = true;
+    api(`/capacitaciones/resumen?curso_id=${cursoId}&${scopeQuery}`)
+      .then(rows => { if (active) setResumen(rows); })
+      .catch((err) => { if (active) setNotice({ type: "error", text: err.message }); })
+      .finally(() => { if (active) setLoadingResumen(false); });
+    return () => { active = false; };
+  }, [cursoId, scopeQuery]);
 
   const filas = resumen ? [
     { key: "pendiente", nombre: "Pendiente", cantidad: resumen.pendientes, icon: AlertTriangle },
@@ -265,7 +297,8 @@ function ResumenPanel({ cursos }) {
         {loadingResumen && resumen && <small>Actualizando…</small>}
       </div>
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-      {!resumen ? <Loading /> : (
+      {scopeLabel && <p className="form-note"><strong>{scopeLabel}</strong> · Personal activo con esta capacitación asignada a su cargo. Sin progreso registrado: pendiente.</p>}
+      {!resumen ? !notice && <Loading /> : (
         <div style={{ opacity: loadingResumen ? 0.65 : 1, transition: "opacity .15s ease" }} aria-busy={loadingResumen}>
           <section className="metrics-grid">
             <Metric icon={AlertTriangle} label="Pendiente" value={resumen.pendientes} note="sin iniciar" tone="red" />
@@ -281,7 +314,7 @@ function ResumenPanel({ cursos }) {
                   <span className={`progress-row__icon progress-row__icon--${fila.key}`}><fila.icon size={21} /></span>
                   <div className="progress-row__body">
                     <div className="progress-row__label"><strong>{fila.nombre}</strong></div>
-                    <div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${Math.max(pct, 3)}%`, background: estadoPalette[fila.key] }} /></div>
+                    <div className="progress-bar"><div className="progress-bar__fill" style={{ width: `${resumen.total ? fila.cantidad / resumen.total * 100 : 0}%`, background: estadoPalette[fila.key] }} /></div>
                   </div>
                   <div className="progress-row__stat">
                     <strong style={{ color: estadoPalette[fila.key] }}>{pct}%</strong>

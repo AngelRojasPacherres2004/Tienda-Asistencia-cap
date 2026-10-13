@@ -23,7 +23,7 @@ const navByRole = {
   ],
   gerente_comercial: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Gestión Asiste", icon: ClipboardCheck },
+    { id: "asiste-operativo", label: "Gestión", icon: ClipboardCheck },
     { id: "tiendas", label: "Tiendas y clústeres", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
@@ -47,7 +47,7 @@ const navByRole = {
   ],
   jefe_zonal: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Gestión Asiste", icon: ClipboardCheck },
+    { id: "asiste-operativo", label: "Gestión", icon: ClipboardCheck },
     { id: "tiendas", label: "Mis tiendas", icon: Building2 },
     { id: "zonal-personal", label: "Mis equipos", icon: Users },
     { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck },
@@ -59,7 +59,7 @@ const navByRole = {
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Gestión Asiste", icon: ClipboardCheck },
+    { id: "asiste-operativo", label: "Gestión", icon: ClipboardCheck },
     { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },

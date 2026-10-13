@@ -1413,6 +1413,7 @@ async function assertCursoAsignadoARol(cursoId, role) {
 async function listTrabajadores(event, user) {
   const query = event.queryStringParameters || {};
   let targetRoles = trainingTargetRoles(user.rol);
+  if (user.rol === "gerente_comercial" && query.tienda_id) targetRoles = storeStaffRoles;
   if (query.curso_id) {
     const { data: roleRows, error: roleError } = await readAllResult(supabase.from("curso_roles")
       .select("rol_codigo").eq("curso_id", Number(query.curso_id)).order("rol_codigo"), "curso_id");
@@ -1423,6 +1424,8 @@ async function listTrabajadores(event, user) {
   let request = supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)");
   request = request.in("rol", targetRoles.length ? targetRoles : ["__sin_acceso__"]);
+  if (user.rol === "gerente_comercial" && query.tienda_id) request = request.eq("tienda_id", Number(query.tienda_id));
+  if (user.rol === "gerente_comercial" && query.zonal_id) request = request.eq("id", Number(query.zonal_id));
   if (user.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(user.id);
     if (!ids.length) return [];
@@ -1444,9 +1447,10 @@ async function listTrabajadores(event, user) {
   return people.map((t) => ({ ...t, progreso_estado: byUser.get(t.id) || "pendiente" }));
 }
 
-async function assertTrainingTarget(user, target) {
+async function assertTrainingTarget(user, target, readOnly = false) {
   if (!target) throw httpError("Persona no encontrada.", 404);
-  if (!trainingTargetRoles(user.rol).includes(target.rol)) throw httpError("La persona no está bajo tu supervisión.", 403);
+  const roles = readOnly && user.rol === "gerente_comercial" ? ["jefe_zonal", ...storeStaffRoles] : trainingTargetRoles(user.rol);
+  if (!roles.includes(target.rol)) throw httpError("La persona no está bajo tu supervisión.", 403);
   if (["gerencia_general", "gerente_comercial", "coach"].includes(user.rol)) {
     return;
   }
@@ -1462,7 +1466,7 @@ async function getTrabajadorPerfil(id, user) {
   const { data: trabajador, error } = await supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id").eq("id", id).maybeSingle();
   if (error) throw dbError(error);
-  await assertTrainingTarget(user, trabajador);
+  await assertTrainingTarget(user, trabajador, true);
 
   const { data: progresoRows, error: progresoError } = await readAllResult(supabase.from("capacitacion_progreso")
     .select("curso_id,estado,duracion_horas,nota,resultado,fecha_finalizacion")
@@ -1537,9 +1541,10 @@ async function getResumenCurso(event, user) {
     .select("rol_codigo").eq("curso_id", cursoId).order("rol_codigo"), "curso_id");
   if (roleError) throw dbError(roleError);
   const assignedRoles = new Set(roleRows.map((row) => row.rol_codigo));
-  const targetRoles = trainingTargetRoles(user.rol).filter((role) => assignedRoles.has(role));
+  const targetRoles = (user.rol === "gerente_comercial" && query.tienda_id ? storeStaffRoles : trainingTargetRoles(user.rol)).filter((role) => assignedRoles.has(role));
   let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol,tienda_id")
     .eq("estado", "activo").in("rol", targetRoles.length ? targetRoles : ["__sin_acceso__"]);
+  if (user.rol === "gerente_comercial" && query.zonal_id) trabajadoresQuery = trabajadoresQuery.eq("id", Number(query.zonal_id));
   if (user.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(user.id);
     if (tiendaId && !ids.includes(tiendaId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
@@ -1548,7 +1553,7 @@ async function getResumenCurso(event, user) {
     if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) trabajadoresQuery = trabajadoresQuery.eq("tienda_id", user.tienda_id);
     else if (tiendaId) trabajadoresQuery = trabajadoresQuery.eq("tienda_id", tiendaId);
   }
-  const { data: trabajadores, error: tError } = await trabajadoresQuery;
+  const { data: trabajadores, error: tError } = await readAllResult(trabajadoresQuery.order("id"));
   if (tError) throw dbError(tError);
 
   const ids = trabajadores.map((t) => t.id);
@@ -1835,11 +1840,14 @@ async function getAttendanceByWorker(tiendaFilter, desde, hasta) {
   }
   const ids = [...groups.keys()];
   if (!ids.length) return [];
-  const { data: users, error: userError } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos,usuario").in("id", ids));
+  const { data: users, error: userError } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos,usuario,estado").in("id", ids));
   if (userError) throw dbError(userError);
   const names = new Map((users || []).map((user) => [user.id, `${user.nombres || ""} ${user.apellidos || ""}`.trim() || user.usuario || "Sin identificar"]));
+  const userStates = new Map((users || []).map(user => [user.id, user.estado]));
   return [...groups.entries()].map(([id, counts]) => ({
-    nombre: names.get(id) || "Sin identificar", ...attendanceCounts(counts),
+    usuario_id: id, nombre: names.get(id) || "Sin identificar", ...attendanceCounts(counts),
+    estado_actual: userStates.get(id),
+    suspension: counts.filter(row => row.estado === "suspension").length,
   })).sort((a, b) => b.total - a.total || a.nombre.localeCompare(b.nombre, "es"));
 }
 
