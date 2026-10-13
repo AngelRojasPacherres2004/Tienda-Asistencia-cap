@@ -146,12 +146,12 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>
       </aside>
+      <button type="button" className="compact-toggle" onClick={() => setCompact(!compact)} title={compact ? "Expandir menú" : "Contraer menú"} aria-label={compact ? "Expandir menú" : "Contraer menú"} aria-expanded={!compact}><PanelLeftClose size={18} /></button>
       <main className={`workspace ${isCommercial ? "commercial-role" : ""} ${isDashboard && !isCommercialDashboard ? "app-light marketing-light dashboard-light" : ""}`}>
         <div className="mobile-topbar">
           <button onClick={() => setMobileOpen(true)}><Menu /></button>
           <strong>Menú</strong>
         </div>
-        <button className="compact-toggle" onClick={() => setCompact(!compact)} title="Contraer menú"><PanelLeftClose size={18} /></button>
         <div className={`workspace__content ${isCommercialDashboard ? "workspace__content--commercial" : ""}`}>
           {page === "asiste-operativo" && isOperationalDemo() && <div className="operational-demo-banner" role="status"><strong>VISTA DEMO LOCAL</strong><span>Tráfico y comparativo zonal simulados. No se guardan en bd-app ni alteran los KPI reales.</span><a href={window.location.pathname}>Ver datos reales</a></div>}
           {!isDashboard && <div className="marketing-theme-toolbar">
