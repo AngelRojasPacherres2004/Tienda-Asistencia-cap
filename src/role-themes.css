@@ -1,6 +1,8 @@
 @import "./role-typography.css";
 
 .app-light { --gold: #245b91; --text: #203b56; --muted: #4b5563; --surface: #fffdf8; --surface-strong: #fff; --line: #dedfdc; --border: #dedfdc; }
+.app-light .workspace.commercial-role,
+.app-light .workspace.commercial-role .workspace__content { background: #eaf2f8; }
 .app-light :is(.metric-card, .table-panel, .task-catalog-card, .company-card, .assignment-card, .calendar-panel, .worker-task, .profile-details, .detail-person, .compact-metrics > div, .worker-summary > div, .history-timeline > article, .report-picker > button, .report-detail-grid > div, .audit-section, .audit-summary, .audit-wizard__intro, .audit-items > article, .audit-observation-list > article, .audit-history-list > article, .alert-settings__list article, .dashboard-detail-modal > section, .dashboard-filter-popover, .save-success-card, .success-dialog) {
   color: #203b56; background: #fffdf8; border-color: #dedfdc; box-shadow: 0 8px 26px rgba(36,61,86,.06);
 }
