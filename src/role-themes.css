@@ -200,3 +200,22 @@
 .app-light .store-management-page :is(.mini-tabs, .subsection-tabs) button.active { color: #fff; background: #245b91; }
 .app-light .store-management-page .audit-observation-list aside { color: #171717; background: #f0eee6; }
 .app-light .store-management-page :is(.field, .requirement-form .field > span, .field small, .file-picker__copy strong, .file-picker__copy small, .requirement-areas button, .check-line) { color: #171717; }
+
+/* Light modal forms must not inherit the dark requirement controls. */
+.app-light .modal .field :is(input:not([type="file"]):not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  color: #173c65; background: #f8fbfd; border: 1px solid #b8cede; color-scheme: light; font-size: 16px;
+}
+.app-light .modal .field :is(input, textarea)::placeholder { color: #62788c; opacity: 1; }
+.app-light .modal .field :is(input, select, textarea):focus { border-color: #245b91; box-shadow: 0 0 0 3px rgba(36,91,145,.12); }
+.app-light .modal .field > span { color: #173c65; font-size: 14px; font-weight: 800; }
+.app-light .modal .requirement-areas { background: #f3f8fc; border-color: #cbdce9; }
+.app-light .modal .requirement-areas button { color: #173c65; font-size: 14px; }
+.app-light .modal .requirement-areas button:hover { color: #173c65; background: #eaf2f8; border-color: #b8cede; }
+.app-light .modal .requirement-areas button i { background: #fff; border-color: #91acc3; }
+.app-light .modal .requirement-areas button.selected { color: #173c65; background: #e1edf8; border-color: #245b91; }
+.app-light .modal .requirement-areas button.selected i { color: #fff; background: #245b91; border-color: #245b91; }
+.app-light .modal .file-picker { background: #f8fbfd; border-color: #b8cede; }
+.app-light .modal .file-picker__icon { color: #245b91; background: #eaf2f8; }
+.app-light .modal .file-picker__copy strong { color: #173c65; font-size: 14px; }
+.app-light .modal .file-picker__copy small { color: #526d83; font-size: 12px; }
+.app-light .modal .requirement-form .form-actions { background: #fff; border-top: 1px solid #dce6ee; }

@@ -101,7 +101,6 @@ export default function App() {
     coberturas: <CoberturasEspeciales />,
     "zonal-personal": <Usuarios user={user} zonalTeam />,
     "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,
-    "zonal-tareas": <ZonalModule section="tareas" user={user} />,
     "zonal-supervisiones": <ZonalModule section="supervisiones" user={user} />,
     "zonal-incidencias": <ZonalModule section="incidencias" user={user} />,
     reportes: <Reportes user={user} />,

@@ -50,7 +50,6 @@ const navByRole = {
     { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
     { id: "tiendas", label: "Mis tiendas", icon: Building2 },
     { id: "zonal-personal", label: "Mis equipos", icon: Users },
-    { id: "zonal-tareas", label: "Cronogramas y tareas", icon: ClipboardCheck },
     { id: "zonal-supervisiones", label: "Auditorías", icon: ClipboardCheck },
     { id: "zonal-incidencias", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },

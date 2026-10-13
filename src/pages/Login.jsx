@@ -1,29 +1,57 @@
-import { useState } from "react";
-import { ArrowRight, CalendarCheck2, Camera, Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, CalendarCheck2, Eye, EyeOff, GraduationCap, LoaderCircle, LockKeyhole, ShieldCheck, UserRound, Users } from "lucide-react";
 import { api } from "../lib/api";
-import { Notice } from "../components/UI";
+import "./Login.css";
 
 export default function Login({ onLogin }) {
+  const video = useRef(null);
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const applyPreference = () => { if (preference.matches) video.current?.pause(); else video.current?.play().catch(() => {}); };
+    applyPreference();
+    preference.addEventListener("change", applyPreference);
+    return () => preference.removeEventListener("change", applyPreference);
+  }, []);
   const [form, setForm] = useState({ usuario: "", password: "" });
-  const [support, setSupport] = useState({ dni: "", foto: null });
-  const [supportMode, setSupportMode] = useState(false); const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  const submit = async (event) => { event.preventDefault(); setBusy(true); setError(""); try { const { user } = await api("/auth/login", { method: "POST", body: form }); onLogin(user); } catch (err) { setError(err.message); } finally { setBusy(false); } };
-  const submitSupport = async (event) => {
-    event.preventDefault(); setBusy(true); setError("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async event => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError("");
     try {
-      if (!support.foto) throw new Error("Toma una foto de rostro para validar el acceso.");
-      if (support.foto.size > 3 * 1024 * 1024) throw new Error("La foto debe pesar como máximo 3 MB.");
-      const foto_base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(support.foto); });
-      const { user } = await api("/auth/apoyo-seguridad", { method: "POST", body: { dni: support.dni, foto_base64, foto_mime: support.foto.type } }); onLogin(user);
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+      const { user } = await api("/auth/login", { method: "POST", body: form }); onLogin(user);
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
   };
-  return <main className="login-page">
-    <section className="login-story"><div className="login-story__mesh" /><div className="login-brand"><span className="brand__mark">A</span><strong>Asiste</strong></div><div className="login-story__content"><span className="eyebrow eyebrow--light">Tus tiendas, en un solo lugar</span><h1>Asistencias y capacitaciones<br />sin perder el control.</h1><p>Gestiona el personal de cada tienda, registra su asistencia diaria y sus capacitaciones desde un espacio pensado para avanzar sin ruido.</p><div className="login-features"><div><CalendarCheck2 size={20} /><span><strong>Registro diario</strong><small>Asistencia y capacitaciones al día, por tienda.</small></span></div><div><ShieldCheck size={20} /><span><strong>Acceso protegido</strong><small>Información aislada por roles y permisos.</small></span></div></div></div><small className="login-story__footer">Asiste · Gestión de tiendas</small></section>
-    <section className="login-form-side"><video className="login-form-video" autoPlay muted loop playsInline preload="auto" aria-hidden="true"><source src="/login_derecha.mp4" type="video/mp4" /></video><form className="login-card" onSubmit={supportMode ? submitSupport : submit}>
-      <div className="login-card__top"><span className="login-icon">{supportMode ? <ShieldCheck size={22} /> : <LockKeyhole size={22} />}</span><span className="eyebrow">Acceso seguro</span></div><h2>{supportMode ? "Acceso de apoyo temporal" : "Qué gusto verte"}</h2><p>{supportMode ? "Ingresa tu DNI y toma una foto actual de tu rostro." : "Ingresa tus credenciales para continuar."}</p>{error && <Notice type="error">{error}</Notice>}
-      {supportMode ? <><label className="login-field"><span>DNI autorizado</span><div><UserRound size={18} /><input autoFocus required inputMode="numeric" pattern="[0-9]{8}" maxLength="8" placeholder="8 dígitos" value={support.dni} onChange={(e) => setSupport({ ...support, dni: e.target.value.replace(/\D/g, "") })} /></div></label><label className={`support-photo-field ${support.foto ? "has-photo" : ""}`}><Camera size={22} /><strong>{support.foto ? "Foto lista para validar" : "Tomar foto de rostro"}</strong><small>{support.foto?.name || "Se guardará como evidencia privada del acceso."}</small><input required type="file" accept="image/*" capture="user" onChange={(e) => setSupport({ ...support, foto: e.target.files?.[0] || null })} /></label></> : <><label className="login-field"><span>Usuario</span><div><UserRound size={18} /><input autoFocus required autoComplete="username" placeholder="Tu usuario" value={form.usuario} onChange={(e) => setForm({ ...form, usuario: e.target.value })} /></div></label><label className="login-field"><span>Contraseña</span><div><LockKeyhole size={18} /><input required autoComplete="current-password" type={showPassword ? "text" : "password"} placeholder="Tu contraseña" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label="Mostrar contraseña">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label></>}
-      <button className="button button--primary button--large" disabled={busy}>{busy ? "Verificando…" : <>Entrar al sistema <ArrowRight size={18} /></>}</button><button type="button" className="login-support-toggle" onClick={() => { setSupportMode(!supportMode); setError(""); }}>{supportMode ? "Volver al acceso con usuario" : "Soy apoyo temporal de seguridad"}</button><small className="login-help">{supportMode ? "Disponible únicamente durante el periodo autorizado por la tienda." : "¿No tienes acceso? Solicita tus credenciales al administrador."}</small>
-    </form></section>
+
+  return <main className="portal-login">
+    <video ref={video} className="portal-login__video" muted loop playsInline preload="auto" aria-hidden="true" tabIndex={-1}><source src="/login_actual.mp4" type="video/mp4"/></video>
+    <div className="portal-login__layout">
+      <header className="portal-login__brand"><img src="/logo-almacen-remates.png" alt="Almacén de Remates" width="124" height="72"/></header>
+      <section className="portal-login__intro" aria-labelledby="login-intro-title">
+        <span className="portal-login__eyebrow"><i/>CONECTADOS PARA CRECER</span>
+        <h1 id="login-intro-title"><span className="portal-login__headline-line">Tu equipo.</span><span className="portal-login__headline-line">Tus tiendas.</span><span>Todo en orden.</span></h1>
+        <p>La gestión de nuestras tiendas empieza aquí. Un solo espacio para acompañar a tu equipo, cada día.</p>
+        <div className="portal-login__features"><span><Users size={17}/>Personas</span><span><CalendarCheck2 size={17}/>Asistencia</span><span><GraduationCap size={17}/>Capacitación</span></div>
+      </section>
+      <section className="portal-login__access" aria-labelledby="login-form-title">
+        <form className="portal-login__card" onSubmit={submit} aria-busy={busy}>
+          <span className="portal-login__access-icon"><LockKeyhole size={25}/></span>
+          <span className="portal-login__eyebrow">BIENVENIDO A ASISTE</span>
+          <h2 id="login-form-title">Ingresa a tu espacio</h2>
+          <p>Todo listo para empezar. Ingresa con tu usuario y contraseña.</p>
+          {error && <div className="portal-login__error" role="alert">{error}</div>}
+          <fieldset disabled={busy}>
+              <label className="portal-login__field"><span>Usuario</span><div><UserRound size={18}/><input key="usuario" name="username" required autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="Ingresa tu usuario" value={form.usuario} onChange={event => setForm({ ...form, usuario: event.target.value })}/></div></label>
+              <label className="portal-login__field"><span>Contraseña</span><div><LockKeyhole size={18}/><input name="password" required autoComplete="current-password" type={showPassword ? "text" : "password"} placeholder="Ingresa tu contraseña" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })}/><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword}>{showPassword ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div></label>
+            <button type="submit" className="portal-login__submit">{busy ? <><LoaderCircle size={19} className="portal-login__spinner"/>Verificando acceso…</> : <>Ingresar al portal<ArrowRight size={19}/></>}</button>
+          </fieldset>
+          <div className="portal-login__help"><ShieldCheck size={16}/><span>¿Necesitas acceso? Contacta al administrador de tu tienda.</span></div>
+        </form>
+      </section>
+      <footer className="portal-login__footer"><span>Almacén de Remates · Asiste</span></footer>
+    </div>
   </main>;
 }
