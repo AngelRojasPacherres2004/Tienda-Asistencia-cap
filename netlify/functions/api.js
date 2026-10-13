@@ -1410,10 +1410,18 @@ async function assertCursoAsignadoARol(cursoId, role) {
   if (!data) throw httpError("La capacitación no está asignada al rol de esta persona.", 403);
 }
 
+function trainingReadRoles(user, query) {
+  if (user.rol === "coach") {
+    if (query.alcance === "zonales") return ["jefe_zonal"];
+    if (query.alcance === "administradores") return ["jefe_tienda"];
+    if (query.alcance === "tiendas") return storeStaffRoles;
+  }
+  return user.rol === "gerente_comercial" && query.tienda_id ? storeStaffRoles : trainingTargetRoles(user.rol);
+}
+
 async function listTrabajadores(event, user) {
   const query = event.queryStringParameters || {};
-  let targetRoles = trainingTargetRoles(user.rol);
-  if (user.rol === "gerente_comercial" && query.tienda_id) targetRoles = storeStaffRoles;
+  let targetRoles = trainingReadRoles(user, query);
   if (query.curso_id) {
     const { data: roleRows, error: roleError } = await readAllResult(supabase.from("curso_roles")
       .select("rol_codigo").eq("curso_id", Number(query.curso_id)).order("rol_codigo"), "curso_id");
@@ -1424,8 +1432,9 @@ async function listTrabajadores(event, user) {
   let request = supabase.from("usuarios")
     .select("id,nombres,apellidos,usuario,rol,estado,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)");
   request = request.in("rol", targetRoles.length ? targetRoles : ["__sin_acceso__"]);
-  if (user.rol === "gerente_comercial" && query.tienda_id) request = request.eq("tienda_id", Number(query.tienda_id));
-  if (user.rol === "gerente_comercial" && query.zonal_id) request = request.eq("id", Number(query.zonal_id));
+  if (["coach", "gerente_comercial"].includes(user.rol) && query.tienda_id) request = request.eq("tienda_id", Number(query.tienda_id));
+  if (["coach", "gerente_comercial"].includes(user.rol) && query.zonal_id) request = request.eq("id", Number(query.zonal_id)).eq("rol", "jefe_zonal");
+  if (user.rol === "coach" && query.administrador_id) request = request.eq("id", Number(query.administrador_id)).eq("rol", "jefe_tienda");
   if (user.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(user.id);
     if (!ids.length) return [];
@@ -1541,10 +1550,11 @@ async function getResumenCurso(event, user) {
     .select("rol_codigo").eq("curso_id", cursoId).order("rol_codigo"), "curso_id");
   if (roleError) throw dbError(roleError);
   const assignedRoles = new Set(roleRows.map((row) => row.rol_codigo));
-  const targetRoles = (user.rol === "gerente_comercial" && query.tienda_id ? storeStaffRoles : trainingTargetRoles(user.rol)).filter((role) => assignedRoles.has(role));
+  const targetRoles = trainingReadRoles(user, query).filter((role) => assignedRoles.has(role));
   let trabajadoresQuery = supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol,tienda_id")
     .eq("estado", "activo").in("rol", targetRoles.length ? targetRoles : ["__sin_acceso__"]);
-  if (user.rol === "gerente_comercial" && query.zonal_id) trabajadoresQuery = trabajadoresQuery.eq("id", Number(query.zonal_id));
+  if (["coach", "gerente_comercial"].includes(user.rol) && query.zonal_id) trabajadoresQuery = trabajadoresQuery.eq("id", Number(query.zonal_id)).eq("rol", "jefe_zonal");
+  if (user.rol === "coach" && query.administrador_id) trabajadoresQuery = trabajadoresQuery.eq("id", Number(query.administrador_id)).eq("rol", "jefe_tienda");
   if (user.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(user.id);
     if (tiendaId && !ids.includes(tiendaId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
@@ -3850,6 +3860,16 @@ export async function handler(event) {
       return await exportMiHistorialExcel(event, user);
     }
 
+    if (path === "/capacitaciones/alcances" && method === "GET") {
+      ensureAuth(event, "coach");
+      const [stores, clusters] = await Promise.all([
+        readAllResult(supabase.from("tiendas").select("id,nombre,estado").order("nombre").order("id")),
+        readAllResult(supabase.from("clusters").select("id,nombre,codigo,jefe_zonal_id").order("id")),
+      ]);
+      if (stores.error) throw dbError(stores.error);
+      if (clusters.error) throw dbError(clusters.error);
+      return json(200, { tiendas: stores.data, clusters: clusters.data });
+    }
     if (path === "/capacitaciones/trabajadores" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listTrabajadores(event, user));

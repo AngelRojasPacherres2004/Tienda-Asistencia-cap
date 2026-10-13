@@ -25,13 +25,15 @@ function Metric({ icon: Icon, label, value, note, tone }) {
 export default function Capacitaciones({ user }) {
   const isCoach = user?.rol === "coach";
   const commercial = user?.rol === "gerente_comercial";
+  const scopedAccess = commercial || isCoach;
   const [filterOpen, setFilterOpen] = useState(false);
-  const [scope, setScope] = useState("zonales");
+  const [scope, setScope] = useState(isCoach ? "todos" : "zonales");
   const [scopeId, setScopeId] = useState("");
   const [stores, setStores] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [zonales, setZonales] = useState([]);
-  const scopeQuery = commercial ? new URLSearchParams(scope === "tiendas" ? { tienda_id: scopeId } : scopeId ? { zonal_id: scopeId } : {}).toString() : "";
+  const [administradores, setAdministradores] = useState([]);
+  const scopeQuery = scopedAccess ? new URLSearchParams({ ...(isCoach ? { alcance: scope } : {}), ...(scopeId ? scope === "tiendas" ? { tienda_id: scopeId } : scope === "administradores" ? { administrador_id: scopeId } : { zonal_id: scopeId } : {}) }).toString() : "";
   const zonal = user?.rol === "jefe_zonal";
   const central = ["gerencia_general", "gerente_comercial", "coach"].includes(user?.rol);
   const supervisedLabels = {
@@ -42,7 +44,7 @@ export default function Capacitaciones({ user }) {
     jefe_tienda: "asistentes, trabajadores y seguridad",
     asistente_tienda: "trabajadores y seguridad",
   };
-  const supervisedLabel = commercial && scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre || "personal de tienda" : supervisedLabels[user?.rol] || "personas";
+  const supervisedLabel = scopedAccess && scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre || "personal de tienda" : supervisedLabels[user?.rol] || "personas";
   const [trabajadores, setTrabajadores] = useState(null);
   const [showInactivos, setShowInactivos] = useState(false);
   const [perfilId, setPerfilId] = useState(null);
@@ -55,19 +57,25 @@ export default function Capacitaciones({ user }) {
     api("/cursos").then((data) => setCursos(data.filter((c) => c.activo))).catch((err) => setNotice({ type: "error", text: err.message }));
   }, []);
   useEffect(() => {
-    if (!commercial) return;
-    Promise.all([api("/tiendas"), api("/clusters"), api("/capacitaciones/trabajadores")]).then(([storeRows, clusterRows, leaders]) => {
-      setStores(storeRows.filter(store => store.estado === "activo")); setClusters(clusterRows); setZonales(leaders);
-    }).catch(err => setNotice({ type: "error", text: err.message }));
-  }, [commercial]);
+    if (!scopedAccess) return;
+    let active = true;
+    const catalogs = isCoach ? api("/capacitaciones/alcances").then(data => [data.tiendas, data.clusters]) : Promise.all([api("/tiendas"), api("/clusters")]);
+    Promise.all([catalogs, api("/capacitaciones/trabajadores")]).then(([[storeRows, clusterRows], leaders]) => {
+      if (!active) return;
+      setStores((isCoach ? storeRows : storeRows.filter(store => store.estado === "activo")).sort((a,b) => a.nombre.localeCompare(b.nombre,"es"))); setClusters(clusterRows); setZonales(leaders.filter(person => person.rol === "jefe_zonal")); setAdministradores(leaders.filter(person => person.rol === "jefe_tienda"));
+    }).catch(err => { if (active) setNotice({ type: "error", text: err.message }); });
+    return () => { active = false; };
+  }, [scopedAccess, isCoach]);
   useEffect(() => {
     let active = true;
     setTrabajadores(null); setPerfilId(null); setPage(1);
-    if (commercial && scope === "tiendas" && !scopeId) { setTrabajadores([]); return undefined; }
+    if (scopedAccess && scope === "tiendas" && !scopeId) { setTrabajadores([]); return undefined; }
     api(`/capacitaciones/trabajadores?${scopeQuery}`).then(rows => { if (active) setTrabajadores(rows); }).catch(err => { if (active) setNotice({ type: "error", text: err.message }); });
     return () => { active = false; };
-  }, [scopeQuery, commercial, scope, scopeId]);
+  }, [scopeQuery, scopedAccess, scope, scopeId]);
   const zonalCluster = id => clusters.filter(cluster => Number(cluster.jefe_zonal_id) === Number(id)).map(cluster => clusterLabel(cluster.codigo || cluster.nombre)).join(", ") || "Sin clúster asignado";
+  const selectedScopePerson = (scope === "administradores" ? administradores : zonales).find(person => String(person.id) === scopeId);
+  const scopeLabel = scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre || "Selecciona una tienda" : scope === "todos" ? "Todo el personal" : selectedScopePerson ? `${selectedScopePerson.nombres} ${selectedScopePerson.apellidos} · ${scope === "administradores" ? selectedScopePerson.tienda_nombre || "Sin tienda asignada" : zonalCluster(scopeId)}` : scope === "administradores" ? "Todos los administradores" : "Todos los jefes zonales";
 
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
@@ -79,11 +87,11 @@ export default function Capacitaciones({ user }) {
 
   return (
     <>
-      {commercial && <div className="commercial-dashboard">
+      {scopedAccess && <div className="commercial-dashboard">
         <button type="button" className={`dashboard-filter-fab ${filterOpen ? "open" : ""}`} aria-expanded={filterOpen} aria-controls="training-scope-filters" onClick={() => setFilterOpen(open => !open)}><Filter size={17}/><span>{filterOpen ? "Ocultar" : "Filtros"}</span></button>
-        {filterOpen && <aside id="training-scope-filters" className="dashboard-filter-popover" aria-label="Filtros de capacitaciones"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Capacitaciones</span><h2>Tiendas y zonales</h2></div><button type="button" className="icon-button" aria-label="Cerrar filtros" onClick={() => setFilterOpen(false)}><X size={17}/></button></div>
-          <label className="field"><span>Consultar</span><select value={scope} onChange={event => { setScope(event.target.value); setScopeId(""); }}><option value="zonales">Jefes zonales</option><option value="tiendas">Personal de tienda</option></select></label>
-          <label className="field"><span>{scope === "tiendas" ? "Tienda" : "Jefe zonal y clúster"}</span><select value={scopeId} onChange={event => setScopeId(event.target.value)}><option value="">{scope === "tiendas" ? "Selecciona una tienda" : "Todos los zonales"}</option>{scope === "tiendas" ? stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>) : zonales.map(person => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos} · {zonalCluster(person.id)}</option>)}</select></label>
+        {filterOpen && <aside id="training-scope-filters" className="dashboard-filter-popover" aria-label="Filtros de capacitaciones"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Capacitaciones</span><h2>Personas y tiendas</h2></div><button type="button" className="icon-button" aria-label="Cerrar filtros" onClick={() => setFilterOpen(false)}><X size={17}/></button></div>
+          <label className="field"><span>Consultar</span><select value={scope} onChange={event => { setScope(event.target.value); setScopeId(""); }}>{isCoach && <option value="todos">Todo el personal</option>}<option value="zonales">Jefes zonales</option>{isCoach && <option value="administradores">Administradores</option>}<option value="tiendas">Personal de tienda</option></select></label>
+          {scope !== "todos" && <label className="field"><span>{scope === "tiendas" ? "Tienda" : scope === "administradores" ? "Administrador y tienda" : "Jefe zonal y clúster"}</span><select value={scopeId} onChange={event => setScopeId(event.target.value)}><option value="">{scope === "tiendas" ? "Selecciona una tienda" : scope === "administradores" ? "Todos los administradores" : "Todos los zonales"}</option>{scope === "tiendas" ? stores.map(store => <option key={store.id} value={store.id}>{store.nombre}{store.estado === "inactivo" ? " · Inactiva" : ""}</option>) : (scope === "administradores" ? administradores : zonales).map(person => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos} · {scope === "administradores" ? person.tienda_nombre || "Sin tienda" : zonalCluster(person.id)}{person.estado === "inactivo" ? " · Inactivo" : ""}</option>)}</select></label>}
         </aside>}
       </div>}
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
@@ -92,7 +100,7 @@ export default function Capacitaciones({ user }) {
 
       {zonal && view === "reporte" ? <Reportes user={user} embedded initialKind="capacitaciones" allowedKinds={["capacitaciones"]}/> : <>
 
-      {!isCoach && <>{!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2><p>Selecciona un administrador para consultar el avance de sus capacitaciones.</p></div>}
+      {(!isCoach || scope !== "todos") && <>{!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2><p>Selecciona un administrador para consultar el avance de sus capacitaciones.</p></div>}
       <div className="toolbar">
         <span>{visibles.length} personas</span>
         <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
@@ -107,7 +115,7 @@ export default function Capacitaciones({ user }) {
               <div className="data-table__row" key={t.id} onClick={() => setPerfilId(t.id)}>
                 <div className="person-cell">
                   <span className="avatar">{t.nombres.charAt(0).toUpperCase()}</span>
-                  <div><strong>{t.nombres} {t.apellidos}</strong><small>{commercial && t.rol === "jefe_zonal" ? zonalCluster(t.id) : t.tienda_nombre || ""}</small></div>
+                  <div><strong>{t.nombres} {t.apellidos}</strong><small>{scopedAccess && t.rol === "jefe_zonal" ? zonalCluster(t.id) : t.tienda_nombre || ""}</small></div>
                 </div>
                 <span>{t.usuario}</span>
                 <span className={`role role--${t.rol}`}>{roleLabels[t.rol]}</span>
@@ -123,7 +131,7 @@ export default function Capacitaciones({ user }) {
 
       {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2><p>Filtra una capacitación y revisa el estado de los administradores supervisados.</p></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />}
       {!cursos ? <Loading /> : cursos.length ? (
-        <>{commercial && scope === "tiendas" && !scopeId ? <p>Selecciona una tienda en el filtro para revisar sus capacitaciones.</p> : <ResumenPanel cursos={cursos} scopeQuery={scopeQuery} scopeLabel={commercial ? scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre : scopeId ? `${zonales.find(person => String(person.id) === scopeId)?.nombres || "Jefe zonal"} · ${zonalCluster(scopeId)}` : "Todos los jefes zonales" : ""}/ >}{user?.rol === "coach" && <CoachComparisonPanel cursos={cursos} />}</>
+        <>{scopedAccess && scope === "tiendas" && !scopeId ? <p>Selecciona una tienda en el filtro para revisar sus capacitaciones.</p> : <><ResumenPanel cursos={cursos} scopeQuery={scopeQuery} scopeLabel={scopedAccess ? scopeLabel : ""}/>{isCoach && <CoachComparisonPanel cursos={cursos} scopeQuery={scopeQuery}/>}</>}</>
       ) : (
         <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que dé de alta una capacitación en el catálogo." />
       )}
@@ -132,7 +140,7 @@ export default function Capacitaciones({ user }) {
   );
 }
 
-function CoachComparisonPanel({ cursos }) {
+function CoachComparisonPanel({ cursos, scopeQuery = "" }) {
   const [cursoId, setCursoId] = useState(cursos[0]?.id ?? "");
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
@@ -140,9 +148,9 @@ function CoachComparisonPanel({ cursos }) {
     let active = true;
     setPeople(null); setError("");
     if (!cursoId) { setPeople([]); return undefined; }
-    api(`/capacitaciones/trabajadores?curso_id=${cursoId}&estado=activo`).then(rows => { if (active) setPeople(rows); }).catch(err => { if (active) setError(err.message); });
+    api(`/capacitaciones/trabajadores?curso_id=${cursoId}&estado=activo&${scopeQuery}`).then(rows => { if (active) setPeople(rows); }).catch(err => { if (active) setError(err.message); });
     return () => { active = false; };
-  }, [cursoId]);
+  }, [cursoId, scopeQuery]);
   const summarize = (keyOf) => [...(people || []).reduce((map, person) => {
     const key = keyOf(person) || "Sin asignar";
     const row = map.get(key) || { name: key, total: 0, completado: 0, en_curso: 0, pendiente: 0 };
