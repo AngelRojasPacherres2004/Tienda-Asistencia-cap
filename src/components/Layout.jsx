@@ -44,6 +44,7 @@ const navByRole = {
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
     { id: "cursos", label: "Crear capacitaciones", icon: GraduationCap },
     { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
+    { id: "reportes", label: "Reportes de ventas", icon: FileSpreadsheet },
   ],
   jefe_zonal: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },

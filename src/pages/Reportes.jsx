@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Loading, Modal, Notice, PageHeader, Pagination, StatusBadge } from "../components/UI";
+import NormalizedReports from "./NormalizedReports";
 
 const reportDefinitions = {
   personal: {
@@ -100,6 +101,9 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
   const [selected, setSelected] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
+  const [group, setGroup] = useState("cifras");
+  const hasCommercialReports = !embedded && ["gerente_comercial", "jefe_zonal", "jefe_tienda"].includes(user?.rol);
+  const commercialSelected = hasCommercialReports && group === "cifras";
   const canSelectStore = !fixedStoreId && ["gerencia_general", "gerente_comercial", "jefe_zonal"].includes(user?.rol);
   const definition = reportDefinitions[kind];
 
@@ -165,10 +169,14 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     {!embedded && <PageHeader
       eyebrow={user?.rol === "jefe_tienda" ? "Mi tienda" : "Consulta y exportación"}
       title="Reportes"
-      action={exportButton}
+      action={commercialSelected ? null : exportButton}
     />}
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-
+    {hasCommercialReports && <div className="annual-reports__tabs" role="tablist" aria-label="Grupos de reportes">
+      <button type="button" role="tab" aria-selected={commercialSelected} className={commercialSelected ? "is-active" : ""} onClick={() => setGroup("cifras")}>Cifras comerciales</button>
+      <button type="button" role="tab" aria-selected={!commercialSelected} className={!commercialSelected ? "is-active" : ""} onClick={() => setGroup("personas")}>Personas y operación</button>
+    </div>}
+    {commercialSelected ? <NormalizedReports user={user}/> : <>
     {availableKinds.length > 1 && <label className="commercial-report-selector">Tipo de reporte<select value={kind} onChange={event => selectReport(event.target.value)}>{availableKinds.map(id => <option key={id} value={id}>{reportDefinitions[id].label}</option>)}</select></label>}
 
     <section className="panel report-workspace">
@@ -196,6 +204,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     <Modal open={!!selected} wide title={`Detalle · ${definition.label}`} subtitle="Información incluida en el reporte" onClose={() => setSelected(null)}>
       {selected && <dl className="report-detail-grid">{(kind === "personal" ? [["tienda","Tienda"],["nombre","Nombres y apellidos"],["dni","DNI"],["sexo","Sexo"],["rol","Cargo"],["area","Área"],["nivel_estudios","Nivel de estudios"],["ciclo_semestre","Ciclo / semestre"],["carrera","Carrera"],["edad","Edad"],["fecha_nacimiento","Nacimiento","date"],["mes_cumpleanos","Mes de cumpleaños"],["fecha_ingreso","Fecha de ingreso","date"],["fecha_salida","Fecha de salida","date"],["motivo_salida","Motivo de salida"],["estado_civil","Estado civil"],["numero_hijos","N.º de hijos"],["telefono","Teléfono"],["direccion","Dirección"],["distrito","Distrito"],["nacionalidad","Nacionalidad"],["jornada","Jornada"],["estado","Estado","status"]] : definition.columns).map(([key, label, type]) => <div key={key}><dt>{label}</dt><dd>{renderValue(selected[key], type)}</dd></div>)}</dl>}
     </Modal>
+    </>}
   </div>;
 }
 

@@ -1393,6 +1393,7 @@ export class App implements OnInit {
       corteVentas: dashboard.metadata.salesCutoff,
       corteStock: dashboard.metadata.stockCutoff,
       periodo: { anio: this.year(), meses: this.monthFilterLabel() },
+      moduloVisible: this.page() === 1 ? 'Gestión comercial' : this.page() === 2 ? 'Inventario y predictivo' : 'Gestión de talento',
       filtros: {
         cluster: this.clusterFilterLabel(), formato: this.formatFilterLabel(), tiendas: this.storeFilterLabel(),
         rubros: this.categoryFilterLabel(), lineas: this.lineFilterLabel(), sublineas: this.sublineFilterLabel(),
@@ -1426,6 +1427,7 @@ export class App implements OnInit {
         factorCrecimientoActual: metrics.projectionGrowth,
         resultado: metrics.projectedClose,
       },
+      inventario: this.inventoryMatrixRows().length ? { salud: this.inventoryHealthSummary(), cobertura: this.coverageKpis() } : null,
       regla: 'Responde solo con este resumen visible. No solicites datos adicionales ni menciones campos ausentes; omite lo que no esté disponible y no inventes valores.',
     });
   });
@@ -2609,8 +2611,9 @@ export class App implements OnInit {
         case 'inventory-a': return { stock: this.inventoryHealthSummary(), inventarioPorTienda: this.inventoryMatrixRows().slice(0, 8) };
         case 'inventory-b': return { cobertura: this.coverageKpis(), distribucion: this.inventoryMatrixRows().slice(0, 8) };
         case 'inventory-c': return { salud: this.predictiveHealthRows(), reposicion: this.predictiveReplenishmentRows().slice(0, 8), riesgoPorTienda: this.predictiveStoreRiskRows().slice(0, 10), horizonteDias: this.coverageProjectionHorizon(), corteStock: this.data()?.metadata.stockCutoff };
-        case 'talent-a': return { dotacionPromedio: metrics.personnel, capacidadTiendas: this.talentStoreRows().slice(0, 10), coberturaTurnos: '94%', vacantesPrioritarias: 3 };
-        case 'talent-b': return { ventaColaborador: metrics.saleCollaborator, tiendaProductiva: this.talentStoreRows()[0], desempeno: this.talentSellerRows(), desarrollo: this.talentPerformanceMock, continuidad: this.talentContinuityMock };
+        case 'talent-a': return { dotacionPromedio: metrics.personnel, capacidadTiendas: this.talentStoreRows().slice(0, 10), evolucionMensual: this.talentHistoryRows() };
+        case 'talent-b': return { ventaColaborador: metrics.saleCollaborator, tiendaProductiva: this.talentStoreRows()[0], desempeno: this.talentSellerRows().slice(0, 10) };
+        case 'talent-c': return { retirosRegistradosPorMotivo: this.talentExitRows(), dotacionPromedio: metrics.personnel };
         default: return {};
       }
     })();

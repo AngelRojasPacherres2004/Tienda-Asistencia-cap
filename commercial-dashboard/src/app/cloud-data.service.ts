@@ -86,13 +86,13 @@ export class CloudDataService {
       try {
         const [account, scope] = await Promise.all([
           this.portalRequest<{ user: { nombres?: string; apellidos?: string } }>('/auth/me'),
-          this.portalRequest<{ access: { scopeType: AccessScopeType; scopeValue: string | null; storeIds: string[] } }>('/commercial/access'),
+          this.portalRequest<{ access: { role: string; scopeType: AccessScopeType; scopeValue: string | null; storeIds: string[] } }>('/commercial/access'),
         ]);
         const access = scope.access;
         this.portalUser.set(account.user);
         this.accessProfile.set({
-          roleCode: access.scopeType,
-          roleName: access.scopeType === 'all' ? 'Comercial' : access.scopeType === 'cluster' ? 'Zonal' : 'Tienda',
+          roleCode: access.role,
+          roleName: access.role === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
           canAccessDashboard: true,
           scopeType: access.scopeType,
           stores: access.scopeType === 'store' ? [access.scopeValue || ''] : [],

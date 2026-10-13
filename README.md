@@ -84,5 +84,23 @@ Las campañas de la pantalla son registros internos de la aplicación. Las campa
 npm run check
 npm run build
 ```
+
+## Reportes comerciales anuales
+
+La pantalla **Reportes** reúne **Cifras comerciales** y **Personas y operación**. Cada descarga comercial exige exactamente un año; puede acotarse por mes, día, clúster, formato, tienda y clasificación de producto. El detalle CSV conserva fecha, año, mes, día, descripción y columnas separadas. El resumen Excel contiene indicadores, una tabla diaria por tienda y una hoja de stock por tienda. Stock usa la última foto disponible hasta el fin del período y muestra su fecha; no suma inventarios de distintos cortes. Tráfico no tiene clasificación de producto, por lo que esos filtros no aplican a su detalle ni se inventan tasas de conversión por rubro.
+
+Los archivos se generan desde la Capa 2 sin modificar la base:
+
+```powershell
+& '..\.venv\Scripts\python.exe' scripts/generate-annual-reports.py --source-root .. --output ..\.etl_work\annual-reports --years 2024,2025,2026
+```
+
+La API local usa automáticamente ese directorio si sus cortes de ventas y stock coinciden con la publicación vigente. Para validar tamaño, mapeo y cortes antes de cualquier publicación, ejecuta (sin `--apply`):
+
+```powershell
+node --env-file=.env scripts/publish-annual-reports.mjs --directory=..\.etl_work\annual-reports
+```
+
+Solo `--apply` sube los objetos comprimidos al bucket privado `dashboard-data`. El catálogo se publica al final y se verifica el alcance de tienda/rol al descargar. No subas `.etl_work` ni las credenciales al repositorio.
 # Tienda-asistencia-cap
 # Tienda-Asistencia-cap

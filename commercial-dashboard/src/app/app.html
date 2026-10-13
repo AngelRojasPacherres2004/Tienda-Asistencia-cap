@@ -405,6 +405,6 @@
       </section>
     }
 
-    @if (cloud.assistantEnabled) { <dashboard-assistant [context]="assistantContext()" /> }
+    @if (cloud.assistantEnabled) { <dashboard-assistant [context]="assistantContext()" [role]="cloud.accessProfile()?.roleCode || ''" /> }
   }
 </main>

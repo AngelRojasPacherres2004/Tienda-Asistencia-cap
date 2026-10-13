@@ -29,9 +29,11 @@ const MiTiendaGestion = lazy(() => import("./pages/MiTiendaGestion"));
 const Personal = lazy(() => import("./pages/Personal"));
 const ZonalModule = lazy(() => import("./pages/ZonalModule"));
 const Reportes = lazy(() => import("./pages/Reportes"));
+const CoachSalesReports = lazy(() => import("./pages/CoachSalesReports"));
 const HistorialMovimientos = lazy(() => import("./pages/HistorialMovimientos"));
 const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
 const Marketing = lazy(() => import("./pages/Marketing"));
+const RmsBatchUpload = lazy(() => import("./pages/RmsBatchUpload"));
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
@@ -79,7 +81,7 @@ export default function App() {
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
     dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal /> : user.rol === "sistemas" ? <div className="notice">La carga comercial aún no está habilitada.</div> : <Dashboard user={user} />,
+      ? <CommercialPortal /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: user.rol === "gerente_comercial" ? <CommercialPersonnel user={user} /> : isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
@@ -103,7 +105,7 @@ export default function App() {
     "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,
     "zonal-supervisiones": <ZonalModule section="supervisiones" user={user} />,
     "zonal-incidencias": <ZonalModule section="incidencias" user={user} />,
-    reportes: <Reportes user={user} />,
+    reportes: user.rol === "coach" ? <CoachSalesReports user={user}/> : <Reportes user={user} />,
     historial: <HistorialMovimientos user={user} />,
     "ajustes-zonal": user.rol === "jefe_zonal" ? <AjustesZonal /> : <Profile />,
     "marketing-inicio": <Marketing section="inicio" />,
@@ -114,7 +116,7 @@ export default function App() {
     "marketing-capacitaciones": <Marketing section="capacitaciones" />,
     "marketing-campanas": <Marketing section="campanas" />,
     "marketing-seguidores": <Marketing section="seguidores" />,
-    sistemas: <div className="notice">La carga comercial aún no está habilitada.</div>,
+    sistemas: user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (

@@ -17,6 +17,32 @@ export class DashboardAssistantWidgetComponent {
   private chunks: BlobPart[] = [];
 
   readonly context = input('');
+  readonly role = input('');
+  readonly assistantTitle = computed(() => this.role() === 'coach' ? 'ASISTENTE DE VENTAS'
+    : this.role() === 'jefe_zonal' ? 'ASISTENTE ZONAL'
+    : this.role() === 'jefe_tienda' ? 'ASISTENTE DE TIENDA' : 'ASISTENTE COMERCIAL');
+  readonly suggestions = computed(() => {
+    if (this.role() === 'coach') return [
+      { label: 'VENTAS Y EQUIPO', prompt: 'Como coach, identifica una oportunidad de ejecución de ventas respaldada por los indicadores visibles y propone una acción de acompañamiento concreta.' },
+      { label: 'CONVERSIÓN', prompt: 'Analiza únicamente la conversión y el ticket visibles. Señala un hallazgo comprobable y una práctica de venta que el equipo pueda probar.' },
+      { label: 'CAPACITACIÓN', prompt: 'Indica qué necesidad de capacitación se desprende de los datos visibles. No atribuyas avances a cursos referenciales.' },
+    ];
+    if (this.role() === 'jefe_zonal') return [
+      { label: 'PRIORIDAD ZONAL', prompt: 'Identifica la prioridad comercial del clúster asignado con cifras visibles y una acción de seguimiento para las tiendas de la zona.' },
+      { label: 'COMPARAR TIENDAS', prompt: 'Compara solo las tiendas autorizadas que tengan cifras comparables. Identifica la brecha más importante y una acción zonal.' },
+      { label: 'STOCK DE LA ZONA', prompt: 'Analiza el stock y la cobertura visibles del clúster y recomienda una verificación o redistribución justificada.' },
+    ];
+    if (this.role() === 'jefe_tienda') return [
+      { label: 'MI TIENDA', prompt: 'Resume el indicador más importante de mi tienda y propone una acción que pueda ejecutar hoy con mi equipo.' },
+      { label: 'VENTAS', prompt: 'Analiza venta, ticket y conversión visibles de mi tienda. Recomienda una acción concreta sin comparar con otras tiendas.' },
+      { label: 'STOCK', prompt: 'Analiza el stock y la cobertura visibles de mi tienda y señala una verificación prioritaria.' },
+    ];
+    return [
+      { label: 'RESUMIR KPIs', prompt: 'RESUMEN KPI ESTRUCTURADO. Entrega: 1) lectura ejecutiva de los KPIs visibles; 2) fórmulas clave presentes en el contexto; 3) plan priorizado con tres acciones. Omite métricas no visibles.' },
+      { label: 'PLAN COMERCIAL', prompt: 'Resume qué impulsa o frena la venta visible e identifica dos oportunidades concretas y tres acciones priorizadas, respaldadas por cifras.' },
+      { label: 'RIESGO Y STOCK', prompt: 'Analiza solo los indicadores disponibles de stock, cobertura, rotación y reposición. Señala alertas comprobables y acciones proporcionadas.' },
+    ];
+  });
   readonly messageList = viewChild<ElementRef<HTMLElement>>('messageList');
   readonly open = signal(false);
   readonly draft = signal('');
