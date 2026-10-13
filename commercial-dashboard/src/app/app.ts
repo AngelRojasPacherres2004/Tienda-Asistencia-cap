@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, ViewEncapsulation, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { EChartsOption } from 'echarts';
 import { DashboardAssistantWidgetComponent } from './assistant-widget';
@@ -7,6 +7,7 @@ import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService } from './cloud-data.service';
+import { nextBirthday } from './next-birthday';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -132,6 +133,7 @@ function denseRanks(values: Array<number | null>, descending = true): Map<number
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  encapsulation: ViewEncapsulation.ShadowDom,
 })
 export class App implements OnInit {
   readonly cloud = inject(CloudDataService);
@@ -264,6 +266,7 @@ export class App implements OnInit {
   readonly selectedLines = signal<string[]>([]);
   readonly selectedSublines = signal<string[]>([]);
   readonly openFilter = signal<FilterKey | null>(null);
+  readonly filtersOpen = signal(false);
   readonly filterSearch = signal<Record<FilterKey, string>>({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' });
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
@@ -1123,17 +1126,27 @@ export class App implements OnInit {
       if (month < birth.getMonth() + 1 || (month === birth.getMonth() + 1 && day < birth.getDate())) age -= 1;
       return age >= 16 && age <= 90 ? [age] : [];
     });
-    const birthdays = profiles.filter(row => row.birthdayMonth === month)
-      .sort((a, b) => (a.birthdayDay || 99) - (b.birthdayDay || 99) || a.name.localeCompare(b.name));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const currentYear = Number(today.find(part => part.type === 'year')?.value);
+    const currentMonth = Number(today.find(part => part.type === 'month')?.value);
+    const currentDay = Number(today.find(part => part.type === 'day')?.value);
+    const currentDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(currentDay).padStart(2, '0')}`;
+    const ids = this.filteredStoreIds(); const categories = this.personnelCategories();
+    const birthdayProfiles = (this.data()?.personnelProfiles || []).filter(row =>
+      ids.has(row.storeId)
+      && !['POR INGRESAR', 'NO INGRESO', 'ANULADO'].includes(this.normalized(row.status))
+      && (!row.hireDate || row.hireDate <= currentDate)
+      && (!row.retirementDate || row.retirementDate >= currentDate)
+      && (!categories.length || (row.areaType === 'COMERCIAL' && categories.some(category => this.personnelAreaMatchesCategory(row, category)))));
+    const birthday = nextBirthday(birthdayProfiles, currentDate);
     return {
       male: profiles.filter(row => row.gender === 'M').length,
       female: profiles.filter(row => row.gender === 'F').length,
       averageAge: ages.length ? ages.reduce((total, value) => total + value, 0) / ages.length : null,
       salesStaff: profiles.filter(row => this.normalized(row.role).includes('VENDEDOR')).length,
       administrativeStaff: profiles.filter(row => row.areaType === 'SOPORTE').length,
-      birthdays,
-      birthdayLabel: birthdays.length ? `${birthdays[0].name}${birthdays.length > 1 ? ` +${birthdays.length - 1}` : ''}` : 'N/A',
-      birthdayTitle: birthdays.length ? birthdays.map(row => `${row.birthdayDay || '—'} · ${row.name}`).join('\n') : 'Sin cumpleaños registrados'
+      birthdayLabel: birthday?.person.name || 'N/A',
+      birthdayDate: birthday ? birthday.date.split('-').reverse().join('/') : '',
     };
   });
 
@@ -1891,8 +1904,8 @@ export class App implements OnInit {
         ]);
       } },
       legend: { data: [String(selectedYear), String(previousYear)], top: 0, right: 4, itemWidth: 17, itemHeight: 7, textStyle: { color: '#475569', fontSize: 9, fontWeight: 700 } },
-      grid: { left: 54, right: 18, top: 30, bottom: 28 },
-      xAxis: { type: 'category', boundaryGap: false, data: months.map(month => MONTHS[month - 1]), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 9 } },
+      grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },
+      xAxis: { type: 'category', boundaryGap: false, data: months.map(month => MONTHS[month - 1]), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 9, hideOverlap: true } },
       yAxis: { type: 'value', axisLabel: { color: '#64748B', fontSize: 9, formatter: (value: number) => this.short(value) }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB', type: 'dotted' } } },
       series: [
         { name: String(selectedYear), type: 'line', data: current, smooth: true, symbol: 'circle', symbolSize: 6,
@@ -2557,15 +2570,11 @@ export class App implements OnInit {
     if (ordered.length === 2) return `${MONTHS[ordered[0] - 1].toUpperCase()} + ${MONTHS[ordered[1] - 1].toUpperCase()} ${year}`;
     return `${MONTHS[ordered[0] - 1].toUpperCase()}–${MONTHS[ordered.at(-1)! - 1].toUpperCase()} ${year}`;
   }
-  onFilterToggle(key: FilterKey, event: Event): void {
-    const details = event.currentTarget as HTMLDetailsElement;
-    if ((key === 'store' && this.storeFilterLocked()) || (key === 'cluster' && this.clusterFilterLocked())) {
-      details.open = false;
-      this.openFilter.set(null);
-      return;
-    }
-    if (details.open) this.openFilter.set(key);
-    else if (this.openFilter() === key) this.openFilter.set(null);
+  toggleFilter(key: FilterKey, event: Event): void {
+    event.preventDefault();
+    if ((key === 'store' && this.storeFilterLocked()) || (key === 'cluster' && this.clusterFilterLocked()) || (key === 'gender' && !this.genderFilterEnabled())) return;
+    this.closeCalendar();
+    this.openFilter.set(this.openFilter() === key ? null : key);
   }
   setFilterSearch(key: FilterKey, value: string): void {
     this.filterSearch.update(current => ({ ...current, [key]: value }));

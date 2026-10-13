@@ -1,5 +1,5 @@
 :host { display: block; min-height: 100vh; color: #172033; background: radial-gradient(circle at 5% 0%, #d7e4f3 0, transparent 29%), radial-gradient(circle at 96% 8%, #dbeeea 0, transparent 25%), linear-gradient(135deg,#dfe9f3 0%,#edf3f7 50%,#dce9e7 100%); }
-.app-shell { box-sizing: border-box; width: 100%; max-width: 1740px; margin: 0 auto; padding: 18px 24px 36px; }
+.app-shell { box-sizing: border-box; width: 100%; max-width: none; margin: 0 auto; padding: 18px 12px 36px; }
 .brand-header { display: grid; grid-template-columns: minmax(132px,160px) minmax(0,1fr) minmax(145px,170px); align-items: center; gap: clamp(10px,1.5vw,22px); text-align: center; }
 .brand-header img { width: min(100%,155px); height: 76px; object-fit: contain; }
 .brand-block { display:grid; justify-self:start; justify-items:start; gap:3px; min-width:0; text-align:left; }
@@ -279,7 +279,7 @@
 .feature-disabled::after { position: absolute; z-index: 30; inset: 0; display: grid; place-items: center; content: 'MÓDULO TEMPORALMENTE DESACTIVADO'; background: rgba(238,243,249,.78); color: #475569; font-size: .7rem; font-weight: 950; letter-spacing: .08em; text-align: center; }
 .feature-hidden { display:none !important; }
 .talent-page { display: grid; gap: 12px; }
-.talent-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; }.talent-kpis article { min-width:0; padding:11px 7px; text-align:center; border:1px solid #d3deec; border-radius:12px; border-top:3px solid #123a8c; background:#fff; box-shadow:0 5px 15px rgba(30,42,72,.08); }.talent-kpis article:nth-child(2),.talent-kpis article:nth-child(3),.talent-kpis .mock-kpi { border-top-color:#123a8c; background:#fff; }.talent-kpis span,.talent-kpis small { display:block; overflow:hidden; color:#586477; font-size:.67rem; font-weight:900; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }.talent-kpis strong { display:block; margin-top:4px; overflow:hidden; color:#172033; font-size:clamp(.72rem,.9vw,.98rem); line-height:1.1; text-overflow:ellipsis; white-space:nowrap; }
+.talent-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; }.talent-kpis article { min-width:0; padding:11px 7px; text-align:center; border:1px solid #d3deec; border-radius:12px; border-top:3px solid #123a8c; background:#fff; box-shadow:0 5px 15px rgba(30,42,72,.08); }.talent-kpis span,.talent-kpis small { display:block; overflow:hidden; color:#586477; font-size:.67rem; font-weight:900; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }.talent-kpis strong { display:block; margin-top:4px; white-space:nowrap; }
 .talent-card { box-sizing:border-box; display:flex; flex-direction:column; min-width:0; height:350px; min-height:350px; padding:14px 16px; overflow:hidden; }
 .talent-card.capacity-card { height:228px; min-height:228px; padding:12px 14px; }
 .talent-card h2 { margin:0 0 10px; font-size:.84rem; flex:0 0 auto; }
@@ -294,7 +294,7 @@
 .card, .metric-card, .kpi-strip article, .predictive-controls { border: 1px solid #d3deec; border-radius: 12px; background: #fff; box-shadow: 0 5px 15px rgba(30,42,72,.08); }
 .card h2 { margin: 0; font-size: .91rem; letter-spacing: .025em; }
 .card h2 svg, .title-row h2 svg { width: 18px; height: 18px; margin-right: 5px; color: #123a8c; fill: none; stroke: currentColor; stroke-width: 1.8; vertical-align: -4px; }
-.executive-grid { display: grid; grid-template-columns: 1fr 1fr 1.15fr 1.15fr; gap: 11px; }
+.executive-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .progress-card, .summary-card { min-height: 162px; padding: 14px 16px; }
 .split-meter { display: flex; height: 66px; margin-top: 24px; overflow: hidden; border-radius: 5px; background: #e8edf6; }
 .split-meter > div { display: grid; min-width: 72px; place-content: center; padding: 4px 7px; color: #fff; text-align: center; }
@@ -304,9 +304,6 @@
 .meter-remaining { background: linear-gradient(90deg,#f5b800,#ffd11a); color: #172033 !important; }
 .meter-gap { background: linear-gradient(90deg,#cf168b,#ef267d); }
 .progress-card small, .growth p, .chart-card p { display: block; margin: 5px 0 0; color: #64748b; font-size: .65rem; font-weight: 700; }
-.growth { height: 154px !important; padding: 10px 14px !important; overflow: hidden; }
-.growth dashboard-chart { height: 104px !important; min-height: 104px !important; }
-:host ::ng-deep .growth dashboard-chart .chart-host { height: 104px !important; min-height: 104px !important; }
 .summary-card { border: 2px solid #172033; border-radius: 24px; box-shadow: none; }
 .summary-card h2 { text-align: center; }
 .summary-card dl { margin: 10px 0 0; }
@@ -338,7 +335,7 @@
 .kpi-strip strong.missing { font-size: .6rem; letter-spacing: -.01em; }
 .kpi-strip .collaborator-kpi strong { font-size: clamp(.72rem,.9vw,.98rem); }
 .charts-four { display: grid; grid-template-columns: .92fr 1.05fr 1.35fr; gap: 10px; margin-top: 12px; }
-.hourly-insight-grid { display: grid; grid-template-columns: minmax(560px,1.35fr) minmax(430px,.9fr); gap: 10px; margin-top: 10px; }
+.hourly-insight-grid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(0,.9fr); gap: 10px; margin-top: 10px; }
 .hourly-insight-grid .chart-card { width: 100%; height: 302px; }
 .ranking-title { display: grid; gap: 7px; }
 .ranking-title h2 { padding-right: 0; }
@@ -352,11 +349,11 @@
 .chart-card > h2 { padding-right: 28px; }
 .chart-card dashboard-chart { flex: 1; min-height: 0; }
 .chart-card small { color: #64748b; font-size: .63rem; text-align: center; }
-.static-charts { display: grid; grid-template-columns: minmax(300px,.82fr) minmax(390px,1.05fr) minmax(560px,1.7fr); gap: 10px; margin-top: 12px; }
+.static-charts { display: grid; grid-template-columns: minmax(0,.82fr) minmax(0,1.25fr) minmax(0,1.5fr); gap: 10px; margin-top: 12px; }
 .static-charts > .chart-card { height: 305px; }
 .static-charts .growth { width: auto; height: 305px !important; }
 .static-charts .growth dashboard-chart { height: auto !important; min-height: 0 !important; }
-:host ::ng-deep .static-charts .growth dashboard-chart .chart-host { height: 100% !important; min-height: 0 !important; }
+.static-charts .growth dashboard-chart .chart-host { height: 100%; min-height: 0; }
 .static-charts .price-range-card { height: 305px; }
 .gender-chart-content,.gender-donut-pane { display:flex; flex:1; min-height:0 }
 .gender-donut-pane { min-width:0; flex-direction:column }
@@ -378,7 +375,7 @@
 .chart-expanded.growth dashboard-chart { height: auto !important; min-height: 0 !important; }
 :host ::ng-deep .chart-expanded.growth dashboard-chart .chart-host { height: 100% !important; min-height: 0 !important; }
 
-.inventory-grid { display: grid; grid-template-columns: minmax(440px,1fr) minmax(480px,1.65fr); gap: 12px; }
+.inventory-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.65fr); gap: 12px; }
 .inventory-grid .chart-card { height: 390px; }
 .rotation-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .rotation-title h2 { min-width: 0; }
@@ -1106,7 +1103,7 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 
 /* Reglas finales de adaptación: prevalecen sobre los ajustes históricos V7–V12. */
 :host {
-  --dashboard-kpi-height: 100px;
+  --dashboard-kpi-height: 84px;
   --dashboard-kpi-columns: 8;
 }
 
@@ -1121,9 +1118,11 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .kpi-strip article,
 .talent-kpis article {
   box-sizing: border-box;
+  min-width: 0;
   min-height: var(--dashboard-kpi-height);
-  height: var(--dashboard-kpi-height);
+  height: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: center;
   justify-items: center;
 }
@@ -1136,6 +1135,11 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   font-weight: 900;
   line-height: 1.15;
   text-align: center;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 .primary-kpis .metric-card > strong,
 .kpi-strip article > strong,
@@ -1145,6 +1149,10 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   font-weight: 900;
   line-height: 1.16;
   text-align: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .talent-kpis article > strong.missing {
   font-size: .62rem;
@@ -1238,12 +1246,12 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .projection-priority-products { flex: 0 0 auto; }
 
 /* Talento: ocho KPI iguales y tres visuales compactos basados en datos reales. */
-.talent-kpis article:last-child > strong { max-width: 100%; font-size: .68rem; }
+.talent-kpis .birthday-kpi strong { font-size: .9rem; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
 .talent-overview-grid,
 .talent-performance-grid,
 .talent-development-grid { display: grid; gap: 12px; min-width: 0; }
-.talent-overview-grid { grid-template-columns: minmax(330px, 1fr) minmax(350px, 1.08fr) minmax(300px, .92fr); }
-.talent-performance-grid { grid-template-columns: minmax(450px, 1.3fr) repeat(2, minmax(300px, .85fr)); }
+.talent-overview-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr) minmax(0, .92fr); }
+.talent-performance-grid { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, .85fr)); }
 .talent-development-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .talent-card.capacity-card,
 .talent-overview-grid .history-card,

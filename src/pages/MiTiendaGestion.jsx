@@ -70,8 +70,8 @@ export default function MiTiendaGestion() {
   if (!data) return <Loading />;
   if (data.error) return <Notice type="error">{data.error}</Notice>;
   const t=data.tienda || {}, r=data.resumen || {};
-  return <>
-    <PageHeader eyebrow="Gestión de tienda" title="Mi tienda" />
+  return <section className="store-management-page">
+    <PageHeader eyebrow="Gestión de tienda" title="Mi tienda" subtitle="Documentación, operación, auditorías y seguimiento en un solo espacio." />
     <div className="mini-tabs">{tabs.map(([id,label]) => <button className={tab===id?"active":""} onClick={()=>setTab(id)} key={id}>{label}</button>)}</div>
 
     {tab === "resumen" && <div className="store-module">
@@ -86,7 +86,7 @@ export default function MiTiendaGestion() {
     {!['resumen','auditorias'].includes(tab) && sub !== "alertas" && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>downloadFile(`/api/reportes/${reportKindBySub[sub]}/export.xlsx`,`reporte-${reportKindBySub[sub]}.xlsx`)} />}
 
     <EditorModal type={modal} form={form} setForm={setForm} error={error} busy={busy} onClose={()=>setModal(null)} onSave={modal==="datos" ? async()=>{setBusy(true);try{await api("/mi-tienda-gestion/datos",{method:"PUT",body:form});setModal(null);await load();}catch(e){setError(e.message);}finally{setBusy(false);}} : save} />
-  </>;
+  </section>;
 }
 
 function ModuleTabs({items,sub,setSub}) { useEffect(()=>{ if(!items.some(([id])=>id===sub)) setSub(items[0][0]); },[items,sub,setSub]); return <div className="subsection-tabs">{items.map(([id,label])=><button key={id} className={sub===id?"active":""} onClick={()=>setSub(id)}>{label}</button>)}</div>; }

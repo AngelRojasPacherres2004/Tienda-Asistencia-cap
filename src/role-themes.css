@@ -188,3 +188,13 @@
   overflow-wrap: anywhere;
 }
 .app-theme .data-table--usuarios-tienda .data-table__head { font-size: 14px; }
+
+/* Higher contrast in the store chief's Mi tienda page only. */
+.app-light .store-management-page { --muted: #171717; --text: #171717; color: #171717; }
+.app-light .store-management-page :is(.store-block h2, .records-panel h2, .store-block header small, .records-panel header small, .store-data-grid small, .store-data-grid strong, .mini-status small, .mini-status strong, .compact-record-list strong, .compact-record-list small, .requirement-timeline > div, .alert-settings p, .alert-settings small, .alert-settings__list strong, .audit-observation-list p, .audit-observation-list small, .audit-observation-list strong, .audit-history-list small, .audit-history-list strong) { color: #171717; }
+.app-light .store-management-page :is(.store-data-grid > div, .mini-status, .compact-record-list article) { background: #fffdf8; border-color: #dedfdc; }
+.app-light .store-management-page :is(.mini-tabs, .subsection-tabs) { background: #ece9df; border-color: #dedfdc; }
+.app-light .store-management-page :is(.mini-tabs, .subsection-tabs) button { color: #171717; }
+.app-light .store-management-page :is(.mini-tabs, .subsection-tabs) button.active { color: #fff; background: #245b91; }
+.app-light .store-management-page .audit-observation-list aside { color: #171717; background: #f0eee6; }
+.app-light .store-management-page :is(.field, .requirement-form .field > span, .field small, .file-picker__copy strong, .file-picker__copy small, .requirement-areas button, .check-line) { color: #171717; }

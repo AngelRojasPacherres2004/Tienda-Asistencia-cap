@@ -12,9 +12,10 @@ test("commercial manager can see all stores", () => {
     { scopeType: "all", scopeValue: null, storeIds: ["T001", "T002"] });
 });
 
-test("coach can read the full sales dashboard without a pre-existing commercial scope", () => {
-  assert.deepEqual(commercialAccess({ rol: "coach", estado: "activo" }, null, map),
-    { scopeType: "all", scopeValue: null, storeIds: ["T001", "T002"] });
+test("active coach shares the commercial manager dashboard scope without provisioning", () => {
+  const expected = commercialAccess({ rol: "gerente_comercial", estado: "activo" }, { scope_type: "all", scope_value: null }, map);
+  assert.deepEqual(commercialAccess({ rol: "coach", estado: "activo" }, null, map), expected);
+  assert.deepEqual(commercialAccess({ rol: "coach", estado: "activo" }, { scope_type: "store", scope_value: "T001" }, map), expected);
   assert.equal(commercialAccess({ rol: "coach", estado: "inactivo" }, null, map), null);
 });
 
