@@ -49,12 +49,17 @@ export default function Capacitaciones({ user }) {
   const [showInactivos, setShowInactivos] = useState(false);
   const [perfilId, setPerfilId] = useState(null);
   const [cursos, setCursos] = useState(null);
+  const [cursoId, setCursoId] = useState("");
   const [notice, setNotice] = useState(null);
   const [view,setView]=useState("seguimiento");
   const [page,setPage]=useState(1);
 
   useEffect(() => {
-    api("/cursos").then((data) => setCursos(data.filter((c) => c.activo))).catch((err) => setNotice({ type: "error", text: err.message }));
+    api("/cursos").then((data) => {
+      const activos = data.filter((c) => c.activo);
+      setCursos(activos);
+      setCursoId(activos[0]?.id ?? "");
+    }).catch((err) => setNotice({ type: "error", text: err.message }));
   }, []);
   useEffect(() => {
     if (!scopedAccess) return;
@@ -90,8 +95,8 @@ export default function Capacitaciones({ user }) {
       {scopedAccess && <div className="commercial-dashboard">
         <button type="button" className={`dashboard-filter-fab ${filterOpen ? "open" : ""}`} aria-expanded={filterOpen} aria-controls="training-scope-filters" onClick={() => setFilterOpen(open => !open)}><Filter size={17}/><span>{filterOpen ? "Ocultar" : "Filtros"}</span></button>
         {filterOpen && <aside id="training-scope-filters" className="dashboard-filter-popover" aria-label="Filtros de capacitaciones"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Capacitaciones</span><h2>Personas y tiendas</h2></div><button type="button" className="icon-button" aria-label="Cerrar filtros" onClick={() => setFilterOpen(false)}><X size={17}/></button></div>
-          <label className="field"><span>Consultar</span><select value={scope} onChange={event => { setScope(event.target.value); setScopeId(""); }}>{isCoach && <option value="todos">Todo el personal</option>}<option value="zonales">Jefes zonales</option>{isCoach && <option value="administradores">Administradores</option>}<option value="tiendas">Personal de tienda</option></select></label>
-          {scope !== "todos" && <label className="field"><span>{scope === "tiendas" ? "Tienda" : scope === "administradores" ? "Administrador y tienda" : "Jefe zonal y clúster"}</span><select value={scopeId} onChange={event => setScopeId(event.target.value)}><option value="">{scope === "tiendas" ? "Selecciona una tienda" : scope === "administradores" ? "Todos los administradores" : "Todos los zonales"}</option>{scope === "tiendas" ? stores.map(store => <option key={store.id} value={store.id}>{store.nombre}{store.estado === "inactivo" ? " · Inactiva" : ""}</option>) : (scope === "administradores" ? administradores : zonales).map(person => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos} · {scope === "administradores" ? person.tienda_nombre || "Sin tienda" : zonalCluster(person.id)}{person.estado === "inactivo" ? " · Inactivo" : ""}</option>)}</select></label>}
+          <label className="field"><span>Consultar</span><select aria-label="Consultar" value={scope} onChange={event => { setScope(event.target.value); setScopeId(""); }}>{isCoach && <option value="todos">Todo el personal</option>}<option value="zonales">Jefes zonales</option>{isCoach && <option value="administradores">Administradores</option>}<option value="tiendas">Personal de tienda</option></select></label>
+          {scope !== "todos" && <label className="field"><span>{scope === "tiendas" ? "Tienda" : scope === "administradores" ? "Administrador y tienda" : "Jefe zonal y clúster"}</span><select aria-label={scope === "tiendas" ? "Tienda" : scope === "administradores" ? "Administrador y tienda" : "Jefe zonal y clúster"} value={scopeId} onChange={event => setScopeId(event.target.value)}><option value="">{scope === "tiendas" ? "Selecciona una tienda" : scope === "administradores" ? "Todos los administradores" : "Todos los zonales"}</option>{scope === "tiendas" ? stores.map(store => <option key={store.id} value={store.id}>{store.nombre}{store.estado === "inactivo" ? " · Inactiva" : ""}</option>) : (scope === "administradores" ? administradores : zonales).map(person => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos} · {scope === "administradores" ? person.tienda_nombre || "Sin tienda" : zonalCluster(person.id)}{person.estado === "inactivo" ? " · Inactivo" : ""}</option>)}</select></label>}
         </aside>}
       </div>}
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
@@ -131,7 +136,7 @@ export default function Capacitaciones({ user }) {
 
       {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2><p>Filtra una capacitación y revisa el estado de los administradores supervisados.</p></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />}
       {!cursos ? <Loading /> : cursos.length ? (
-        <>{scopedAccess && scope === "tiendas" && !scopeId ? <p>Selecciona una tienda en el filtro para revisar sus capacitaciones.</p> : <><ResumenPanel cursos={cursos} scopeQuery={scopeQuery} scopeLabel={scopedAccess ? scopeLabel : ""}/>{isCoach && <CoachComparisonPanel cursos={cursos} scopeQuery={scopeQuery}/>}</>}</>
+        <>{scopedAccess && scope === "tiendas" && !scopeId ? <p>Selecciona una tienda en el filtro para revisar sus capacitaciones.</p> : <><ResumenPanel cursos={cursos} cursoId={cursoId} setCursoId={setCursoId} scopeQuery={scopeQuery} scopeLabel={scopedAccess ? scopeLabel : ""}/>{isCoach && <CoachComparisonPanel cursos={cursos} cursoId={cursoId} setCursoId={setCursoId} scopeQuery={scopeQuery}/>}</>}</>
       ) : (
         <EmptyState icon={GraduationCap} title="Sin capacitaciones activas" text="Pide al administrador que dé de alta una capacitación en el catálogo." />
       )}
@@ -140,8 +145,7 @@ export default function Capacitaciones({ user }) {
   );
 }
 
-function CoachComparisonPanel({ cursos, scopeQuery = "" }) {
-  const [cursoId, setCursoId] = useState(cursos[0]?.id ?? "");
+function CoachComparisonPanel({ cursos, cursoId, setCursoId, scopeQuery = "" }) {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -261,8 +265,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
   );
 }
 
-function ResumenPanel({ cursos, scopeQuery = "", scopeLabel = "" }) {
-  const [cursoId, setCursoId] = useState(cursos[0]?.id ?? "");
+function ResumenPanel({ cursos, cursoId, setCursoId, scopeQuery = "", scopeLabel = "" }) {
   const [resumen, setResumen] = useState(null);
   const [loadingResumen, setLoadingResumen] = useState(true);
   const [modalGrupo, setModalGrupo] = useState(null);
@@ -318,7 +321,7 @@ function ResumenPanel({ cursos, scopeQuery = "", scopeLabel = "" }) {
             {filas.map((fila) => {
               const pct = resumen.total ? Math.round((fila.cantidad / resumen.total) * 100) : 0;
               return (
-                <button type="button" className={`progress-row progress-row--${fila.key}`} key={fila.key} onClick={() => setModalGrupo(fila.key)}>
+                <button type="button" className={`progress-row progress-row--${fila.key}`} key={fila.key} onClick={() => { setSearch(""); setModalGrupo(fila.key); }}>
                   <span className={`progress-row__icon progress-row__icon--${fila.key}`}><fila.icon size={21} /></span>
                   <div className="progress-row__body">
                     <div className="progress-row__label"><strong>{fila.nombre}</strong></div>
@@ -348,7 +351,7 @@ function ResumenPanel({ cursos, scopeQuery = "", scopeLabel = "" }) {
                 <small>{p.fecha_finalizacion ? formatDate(p.fecha_finalizacion) : "—"}</small>
               </div>
             </div>
-          )) : <div className="panel-empty"><span>Nadie en este grupo.</span></div>}
+          )) : <div className="panel-empty"><span>{search ? "No hay personas que coincidan con la búsqueda." : "Nadie en este grupo."}</span></div>}
         </div>
       </Modal>
     </>
