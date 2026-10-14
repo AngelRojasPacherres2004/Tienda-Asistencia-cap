@@ -39,7 +39,7 @@ test("el correo agrupa por tienda y escapa nombres ingresados por usuarios", () 
   assert.doesNotMatch(html, /Plaza <Unión>/);
 });
 
-function mockDb({ stores = [{ id: 8, nombre: "Plaza Unión" }], duplicate = false } = {}) {
+function mockDb({ stores = [{ id: 8, nombre: "Plaza Unión", jefe: { nombres: "Ana", apellidos: "Luz", estado: "activo" } }], duplicate = false, role = "jefe_zonal" } = {}) {
   const writes = [];
   return { writes, from(table) {
     let action = "read", values;
@@ -49,10 +49,12 @@ function mockDb({ stores = [{ id: 8, nombre: "Plaza Unión" }], duplicate = fals
         if (table === "envios_asistencia_zonal" && action === "insert" && duplicate) return { error: { code: "23505" } };
         return { data: action === "insert" ? { id: 101, ...values } : [], error: null };
       }
-      if (table === "usuarios") return { data: mode === "single" ? { id: 5 } : roster, error: null };
+      if (table === "usuarios") return { data: mode === "single" ? { id: 5, rol: role } : roster, error: null };
       if (table === "clusters") return { data: { id: 2 }, error: null };
       if (table === "tiendas") return { data: stores, error: null };
       if (table === "asistencias") return { data: marks, error: null };
+      if (table === "trafico_tienda") return { data: [{ id: 1, tienda_id: 8, rango_hora: "09:00-10:00", cantidad: 12 }], error: null };
+      if (table === "documentos_municipales") return { data: [{ id: 1, tienda_id: 8, tipo_documento: "Licencia", fecha_vencimiento: limaDate(), dias_alerta: 30 }, { id: 2, tienda_id: 8, tipo_documento: "ITSE vencido", fecha_vencimiento: "2020-01-01", dias_alerta: 30 }], error: null };
       throw new Error(`Consulta inesperada: ${table}`);
     };
     const chain = { select() { return this; }, eq() { return this; }, in() { return this; }, lte() { return this; }, or() { return this; }, order() { return this; }, insert(input) { action = "insert"; values = input; return this; }, update(input) { action = "update"; values = input; return this; }, single() { return Promise.resolve(resolve("single")); }, maybeSingle() { return Promise.resolve(resolve("single")); }, range() { return Promise.resolve(resolve("array")); }, then(yes, no) { return Promise.resolve(resolve("array")).then(yes, no); } };
@@ -94,4 +96,73 @@ test("la reserva única automática impide repetir un reporte del mismo día", a
   const result = await sendScheduledReport(db, schedule, limaDate(), "automatico", async () => { sent = true; });
   assert.equal(result.estado, "duplicado");
   assert.equal(sent, false);
+});
+
+test("Todos envía tres correos separados y guarda un historial por categoría", async () => {
+  const db = mockDb(); const emails = [];
+  const result = await sendScheduledReport(db, { ...schedule, tipo_reporte: "todos" }, limaDate(), "manual", async (...args) => emails.push(args));
+  assert.equal(result.estado, "enviado");
+  assert.equal(result.enviados, 3);
+  assert.deepEqual(result.resultados.map(row => row.categoria), ["asistencia", "trafico", "documentos"]);
+  const attendance = emails.find(mail => mail[1].includes("Asistencia"));
+  const traffic = emails.find(mail => mail[1].includes("Tráfico"));
+  const documents = emails.find(mail => mail[1].includes("Documentos"));
+  assert.ok(attendance);
+  assert.ok(traffic[2].includes("12 visitas"));
+  assert.ok(documents[2].includes("Licencia"));
+  assert.ok(documents[2].includes("ITSE vencido"));
+  assert.ok(documents[2].includes("Ana Luz"));
+  assert.equal(db.writes.filter(row => row.table === "envios_asistencia_zonal" && row.action === "insert").length, 3);
+});
+test("un error en tráfico no impide asistencia ni documentos y no marca tráfico como enviado", async () => {
+  const db = mockDb(); const sent = [];
+  const result = await sendScheduledReport(db, { ...schedule, tipo_reporte: "todos" }, limaDate(), "manual", async (_preferences, subject) => {
+    if(subject.includes("Tráfico")) throw new Error("SMTP temporal");
+    sent.push(subject);
+  });
+  assert.equal(result.estado, "error");
+  assert.equal(result.enviados, 2);
+  assert.equal(result.resultados.find(row => row.categoria === "trafico").estado, "error");
+  assert.equal(sent.length, 2);
+});
+test("los tipos individuales envían un correo y el tipo desconocido se rechaza", async () => {
+  for(const category of ["asistencia", "trafico", "documentos"]) {
+    const sent=[];
+    const result=await sendScheduledReport(mockDb(), { ...schedule, tipo_reporte: category }, limaDate(), "manual", async (...args)=>sent.push(args));
+    assert.equal(result.enviados, 1);
+    assert.equal(result.resultados[0].categoria, category);
+    assert.equal(sent.length, 1);
+  }
+  assert.throws(()=>validateSchedule({ ...schedule, hora:"08:30", activo:true, tipo_reporte:"otro" },[{id:8}]), /tipo/);
+});
+test("gerencia general puede enviar una programación con todas sus tiendas activas", async () => {
+  const result=await sendScheduledReport(mockDb({role:"gerencia_general"}), { ...schedule, tipo_reporte: "trafico", tienda_id:null }, limaDate(), "manual", async ()=>{});
+  assert.equal(result.estado,"enviado");
+});
+test("gerente comercial programa los reportes para todas las tiendas activas", async () => {
+  const emails=[];
+  const db=mockDb({role:"gerente_comercial",stores:[{id:8,nombre:"Tienda A"},{id:9,nombre:"Tienda B"}]});
+  const result=await sendScheduledReport(db, { ...schedule, tipos_reporte:["trafico"], tienda_id:null }, limaDate(), "manual", async (...args)=>emails.push(args));
+  assert.equal(result.estado,"enviado");
+  assert.equal(result.enviados,1);
+  assert.ok(emails[0][2].includes("Tienda A"));
+  assert.ok(emails[0][2].includes("Tienda B"));
+});
+test("Tráfico y Documentos juntos solo envían esos dos correos", async () => {
+  const emails=[];
+  const result=await sendScheduledReport(mockDb(), { ...schedule, tipos_reporte: ["trafico", "documentos"], tipo_reporte:"todos" }, limaDate(), "manual", async (...args)=>emails.push(args));
+  assert.equal(result.enviados,2);
+  assert.deepEqual(result.resultados.map(row=>row.categoria),["trafico","documentos"]);
+  assert.ok(emails.every(email=>!email[1].includes("Asistencia")));
+  for(const email of emails) {
+    assert.match(email[4], /ASISTE/);
+    assert.match(email[4], /max-width:680px/);
+    assert.match(email[4], /<table/);
+  }
+});
+test("valida combinaciones y rechaza selección vacía o desconocida", () => {
+  const input={ ...schedule, hora:"08:30", activo:true, tipos_reporte:["documentos","trafico","trafico"] };
+  assert.deepEqual(validateSchedule(input,[{id:8}]).tipos_reporte,["trafico","documentos"]);
+  assert.throws(()=>validateSchedule({...input,tipos_reporte:[]},[{id:8}]),/al menos un/);
+  assert.throws(()=>validateSchedule({...input,tipos_reporte:["documentos","otro"]},[{id:8}]),/tipo/);
 });

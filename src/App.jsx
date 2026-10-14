@@ -107,7 +107,7 @@ export default function App() {
     "zonal-incidencias": <ZonalModule section="incidencias" user={user} />,
     reportes: user.rol === "coach" ? <CoachSalesReports user={user}/> : <Reportes user={user} />,
     historial: <HistorialMovimientos user={user} />,
-    "ajustes-zonal": user.rol === "jefe_zonal" ? <AjustesZonal /> : <Profile />,
+    "ajustes-zonal": ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? <AjustesZonal general={["gerencia_general", "gerente_comercial"].includes(user.rol)} /> : <Profile />,
     "marketing-inicio": <Marketing section="inicio" />,
     "marketing-personal": <Marketing section="personal" />,
     "marketing-asistencia": <Marketing section="asistencia" />,

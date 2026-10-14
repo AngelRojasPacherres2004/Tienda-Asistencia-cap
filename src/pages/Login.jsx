@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CalendarCheck2, Eye, EyeOff, GraduationCap, LoaderCircle, LockKeyhole, ShieldCheck, UserRound, Users } from "lucide-react";
 import { api } from "../lib/api";
+import { setupLoginVideo } from "../lib/loginVideo";
 import "./Login.css";
 
 export default function Login({ onLogin }) {
   const video = useRef(null);
   useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const applyPreference = () => { if (preference.matches) video.current?.pause(); else video.current?.play().catch(() => {}); };
-    applyPreference();
-    preference.addEventListener("change", applyPreference);
-    return () => preference.removeEventListener("change", applyPreference);
+    const controls = setupLoginVideo(video.current, { document, window });
+    return () => controls.dispose();
   }, []);
   const [form, setForm] = useState({ usuario: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
@@ -27,7 +25,7 @@ export default function Login({ onLogin }) {
   };
 
   return <main className="portal-login">
-    <video ref={video} className="portal-login__video" muted loop playsInline preload="auto" aria-hidden="true" tabIndex={-1}><source src="/login_actual.mp4" type="video/mp4"/></video>
+    <video id="login-background-video" ref={video} className="portal-login__video" autoPlay muted loop playsInline preload="auto" poster="/login-background.jpg" aria-hidden="true" tabIndex={-1}><source src="/login_actual.mp4" type="video/mp4"/></video>
     <div className="portal-login__layout">
       <header className="portal-login__brand"><img src="/logo-almacen-remates.png" alt="Almacén de Remates" width="124" height="72"/></header>
       <section className="portal-login__intro" aria-labelledby="login-intro-title">

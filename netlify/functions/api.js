@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import ExcelJS from "exceljs";
-import { defaultPreferences, validatePreferences, matchingAttendance, mailConfigured, sendAttendanceMail } from "../lib/attendance-mail.js";
+import { mailConfigured } from "../lib/attendance-mail.js";
 import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib/attendance-reports.js";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
@@ -1623,53 +1623,7 @@ async function guardarAsistenciasLote(event, user) {
     const { error: logError } = await supabase.from("log_asistencias").insert(logs);
     if (logError) throw dbError(logError);
   }
-  const notificacion = upserts.length ? await notifyZonalAttendance(user.tienda_id, data.fecha, upserts).catch(() => ({ estado: "error", detalle: "La asistencia se guardó, pero no se pudo enviar el aviso. Revisa la configuración de Gmail y los ajustes del zonal." })) : { estado: "sin_cambios" };
-  return { actualizados: upserts.length, notificacion };
-}
-
-async function zonalNotificationPreferences(user, input = null) {
-  if (input) {
-    let preferences;
-    try { preferences = validatePreferences(input); } catch (error) { throw httpError(error.message, 400); }
-    const { error } = await supabase.from("notificaciones_asistencia_zonal").upsert({ usuario_id: user.id, ...preferences, updated_at: new Date().toISOString() });
-    if (error) throw dbError(error);
-  }
-  const { data, error } = await supabase.from("notificaciones_asistencia_zonal").select("activo,registros,faltas,tardanzas,trafico,documentos_vencidos,destinatarios").eq("usuario_id", user.id).maybeSingle();
-  if (error) throw dbError(error);
-  return { ...defaultPreferences, ...data, remitente: process.env.GMAIL_USER || "thisisalexa363@gmail.com", correo_configurado: mailConfigured() };
-}
-
-async function notifyZonalAttendance(storeId, date, rows) {
-  const { data: store, error: storeError } = await supabase.from("tiendas").select("nombre,cluster:clusters(jefe_zonal_id)").eq("id", storeId).single();
-  if (storeError) throw dbError(storeError);
-  const zonalId = store.cluster?.jefe_zonal_id;
-  if (!zonalId) return { estado: "sin_zonal" };
-  const { data: zonal, error: zonalError } = await supabase.from("usuarios").select("id").eq("id", zonalId).eq("rol", "jefe_zonal").eq("estado", "activo").maybeSingle();
-  if (zonalError) throw dbError(zonalError);
-  if (!zonal) return { estado: "sin_zonal" };
-  const preferences = await zonalNotificationPreferences(zonal);
-  if (!preferences.activo || !preferences.destinatarios.length) return { estado: "desactivada" };
-  const matches = matchingAttendance(rows, preferences);
-  if (!matches.length) return { estado: "sin_coincidencias" };
-  const { data: people, error } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos").in("id", matches.map(row => row.usuario_id)));
-  if (error) throw dbError(error);
-  const names = new Map(people.map(person => [person.id, `${person.nombres} ${person.apellidos}`]));
-  const text = [`Tienda: ${store.nombre}`, `Fecha de asistencia: ${date}`, "", ...matches.map(row => `${names.get(row.usuario_id) || "Trabajador"}: ${row.estado.replaceAll("_", " ")}`), "", "Consulta Asiste para revisar el detalle de los registros."].join("\n");
-  await sendAttendanceMail(preferences, `Asiste · Asistencias de ${store.nombre} · ${date}`, text);
-  return { estado: "enviada", destinatarios: preferences.destinatarios.length };
-}
-
-async function notifyZonalTraffic(storeId, row) {
-  const { data: store, error } = await supabase.from("tiendas").select("nombre,cluster:clusters(jefe_zonal_id)").eq("id", storeId).single();
-  if (error) throw dbError(error);
-  if (!store.cluster?.jefe_zonal_id) return;
-  const { data: zonal, error: zonalError } = await supabase.from("usuarios").select("id").eq("id", store.cluster.jefe_zonal_id).eq("rol", "jefe_zonal").eq("estado", "activo").maybeSingle();
-  if (zonalError) throw dbError(zonalError);
-  if (!zonal) return;
-  const preferences = await zonalNotificationPreferences(zonal);
-  if (!preferences.activo || !preferences.trafico || !preferences.destinatarios.length) return;
-  const text = [`Tienda: ${store.nombre}`, `Fecha: ${row.fecha}`, `Horario: ${row.rango_hora}`, `Tráfico registrado: ${row.cantidad}`, row.observaciones ? `Observaciones: ${row.observaciones}` : "", "", "Consulta Asiste para revisar el tráfico de las tiendas."].filter(Boolean).join("\n");
-  await sendAttendanceMail(preferences, `Asiste · Tráfico de ${store.nombre} · ${row.fecha}`, text);
+  return { actualizados: upserts.length };
 }
 
 async function eliminarAsistencia(id, user) {
@@ -2625,7 +2579,6 @@ async function saveTraffic(event, user) {
     registrado_por: user.id, updated_at: limaTimestamp(),
   }, { onConflict: "tienda_id,fecha,rango_hora" }).select().single();
   if (error) throw dbError(error);
-  await notifyZonalTraffic(tiendaId, row).catch(error => console.error("Aviso de tráfico:", error));
   return row;
 }
 
@@ -2639,7 +2592,6 @@ async function updateTraffic(event, user, id) {
   if (String(existing.fecha).slice(0, 10) !== limaDateISO()) throw httpError("Este registro ya no puede editarse porque corresponde a un día anterior.", 403);
   const { data: row, error } = await supabase.from("trafico_tienda").update({ fecha: data.fecha, rango_hora: data.rango_hora, cantidad: Number(data.cantidad), observaciones: cleanText(data.observaciones) || null, updated_at: limaTimestamp() }).eq("id", id).eq("tienda_id", user.tienda_id).select().maybeSingle();
   if (error) throw dbError(error);
-  await notifyZonalTraffic(user.tienda_id, row).catch(error => console.error("Aviso de tráfico:", error));
   return row;
 }
 
@@ -4164,7 +4116,7 @@ export async function handler(event) {
     }
 
     if (path === "/zonal/reportes-asistencia" && method === "GET") {
-      ensureAuth(event, ["jefe_zonal"]);
+      ensureAuth(event, ["jefe_zonal", "gerencia_general", "gerente_comercial"]);
       const requestedPage = Number(event.queryStringParameters?.pagina || 1);
       const page = Number.isInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 10000) : 1;
       const [stores, schedules, history] = await Promise.all([
@@ -4177,7 +4129,7 @@ export async function handler(event) {
       return json(200, { tiendas: stores, programaciones: schedules.data, historial: history.data, total_historial: history.count, pagina: page, remitente: process.env.GMAIL_USER || "thisisalexa363@gmail.com", correo_configurado: mailConfigured() });
     }
     if (path === "/zonal/reportes-asistencia" && method === "POST") {
-      ensureAuth(event, ["jefe_zonal"]);
+      ensureAuth(event, ["jefe_zonal", "gerencia_general", "gerente_comercial"]);
       const stores = await zonalReportStores(supabase, user.id);
       let input;
       try { input = validateSchedule(bodyOf(event), stores); } catch (error) { throw httpError(error.message, 400); }
@@ -4187,7 +4139,7 @@ export async function handler(event) {
     }
     const attendanceScheduleMatch = path.match(/^\/zonal\/reportes-asistencia\/(\d+)(\/enviar)?$/);
     if (attendanceScheduleMatch && ["PUT", "DELETE", "POST"].includes(method)) {
-      ensureAuth(event, ["jefe_zonal"]);
+      ensureAuth(event, ["jefe_zonal", "gerencia_general", "gerente_comercial"]);
       const scheduleId = Number(attendanceScheduleMatch[1]);
       const { data: schedule, error } = await supabase.from("programaciones_asistencia_zonal").select("*").eq("id", scheduleId).eq("usuario_id", user.id).maybeSingle();
       if (error) throw dbError(error);
@@ -4212,18 +4164,6 @@ export async function handler(event) {
         if (deleteError) throw dbError(deleteError);
         return json(200, { eliminado: true });
       }
-    }
-    if (path === "/zonal/notificaciones" && ["GET", "PUT"].includes(method)) {
-      ensureAuth(event, ["jefe_zonal"]);
-      return json(200, await zonalNotificationPreferences(user, method === "PUT" ? bodyOf(event) : null));
-    }
-    if (path === "/zonal/notificaciones/prueba" && method === "POST") {
-      ensureAuth(event, ["jefe_zonal"]);
-      const preferences = await zonalNotificationPreferences(user);
-      if (!preferences.destinatarios.length) throw httpError("Guarda al menos un destinatario antes de enviar una prueba.", 400);
-      try { await sendAttendanceMail(preferences, "Asiste · Prueba de notificaciones", `Las notificaciones de asistencia de ${user.nombres} ${user.apellidos} están configuradas. Este es un mensaje de prueba.`); }
-      catch { throw httpError("No se pudo enviar. Revisa GMAIL_USER, la contraseña de aplicación de Gmail y los destinatarios.", 502); }
-      return json(200, { enviado: true });
     }
     if (path === "/usuarios" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
@@ -4337,7 +4277,7 @@ export async function handler(event) {
     if (path === "/capacitaciones/alcances" && method === "GET") {
       ensureAuth(event, "coach");
       const [stores, clusters] = await Promise.all([
-        readAllResult(supabase.from("tiendas").select("id,nombre,estado").order("nombre").order("id")),
+        readAllResult(supabase.from("tiendas").select("id,nombre,estado,cluster_id").order("nombre").order("id")),
         readAllResult(supabase.from("clusters").select("id,nombre,codigo,jefe_zonal_id").order("id")),
       ]);
       if (stores.error) throw dbError(stores.error);

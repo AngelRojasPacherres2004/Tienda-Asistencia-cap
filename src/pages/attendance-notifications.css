@@ -1,4 +1,9 @@
 .attendance-report-settings { display: grid; gap: 20px; min-width: 0; }
+.scheduled-report-types { grid-column:1 / -1; min-width:0; display:flex; flex-wrap:wrap; gap:12px 24px; margin:0; padding:16px; border:1px solid var(--border); border-radius:10px; }
+.scheduled-report-types legend { padding:0 8px; font-weight:700; font-size:13px; }
+.scheduled-report-types .check-line { margin:0; color:inherit; display:flex; gap:8px; align-items:center; }
+.scheduled-report-types .check-line input { width:auto; margin:0; }
+.scheduled-report-types small { width:100%; color:var(--muted); }
 .attendance-report-settings .page-header { margin-bottom: 0; }
 .attendance-settings-tab { display: flex; align-items: center; gap: 10px; color: #e4c273; background: #d6b36518; border: 1px solid #d6b36540; border-radius: 14px; padding: 16px 20px; font-weight: 700; }
 .attendance-report-settings .panel { margin: 0; padding: 24px; min-width: 0; background: linear-gradient(135deg, #1c1b17, #111211); }
@@ -32,8 +37,8 @@
 .attendance-schedule-card dt { color: #9f9b8f; text-transform: uppercase; font-size: 11px; font-weight: 700; margin-bottom: 8px; }
 .attendance-schedule-card dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; line-height: 1.5; }
 .attendance-last-send { color: #a39e90; font-size: 12px; margin: 14px 0; }
-.attendance-schedule-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; border-top: 1px solid #ffffff10; padding-top: 16px; }
-.attendance-schedule-actions .button--primary { grid-column: 1 / -1; }
+.attendance-schedule-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; border-top: 1px solid #ffffff10; padding-top: 16px; }
+.attendance-schedule-actions .button { flex: 0 0 auto; width: auto; min-width: 0; padding: 10px 14px; justify-content: center; }
 .attendance-report-history > p { color: #a7a296; font-size: 13px; line-height: 1.6; }
 .attendance-history-scroll { overflow-x: auto; border: 1px solid #ffffff12; border-radius: 12px; margin-top: 16px; }
 .attendance-history-scroll table { width: 100%; min-width: 1000px; border-collapse: collapse; }

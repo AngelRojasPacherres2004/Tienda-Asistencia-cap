@@ -1467,6 +1467,35 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .training-comparison-row div:first-child { min-width:0; display:flex; flex-direction:column; gap:3px; }
 .training-comparison-row small { color:var(--muted); font-size:10px; }
 .training-comparison-row b { text-align:right; color:#2f9e78; }
+.training-store-comparison { margin-top:24px; }
+.training-store-comparison > .panel__header { flex-wrap:wrap; gap:20px; }
+.training-comparison-filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; max-width:100%; }
+.training-comparison-filters .field { min-width:160px; margin:0; }
+.training-comparison-filters .field:first-child { flex:1; min-width:240px; }
+.training-comparison-filters select { width:100%; max-width:100%; }
+.training-comparison-summary { display:flex; flex-wrap:wrap; gap:12px 24px; padding:16px 20px; border-bottom:1px solid var(--border); }
+.training-comparison-summary strong { color:#238765; }
+.training-comparison-summary small { color:var(--muted); margin-left:auto; }
+.training-store-list { padding:0 20px 20px; }
+.training-store-row { display:grid; grid-template-columns:minmax(180px,1fr) minmax(140px,1fr) minmax(160px,auto); gap:24px; align-items:center; padding:20px 0; border-bottom:1px solid var(--border); }
+.training-store-info, .training-store-progress, .training-store-result { display:flex; flex-direction:column; gap:7px; min-width:0; }
+.training-store-info strong { font-size:17px; overflow-wrap:anywhere; }
+.training-store-info small, .training-store-progress small { color:var(--muted); }
+.training-store-info span { font-size:13px; }
+.training-store-result { align-items:flex-end; }
+.training-store-result b { font-size:27px; color:var(--text); }
+.training-store-row--majority .training-store-result b { color:#238765; }
+.training-completion-badge { display:inline-block; padding:5px 9px; border-radius:8px; font-size:11px; font-weight:600; color:var(--muted); background:var(--surface-alt,rgba(127,127,127,.08)); text-align:right; }
+.training-completion-badge--majority { color:#18714f; background:#e0f4e9; }
+@media (max-width:700px) {
+  .training-comparison-filters { width:100%; }
+  .training-comparison-filters .field, .training-comparison-filters .field:first-child { min-width:0; width:100%; flex:auto; }
+  .training-comparison-summary small { width:100%; margin-left:0; }
+  .training-store-row { grid-template-columns:minmax(0,1fr) 110px; gap:14px; }
+  .training-store-progress { grid-column:1 / -1; grid-row:2; }
+  .training-store-result b { font-size:23px; }
+  .training-completion-badge { font-size:10px; }
+}
 @media (max-width: 900px) { .training-comparison-grid { grid-template-columns:1fr; } .training-comparison-row { grid-template-columns:1fr 100px 40px; } }
 .mini-tabs, .subsection-tabs { display:flex; gap:8px; margin-bottom:18px; padding:5px; width:max-content; max-width:100%; overflow:auto; border:1px solid rgba(205,169,95,.14); border-radius:12px; background:rgba(20,20,22,.65); }
 .mini-tabs button, .subsection-tabs button { white-space:nowrap; border:0; border-radius:8px; padding:10px 16px; color:#91897e; background:transparent; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }

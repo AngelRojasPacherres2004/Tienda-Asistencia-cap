@@ -9,7 +9,7 @@ export default async function attendanceReportsCron() {
   const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   const now = new Date();
   // Lotes pequeños y concurrentes para respetar el tiempo de las funciones programadas.
-  const { data, error } = await db.from("programaciones_asistencia_zonal").select("*").eq("activo", true).lte("proximo_envio", now.toISOString()).order("proximo_envio").limit(3);
+  const { data, error } = await db.from("programaciones_asistencia_zonal").select("*").eq("activo", true).lte("proximo_envio", now.toISOString()).order("proximo_envio").limit(1);
   if (error) throw error;
   const results = await Promise.allSettled(data.map(async schedule => {
     const result = await sendScheduledReport(db, schedule, limaDate(new Date(schedule.proximo_envio)), "automatico");
