@@ -58,7 +58,7 @@ for (const file of files) {
     continue;
   }
   const { error } = await bucket.upload(file.storagePath, await readFile(file.filePath),
-    { contentType: "application/gzip", upsert: false });
+    { contentType: "application/octet-stream", upsert: false });
   if (error) throw new Error(`No se pudo publicar ${file.storagePath}: ${error.message}`);
 }
 const published = { ...manifest, releaseId: release.id, version: release.version,
