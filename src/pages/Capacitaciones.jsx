@@ -29,11 +29,17 @@ export default function Capacitaciones({ user }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [scope, setScope] = useState(isCoach ? "todos" : "zonales");
   const [scopeId, setScopeId] = useState("");
+  const [coachStoreId, setCoachStoreId] = useState("");
+  const [coachRole, setCoachRole] = useState("");
+  const [coachPeople, setCoachPeople] = useState([]);
+  const [personSearch, setPersonSearch] = useState("");
   const [stores, setStores] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [zonales, setZonales] = useState([]);
   const [administradores, setAdministradores] = useState([]);
-  const scopeQuery = scopedAccess ? new URLSearchParams({ ...(isCoach ? { alcance: scope } : {}), ...(scopeId ? scope === "tiendas" ? { tienda_id: scopeId } : scope === "administradores" ? { administrador_id: scopeId } : { zonal_id: scopeId } : {}) }).toString() : "";
+  const scopeQuery = isCoach
+    ? new URLSearchParams({ alcance: "todos", ...(coachStoreId ? { tienda_id: coachStoreId } : {}), ...(coachRole ? { rol: coachRole } : {}) }).toString()
+    : scopedAccess ? new URLSearchParams({ ...(scopeId ? scope === "tiendas" ? { tienda_id: scopeId } : scope === "administradores" ? { administrador_id: scopeId } : { zonal_id: scopeId } : {}) }).toString() : "";
   const zonal = user?.rol === "jefe_zonal";
   const central = ["gerencia_general", "gerente_comercial", "coach"].includes(user?.rol);
   const supervisedLabels = {
@@ -67,7 +73,7 @@ export default function Capacitaciones({ user }) {
     const catalogs = isCoach ? api("/capacitaciones/alcances").then(data => [data.tiendas, data.clusters]) : Promise.all([api("/tiendas"), api("/clusters")]);
     Promise.all([catalogs, api("/capacitaciones/trabajadores")]).then(([[storeRows, clusterRows], leaders]) => {
       if (!active) return;
-      setStores((isCoach ? storeRows : storeRows.filter(store => store.estado === "activo")).sort((a,b) => a.nombre.localeCompare(b.nombre,"es"))); setClusters(clusterRows); setZonales(leaders.filter(person => person.rol === "jefe_zonal")); setAdministradores(leaders.filter(person => person.rol === "jefe_tienda"));
+      setStores((isCoach ? storeRows : storeRows.filter(store => store.estado === "activo")).sort((a,b) => a.nombre.localeCompare(b.nombre,"es"))); setClusters(clusterRows); setZonales(leaders.filter(person => person.rol === "jefe_zonal")); setAdministradores(leaders.filter(person => person.rol === "jefe_tienda")); if (isCoach) setCoachPeople(leaders);
     }).catch(err => { if (active) setNotice({ type: "error", text: err.message }); });
     return () => { active = false; };
   }, [scopedAccess, isCoach]);
@@ -75,24 +81,30 @@ export default function Capacitaciones({ user }) {
     let active = true;
     setTrabajadores(null); setPerfilId(null); setPage(1);
     if (scopedAccess && scope === "tiendas" && !scopeId) { setTrabajadores([]); return undefined; }
-    api(`/capacitaciones/trabajadores?${scopeQuery}`).then(rows => { if (active) setTrabajadores(rows); }).catch(err => { if (active) setNotice({ type: "error", text: err.message }); });
+    api(`/capacitaciones/trabajadores?${scopeQuery}`).then(rows => { if (active) setTrabajadores(rows); }).catch(err => { if (active) { setTrabajadores([]); setNotice({ type: "error", text: err.message }); } });
     return () => { active = false; };
   }, [scopeQuery, scopedAccess, scope, scopeId]);
   const zonalCluster = id => clusters.filter(cluster => Number(cluster.jefe_zonal_id) === Number(id)).map(cluster => clusterLabel(cluster.codigo || cluster.nombre)).join(", ") || "Sin clúster asignado";
   const selectedScopePerson = (scope === "administradores" ? administradores : zonales).find(person => String(person.id) === scopeId);
-  const scopeLabel = scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre || "Selecciona una tienda" : scope === "todos" ? "Todo el personal" : selectedScopePerson ? `${selectedScopePerson.nombres} ${selectedScopePerson.apellidos} · ${scope === "administradores" ? selectedScopePerson.tienda_nombre || "Sin tienda asignada" : zonalCluster(scopeId)}` : scope === "administradores" ? "Todos los administradores" : "Todos los jefes zonales";
+  const scopeLabel = isCoach ? [stores.find(store => String(store.id) === coachStoreId)?.nombre, roleLabels[coachRole]].filter(Boolean).join(" · ") || "Todo el personal" : scope === "tiendas" ? stores.find(store => String(store.id) === scopeId)?.nombre || "Selecciona una tienda" : scope === "todos" ? "Todo el personal" : selectedScopePerson ? `${selectedScopePerson.nombres} ${selectedScopePerson.apellidos} · ${scope === "administradores" ? selectedScopePerson.tienda_nombre || "Sin tienda asignada" : zonalCluster(scopeId)}` : scope === "administradores" ? "Todos los administradores" : "Todos los jefes zonales";
+  const coachRoles = [...new Set(coachPeople.filter(person => !coachStoreId || String(person.tienda_id) === coachStoreId).map(person => person.rol).filter(Boolean))].sort((a, b) => (roleLabels[a] || a).localeCompare(roleLabels[b] || b, "es"));
 
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
   const baseVisibles = showInactivos ? (trabajadores || []) : activos;
-  const visibles = baseVisibles;
+  const visibles = isCoach ? baseVisibles.filter(person => [person.nombres, person.apellidos, person.usuario].join(" ").toLocaleLowerCase("es").includes(personSearch.trim().toLocaleLowerCase("es"))) : baseVisibles;
   const pages=Math.max(1,Math.ceil(visibles.length/8));
   const visiblePeople=visibles.slice((page-1)*8,page*8);
-  useEffect(()=>setPage(1),[showInactivos]);
+  useEffect(()=>setPage(1),[showInactivos, personSearch]);
 
   return (
     <>
-      {scopedAccess && <div className="commercial-dashboard">
+      {isCoach && <section className="coach-training-filters" aria-label="Filtros de asignación y seguimiento">
+        <label className="field"><span>Tienda</span><select value={coachStoreId} onChange={event => { const nextStore = event.target.value; setCoachStoreId(nextStore); if (coachRole && !coachPeople.some(person => person.rol === coachRole && (!nextStore || String(person.tienda_id) === nextStore))) setCoachRole(""); }}><option value="">Todas las tiendas</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}{store.estado === "inactivo" ? " · Inactiva" : ""}</option>)}</select></label>
+        <label className="field"><span>Rol</span><select value={coachRole} onChange={event => setCoachRole(event.target.value)}><option value="">Todos los roles</option>{coachRoles.map(role => <option key={role} value={role}>{roleLabels[role] || role}</option>)}</select></label>
+        <button type="button" className="button button--ghost button--small" disabled={!coachStoreId && !coachRole} onClick={() => { setCoachStoreId(""); setCoachRole(""); }}>Limpiar filtros</button>
+      </section>}
+      {scopedAccess && !isCoach && <div className="commercial-dashboard">
         <button type="button" className={`dashboard-filter-fab ${filterOpen ? "open" : ""}`} aria-expanded={filterOpen} aria-controls="training-scope-filters" onClick={() => setFilterOpen(open => !open)}><Filter size={17}/><span>{filterOpen ? "Ocultar" : "Filtros"}</span></button>
         {filterOpen && <aside id="training-scope-filters" className="dashboard-filter-popover" aria-label="Filtros de capacitaciones"><div className="dashboard-filter-popover__head"><div><span className="eyebrow">Capacitaciones</span><h2>Personas y tiendas</h2></div><button type="button" className="icon-button" aria-label="Cerrar filtros" onClick={() => setFilterOpen(false)}><X size={17}/></button></div>
           <label className="field"><span>Consultar</span><select aria-label="Consultar" value={scope} onChange={event => { setScope(event.target.value); setScopeId(""); }}>{isCoach && <option value="todos">Todo el personal</option>}<option value="zonales">Jefes zonales</option>{isCoach && <option value="administradores">Administradores</option>}<option value="tiendas">Personal de tienda</option></select></label>
@@ -105,10 +117,11 @@ export default function Capacitaciones({ user }) {
 
       {zonal && view === "reporte" ? <Reportes user={user} embedded initialKind="capacitaciones" allowedKinds={["capacitaciones"]}/> : <>
 
-      {(!isCoach || scope !== "todos") && <>{!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2><p>Selecciona un administrador para consultar el avance de sus capacitaciones.</p></div>}
-      <div className="toolbar">
+      {!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2><p>Selecciona un administrador para consultar el avance de sus capacitaciones.</p></div>}
+      <div className={`toolbar${isCoach ? " coach-training-people-toolbar" : ""}`}>
         <span>{visibles.length} personas</span>
-        <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
+        {isCoach && <SearchInput value={personSearch} onChange={setPersonSearch} placeholder="Buscar persona o usuario…" aria-label="Buscar persona o usuario" />}
+        <button className="button button--ghost button--small" style={isCoach ? undefined : { marginLeft: "auto" }} onClick={() => setShowInactivos(!showInactivos)}>
           {showInactivos ? "Ocultar inactivos" : `Mostrar inactivos (${inactivos.length})`}
         </button>
       </div>
@@ -132,7 +145,7 @@ export default function Capacitaciones({ user }) {
         </div>
       ) : <EmptyState icon={GraduationCap} title="Sin personas para supervisar" text={`Todavía no hay ${supervisedLabel} disponibles en tu alcance.`} />}
 
-      {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal", "coach"].includes(user?.rol)} onClose={() => setPerfilId(null)} />}</>}
+      {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal", "coach"].includes(user?.rol)} onClose={() => setPerfilId(null)} />}
 
       {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2><p>Filtra una capacitación y revisa el estado de los administradores supervisados.</p></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />}
       {!cursos ? <Loading /> : cursos.length ? (

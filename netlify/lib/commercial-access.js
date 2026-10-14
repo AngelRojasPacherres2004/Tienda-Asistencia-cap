@@ -22,6 +22,16 @@ export function commercialAccess(account, scope, storeMap, assignedCluster) {
     : null;
 }
 
+export function allowedAnnualStores(access, manifest, filters) {
+  if (filters.storeId && !access.storeIds.includes(filters.storeId)) return null;
+  return access.storeIds.filter(storeId => {
+    const store = manifest.stores?.[storeId];
+    return store && (!filters.storeId || filters.storeId === storeId)
+      && (!filters.cluster || store.cluster === filters.cluster)
+      && (!filters.format || store.format === filters.format);
+  });
+}
+
 export function validCommercialPartPath(path, access, logicalName) {
   if (typeof path !== "string" || !/^dashboard(?:-[a-z0-9-]+)?\.json$/.test(logicalName)) return false;
   const scopePath = access.scopeType === "all"
