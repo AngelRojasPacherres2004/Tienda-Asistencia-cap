@@ -9,7 +9,7 @@ import ExcelJS from "exceljs";
 import { defaultPreferences, validatePreferences, matchingAttendance, mailConfigured, sendAttendanceMail } from "../lib/attendance-mail.js";
 import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib/attendance-reports.js";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
-import { commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
+import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
 import { normalizeLaborArea } from "../../src/lib/laborAreas.js";
 import { normalizeDepartureReason, validDepartureReason } from "../../src/lib/personnelCatalogs.js";
@@ -502,7 +502,7 @@ async function normalizedReportCatalog(sessionUser) {
   if (manifest.releaseId !== release.id || manifest.version !== release.version || !Array.isArray(manifest.files)) {
     throw httpError("Los reportes no coinciden con la publicación comercial actual.", 503);
   }
-  const kinds = sessionUser.rol === "coach" ? ["ventas"] : NORMALIZED_REPORTS.map(item => item.id);
+  const kinds = access.role === "coach" ? ["ventas"] : NORMALIZED_REPORTS.map(item => item.id);
   const files = manifest.files.filter(file => kinds.includes(file.kind) && access.storeIds.includes(file.storeId)
     && file.path === normalizedReportPath(release.version, file.kind, file.storeId));
   const stores = [...new Set(files.map(file => file.storeId))].sort().map(storeId => ({
@@ -517,7 +517,7 @@ async function normalizedReportCatalog(sessionUser) {
 async function normalizedReportLink(event, sessionUser) {
   const access = await currentCommercialAccess(sessionUser);
   const { kind, storeId } = event.queryStringParameters || {};
-  if (sessionUser.rol === "coach" && kind !== "ventas") throw httpError("Este reporte no corresponde a tu rol.", 403);
+  if (access.role === "coach" && kind !== "ventas") throw httpError("Este reporte no corresponde a tu rol.", 403);
   if (!access.storeIds.includes(storeId)) throw httpError("La tienda no corresponde a tu alcance.", 403);
   const release = await publishedCommercialRelease();
   let path;
@@ -565,9 +565,9 @@ async function annualReportManifest() {
   return { release, manifest, localDirectory: null };
 }
 
-function annualKindAllowed(sessionUser, kind) {
+function annualKindAllowed(role, kind) {
   if (!ANNUAL_DETAIL_COLUMNS[kind]) throw httpError("Tipo de reporte no válido.", 400);
-  if (sessionUser.rol === "coach" && kind !== "ventas") throw httpError("Este reporte no corresponde a tu rol.", 403);
+  if (role === "coach" && kind !== "ventas") throw httpError("Este reporte no corresponde a tu rol.", 403);
 }
 
 function annualFilters(query, manifest) {
@@ -579,15 +579,9 @@ function annualFilters(query, manifest) {
 }
 
 function annualStores(access, manifest, filters) {
-  if (filters.storeId && !access.storeIds.includes(filters.storeId)) {
-    throw httpError("La tienda no corresponde a tu alcance.", 403);
-  }
-  return access.storeIds.filter(storeId => {
-    const store = manifest.stores?.[storeId];
-    return store && (!filters.storeId || filters.storeId === storeId)
-      && (!filters.cluster || store.cluster === filters.cluster)
-      && (!filters.format || store.format === filters.format);
-  });
+  const selected = allowedAnnualStores(access, manifest, filters);
+  if (!selected) throw httpError("La tienda no corresponde a tu alcance.", 403);
+  return selected;
 }
 
 async function annualReportCatalog(sessionUser) {
@@ -596,13 +590,13 @@ async function annualReportCatalog(sessionUser) {
   if (!manifest) return { ready: false, release: { salesCutoff: release.sales_cutoff, stockCutoff: release.stock_cutoff } };
   const allowedStores = new Set(access.storeIds);
   const files = manifest.files.filter(item => allowedStores.has(item.storeId)
-    && (sessionUser.rol !== "coach" || item.kind === "ventas"));
+    && (access.role !== "coach" || item.kind === "ventas"));
   const years = [...new Set(files.map(item => item.year))].sort((a, b) => b - a);
   const dimensions = Object.fromEntries(Object.entries(manifest.dimensions || {})
     .filter(([key]) => allowedStores.has(key.split("/")[1])));
   return { ready: true, years, cutoffs: manifest.cutoffs,
     fileRows: files.map(({ year, kind, storeId, rows }) => ({ year, kind, storeId, rows })),
-    reports: ANNUAL_REPORT_KINDS.filter(item => sessionUser.rol !== "coach" || item.id === "ventas")
+    reports: ANNUAL_REPORT_KINDS.filter(item => access.role !== "coach" || item.id === "ventas")
       .map(item => ({ ...item, years: [...new Set(files.filter(file => file.kind === item.id).map(file => file.year))] })),
     stores: access.storeIds.filter(storeId => manifest.stores?.[storeId]).map(storeId => ({
       id: storeId, ...manifest.stores[storeId],
@@ -614,7 +608,7 @@ async function annualDetailLinks(event, sessionUser) {
   const { release, manifest, localDirectory } = await annualReportManifest();
   if (!manifest) throw httpError("Los reportes anuales aún no están publicados.", 404);
   const kind = event.queryStringParameters?.kind;
-  annualKindAllowed(sessionUser, kind);
+  annualKindAllowed(access.role, kind);
   const filters = annualFilters(event.queryStringParameters, manifest);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
@@ -640,7 +634,7 @@ async function annualLocalDetailFile(event, sessionUser) {
   const { manifest, localDirectory } = await annualReportManifest();
   if (!localDirectory || !manifest) throw httpError("Archivo local no disponible.", 404);
   const kind = event.queryStringParameters?.kind;
-  annualKindAllowed(sessionUser, kind);
+  annualKindAllowed(access.role, kind);
   const filters = annualFilters(event.queryStringParameters, manifest);
   const storeId = String(event.queryStringParameters?.storeId || "");
   if (!annualStores(access, manifest, { ...filters, storeId }).includes(storeId)) throw httpError("Tienda fuera de alcance.", 403);
@@ -656,7 +650,7 @@ async function annualSummaryExcel(event, sessionUser) {
   const { release, manifest, localDirectory } = await annualReportManifest();
   if (!manifest) throw httpError("El resumen anual aún no está publicado.", 404);
   const filters = annualFilters(event.queryStringParameters, manifest);
-  if (sessionUser.rol === "coach") throw httpError("El resumen integral no corresponde al rol Coach.", 403);
+  if (access.role === "coach") throw httpError("El resumen integral no corresponde al rol Coach.", 403);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
   const matches = manifest.summaries.filter(item => item.year === filters.year && selected.includes(item.storeId)

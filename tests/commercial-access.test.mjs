@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { commercialAccess, validCommercialPartPath } from "../netlify/lib/commercial-access.js";
+import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../netlify/lib/commercial-access.js";
 
 const map = [
   { dashboard_store_id: "T001", tienda_id: 22, cluster_code: "A" },
@@ -36,6 +36,27 @@ test("security, systems and inactive accounts have no commercial access", () => 
     assert.equal(commercialAccess({ rol: role, estado: "activo" }, { scope_type: "all" }, map), null);
   }
   assert.equal(commercialAccess({ rol: "gerente_comercial", estado: "inactivo" }, { scope_type: "all" }, map), null);
+});
+
+test("annual report downloads enforce live store, zonal and commercial scope", () => {
+  const manifest = { stores: {
+    T001: { cluster: "A", format: "METRO" },
+    T002: { cluster: "B", format: "NO METRO" },
+  } };
+  const filters = { storeId: "", cluster: "", format: "" };
+  const store = commercialAccess({ rol: "jefe_tienda", estado: "activo", tienda_id: 22 },
+    { scope_type: "store", scope_value: "T001" }, map);
+  const zonal = commercialAccess({ rol: "jefe_zonal", estado: "activo" },
+    { scope_type: "cluster", scope_value: "A" }, map, { codigo: "A", estado: "activo" });
+  const commercial = commercialAccess({ rol: "gerente_comercial", estado: "activo" },
+    { scope_type: "all", scope_value: null }, map);
+  assert.deepEqual(allowedAnnualStores(store, manifest, filters), ["T001"]);
+  assert.deepEqual(allowedAnnualStores(zonal, manifest, filters), ["T001"]);
+  assert.deepEqual(allowedAnnualStores(commercial, manifest, filters), ["T001", "T002"]);
+  assert.equal(allowedAnnualStores(store, manifest, { ...filters, storeId: "T002" }), null);
+  assert.equal(allowedAnnualStores(zonal, manifest, { ...filters, storeId: "T002" }), null);
+  assert.deepEqual(allowedAnnualStores(commercial, manifest, { ...filters, storeId: "T002" }), ["T002"]);
+  assert.deepEqual(allowedAnnualStores(commercial, manifest, { ...filters, cluster: "A" }), ["T001"]);
 });
 
 test("published parts may be reused without crossing a store or cluster boundary", () => {
