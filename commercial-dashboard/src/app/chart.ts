@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, OnChanges, OnDestroy, SimpleChanges, ViewChild } from '@angular/core';
 import { BarChart, LineChart, PieChart } from 'echarts/charts';
 import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from 'echarts/components';
 import { init, use } from 'echarts/core';
@@ -16,6 +16,7 @@ use([BarChart, LineChart, PieChart, DataZoomComponent, GridComponent, LegendComp
 export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) option!: EChartsOption;
   @Input() label = 'Gráfico del dashboard';
+  @Output() itemClick = new EventEmitter<{ data: unknown }>();
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
   private chart?: ECharts;
   private observer?: ResizeObserver;
@@ -24,6 +25,7 @@ export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDest
 
   ngAfterViewInit(): void {
     this.chart = init(this.host.nativeElement, undefined, { renderer: 'canvas' });
+    this.chart.on('click', params => this.itemClick.emit({ data: params.data }));
     this.scheduleRender();
     this.observer = new ResizeObserver(() => {
       if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);

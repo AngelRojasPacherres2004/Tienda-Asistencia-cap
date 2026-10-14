@@ -30,6 +30,59 @@
     <section class="status-panel" aria-label="Cargando información"><span class="loader"></span></section>
   } @else {
     @if (expandedChart()) { <button type="button" class="chart-backdrop" aria-label="Cerrar gráfico ampliado" (click)="closeExpandedChart()"></button> }
+    @if (expandedChart() === 'stock-transfers') {
+      <section class="card chart-card chart-expanded ticket-modal transfer-modal" role="dialog" aria-modal="true" aria-labelledby="transfer-title" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
+        <button type="button" class="chart-expand" aria-label="Cerrar oportunidades de traslado" (click)="closeExpandedChart()">×</button>
+        <h2 id="transfer-title">SOBRESTOCK Y QUIEBRE · TRASLADOS ENTRE TIENDAS</h2>
+        <div class="ticket-modal-filters">
+          <label class="ticket-year-selector">Rubro <select [ngModel]="transferRubro()" (ngModelChange)="transferRubro.set($event); transferLine.set(''); transferPage.set(0)"><option value="">Textil y Calzado</option><option value="TEXTIL">Textil</option><option value="CALZADO">Calzado</option></select></label>
+          <label class="ticket-year-selector">Línea <select [ngModel]="transferLine()" (ngModelChange)="transferLine.set($event); transferPage.set(0)"><option value="">Todas</option>@for (line of transferLines(); track line) { <option [value]="line">{{ line }}</option> }</select></label>
+          <label class="ticket-year-selector">Prioridad <select [ngModel]="transferPriority()" (ngModelChange)="transferPriority.set($event); transferPage.set(0)"><option value="">Todas</option><option value="CRITICAL">Crítico</option><option value="ALERT">Alerta</option></select></label>
+          <label class="ticket-year-selector">Producto <input type="search" placeholder="Código o nombre" [ngModel]="transferSearch()" (ngModelChange)="transferSearch.set($event); transferPage.set(0)" /></label>
+        </div>
+        <p>Stock: {{ formatDate(data()!.metadata.stockCutoff) }} · Ventas 30D: {{ formatDate(data()!.metadata.salesCutoff) }}</p>
+        <p>Exceso: &gt;90 días o sin ventas · Falta: &lt;30 días · Crítico: ≤15 días.</p>
+        @if (stockDetailFailed()) { <p role="alert">No se pudo cargar el detalle de productos.</p> } @else if (!stockDetailLoaded()) { <p role="status">Cargando productos por tienda…</p> } @else if (!transferRecommendations().length) {
+          <p role="status">No se encontraron productos con exceso en una tienda y falta en otra para estos filtros. Solo se comparan combinaciones producto/tienda presentes en la fuente; una tienda ausente no se considera stock cero.</p>
+        } @else {
+          <div class="ticket-modal-filters" aria-label="Paginación de oportunidades">
+            <p aria-live="polite">{{ transferRecommendations().length }} oportunidades · {{ transferCurrentPage() * 15 + 1 }}–{{ Math.min((transferCurrentPage() + 1) * 15, transferRecommendations().length) }} · Página {{ transferCurrentPage() + 1 }}/{{ transferPageCount() }}</p>
+            <button type="button" [disabled]="transferCurrentPage() === 0" (click)="transferPage.set(transferCurrentPage() - 1)">Anterior</button>
+            <button type="button" [disabled]="transferCurrentPage() + 1 >= transferPageCount()" (click)="transferPage.set(transferCurrentPage() + 1)">Siguiente</button>
+          </div>
+          <dashboard-chart [option]="transferChartOption()" label="Stock de origen, stock de destino y unidades sugeridas de traslado para los productos más urgentes" />
+        }
+        <p>Pasa el cursor para ver detalles. Traslados sugeridos; valida tallas y existencias. Sin estado, stock vendible estimado al 82%.</p>
+      </section>
+    }
+    @if (expandedChart() === 'antiquity-detail') {
+      <section class="card chart-card chart-expanded ticket-modal stock-origin-detail" role="dialog" aria-modal="true" aria-labelledby="stock-origin-detail-title" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
+        <button type="button" class="chart-expand" aria-label="Cerrar detalle de antigüedad" (click)="closeExpandedChart()">×</button>
+        <h2 id="stock-origin-detail-title">STOCK DE ORIGEN {{ periodLabel(stockOriginDetailPeriod()!) }} · UBICACIÓN POR TIENDA</h2>
+        <p>Stock al {{ formatDate(data()!.metadata.stockCutoff) }}. Respeta los filtros del gráfico.</p>
+        <p>{{ number(stockOriginDetailTotals().units, ' und') }} · {{ money(stockOriginDetailTotals().value) }}</p>
+        <p>Detalle por tienda, rubro, línea y sublínea. La fuente de antigüedad no contiene códigos ni nombres individuales de productos.</p>
+        <div class="ticket-monthly-table" style="flex: 1; min-height: 0;"><table aria-label="Ubicación y cantidad de stock del mes de origen"><thead><tr><th scope="col">Tienda</th><th scope="col">Código tienda</th><th scope="col">Rubro</th><th scope="col">Línea</th><th scope="col">Sublínea</th><th scope="col">Unidades</th><th scope="col">Valor stock</th></tr></thead><tbody>@for (row of stockOriginDetailRows(); track $index) { <tr><th scope="row">{{ row.store }}</th><td>{{ row.storeId }}</td><td>{{ row.category || 'Sin clasificación' }}</td><td>{{ row.line || 'Sin clasificación' }}</td><td>{{ row.subline || 'Sin clasificación' }}</td><td>{{ number(row.units) }}</td><td>{{ money(row.value) }}</td></tr> } @empty { <tr><td colspan="7">Sin datos para estos filtros.</td></tr> }</tbody></table></div>
+      </section>
+    }
+    @if (expandedChart() === 'ticket-average') {
+      <section class="card chart-card chart-expanded ticket-modal" role="dialog" aria-modal="true" aria-labelledby="ticket-chart-title" tabindex="-1" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
+        <button type="button" class="chart-expand" aria-label="Cerrar gráfico de ticket promedio" (click)="closeExpandedChart()">×</button>
+        <h2 id="ticket-chart-title">TICKET PROMEDIO POR MES · {{ ticketChartYear() }}</h2>
+        <div class="ticket-modal-filters">
+          <label class="ticket-year-selector">Año <select autofocus [ngModel]="ticketChartYear()" (ngModelChange)="setTicketChartYear($event)">@for (yearOption of ticketChartYears(); track yearOption) { <option [ngValue]="yearOption">{{ yearOption }}</option> }</select></label>
+          <label class="ticket-year-selector">Tienda <select [ngModel]="ticketChartStore()" (ngModelChange)="ticketChartStore.set($event)"><option value="">Todas las tiendas del contexto</option>@for (storeOption of ticketChartStores(); track storeOption.storeId) { <option [value]="storeOption.storeId">{{ storeOption.alias || storeOption.store }}</option> }</select></label>
+        </div>
+        <p>Venta neta mensual ÷ transacciones del mes. Respeta los filtros de tiendas y productos; muestra los doce meses del año elegido.</p>
+        @if (!ticketChartHasData()) { <p role="status">No hay transacciones disponibles para {{ ticketChartYear() }} con estos filtros.</p> }
+        <div class="ticket-modal-content">
+          <dashboard-chart [option]="ticketMonthlyOption()" label="Evolución mensual del ticket promedio" />
+          <div class="ticket-monthly-table"><table aria-label="Ticket promedio, transacciones y venta neta por mes"><thead><tr><th scope="col">Mes</th><th scope="col">Ticket promedio</th><th scope="col">Transacciones</th><th scope="col">Venta neta</th></tr></thead><tbody>@for (row of ticketMonthlyRows(); track row.label) { <tr><th scope="row">{{ row.label }}</th><td [class]="ticketCellHighlight('ticket', row.ticket, row.transactions)" [title]="ticketCellDescription('ticket', row.ticket, row.transactions)">{{ money(row.ticket) }}</td><td [class]="ticketCellHighlight('transactions', row.transactions, row.transactions)" [title]="ticketCellDescription('transactions', row.transactions, row.transactions)">{{ number(row.transactions) }}</td><td [class]="ticketCellHighlight('net', row.net, row.transactions)" [title]="ticketCellDescription('net', row.net, row.transactions)">{{ money(row.net) }}</td></tr> }</tbody></table></div>
+        </div>
+        <div class="ticket-extremes-legend" aria-label="Leyenda de valores destacados"><span class="ticket-extreme-max">↑ Máximo</span><span class="ticket-extreme-min">↓ Mínimo</span><span class="ticket-extreme-equal">↕ Máximo y mínimo iguales</span></div>
+        <p>Se resaltan todos los empates. Los meses sin transacciones no participan en los máximos y mínimos.</p>
+      </section>
+    }
     <header class="brand-header">
       <div class="brand-block"><img src="/comercial/logo-almacen-remates.png" alt="Almacén de Remates" /><p class="store-summary"><strong>{{ annualStoreSummary().total }} TIENDAS</strong><span>{{ annualStoreSummary().metro }} METRO</span><span>{{ annualStoreSummary().outside }} NO METRO</span></p></div>
       <div>
@@ -149,7 +202,7 @@
           <article title="Fórmula: Σ(visitas registradas) en tiendas de formato METRO, según el período y filtros."><span>TRÁFICO METRO</span><strong [class.missing]="metrics().trafficMetro == null">{{ number(metrics().trafficMetro) }}</strong></article>
           <article title="Fórmula: Σ(visitas registradas) en tiendas de formato distinto de METRO, según el período y filtros."><span>TRÁFICO OTRAS TDS.</span><strong [class.missing]="metrics().trafficOther == null">{{ number(metrics().trafficOther) }}</strong></article>
           <article title="Fórmula: número de transacciones ÷ tráfico total × 100."><span>CONVERSIÓN</span><strong>{{ percent(metrics().conversion) }}</strong></article>
-          <article title="Fórmula: venta neta ÷ número de transacciones."><span>TICKET PROMEDIO</span><strong>{{ money(metrics().ticket) }}</strong></article>
+          <article class="ticket-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver ticket promedio por mes" (click)="openTicketChart()" (keydown.enter)="openTicketChart()" (keydown.space)="$event.preventDefault(); openTicketChart()"><span>TICKET PROMEDIO</span><strong>{{ money(metrics().ticket) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article>
           <article title="Fórmula: venta neta ÷ (Σ metraje físico de tiendas filtradas × 80%)."><span>VENTA × M²</span><strong>{{ money(metrics().saleM2) }}</strong></article>
           <article class="collaborator-kpi" title="Fórmula: venta neta del período ÷ colaboradores promedio del contexto filtrado."><span>VENTA × COLAB <em>{{ number(metrics().personnel) }} COLAB.</em></span><strong [class.missing]="metrics().saleCollaborator == null">{{ money(metrics().saleCollaborator, true) }}</strong></article>
           <article title="Fórmula: (venta real positiva − venta bruta a precio sugerido) ÷ venta bruta a precio sugerido × 100. No es margen contable."><span>MARKUP</span><strong [class.positive]="(metrics().priceVariation || 0) >= 0" [class.negative]="(metrics().priceVariation || 0) < 0">{{ trend(metrics().priceVariation) }}</strong></article>
@@ -225,7 +278,8 @@
           <article class="card chart-card antiquity-card" [class.chart-expanded]="expandedChart() === 'antiquity'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('antiquity')" [attr.aria-label]="expandedChart() === 'antiquity' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'antiquity' ? '×' : '⛶' }}</button><h2><svg><use href="/comercial/assets/icons.svg#calendar"></use></svg> ANTIGÜEDAD STOCK · {{ stockHistoryLabel() }}</h2>
             @if (detailLoading()) { <div class="card-inline-loader"><span class="loader"></span>Preparando antigüedad…</div> }
             <div class="stock-year-tabs" aria-label="Años de origen del stock; se pueden seleccionar varios">@for (bucket of stockHistoryBuckets; track bucket.value) { <button type="button" [class.active]="bucket.value === 'ALL' ? stockHistoryBucketsSelected().length === 0 : stockHistoryBucketsSelected().includes(bucket.value)" [attr.aria-pressed]="bucket.value === 'ALL' ? stockHistoryBucketsSelected().length === 0 : stockHistoryBucketsSelected().includes(bucket.value)" [title]="bucket.title" (click)="toggleStockHistoryBucket(bucket.value)">{{ bucket.label }}</button> }</div>
-            <dashboard-chart [option]="antiquityOption()" label="Unidades de stock por mes de origen" />
+            <dashboard-chart [option]="antiquityOption()" label="Unidades de stock por mes de origen; haz clic en una barra para ver su ubicación por tienda" (itemClick)="openStockOriginDetail($event)" />
+            <p>Haz clic en una barra para ver cantidades por tienda y clasificación.</p>
             <div class="stock-history-summary"><div title="Fórmula: Σ(unidades de stock) de los años de origen seleccionados."><small>UNIDADES</small><strong>{{ number(stockHistorySummary().units, ' und') }}</strong></div><div title="Fórmula: Σ(valor de stock) de los años de origen seleccionados."><small>VALOR STOCK</small><strong>{{ money(stockHistorySummary().value, true) }}</strong></div><div title="Fórmula: unidades de los años seleccionados ÷ unidades de stock de todos los años × 100."><small>% DEL STOCK</small><strong>{{ percent(stockHistorySummary().share) }}</strong></div></div>
           </article>
         </div>
@@ -254,7 +308,7 @@
           <div class="detail-loader compact"><span class="loader"></span><strong>Preparando analítica por producto…</strong><small>El resto de la pestaña ya puede utilizarse.</small></div>
         } @else {
         <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
-          <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2><button type="button" class="section-advice-btn" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>
+          <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2><button type="button" class="retry-button" (click)="openTransfers()">VER TRASLADOS ENTRE TIENDAS</button><button type="button" class="section-advice-btn" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>
           @if (sectionAdviceFor('inventory-c'); as advice) { <div class="predictive-advice-row"><p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p></div> }
           <div class="predictive-parameters">
             <div class="predictive-rubro-control"><span>RUBRO</span><div class="predictive-toggle"><button type="button" [class.active]="predictiveRubros().includes('TEXTIL')" (click)="togglePredictiveRubro('TEXTIL')">TEXTIL</button><button type="button" [class.active]="predictiveRubros().includes('CALZADO')" (click)="togglePredictiveRubro('CALZADO')">CALZADO</button></div></div>

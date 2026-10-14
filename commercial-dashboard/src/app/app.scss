@@ -368,6 +368,36 @@
 
 .chart-expand { position: absolute; z-index: 8; top: 8px; right: 8px; display: grid; width: 25px; height: 25px; place-items: center; padding: 0; border: 1px solid #b8c5d9; border-radius: 6px; background: rgba(255,255,255,.94); color: #123a8c; cursor: pointer; font-size: .92rem; font-weight: 900; line-height: 1; box-shadow: 0 2px 7px rgba(15,35,70,.12); }
 .chart-expand:hover { border-color: #123a8c; background: #123a8c; color: #fff; }
+.ticket-kpi { cursor: pointer; }
+.ticket-kpi:hover { box-shadow: 0 0 0 2px #123a8c; }
+.ticket-kpi:focus-visible { outline: 3px solid #2878d0; outline-offset: 3px; }
+.ticket-kpi small { font-size: 9px; color: #123a8c; }
+.ticket-modal { display: flex; flex-direction: column; gap: 14px; }
+.ticket-modal h2 { padding-right: 40px; }
+.ticket-modal p { margin: 0; color: #64748b; font-size: 12px; }
+.ticket-modal-filters { display: flex; flex-wrap: wrap; gap: 16px; }
+.ticket-modal-content { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(380px, 1fr); gap: 20px; flex: 1; min-height: 0; }
+.ticket-monthly-table { overflow: auto; border: 1px solid #d5deea; border-radius: 10px; }
+.ticket-monthly-table table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.ticket-monthly-table th, .ticket-monthly-table td { padding: 12px; text-align: right; border-bottom: 1px solid #e8edf6; }
+.ticket-monthly-table th:first-child { text-align: left; }
+.ticket-monthly-table thead { position: sticky; top: 0; background: #e8edf6; color: #123a8c; }
+.ticket-monthly-table tbody tr:nth-child(even) { background: #f8fafc; }
+.ticket-extreme-max { background: #dcfce7; color: #166534; --extreme: '↑ '; }
+.ticket-extreme-min { background: #fee2e2; color: #991b1b; --extreme: '↓ '; }
+.ticket-extreme-equal { background: #ede9fe; color: #5b21b6; --extreme: '↕ '; }
+.ticket-monthly-table td[class^='ticket-extreme'] { font-weight: 700; }
+.ticket-monthly-table td::before { content: var(--extreme, ''); }
+.ticket-extremes-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; }
+.ticket-extremes-legend span { padding: 5px 9px; border-radius: 5px; }
+@media (max-width: 900px) {
+  .ticket-modal-content { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .ticket-modal-content dashboard-chart { height: 300px; }
+  .ticket-monthly-table { overflow: auto; min-height: 300px; }
+  .ticket-year-selector select { max-width: 65vw; }
+}
+.ticket-year-selector { display: flex; align-items: center; gap: 12px; color: #123a8c; font-weight: 700; }
+.ticket-year-selector select { padding: 8px 16px; border: 1px solid #b8c5d9; border-radius: 8px; background: white; color: #123a8c; font: inherit; }
 .chart-backdrop { position: fixed; z-index: 190; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(15,23,42,.6); cursor: zoom-out; }
 .chart-expanded { position: fixed !important; z-index: 200 !important; inset: 4vh 3vw !important; box-sizing: border-box; width: 94vw !important; max-width: none !important; height: 92vh !important; min-height: 0 !important; margin: 0 !important; padding: 22px !important; overflow: hidden; overscroll-behavior: contain; border-radius: 18px !important; background: #fff; box-shadow: 0 24px 70px rgba(2,8,23,.35) !important; }
 .chart-expanded > dashboard-chart, .chart-expanded .rop-gauge { flex: 1 !important; height: auto !important; min-height: 0 !important; }

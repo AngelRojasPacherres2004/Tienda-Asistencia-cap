@@ -8,6 +8,8 @@ import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
+import { stockTransfers } from './stock-transfers';
+import { SectionLoads } from './section-loads';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -198,6 +200,7 @@ export class App implements OnInit {
   private priceRangeDetailPromise?: Promise<void>;
   private sellerDetailPromise?: Promise<void>;
   private pageOverflowBeforeModal = '';
+  private readonly sectionLoads = new SectionLoads();
 
   private indexPeriodStore<T extends { periodId: number; storeId: string }>(rows: T[]): Map<string, T[]> {
     const index = new Map<string, T[]>();
@@ -209,15 +212,17 @@ export class App implements OnInit {
     return index;
   }
 
-  private async indexPeriodStoreAsync<T extends { periodId: number; storeId: string }>(rows: T[]): Promise<Map<string, T[]>> {
+  private async indexPeriodStoreAsync<T extends { periodId: number; storeId: string }>(rows: T[], signal?: AbortSignal): Promise<Map<string, T[]>> {
     const index = new Map<string, T[]>();
     for (let i = 0; i < rows.length; i += 1) {
+      if (i % 10_000 === 0) signal?.throwIfAborted();
       const row = rows[i];
       const key = `${row.periodId}|${row.storeId}`;
       const bucket = index.get(key);
       if (bucket) bucket.push(row); else index.set(key, [row]);
       if (i > 0 && i % 10_000 === 0) await this.yieldToBrowser();
     }
+    signal?.throwIfAborted();
     return index;
   }
 
@@ -253,6 +258,95 @@ export class App implements OnInit {
   }
   readonly page = signal<1 | 2 | 3>(1);
   readonly expandedChart = signal<string | null>(null);
+  readonly ticketChartYear = signal(new Date().getFullYear());
+  readonly ticketChartStore = signal('');
+  readonly ticketChartYears = computed(() => [...new Set([
+    new Date().getFullYear(), ...(this.data()?.metadata.years ?? [])
+  ])].sort((a, b) => b - a));
+  readonly ticketChartStores = computed(() => {
+    const d = this.data();
+    const year = this.ticketChartYear();
+    const selected = new Set(this.selectedStores());
+    return (d?.stores ?? []).filter(store =>
+      this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store)
+      && this.formatMatches(store) && this.storeOverlapsPeriod(store, year * 100 + 1, year * 100 + 12)
+      && (!selected.size || selected.has(store.storeId))
+    ).sort((a, b) => (a.alias || a.store).localeCompare(b.alias || b.store));
+  });
+  readonly ticketMonthlyRows = computed(() => {
+    this.data();
+    const year = this.ticketChartYear();
+    const selectedStore = this.ticketChartStore();
+    const ids = new Set(this.ticketChartStores()
+      .filter(store => !selectedStore || store.storeId === selectedStore)
+      .map(store => store.storeId));
+    return MONTHS.map((label, index) => {
+      const rows = this.rowsForPeriods([year * 100 + index + 1], ids);
+      const net = sum(rows, 'net');
+      const transactions = sum(rows, 'transactions');
+      return { label, net, transactions, ticket: transactions > 0 ? net / transactions : null };
+    });
+  });
+  readonly ticketChartHasData = computed(() => this.ticketMonthlyRows().some(row => row.ticket !== null));
+  readonly ticketMonthlyExtremes = computed(() => {
+    const rows = this.ticketMonthlyRows().filter(row => row.transactions > 0);
+    const bounds = (field: 'ticket' | 'transactions' | 'net') => {
+      const values = rows.map(row => row[field]).filter((value): value is number => value !== null && Number.isFinite(value));
+      return { min: values.length ? Math.min(...values) : null, max: values.length ? Math.max(...values) : null };
+    };
+    return { ticket: bounds('ticket'), transactions: bounds('transactions'), net: bounds('net') };
+  });
+  ticketCellHighlight(field: 'ticket' | 'transactions' | 'net', value: number | null, transactions: number): string {
+    if (transactions <= 0 || value === null) return '';
+    const bounds = this.ticketMonthlyExtremes()[field];
+    if (value === bounds.max && value === bounds.min) return 'ticket-extreme-equal';
+    if (value === bounds.max) return 'ticket-extreme-max';
+    if (value === bounds.min) return 'ticket-extreme-min';
+    return '';
+  }
+  ticketCellDescription(field: 'ticket' | 'transactions' | 'net', value: number | null, transactions: number): string {
+    const highlight = this.ticketCellHighlight(field, value, transactions);
+    return highlight === 'ticket-extreme-equal' ? 'Máximo y mínimo (mismo valor)' : highlight === 'ticket-extreme-max' ? 'Máximo de la columna' : highlight === 'ticket-extreme-min' ? 'Mínimo de la columna' : '';
+  }
+  readonly ticketMonthlyOption = computed<EChartsOption>(() => {
+    const rows = this.ticketMonthlyRows();
+    return {
+      animation: false,
+      grid: { left: 24, right: 24, top: 35, bottom: 30, containLabel: true },
+      tooltip: { trigger: 'axis', confine: true, formatter: (params: any) => {
+        const row = rows[params[0]?.dataIndex ?? 0];
+        return this.tooltip(`${row.label} ${this.ticketChartYear()}`, [
+          { label: 'Ticket promedio', value: this.money(row.ticket) },
+          { label: 'Venta neta', value: this.money(row.net) },
+          { label: 'Transacciones', value: this.number(row.transactions) }
+        ]);
+      } },
+      xAxis: { type: 'category', data: MONTHS, axisLabel: { color: C.slate } },
+      yAxis: { type: 'value', axisLabel: { formatter: (value: number) => this.money(value, true) } },
+      series: [{ name: 'Ticket promedio', type: 'line', data: rows.map(row => row.ticket),
+        connectNulls: false, symbolSize: 8, itemStyle: { color: C.navy },
+        lineStyle: { width: 3 }, areaStyle: { color: C.pale, opacity: .5 } }]
+    };
+  });
+  openTicketChart(): void {
+    this.ticketChartYear.set(new Date().getFullYear());
+    this.ticketChartStore.set('');
+    this.toggleChartExpansion('ticket-average');
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
+  }
+  setTicketChartYear(year: number): void {
+    this.ticketChartYear.set(year);
+    if (!this.ticketChartStores().some(store => store.storeId === this.ticketChartStore())) this.ticketChartStore.set('');
+  }
+  keepTicketFocus(event: Event): void {
+    const key = event as KeyboardEvent;
+    const modal = event.currentTarget as HTMLElement;
+    const controls = modal.querySelectorAll<HTMLElement>('button:not([disabled]), select, input');
+    const first = controls[0], last = controls[controls.length - 1];
+    const active = modal.getRootNode() as ShadowRoot;
+    if (key.shiftKey && active.activeElement === first) { key.preventDefault(); last.focus(); }
+    else if (!key.shiftKey && active.activeElement === last) { key.preventDefault(); first.focus(); }
+  }
   readonly year = signal(0);
   // Filtros múltiples. Arreglo vacío = TODOS / ACUMULADO.
   readonly selectedMonths = signal<number[]>([]);
@@ -1599,6 +1693,69 @@ export class App implements OnInit {
       (selectedStore === 'TODAS' || row.storeId === selectedStore) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
   });
   readonly predictiveStoreOptions = computed(() => this.inventoryStoresIgnoringStoreFilter());
+  readonly transferRubro = signal('');
+  readonly transferLine = signal('');
+  readonly transferSearch = signal('');
+  readonly transferPriority = signal('');
+  readonly transferPage = signal(0);
+  readonly transferProducts = computed(() => {
+    const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
+    return this.staticPredictiveProducts().filter(row => ids.has(row.storeId));
+  });
+  readonly transferLines = computed(() => [...new Set(this.transferProducts()
+    .filter(row => !this.transferRubro() || row.category === this.transferRubro()).map(row => row.line).filter(Boolean))].sort());
+  readonly transferAllRecommendations = computed(() => {
+    const query = this.normalized(this.transferSearch());
+    const rows = this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
+      && (!this.transferLine() || row.line === this.transferLine())
+      && (!query || this.normalized(`${row.productId} ${row.product}`).includes(query)));
+    const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
+    return stockTransfers(rows).map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
+      destinationName: names.get(row.destination) || row.destination }));
+  });
+  readonly transferRecommendations = computed(() => this.transferAllRecommendations().filter(row =>
+    !this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical)));
+  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / 15)));
+  readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
+  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * 15, (this.transferCurrentPage() + 1) * 15));
+  readonly transferChartOption = computed<EChartsOption>(() => {
+    const rows = this.transferPageRows();
+    return {
+      animation: false, legend: { top: 0, data: ['Stock origen', 'Stock destino', 'Traslado sugerido'] },
+      grid: { left: 170, right: 24, top: 35, bottom: 25 },
+      tooltip: { trigger: 'axis', confine: true, formatter: (params: any) => {
+        const row = rows[params[0]?.dataIndex ?? 0];
+        return this.tooltip(row?.product || '', [
+          { label: 'Código', value: row?.productId || '' },
+          { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
+          { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
+          { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
+          { label: 'Venta origen / 30 días', value: this.number(row?.sourceSales ?? null, ' und') },
+          { label: 'Venta destino / 30 días', value: this.number(row?.destinationSales ?? null, ' und') },
+          { label: 'Cobertura destino', value: this.number(row?.destinationDays ?? null, ' días') },
+          { label: 'Cobertura origen', value: row?.sourceDays == null ? 'Sin venta 30D' : this.number(row.sourceDays, ' días') },
+          { label: 'Traslado sugerido', value: this.number(row?.suggested ?? null, ' und') },
+          { label: 'Prioridad destino', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
+          { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' }
+        ]);
+      } },
+      xAxis: { type: 'value', name: 'Unidades' },
+      yAxis: { type: 'category', inverse: true, data: rows.map(row => `${row.productId} · ${row.sourceName} → ${row.destinationName}`),
+        axisLabel: { width: 155, overflow: 'truncate', fontSize: 10 } },
+      series: [
+        { name: 'Stock origen', type: 'bar', data: rows.map(row => row.sourceStock), itemStyle: { color: C.gold } },
+        { name: 'Stock destino', type: 'bar', data: rows.map(row => row.destinationStock), itemStyle: { color: C.red } },
+        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), itemStyle: { color: C.navy } }
+      ]
+    };
+  });
+  openTransfers(): void {
+    this.transferRubro.set(''); this.transferLine.set(''); this.transferSearch.set('');
+    this.transferPriority.set(''); this.transferPage.set(0);
+    this.toggleChartExpansion('stock-transfers');
+    void this.ensureStockDetail();
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
+  }
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
     const byBrand = grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA');
     const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
@@ -1810,6 +1967,28 @@ export class App implements OnInit {
     if (!selected.length) return 'GENERAL';
     return selected.map(value => this.stockHistoryBuckets.find(bucket => bucket.value === value)?.label || value).join(' + ');
   });
+  readonly stockOriginDetailPeriod = signal<number | null>(null);
+  readonly stockOriginDetailRows = computed(() => {
+    const period = this.stockOriginDetailPeriod();
+    const rows = this.selectedStockOrigins().filter(row => row.originPeriodId === period);
+    const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
+    return [...grouped(rows, row => JSON.stringify([row.storeId, row.category, row.line, row.subline])).values()]
+      .map(items => ({ storeId: items[0].storeId, store: stores.get(items[0].storeId) || items[0].storeId,
+        category: items[0].category, line: items[0].line, subline: items[0].subline,
+        units: sum(items, 'units'), value: sum(items, 'value') }))
+      .sort((a, b) => b.units - a.units || a.store.localeCompare(b.store));
+  });
+  readonly stockOriginDetailTotals = computed(() => ({
+    units: sum(this.stockOriginDetailRows(), 'units'), value: sum(this.stockOriginDetailRows(), 'value')
+  }));
+  openStockOriginDetail(event: { data: unknown }): void {
+    const period = Number((event.data as { period?: number } | null)?.period);
+    if (!Number.isInteger(period) || !this.selectedStockOrigins().some(row => row.originPeriodId === period)) return;
+    this.stockOriginDetailPeriod.set(period);
+    if (this.expandedChart()) this.expandedChart.set('antiquity-detail');
+    else this.toggleChartExpansion('antiquity-detail');
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLButtonElement>('.stock-origin-detail .chart-expand')?.focus());
+  }
   readonly stockHistorySummary = computed(() => {
     const rows = this.selectedStockOrigins();
     const units = sum(rows, 'units'); const value = sum(rows, 'value'); const total = sum(this.stockOrigins(), 'units');
@@ -2347,7 +2526,7 @@ export class App implements OnInit {
         axisLine: { lineStyle: { color: '#CBD5E1' } }
       },
       yAxis: { type: 'value', axisLabel: { formatter: (value: number) => this.short(value), color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      series: [{ type: 'bar', data: rows.map(row => row.units), barMaxWidth: 28, itemStyle: { color: C.indigo, borderRadius: [5, 5, 0, 0] }, label: { show: true, position: 'top', formatter: (params: any) => this.short(Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+      series: [{ type: 'bar', data: rows.map(row => ({ value: row.units, period: row.period })), barMaxWidth: 28, itemStyle: { color: C.indigo, borderRadius: [5, 5, 0, 0] }, label: { show: true, position: 'top', formatter: (params: any) => this.short(Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
     } as EChartsOption;
   });
   readonly agedStockByStore = computed(() => {
@@ -2548,7 +2727,7 @@ export class App implements OnInit {
       this.applyAccessScope();
       // Rango de precios vive ahora en la primera página; se carga en segundo plano para
       // no retrasar los KPIs iniciales, pero ya no depende de abrir Inventario.
-      setTimeout(() => void this.ensurePriceRangeDetail(), 0);
+      setTimeout(() => { if (this.page() === 1) void this.ensurePriceRangeDetail(); }, 0);
       // NO cargar dashboard-brand.json (~35 MB) al abrir. Se carga solo si el usuario
       // entra a un nivel jerárquico que realmente necesita Marca por Rubro/Línea/SubLínea.
     } catch (error) { this.loadingError.set(`No se pudieron abrir los datos del dashboard: ${error instanceof Error ? error.message : error}`); }
@@ -2643,7 +2822,11 @@ export class App implements OnInit {
       this.sectionAdvices.update(items => ({ ...items, [id]: { text: 'El consejo no está disponible en este momento. Los indicadores del bloque permanecen visibles.', loading: false, error: true } }));
     }
   }
-  closeExpandedChart(): void { this.expandedChart.set(null); this.setPageScrollLocked(false); }
+  closeExpandedChart(): void {
+    const wasTicket = this.expandedChart() === 'ticket-average';
+    this.expandedChart.set(null); this.setPageScrollLocked(false);
+    if (wasTicket) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.ticket-kpi')?.focus();
+  }
   private setPageScrollLocked(locked: boolean): void {
     if (typeof document === 'undefined') return;
     if (locked) {
@@ -2788,15 +2971,20 @@ export class App implements OnInit {
   async goPage(value: 1 | 2 | 3): Promise<void> {
     if (this.page() === value) return;
     this.closeExpandedChart();
+    this.releaseSectionDetails();
     this.sectionAdvices.set({});
     this.page.set(value);
+    if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
+    if (value === 1) { void this.ensurePriceRangeDetail(); return; }
     if (value === 3) {
       await this.nextPaint();
+      if (this.page() !== value) return;
       void this.ensureSellerDetail();
       return;
     }
     if (value !== 2) return;
     await this.nextPaint();
+    if (this.page() !== value) return;
     // La parte superior usa agregados de dashboard.json y aparece de inmediato.
     // Antigüedad pesa ~4 MB; el detalle por producto (~54 MB) se prepara en tiempo ocioso.
     void this.ensureStockOrigin();
@@ -2806,8 +2994,9 @@ export class App implements OnInit {
   private scheduleInventoryProductDetail(): void {
     if (this.stockDetailLoaded() || this.stockDetailPromise || this.stockDetailFailed()) return;
     const start = (): void => {
+      if (this.page() !== 2) return;
       void this.ensureStockDetail().then(() => {
-        if (this.stockDetailLoaded()) void this.ensurePredictiveDetail();
+        if (this.page() === 2 && this.stockDetailLoaded()) void this.ensurePredictiveDetail();
       });
     };
     const idleWindow = typeof window === 'undefined' ? undefined : window as Window & {
@@ -2815,6 +3004,36 @@ export class App implements OnInit {
     };
     if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(start, { timeout: 1_500 });
     else setTimeout(start, 350);
+  }
+  private releaseSectionDetails(): void {
+    this.sectionLoads.release();
+    if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
+    this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.legacyStockPromise = undefined;
+    this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
+    this.brandDetailPromise = undefined; this.sublineDetailPromise = undefined; this.priceRangeDetailPromise = undefined;
+    this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
+    this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
+    this.stockAggregateByStore.set(new Map()); this.predictiveAggregateByStore.set(new Map());
+    this.predictiveAggregateByProduct.set(new Map()); this.predictiveIndex.set(new Map());
+    this.stockDetailLoaded.set(false); this.stockOriginLoaded.set(false); this.stockDetailFailed.set(false);
+    this.predictiveDetailLoaded.set(false); this.predictiveDetailFailed.set(false); this.predictiveDetailLoading.set(false);
+    this.detailLoading.set(false); this.predictiveNote.set('');
+    this.sellerPerformanceData.set([]); this.sellerDetailLoaded.set(false); this.sellerDetailLoading.set(false);
+    this.priceRangeData.set([]); this.monthlyPriceRangeIndex.clear(); this.priceRangeDetailLoaded.set(false);
+    this.monthlyBrandIndex = this.indexPeriodStore(this.data()?.monthlyBrand || []);
+    this.monthlySublineIndex = this.indexPeriodStore(this.data()?.monthlySubline || []);
+    this.brandDetailLoaded.set(false); this.sublineDetailLoaded.set(false);
+    // Invalidates computations using non-reactive indexes as well.
+    this.data.update(data => data ? { ...data } : data);
+    // Angular computed values retain their last result until read again.
+    // Evaluate product-level caches against the cleared source to release old rows.
+    this.filteredProducts(); this.staticPredictiveProducts(); this.predictiveProducts(); this.activeProductRows();
+    this.predictiveScopedProducts(); this.transferProducts(); this.transferLines(); this.transferChartOption();
+    this.predictiveHealthOption(); this.predictiveBreakageOption(); this.predictiveReplenishmentOption();
+    this.predictiveProjectionOption(); this.predictivePriorityProducts(); this.productExtremes();
+    this.inventoryProductsIgnoringStoreFilter(); this.stockOriginDetailRows(); this.stockOrigins(); this.selectedStockOrigins();
+    this.talentSellerRows(); this.sellerPerformanceOption();
+    this.yearRows(); this.monthRows(); this.previousYearRows(); this.previousMonthRows();
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
@@ -2865,8 +3084,10 @@ export class App implements OnInit {
   percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : new Intl.NumberFormat('es-PE', { style: 'percent', maximumFractionDigits: 2 }).format(value); }
   trend(value: number | null): string { return value == null ? 'N/A' : `${value >= 0 ? '▲' : '▼'} ${this.percent(Math.abs(value))}`; }
 
-  private async loadDetail<T>(file: string): Promise<T> {
+  private async loadDetail<T>(file: string, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
     const source = await this.cloud.jsonSource(file);
+    signal?.throwIfAborted();
     const fallbackUrls = [
       `assets/data/${file}`,
       `./assets/data/${file}`,
@@ -2878,7 +3099,7 @@ export class App implements OnInit {
       const loadUrls = async (urls: string[], encoding: 'identity' | 'gzip'): Promise<T> => {
         const chunks: BlobPart[] = [];
         for (const url of urls) {
-          const response = await fetch(url, { cache: 'default' });
+          const response = await fetch(url, { cache: 'default', signal });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           chunks.push(await response.blob());
         }
@@ -2893,9 +3114,11 @@ export class App implements OnInit {
       try {
         return await loadUrls(source.urls, source.encoding);
       } catch {
+        signal?.throwIfAborted();
         if (this.cloud.remoteEnabled()) throw new Error(`No se pudo cargar ${file} de la versión autorizada.`);
         const attempted = new Set(source.urls);
         for (const url of fallbackUrls) {
+          signal?.throwIfAborted();
           if (attempted.has(url)) continue;
           attempted.add(url);
           try {
@@ -2909,7 +3132,9 @@ export class App implements OnInit {
     }
     return new Promise<T>((resolve, reject) => {
       const worker = new Worker(new URL('./json-loader.worker', import.meta.url), { type: 'module' });
-      const finish = (): void => worker.terminate();
+      const finish = (): void => { worker.terminate(); signal?.removeEventListener('abort', abort); };
+      const abort = (): void => { finish(); reject(signal?.reason ?? new DOMException('Carga cancelada', 'AbortError')); };
+      signal?.addEventListener('abort', abort, { once: true });
       worker.onmessage = ({ data }: MessageEvent<{ ok: boolean; data?: T; error?: string }>) => {
         finish();
         if (data.ok) resolve(data.data as T);
@@ -2923,53 +3148,72 @@ export class App implements OnInit {
     });
   }
 
-  private loadLegacyStock(): Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }> {
+  private loadLegacyStock(signal = this.sectionLoads.signal): Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }> {
+    signal.throwIfAborted();
     if (!this.legacyStockPromise) {
-      this.legacyStockPromise = this.loadDetail<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>('dashboard-stock.json');
+      this.legacyStockPromise = this.loadDetail<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>('dashboard-stock.json', signal);
     }
     return this.legacyStockPromise;
   }
   private async ensureBrandDetail(): Promise<void> {
     if (this.brandDetailLoaded()) return;
     if (this.brandDetailPromise) return this.brandDetailPromise;
+    const signal = this.sectionLoads.signal;
     this.brandDetailPromise = (async () => {
-    try {
-      const payload = await this.loadDetail<{ monthlyBrand: BrandRow[] }>('dashboard-brand.json');
-      this.monthlyBrandIndex = await this.indexPeriodStoreAsync(payload.monthlyBrand || []);
-      this.brandDetailLoaded.set(true);
-    }
-    catch (error) { this.loadingError.set(`No se pudo abrir el detalle de marcas: ${error instanceof Error ? error.message : error}`); }
-    finally { this.brandDetailPromise = undefined; }
+      try {
+        const payload = await this.loadDetail<{ monthlyBrand: BrandRow[] }>('dashboard-brand.json', signal);
+        signal.throwIfAborted();
+        this.monthlyBrandIndex = await this.indexPeriodStoreAsync(payload.monthlyBrand || [], signal);
+        this.brandDetailLoaded.set(true);
+      } catch (error) {
+        if (signal.aborted) return;
+        this.loadingError.set(`No se pudo abrir el detalle de marcas: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        if (signal.aborted) return;
+        this.brandDetailPromise = undefined;
+      }
     })();
     return this.brandDetailPromise;
   }
   private async ensureSublineDetail(): Promise<void> {
     if (this.sublineDetailLoaded()) return;
     if (this.sublineDetailPromise) return this.sublineDetailPromise;
+    const signal = this.sectionLoads.signal;
     this.sublineDetailPromise = (async () => {
-    try {
-      const payload = await this.loadDetail<{ monthlySubline: Monthly[] }>('dashboard-subline.json');
-      this.monthlySublineIndex = await this.indexPeriodStoreAsync(payload.monthlySubline || []);
-      this.sublineDetailLoaded.set(true);
-    }
-    catch (error) { this.loadingError.set(`No se pudo abrir el detalle de sublíneas: ${error instanceof Error ? error.message : error}`); }
-    finally { this.sublineDetailPromise = undefined; }
+      try {
+        const payload = await this.loadDetail<{ monthlySubline: Monthly[] }>('dashboard-subline.json', signal);
+        signal.throwIfAborted();
+        this.monthlySublineIndex = await this.indexPeriodStoreAsync(payload.monthlySubline || [], signal);
+        this.sublineDetailLoaded.set(true);
+      } catch (error) {
+        if (signal.aborted) return;
+        this.loadingError.set(`No se pudo abrir el detalle de sublíneas: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        if (signal.aborted) return;
+        this.sublineDetailPromise = undefined;
+      }
     })();
     return this.sublineDetailPromise;
   }
   private async ensurePriceRangeDetail(): Promise<void> {
     if (this.priceRangeDetailLoaded()) return;
     if (this.priceRangeDetailPromise) return this.priceRangeDetailPromise;
+    const signal = this.sectionLoads.signal;
     this.priceRangeDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>('dashboard-price-range.json');
+        const payload = await this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>('dashboard-price-range.json', signal);
+        signal.throwIfAborted();
         const rows = payload.monthlyPriceRange || [];
-        this.monthlyPriceRangeIndex = await this.indexPeriodStoreAsync(rows);
+        signal.throwIfAborted();
+        this.monthlyPriceRangeIndex = await this.indexPeriodStoreAsync(rows, signal);
+        signal.throwIfAborted();
         this.priceRangeData.set(rows);
         this.priceRangeDetailLoaded.set(true);
       } catch (error) {
+        if (signal.aborted) return;
         this.loadingError.set(`No se pudo abrir el detalle de rangos de precio: ${error instanceof Error ? error.message : error}`);
       } finally {
+        if (signal.aborted) return;
         this.priceRangeDetailPromise = undefined;
       }
     })();
@@ -2978,16 +3222,21 @@ export class App implements OnInit {
   private async ensureSellerDetail(): Promise<void> {
     if (this.sellerDetailLoaded()) return;
     if (this.sellerDetailPromise) return this.sellerDetailPromise;
+    const signal = this.sectionLoads.signal;
     this.sellerDetailLoading.set(true);
     this.sellerDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>('dashboard-sellers.json');
+        const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>('dashboard-sellers.json', signal);
+        signal.throwIfAborted();
         this.sellerPerformanceData.set(payload.sellerPerformance || []);
         this.sellerDetailLoaded.set(true);
       } catch {
+        if (signal.aborted) return;
         // Las demás métricas de Talento deben seguir disponibles si falla este detalle.
+        signal.throwIfAborted();
         this.sellerPerformanceData.set([]);
       } finally {
+        if (signal.aborted) return;
         this.sellerDetailLoading.set(false);
         this.sellerDetailPromise = undefined;
       }
@@ -2997,23 +3246,30 @@ export class App implements OnInit {
   private async ensureStockOrigin(): Promise<void> {
     if (this.stockOriginLoaded()) return;
     if (this.stockOriginPromise) return this.stockOriginPromise;
+    const signal = this.sectionLoads.signal;
     this.detailLoading.set(true);
     this.stockOriginPromise = (async () => {
       try {
         let rows: StockOrigin[];
         try {
-          const payload = await this.loadDetail<{ stockOrigin: StockOrigin[] }>('dashboard-stock-origin.json');
+          const payload = await this.loadDetail<{ stockOrigin: StockOrigin[] }>('dashboard-stock-origin.json', signal);
+          signal.throwIfAborted();
           rows = payload.stockOrigin || [];
         } catch {
-          rows = (await this.loadLegacyStock()).stockOrigin || [];
+          if (signal.aborted) return;
+          rows = (await this.loadLegacyStock(signal)).stockOrigin || [];
         }
+        signal.throwIfAborted();
         this.stockOriginData.set(rows);
         this.stockOriginLoaded.set(true);
       } catch (error) {
+        if (signal.aborted) return;
+        signal.throwIfAborted();
         this.stockOriginData.set([]);
         this.stockOriginLoaded.set(true);
         this.predictiveNote.set(`La antigüedad de stock no está disponible: ${error instanceof Error ? error.message : error}`);
       } finally {
+        if (signal.aborted) return;
         this.detailLoading.set(false);
         this.stockOriginPromise = undefined;
       }
@@ -3024,84 +3280,115 @@ export class App implements OnInit {
   private async ensureStockDetail(): Promise<void> {
     if (this.stockDetailLoaded()) return;
     if (this.stockDetailPromise) return this.stockDetailPromise;
+    const signal = this.sectionLoads.signal;
     this.stockDetailPromise = (async () => {
-    try {
-      let payload: { stockProducts: ProductRow[] };
       try {
-        payload = await this.loadDetail<{ stockProducts: ProductRow[] }>('dashboard-stock-products.json');
-      } catch {
-        payload = await this.loadLegacyStock();
-      }
-      const products = payload.stockProducts || [];
-      const byStore = new Map<string, ProductRow[]>(); const byCategory = new Map<string, ProductRow[]>();
-      const allByStore = new Map<string, StockAggregate>();
-      const predictiveByStore = new Map<string, StockAggregate>();
-      const predictiveByProduct = new Map<string, ProductAggregate>();
-      const predictiveRowsByProduct = new Map<string, ProductRow[]>();
-      const predictiveProducts: ProductRow[] = [];
-      for (let i = 0; i < products.length; i += 1) {
-        const row = products[i];
-        const storeRows = byStore.get(row.storeId); if (storeRows) storeRows.push(row); else byStore.set(row.storeId, [row]);
-        const categoryRows = byCategory.get(row.category); if (categoryRows) categoryRows.push(row); else byCategory.set(row.category, [row]);
-        const storeAggregate = allByStore.get(row.storeId) || { stockUnits: 0, stockValue: 0, units30: 0, sales30: 0 };
-        storeAggregate.stockUnits += row.stockUnits || 0; storeAggregate.stockValue += row.stockValue || 0;
-        storeAggregate.units30 += row.units30 || 0; storeAggregate.sales30 += row.sales30 || 0;
-        allByStore.set(row.storeId, storeAggregate);
-        if (this.isPredictiveProduct(row)) {
-          predictiveProducts.push(row);
-          const productRows = predictiveRowsByProduct.get(row.productId); if (productRows) productRows.push(row); else predictiveRowsByProduct.set(row.productId, [row]);
-          const predictiveStore = predictiveByStore.get(row.storeId) || { stockUnits: 0, stockValue: 0, units30: 0, sales30: 0 };
-          predictiveStore.stockUnits += row.stockUnits || 0; predictiveStore.stockValue += row.stockValue || 0;
-          predictiveStore.units30 += row.units30 || 0; predictiveStore.sales30 += row.sales30 || 0;
-          predictiveByStore.set(row.storeId, predictiveStore);
-          const productKey = `${row.productId}|${row.product}`;
-          const productAggregate = predictiveByProduct.get(productKey) || { name: row.product, units: 0, value: 0 };
-          productAggregate.units += row.stockUnits || 0; productAggregate.value += row.stockValue || 0;
-          predictiveByProduct.set(productKey, productAggregate);
+        let payload: { stockProducts: ProductRow[] };
+        try {
+          payload = await this.loadDetail<{ stockProducts: ProductRow[] }>('dashboard-stock-products.json', signal);
+        } catch {
+          if (signal.aborted) return;
+          payload = await this.loadLegacyStock(signal);
         }
-        if (i > 0 && i % 10_000 === 0) await this.yieldToBrowser();
+        const products = payload.stockProducts || [];
+        signal.throwIfAborted();
+        const byStore = new Map<string, ProductRow[]>();
+        const byCategory = new Map<string, ProductRow[]>();
+        const allByStore = new Map<string, StockAggregate>();
+        const predictiveByStore = new Map<string, StockAggregate>();
+        const predictiveByProduct = new Map<string, ProductAggregate>();
+        const predictiveRowsByProduct = new Map<string, ProductRow[]>();
+        const predictiveProducts: ProductRow[] = [];
+        for (let i = 0; i < products.length; i += 1) {
+          if (i % 10_000 === 0) signal.throwIfAborted();
+          const row = products[i];
+          const storeRows = byStore.get(row.storeId);
+          if (storeRows) storeRows.push(row);
+          else byStore.set(row.storeId, [row]);
+          const categoryRows = byCategory.get(row.category);
+          if (categoryRows) categoryRows.push(row);
+          else byCategory.set(row.category, [row]);
+          const storeAggregate = allByStore.get(row.storeId) || { stockUnits: 0, stockValue: 0, units30: 0, sales30: 0 };
+          storeAggregate.stockUnits += row.stockUnits || 0;
+          storeAggregate.stockValue += row.stockValue || 0;
+          storeAggregate.units30 += row.units30 || 0;
+          storeAggregate.sales30 += row.sales30 || 0;
+          allByStore.set(row.storeId, storeAggregate);
+          if (this.isPredictiveProduct(row)) {
+            predictiveProducts.push(row);
+            const productRows = predictiveRowsByProduct.get(row.productId);
+            if (productRows) productRows.push(row);
+            else predictiveRowsByProduct.set(row.productId, [row]);
+            const predictiveStore = predictiveByStore.get(row.storeId) || { stockUnits: 0, stockValue: 0, units30: 0, sales30: 0 };
+            predictiveStore.stockUnits += row.stockUnits || 0;
+            predictiveStore.stockValue += row.stockValue || 0;
+            predictiveStore.units30 += row.units30 || 0;
+            predictiveStore.sales30 += row.sales30 || 0;
+            predictiveByStore.set(row.storeId, predictiveStore);
+            const productKey = `${row.productId}|${row.product}`;
+            const productAggregate = predictiveByProduct.get(productKey) || { name: row.product, units: 0, value: 0 };
+            productAggregate.units += row.stockUnits || 0;
+            productAggregate.value += row.stockValue || 0;
+            predictiveByProduct.set(productKey, productAggregate);
+          }
+          if (i > 0 && i % 10_000 === 0) await this.yieldToBrowser();
+        }
+        signal.throwIfAborted();
+        this.stockProductsByStore = byStore;
+        this.stockProductsByCategory = byCategory;
+        this.predictiveProductsByProduct = predictiveRowsByProduct;
+        this.stockAggregateByStore.set(allByStore);
+        this.predictiveAggregateByStore.set(predictiveByStore);
+        this.predictiveAggregateByProduct.set(predictiveByProduct);
+        this.staticPredictiveProductsData.set(predictiveProducts);
+        this.stockProductsData.set(products);
+        this.stockDetailLoaded.set(true);
+      } catch (error) {
+        if (signal.aborted) return;
+        this.stockDetailFailed.set(true);
+        this.predictiveNote.set(`El detalle por producto no está disponible: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        if (signal.aborted) return;
+        this.stockDetailPromise = undefined;
       }
-      this.stockProductsByStore = byStore; this.stockProductsByCategory = byCategory;
-      this.predictiveProductsByProduct = predictiveRowsByProduct;
-      this.stockAggregateByStore.set(allByStore);
-      this.predictiveAggregateByStore.set(predictiveByStore);
-      this.predictiveAggregateByProduct.set(predictiveByProduct);
-      this.staticPredictiveProductsData.set(predictiveProducts);
-      this.stockProductsData.set(products);
-      this.stockDetailLoaded.set(true);
-    }
-    catch (error) {
-      this.stockDetailFailed.set(true);
-      this.predictiveNote.set(`El detalle por producto no está disponible: ${error instanceof Error ? error.message : error}`);
-    }
-    finally { this.stockDetailPromise = undefined; }
     })();
     return this.stockDetailPromise;
   }
   private async ensurePredictiveDetail(): Promise<void> {
     if (this.predictiveDetailLoaded() || this.predictiveDetailFailed()) return;
     if (this.predictiveDetailPromise) return this.predictiveDetailPromise;
+    const signal = this.sectionLoads.signal;
     this.predictiveDetailLoading.set(true);
     this.predictiveDetailPromise = (async () => {
-    try {
-      const payload = await this.loadDetail<{ note: string; rows: PredictiveRow[] }>('dashboard-predictive.json');
-      const rows = payload.rows || [];
-      const index = new Map<string, PredictiveRow>();
-      for (let i = 0; i < rows.length; i += 1) {
-        const row = rows[i];
-        index.set(`${row.storeId}|${row.productId}`, row);
-        if (i > 0 && i % 10_000 === 0) await this.yieldToBrowser();
+      try {
+        const payload = await this.loadDetail<{ note: string; rows: PredictiveRow[] }>('dashboard-predictive.json', signal);
+        signal.throwIfAborted();
+        const rows = payload.rows || [];
+        signal.throwIfAborted();
+        const index = new Map<string, PredictiveRow>();
+        signal.throwIfAborted();
+        for (let i = 0; i < rows.length; i += 1) {
+          if (i % 10_000 === 0) signal.throwIfAborted();
+          const row = rows[i];
+          index.set(`${row.storeId}|${row.productId}`, row);
+          if (i > 0 && i % 10_000 === 0) await this.yieldToBrowser();
+        }
+        signal.throwIfAborted();
+        this.predictiveIndex.set(index);
+        this.predictiveNote.set(payload.note || '');
+        this.predictiveDetailLoaded.set(true);
+      } catch (error) {
+        if (signal.aborted) return;
+        // El detalle predictivo es complementario: un 404 no debe tumbar todo el dashboard.
+        signal.throwIfAborted();
+        this.predictiveIndex.set(new Map());
+        this.predictiveNote.set(`Detalle predictivo no disponible: ${error instanceof Error ? error.message : error}`);
+        this.predictiveDetailFailed.set(true);
+      } finally {
+        if (signal.aborted) return;
+        this.predictiveDetailLoading.set(false);
+        this.predictiveDetailPromise = undefined;
       }
-      this.predictiveIndex.set(index);
-      this.predictiveNote.set(payload.note || '');
-      this.predictiveDetailLoaded.set(true);
-    } catch (error) {
-      // El detalle predictivo es complementario: un 404 no debe tumbar todo el dashboard.
-      this.predictiveIndex.set(new Map());
-      this.predictiveNote.set(`Detalle predictivo no disponible: ${error instanceof Error ? error.message : error}`);
-      this.predictiveDetailFailed.set(true);
-    }
-    finally { this.predictiveDetailLoading.set(false); this.predictiveDetailPromise = undefined; }
     })();
     return this.predictiveDetailPromise;
   }
