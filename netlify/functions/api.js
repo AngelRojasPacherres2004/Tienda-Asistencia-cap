@@ -1847,9 +1847,11 @@ async function assertCursoAsignadoARol(cursoId, role) {
 
 function trainingReadRoles(user, query) {
   if (user.rol === "coach") {
-    if (query.alcance === "zonales") return ["jefe_zonal"];
-    if (query.alcance === "administradores") return ["jefe_tienda"];
-    if (query.alcance === "tiendas") return storeStaffRoles;
+    let roles = trainingTargetRoles(user.rol);
+    if (query.alcance === "zonales") roles = ["jefe_zonal"];
+    if (query.alcance === "administradores") roles = ["jefe_tienda"];
+    if (query.alcance === "tiendas") roles = storeStaffRoles;
+    return query.rol ? roles.filter((role) => role === query.rol) : roles;
   }
   return user.rol === "gerente_comercial" && query.tienda_id ? storeStaffRoles : trainingTargetRoles(user.rol);
 }
