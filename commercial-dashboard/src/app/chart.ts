@@ -15,6 +15,7 @@ function blackChartText<T>(value: T): T {
     const copy: Record<string, unknown> = {};
     for (const [field, child] of Object.entries(source)) copy[field] = visit(child, field);
     if (['axisLabel', 'axisName', 'nameTextStyle', 'textStyle', 'label', 'title'].includes(key) && copy['show'] !== false) copy['color'] = '#111111';
+    if (key === 'axisLabel' && copy['show'] !== false) copy['fontSize'] = Math.max(11, Number(copy['fontSize']) || 0);
     return copy;
   };
   return visit(value) as T;

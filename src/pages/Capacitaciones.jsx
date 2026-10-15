@@ -128,11 +128,11 @@ export default function Capacitaciones({ user }) {
       </div>}
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-      {zonal && <><PageHeader eyebrow="Jefe zonal" title="Capacitaciones" subtitle="Consulta el avance por persona o prepara el reporte de capacitación con los mismos filtros de tu zona."/><div className="module-view-tabs"><button className={view==="seguimiento"?"active":""} onClick={()=>setView("seguimiento")}>Personas y avance</button><button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div></>}
+      {zonal && <><PageHeader eyebrow="Jefe zonal" title="Capacitaciones"/><div className="module-view-tabs"><button className={view==="seguimiento"?"active":""} onClick={()=>setView("seguimiento")}>Personas y avance</button><button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div></>}
 
       {zonal && view === "reporte" ? <Reportes user={user} embedded initialKind="capacitaciones" allowedKinds={["capacitaciones"]}/> : <>
 
-      {!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" subtitle={`Selecciona un nombre para revisar sus capacitaciones. Supervisas: ${supervisedLabel}.`} />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2><p>Selecciona un administrador para consultar el avance de sus capacitaciones.</p></div>}
+      {!zonal && <PageHeader eyebrow={central ? "Supervisión general" : "Mi tienda"} title="Capacitaciones por persona" />}{zonal && <div className="module-section-heading"><span className="eyebrow">Seguimiento por persona</span><h2>Administradores supervisados</h2></div>}
       {isCoach && <section className="coach-training-filters" aria-label="Filtros de asignación y seguimiento">
         <label className="field"><span>Tienda</span><select value={coachStoreId} onChange={event => { const nextStore = event.target.value; setCoachStoreId(nextStore); if (coachRole && !coachPeople.some(person => person.rol === coachRole && (!nextStore || String(person.tienda_id) === nextStore))) setCoachRole(""); }}><option value="">Todas las tiendas</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}{store.estado === "inactivo" ? " · Inactiva" : ""}</option>)}</select></label>
         <label className="field"><span>Rol</span><select value={coachRole} onChange={event => setCoachRole(event.target.value)}><option value="">Todos los roles</option>{coachRoles.map(role => <option key={role} value={role}>{roleLabels[role] || role}</option>)}</select></label>
@@ -168,7 +168,7 @@ export default function Capacitaciones({ user }) {
 
       {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal", "coach"].includes(user?.rol)} onClose={() => setPerfilId(null)} />}
 
-      {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2><p>Filtra una capacitación y revisa el estado de los administradores supervisados.</p></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} subtitle={isCoach ? "Las capacitaciones se habilitan para roles completos desde Crear capacitaciones; aquí solo revisas su avance general." : "Filtra una capacitación y revisa el estado de las personas supervisadas."} />}
+      {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} />}
       {!cursos ? <Loading /> : cursos.length ? (
         <>{scopedAccess && scope === "tiendas" && !scopeId ? <p>Selecciona una tienda en el filtro para revisar sus capacitaciones.</p> : <><ResumenPanel key={`${cursoId}:${scopeQuery}:${refreshVersion}`} refreshVersion={refreshVersion} cursos={cursos} cursoId={cursoId} setCursoId={setCursoId} scopeQuery={scopeQuery} scopeLabel={scopedAccess ? scopeLabel : ""}/>{isCoach && <CoachComparisonPanel cursos={cursos} cursoId={cursoId} setCursoId={setCursoId} stores={stores} clusters={clusters} refreshVersion={refreshVersion} catalogsReady={catalogVersion === refreshVersion}/>}</>}</>
       ) : (

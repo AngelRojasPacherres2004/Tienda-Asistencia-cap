@@ -57,6 +57,18 @@ export function annualSummaryPath(version, year, storeId) {
   return `commercial-annual/${version}/${year}/summary/${storeId}.json.gz`;
 }
 
+export function annualMonthlyReportPath(version, year, kind, storeId, month) {
+  annualReportPath(version, year, kind, storeId);
+  if (!Number.isInteger(Number(month)) || Number(month) < 1 || Number(month) > 12) {
+    throw new Error("Mes de reporte no válido.");
+  }
+  return `commercial-annual-v2/${version}/${year}/${kind}/${storeId}/${String(month).padStart(2, "0")}.jsonl.gz`;
+}
+
+export function annualMonthlySummaryPath(version, year, storeId) {
+  return annualSummaryPath(version, year, storeId).replace("commercial-annual/", "commercial-annual-v2/");
+}
+
 export function parseAnnualFilters(input = {}) {
   const year = String(input.year || "");
   if (!/^20\d{2}$/.test(year)) throw new Error("Selecciona un único año para descargar.");

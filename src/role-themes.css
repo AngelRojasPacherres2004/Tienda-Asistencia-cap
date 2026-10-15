@@ -7,6 +7,7 @@
   color: #203b56; background: #fffdf8; border-color: #dedfdc; box-shadow: 0 8px 26px rgba(36,61,86,.06);
 }
 .app-light :is(.metric-card, .company-card, .panel, .profile-details, .worker-task, .assignment-card, .history-timeline, .audit-wizard, .report-detail-grid, .dashboard-detail-modal, .success-dialog, .save-success-card) :is(h2, h3) { color: #171717; }
+.app-light .task-catalog-card :is(strong, span, small) { color: #111; }
 .app-light :is(.metric-card > strong, .metric-card__value, .cell-primary, .company-card dd, .due-list strong, .chart-legend strong, .security-table__row strong, .history-timeline strong, .history-change strong, .assignment-date strong, .profile-details dd, .compact-metrics strong, .worker-summary strong) { color: #203b56; }
 .app-light :is(.metric-card > p, .metric-card__top small, .company-card > p, .company-card dt, .company-card__footer > span, .profile-details dt, .detail-person small, .worker-summary small, .due-list small, .due-list time, .chart-legend span, .assignment-main p, .assignment-people small, .assignment-date, .history-timeline p, .history-timeline small, .report-detail-grid dt, .report-picker p, .report-picker small, .success-dialog__message, .save-success-copy) { color: #4b5563; }
 .app-light :is(.report-filters, .history-change, .audit-wizard__progress, .audit-wizard__intro > aside, .audit-summary__sections > div, .audit-wizard__steps button, .form-tabs, .dashboard-filter-tabs) { background: #f0eee6; color: #41566a; border-color: #dedfdc; }

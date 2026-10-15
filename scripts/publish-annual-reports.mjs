@@ -2,7 +2,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath } from "../shared/annualReports.js";
+import { ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, annualMonthlyReportPath, annualMonthlySummaryPath } from "../shared/annualReports.js";
 
 const directory = process.argv.find(value => value.startsWith("--directory="))?.slice(12);
 const apply = process.argv.includes("--apply");
@@ -16,6 +16,7 @@ const { data: release, error: releaseError } = await client.from("dashboard_rele
   .order("published_at", { ascending: false }).limit(1).single();
 if (releaseError || !release) throw new Error("No se encontró un corte comercial publicado.");
 const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"));
+const monthly = manifest.schemaVersion === 2;
 if (manifest.cutoffs?.ventas !== release.sales_cutoff || manifest.cutoffs?.stock !== release.stock_cutoff) {
   throw new Error("La Capa 2 no coincide con el corte publicado; no se mezclarán fuentes.");
 }
@@ -30,11 +31,14 @@ const files = [];
 for (const item of manifest.files.filter(row => allowed.has(row.storeId))) {
   if (!ANNUAL_DETAIL_COLUMNS[item.kind]
     || !manifest.years.includes(item.year) || !Number.isSafeInteger(item.rows) || item.rows < 1
-    || item.path !== `${item.year}/${item.kind}/${item.storeId}.jsonl.gz`) throw new Error("Detalle anual inválido.");
+    || item.path !== (monthly ? `${item.year}/${item.kind}/${item.storeId}/${String(item.month).padStart(2, "0")}.jsonl.gz`
+      : `${item.year}/${item.kind}/${item.storeId}.jsonl.gz`)) throw new Error("Detalle anual inválido.");
   const filePath = path.join(directory, item.path);
   const size = (await stat(filePath)).size;
   if (size !== item.bytes || size > 50 * 1024 * 1024) throw new Error(`Archivo inválido o demasiado grande: ${item.path}`);
-  files.push({ ...item, filePath, storagePath: annualReportPath(release.version, item.year, item.kind, item.storeId) });
+  files.push({ ...item, filePath, storagePath: monthly
+    ? annualMonthlyReportPath(release.version, item.year, item.kind, item.storeId, item.month)
+    : annualReportPath(release.version, item.year, item.kind, item.storeId) });
 }
 for (const item of manifest.summaries.filter(row => allowed.has(row.storeId))) {
   if (!manifest.years.includes(item.year)
@@ -43,13 +47,15 @@ for (const item of manifest.summaries.filter(row => allowed.has(row.storeId))) {
   const filePath = path.join(directory, item.path);
   const size = (await stat(filePath)).size;
   if (size !== item.bytes || size > 50 * 1024 * 1024) throw new Error(`Archivo inválido o demasiado grande: ${item.path}`);
-  files.push({ ...item, filePath, storagePath: annualSummaryPath(release.version, item.year, item.storeId) });
+  files.push({ ...item, filePath, storagePath: monthly
+    ? annualMonthlySummaryPath(release.version, item.year, item.storeId)
+    : annualSummaryPath(release.version, item.year, item.storeId) });
 }
 console.log(JSON.stringify({ version: release.version, years: manifest.years,
   objects: files.length, compressedBytes: files.reduce((sum, item) => sum + item.bytes, 0), apply }));
 if (!apply) process.exit(0);
 const bucket = client.storage.from("dashboard-data");
-const manifestPath = `commercial-annual/${release.version}/manifest.json`;
+const manifestPath = `${monthly ? "commercial-annual-v2" : "commercial-annual"}/${release.version}/manifest.json`;
 if ((await bucket.info(manifestPath)).data) throw new Error("La versión anual ya está publicada.");
 for (const file of files) {
   const existing = await bucket.info(file.storagePath);

@@ -382,6 +382,8 @@ export class App implements OnInit {
   ];
   readonly selectedClusters = signal<string[]>([]); readonly selectedFormats = signal<string[]>([]);
   readonly storeFilterLocked = computed(() => this.cloud.accessProfile()?.scopeType === 'store');
+  readonly sectionAdviceEnabled = computed(() => ['gerente_comercial', 'jefe_comercial', 'jefe_zonal', 'coach']
+    .includes(this.cloud.accessProfile()?.roleCode || ''));
   readonly clusterFilterLocked = computed(() => {
     const scope = this.cloud.accessProfile()?.scopeType;
     return scope === 'store' || scope === 'cluster';
@@ -1476,14 +1478,27 @@ export class App implements OnInit {
     const rows = (this.operationalSummary()?.training || []).filter(row => ids.has(row.storeId)
       && (audience === 'SELLERS' ? row.role === 'vendedor' : ['jefe_tienda', 'asistente_tienda'].includes(row.role)));
     const courses = grouped(rows, row => row.course);
-    return [...courses.entries()].map(([name, assigned]) => ({ name, total: assigned.length,
-      value: Math.round(100 * assigned.filter(row => row.state === 'completado').length / assigned.length) }))
-      .sort((a, b) => b.total - a.total).slice(0, 4);
+    return (this.operationalSummary()?.courses || []).slice(0, 5).map(name => {
+      const assigned = courses.get(name) || [];
+      const completed = assigned.filter(row => row.state === 'completado').length;
+      return { name, total: assigned.length, pending: assigned.length - completed,
+        value: assigned.length ? Math.round(100 * completed / assigned.length) : 0 };
+    });
   }
   readonly sellerTrainingOption = computed<EChartsOption>(() => this.courseProgressOption(this.trainingRowsFor('SELLERS'), C.teal));
   readonly administratorTrainingOption = computed<EChartsOption>(() => this.courseProgressOption(this.trainingRowsFor('ADMINISTRATORS'), C.purple));
-  readonly selectedTrainingOption = computed<EChartsOption>(() => this.trainingAudience() === 'SELLERS'
-    ? this.sellerTrainingOption() : this.administratorTrainingOption());
+  readonly sellerPendingTrainingOption = computed<EChartsOption>(() => {
+    const rows = this.trainingRowsFor('SELLERS');
+    const max = Math.max(1, ...rows.map(row => row.pending));
+    return { animation: false, grid: { left: 128, right: 38, top: 8, bottom: 22 },
+      tooltip: { trigger: 'item', formatter: (item: any) => `${rows[item.dataIndex]?.name || ''}: ${item.value} pendientes`, confine: true },
+      xAxis: { type: 'value', min: 0, max, minInterval: 1, axisLabel: { color: '#111', fontSize: 11 } },
+      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.name), axisLabel: { width: 116, overflow: 'truncate', color: '#111', fontSize: 11 } },
+      series: [{ type: 'bar', data: rows.map(row => row.pending), barMaxWidth: 19, itemStyle: { color: C.teal }, label: { show: true, position: 'right', color: '#111', formatter: '{c}' } }] } as EChartsOption;
+  });
+  readonly selectedTrainingOption = computed<EChartsOption>(() => this.storeFilterLocked()
+    ? this.sellerPendingTrainingOption() : this.trainingAudience() === 'SELLERS'
+      ? this.sellerTrainingOption() : this.administratorTrainingOption());
   readonly talentIncidentRows = computed(() => {
     const ids = this.filteredStoreIds();
     const periods = this.selectedPeriods();
@@ -2843,20 +2858,17 @@ export class App implements OnInit {
     return this.sectionAdvices()[id] ?? null;
   }
   private formatSectionAdvice(text: string): string {
-    let skipReading = false;
-    return text.split(/\r?\n/).filter(line => {
-      const heading = line.replace(/^[\s#>*\d.)_\-•]+/, '').replace(/\*\*|__/g, '').toUpperCase();
-      if (/^LECTURA(?:\s|:|$)/.test(heading)) { skipReading = true; return false; }
-      if (/^(HALLAZGO|RECOMENDACI[ÓO]N|PR[ÓO]XIMO PASO)\b/.test(heading)) skipReading = false;
-      return !skipReading;
-    }).join('\n').trim();
+    const clean = text.replace(/\*\*|__/g, '').replace(/(?:^|\n)\s*(?:HALLAZGO|LECTURA)\s*:[\s\S]*?(?=\bRECOMENDACI[ÓO]N\s*:|\bPR[ÓO]XIMO PASO\s*:|$)/gi, '').trim();
+    const recommendation = clean.match(/RECOMENDACI[ÓO]N\s*:\s*([\s\S]*?)(?=\bPR[ÓO]XIMO PASO\s*:|$)/i)?.[1]?.trim();
+    const next = clean.match(/PR[ÓO]XIMO PASO\s*:\s*([\s\S]*)/i)?.[1]?.trim();
+    return [recommendation && `RECOMENDACIÓN: ${recommendation}`, next && `PRÓXIMO PASO: ${next}`].filter(Boolean).join('\n\n') || `RECOMENDACIÓN: ${clean}`;
   }
   async requestSectionAdvice(id: string, section: string): Promise<void> {
-    if (this.sectionAdviceFor(id)?.loading) return;
+    if (!this.sectionAdviceEnabled() || this.sectionAdviceFor(id)?.loading) return;
     this.sectionAdvices.update(items => ({ ...items, [id]: { text: '', loading: true, error: false } }));
     try {
       const text = await this.assistant.ask([
-        { role: 'user', content: `MODO CONSEJO POR BLOQUE. Sección: ${section}. Usa exclusivamente los datos entregados y no pidas aclaraciones. Responde con tres líneas breves: HALLAZGO (qué merece atención), RECOMENDACIÓN (qué hacer) y PRÓXIMO PASO (acción concreta). No incluyas el apartado LECTURA. Si un dato no existe, simplemente omítelo.` },
+        { role: 'user', content: `MODO CONSEJO POR BLOQUE. Sección: ${section}. Usa exclusivamente los indicadores entregados y no pidas aclaraciones. Responde en dos puntos breves y específicos: RECOMENDACIÓN (qué hacer y con qué indicador se sustenta) y PRÓXIMO PASO (acción concreta). No incluyas HALLAZGO ni LECTURA. Si un dato no existe, omítelo.` },
       ], this.sectionAdviceContext(id, section));
       this.sectionAdvices.update(items => ({ ...items, [id]: { text: this.formatSectionAdvice(text), loading: false, error: false } }));
     } catch {

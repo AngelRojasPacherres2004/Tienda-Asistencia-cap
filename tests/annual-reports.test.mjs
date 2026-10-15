@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ANNUAL_DETAIL_COLUMNS, annualReportPath, parseAnnualFilters, matchesAnnualRow, csvLine } from "../shared/annualReports.js";
+import { ANNUAL_DETAIL_COLUMNS, annualReportPath, annualMonthlyReportPath, annualMonthlySummaryPath, parseAnnualFilters, matchesAnnualRow, csvLine } from "../shared/annualReports.js";
 import { summarizeAnnualReports, buildAnnualSummaryWorkbook } from "../netlify/lib/annual-report-workbook.js";
 
 const version = "20261009T163742Z-18015098d4a3";
@@ -13,6 +13,11 @@ test("un reporte detallado exige un solo año y rutas sin desbordar alcance", ()
   assert.equal(annualReportPath(version, 2026, "ventas", "T012"),
     `commercial-annual/${version}/2026/ventas/T012.jsonl.gz`);
   assert.throws(() => annualReportPath(version, 2026, "ventas", "../T012"));
+  assert.equal(annualMonthlyReportPath(version, 2026, "ventas", "T012", 9),
+    `commercial-annual-v2/${version}/2026/ventas/T012/09.jsonl.gz`);
+  assert.equal(annualMonthlySummaryPath(version, 2026, "T012"),
+    `commercial-annual-v2/${version}/2026/summary/T012.json.gz`);
+  assert.throws(() => annualMonthlyReportPath(version, 2026, "ventas", "T012", 13));
 });
 
 test("el detalle separa fecha, tienda y producto y evita fórmulas CSV", () => {

@@ -32,6 +32,7 @@ export type DashboardAccessProfile = {
   clusters: string[];
 };
 export type OperationalSummary = {
+  courses: string[];
   training: { storeId: string; role: string; course: string; state: string }[];
   departures: { storeId: string; date: string; reason: string }[];
   incidents: { storeId: string; date: string; type: string }[];

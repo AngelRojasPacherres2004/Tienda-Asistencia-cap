@@ -15,7 +15,7 @@ export default function MisCapacitaciones() {
 
   return (
     <>
-      <PageHeader eyebrow="Mi desarrollo" title="Mis capacitaciones" subtitle="Tu progreso en cada capacitación del catálogo." />
+      <PageHeader eyebrow="Mi desarrollo" title="Mis capacitaciones" />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       {!items ? <Loading /> : items.length ? (

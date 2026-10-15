@@ -12,6 +12,7 @@ const unique = values => [...new Set(values.filter(Boolean))].sort((a, b) => a.l
 const paramsOf = values => new URLSearchParams(Object.entries(values).filter(([, value]) => value !== ""));
 const options = values => values.map(([value, label]) => <option key={value} value={value}>{label || value}</option>);
 const catalogCache = new Map();
+const dimensionCache = new Map();
 
 async function* rowsFrom(responsePromise) {
   const { response, error } = await responsePromise;
@@ -85,35 +86,61 @@ export default function NormalizedReports({ user }) {
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState(null);
+  const [retry, setRetry] = useState(0);
+  const [dimensions, setDimensions] = useState([]);
   useEffect(() => {
     let active = true;
     const cached = catalogCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < 60_000) {
+    if (cached?.data?.ready && Date.now() - cached.at < 60_000) {
       setCatalog(cached.data);
       setFilters(current => ({ ...current, year: current.year || String(cached.data.years?.[0] || '') }));
       return () => { active = false; };
     }
     api("/commercial/annual-reports")
-      .then(data => { if (active) { catalogCache.set(cacheKey, { at: Date.now(), data }); setCatalog(data); setFilters(current => ({ ...current, year: current.year || String(data.years?.[0] || "") })); } })
+      .then(data => { if (active) { if (data.ready) catalogCache.set(cacheKey, { at: Date.now(), data });
+        else catalogCache.delete(cacheKey);
+        setCatalog(data); setFilters(current => ({ ...current, year: current.year || String(data.years?.[0] || "") })); } })
       .catch(error => { if (active) setMessage({ type: "error", text: error.message }); });
     return () => { active = false; };
-  }, [cacheKey]);
+  }, [cacheKey, retry]);
   const stores = catalog?.stores || [];
   const allowedStores = stores.filter(store => (!filters.cluster || store.cluster === filters.cluster)
     && (!filters.format || store.format === filters.format));
   const selectedStores = filters.storeId ? allowedStores.filter(store => store.id === filters.storeId) : allowedStores;
-  const dimensions = selectedStores.flatMap(store => catalog?.dimensions?.[`${filters.year}/${store.id}`] || []);
+  const dimensionStoreIds = selectedStores.map(store => store.id).sort().join(",");
+  useEffect(() => {
+    if (!catalog?.ready || !filters.year || !dimensionStoreIds) { setDimensions([]); return; }
+    let active = true;
+    const key = `${cacheKey}/${filters.year}/${dimensionStoreIds}/${catalog.cutoffs?.ventas || ""}`;
+    if (dimensionCache.has(key)) { setDimensions(dimensionCache.get(key)); return; }
+    if (filters.year === String(catalog.years?.[0]) && !filters.cluster && !filters.format && !filters.storeId
+      && Array.isArray(catalog.initialDimensions)) {
+      dimensionCache.set(key, catalog.initialDimensions);
+      setDimensions(catalog.initialDimensions);
+      return;
+    }
+    setDimensions([]);
+    api(`/commercial/annual-reports/dimensions?${paramsOf({ year: filters.year, storeId: filters.storeId,
+      cluster: filters.cluster, format: filters.format })}`)
+      .then(result => { if (active) { dimensionCache.set(key, result.dimensions || []); setDimensions(result.dimensions || []); } })
+      .catch(error => { if (active) setMessage({ type: "error", text: `No se pudieron cargar las clasificaciones: ${error.message}` }); });
+    return () => { active = false; };
+  }, [catalog, cacheKey, filters.year, filters.storeId, filters.cluster, filters.format, dimensionStoreIds]);
   const rubros = unique(dimensions.map(row => row[0]));
   const lines = unique(dimensions.filter(row => !filters.rubro || row[0] === filters.rubro).map(row => row[1]));
-  const sublines = unique(dimensions.filter(row => (!filters.rubro || row[0] === filters.rubro)
-    && (!filters.linea || row[1] === filters.linea)).map(row => row[2]));
+  const sublines = filters.linea ? unique(dimensions.filter(row => (!filters.rubro || row[0] === filters.rubro)
+    && row[1] === filters.linea).map(row => row[2])) : [];
   const genders = unique(dimensions.filter(row => !filters.rubro || row[0] === filters.rubro).map(row => genderFromLine(row[1])));
   const productFilters = catalog?.reports?.find(item => item.id === kind)?.productFilters !== false;
   const kindAvailable = catalog?.reports?.find(item => item.id === kind)?.years?.includes(Number(filters.year));
   const selectedIds = new Set(selectedStores.map(store => store.id));
+  const availableMonths = catalog?.monthly ? [...new Set((catalog.fileRows || []).filter(item => item.year === Number(filters.year)
+    && item.kind === kind && selectedIds.has(item.storeId)).map(item => item.month))].filter(Boolean).sort((a, b) => a - b)
+    : months.map((_, index) => index + 1);
   const sourceRows = (catalog?.fileRows || []).filter(item => item.year === Number(filters.year)
-    && item.kind === kind && selectedIds.has(item.storeId)).reduce((sum, item) => sum + item.rows, 0);
-  const rowFilterActive = !!(filters.month || filters.day || (productFilters
+    && item.kind === kind && selectedIds.has(item.storeId) && (!catalog?.monthly || !filters.month || item.month === Number(filters.month)))
+    .reduce((sum, item) => sum + item.rows, 0);
+  const rowFilterActive = !!(filters.day || (!catalog?.monthly && filters.month) || (productFilters
     && (filters.rubro || filters.gender || filters.linea || filters.sublinea)));
   const exceedsExcel = sourceRows > MAX_ROWS && !rowFilterActive;
   const dayCount = filters.month ? new Date(Number(filters.year), Number(filters.month), 0).getDate() : 0;
@@ -121,7 +148,8 @@ export default function NormalizedReports({ user }) {
     if (key === "year") setKind("ventas");
     setFilters(current => {
       const next = { ...current, [key]: value };
-      if (["year", "month"].includes(key)) next.day = "";
+      if (["year", "month", "cluster", "format", "storeId"].includes(key)) next.day = "";
+      if (["cluster", "format", "storeId"].includes(key)) next.month = "";
       if (["cluster", "format"].includes(key)) next.storeId = "";
       if (["year", "cluster", "format", "storeId"].includes(key)) {
         next.rubro = ""; next.gender = ""; next.linea = ""; next.sublinea = "";
@@ -165,11 +193,14 @@ export default function NormalizedReports({ user }) {
   return <section className="panel annual-reports">
     <header className="report-workspace__header"><h2>Análisis y cifras</h2></header>
     {message && <Notice type={message.type} onClose={() => setMessage(null)}>{message.text}</Notice>}
-    {!catalog ? <div className="annual-reports__skeleton" aria-label="Preparando catálogo de reportes"/> : !catalog.ready ?
-      <p>Los reportes del corte actual aún no están preparados.</p> : <>
+    {!catalog ? (message?.type === "error"
+      ? <button type="button" className="button button--ghost" onClick={() => { setMessage(null); setRetry(value => value + 1); }}>Reintentar carga de reportes</button>
+      : <div className="annual-reports__skeleton" aria-label="Preparando catálogo de reportes"/>) : !catalog.ready ?
+      <div className="annual-reports__empty"><p>Los reportes del corte actual aún no están preparados.</p>
+        <button type="button" className="button button--ghost" onClick={() => { setCatalog(null); setRetry(value => value + 1); }}>Volver a consultar</button></div> : <>
       <div className="annual-reports__filters">
         {field("Año", "year", catalog.years.map(year => [String(year)]))}
-        {field("Mes", "month", [["", "Todo el año"], ...months.map((label, index) => [String(index + 1), label])])}
+        {field("Mes", "month", [["", "Todo el año"], ...availableMonths.map(month => [String(month), months[month - 1]])])}
         {field("Día", "day", [["", "Todos"], ...Array.from({ length: dayCount }, (_, index) => [String(index + 1)])], !filters.month)}
         {!singleStoreRole && availableClusters.length > 1 && field("Clúster", "cluster", [["", "Todos"], ...availableClusters.map(value => [value])])}
         {!singleStoreRole && availableFormats.length > 1 && field("Formato", "format", [["", "Todos"], ...availableFormats.map(value => [value])])}
@@ -177,10 +208,10 @@ export default function NormalizedReports({ user }) {
         {field("Rubro", "rubro", [["", "Todos"], ...rubros.map(value => [value])])}
         {field("Género", "gender", [["", "Todos"], ...genders.map(value => [value])])}
         {field("Línea", "linea", [["", "Todas"], ...lines.map(value => [value])])}
-        {field("Sublínea", "sublinea", [["", "Todas"], ...sublines.map(value => [value])])}
+        {field("Sublínea", "sublinea", [["", "Todas"], ...sublines.map(value => [value])], !filters.linea)}
       </div>
       <div className="annual-reports__actions">
-        <label>Detalle<select value={kind} onChange={event => setKind(event.target.value)}>{catalog.reports.map(item =>
+        <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{catalog.reports.map(item =>
           <option key={item.id} value={item.id} disabled={!item.years.includes(Number(filters.year))}>{item.label}{item.years.includes(Number(filters.year)) ? "" : " · sin datos"}</option>)}</select></label>
         <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
       </div>

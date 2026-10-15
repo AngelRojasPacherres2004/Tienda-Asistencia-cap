@@ -1,6 +1,9 @@
 import http from "node:http";
 import { handler } from "../netlify/functions/api.js";
 
+// This entry point is local-only; inherited Netlify context must not hide local report files.
+process.env.CONTEXT = "dev";
+
 const server = http.createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);

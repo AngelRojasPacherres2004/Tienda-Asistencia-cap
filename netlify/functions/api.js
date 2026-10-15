@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { SYSTEM_UPLOAD_CHUNK_SIZE, SYSTEM_SOURCES, validateSystemUpload, systemPartPath, systemManifestPath } from "../../shared/systemUpload.js";
 import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchPath, commercialBatchSources, validateBatchId, validateCutoff } from "../../shared/commercialBatch.js";
 import { NORMALIZED_REPORTS, normalizedReportPath } from "../../shared/normalizedReports.js";
-import { ANNUAL_REPORT_KINDS, ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, parseAnnualFilters } from "../../shared/annualReports.js";
+import { ANNUAL_REPORT_KINDS, ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, annualMonthlyReportPath, annualMonthlySummaryPath, parseAnnualFilters } from "../../shared/annualReports.js";
 import { summarizeAnnualReports, buildAnnualSummaryWorkbook } from "../lib/annual-report-workbook.js";
 import { readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
@@ -197,21 +197,22 @@ async function commercialOperationalSummary(sessionUser) {
     .select('dashboard_store_id,tienda_id').in('dashboard_store_id', access.storeIds);
   if (mappingError) throw dbError(mappingError);
   const storeIds = [...new Set((mappings || []).map(row => row.tienda_id))];
-  if (!storeIds.length) return { training: [], departures: [], incidents: [] };
+  if (!storeIds.length) return { courses: [], training: [], departures: [], incidents: [] };
   const dashboardId = new Map(mappings.map(row => [row.tienda_id, row.dashboard_store_id]));
   const [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult] = await Promise.all([
-    supabase.from('usuarios').select('id,tienda_id,rol,fecha_salida,motivo_salida').in('tienda_id', storeIds),
-    supabase.from('capacitacion_progreso').select('usuario_id,tienda_id,curso_id,estado').in('tienda_id', storeIds),
-    supabase.from('cursos').select('id,nombre').eq('activo', true),
-    supabase.from('incidencias').select('tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01'),
-    supabase.from('incidencias_zonales').select('tienda_origen_id,tienda_afectada_id,fecha,tipo,alcance')
-      .or(`tienda_origen_id.in.(${storeIds.join(',')}),tienda_afectada_id.in.(${storeIds.join(',')})`).gte('fecha', '2024-01-01'),
+    readAllResult(supabase.from('usuarios').select('id,tienda_id,rol,fecha_salida,motivo_salida').in('tienda_id', storeIds)),
+    readAllResult(supabase.from('capacitacion_progreso').select('id,usuario_id,tienda_id,curso_id,estado').in('tienda_id', storeIds)),
+    supabase.from('cursos').select('id,nombre').eq('activo', true).order('id').limit(5),
+    readAllResult(supabase.from('incidencias').select('id,tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01')),
+    readAllResult(supabase.from('incidencias_zonales').select('id,tienda_origen_id,tienda_afectada_id,fecha,tipo,alcance')
+      .or(`tienda_origen_id.in.(${storeIds.join(',')}),tienda_afectada_id.in.(${storeIds.join(',')})`).gte('fecha', '2024-01-01')),
   ]);
   const failure = [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult].find(result => result.error);
   if (failure) throw dbError(failure.error);
   const roles = new Map(usersResult.data.map(user => [user.id, user.rol]));
   const courseNames = new Map(coursesResult.data.map(course => [course.id, course.nombre]));
   return {
+    courses: coursesResult.data.map(course => course.nombre),
     training: trainingResult.data.filter(row => courseNames.has(row.curso_id)).map(row => ({
       storeId: dashboardId.get(row.tienda_id), role: roles.get(row.usuario_id) || '',
       course: courseNames.get(row.curso_id), state: row.estado,
@@ -621,10 +622,13 @@ async function annualReportManifest() {
 
 async function loadAnnualReportManifest() {
   const release = await publishedCommercialRelease();
-  // El directorio local solo se usa para revisar la nueva publicación antes de subirla.
-  const localDirectory = process.env.CONTEXT === "production" ? null
-    : (process.env.ANNUAL_REPORTS_DIR || resolve(process.cwd(), "..", ".etl_work", "annual-reports"));
-  if (localDirectory) {
+  // En local se prefiere la partición mensual; la versión anual sigue disponible como respaldo.
+  const localDirectories = process.env.CONTEXT === "production" ? [] : [
+    ...(process.env.ANNUAL_REPORTS_DIR ? [process.env.ANNUAL_REPORTS_DIR] : []),
+    resolve(process.cwd(), "..", ".etl_work", "annual-reports-monthly"),
+    resolve(process.cwd(), "..", ".etl_work", "annual-reports"),
+  ];
+  for (const localDirectory of localDirectories) {
     try {
       const local = JSON.parse(await readFile(join(localDirectory, "manifest.json"), "utf8"));
       if (local.cutoffs?.ventas && local.cutoffs?.stock
@@ -633,7 +637,8 @@ async function loadAnnualReportManifest() {
       }
     } catch { /* Sin archivos locales: consultar la publicación privada. */ }
   }
-  const result = await systemsStorage().download(`commercial-annual/${release.version}/manifest.json`);
+  let result = await systemsStorage().download(`commercial-annual-v2/${release.version}/manifest.json`);
+  if (result.error || !result.data) result = await systemsStorage().download(`commercial-annual/${release.version}/manifest.json`);
   if (result.error || !result.data) return { release, manifest: null, localDirectory: null };
   let manifest;
   try { manifest = JSON.parse(await result.data.text()); }
@@ -674,15 +679,31 @@ async function annualReportCatalog(sessionUser) {
   const files = manifest.files.filter(item => allowedStores.has(item.storeId)
     && (access.role !== "coach" || item.kind === "ventas"));
   const years = [...new Set(files.map(item => item.year))].sort((a, b) => b - a);
-  const dimensions = Object.fromEntries(Object.entries(manifest.dimensions || {})
-    .filter(([key]) => allowedStores.has(key.split("/")[1])));
-  return { ready: true, years, cutoffs: manifest.cutoffs,
-    fileRows: files.map(({ year, kind, storeId, rows }) => ({ year, kind, storeId, rows })),
+  const initialDimensions = annualDimensionTuples(manifest, years[0], access.storeIds);
+  return { ready: true, monthly: manifest.schemaVersion === 2, years, cutoffs: manifest.cutoffs,
+    fileRows: files.map(({ year, kind, storeId, month, rows }) => ({ year, kind, storeId, month, rows })),
     reports: ANNUAL_REPORT_KINDS.filter(item => access.role !== "coach" || item.id === "ventas")
       .map(item => ({ ...item, years: [...new Set(files.filter(file => file.kind === item.id).map(file => file.year))] })),
     stores: access.storeIds.filter(storeId => manifest.stores?.[storeId]).map(storeId => ({
       id: storeId, ...manifest.stores[storeId],
-    })), dimensions };
+    })), initialDimensions };
+}
+
+function annualDimensionTuples(manifest, year, storeIds) {
+  const tuples = new Set();
+  for (const storeId of storeIds) {
+    for (const tuple of manifest.dimensions?.[`${year}/${storeId}`] || []) tuples.add(JSON.stringify(tuple));
+  }
+  return [...tuples].map(tuple => JSON.parse(tuple));
+}
+
+async function annualReportDimensions(event, sessionUser) {
+  const access = await currentCommercialAccess(sessionUser);
+  const { manifest } = await annualReportManifest();
+  if (!manifest) throw httpError("Los reportes anuales aún no están publicados.", 404);
+  const filters = annualFilters(event.queryStringParameters, manifest);
+  const selected = annualStores(access, manifest, filters);
+  return { year: filters.year, dimensions: annualDimensionTuples(manifest, filters.year, selected) };
 }
 
 async function annualDetailLinks(event, sessionUser) {
@@ -694,20 +715,31 @@ async function annualDetailLinks(event, sessionUser) {
   const filters = annualFilters(event.queryStringParameters, manifest);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
+  const monthly = manifest.schemaVersion === 2;
   const matching = manifest.files.filter(item => item.kind === kind && item.year === filters.year
-    && selected.includes(item.storeId) && item.path === `${filters.year}/${kind}/${item.storeId}.jsonl.gz`);
+    && selected.includes(item.storeId) && (!monthly || !filters.month || item.month === filters.month)
+    && item.path === (monthly ? `${filters.year}/${kind}/${item.storeId}/${String(item.month).padStart(2, "0")}.jsonl.gz`
+      : `${filters.year}/${kind}/${item.storeId}.jsonl.gz`));
   if (!matching.length) throw httpError("No hay registros de esa fuente para el año y tiendas seleccionados.", 404);
-  const files = await Promise.all(matching.map(async item => {
-    const path = annualReportPath(release.version, item.year, item.kind, item.storeId);
-    if (localDirectory) {
-      return { storeId: item.storeId, rows: item.rows,
-        url: `/api/commercial/annual-reports/local-file?year=${item.year}&kind=${kind}&storeId=${item.storeId}` };
-    } else {
-      const signed = await systemsStorage().createSignedUrl(path, 1200);
-      if (signed.error || !signed.data?.signedUrl) throw httpError("No se pudo preparar el detalle anual.", 503);
-      return { storeId: item.storeId, rows: item.rows, url: signed.data.signedUrl };
+  const files = matching.map(item => {
+    const path = monthly ? annualMonthlyReportPath(release.version, item.year, item.kind, item.storeId, item.month)
+      : annualReportPath(release.version, item.year, item.kind, item.storeId);
+    return { path, storeId: item.storeId, rows: item.rows,
+      url: localDirectory
+        ? `/api/commercial/annual-reports/local-file?year=${item.year}&kind=${kind}&storeId=${item.storeId}${monthly ? `&month=${item.month}` : ''}`
+        : null };
+  });
+  if (!localDirectory) {
+    for (let start = 0; start < files.length; start += 100) {
+      const batch = files.slice(start, start + 100);
+      const signed = await systemsStorage().createSignedUrls(batch.map(item => item.path), 1200);
+      if (signed.error || signed.data?.length !== batch.length || signed.data.some(item => !item.signedUrl)) {
+        throw httpError("No se pudo preparar el detalle anual.", 503);
+      }
+      batch.forEach((item, index) => { item.url = signed.data[index].signedUrl; });
     }
-  }));
+  }
+  files.forEach(item => { delete item.path; });
   return { year: filters.year, kind, columns: ANNUAL_DETAIL_COLUMNS[kind], files };
 }
 
@@ -720,8 +752,12 @@ async function annualLocalDetailFile(event, sessionUser) {
   const filters = annualFilters(event.queryStringParameters, manifest);
   const storeId = String(event.queryStringParameters?.storeId || "");
   if (!annualStores(access, manifest, { ...filters, storeId }).includes(storeId)) throw httpError("Tienda fuera de alcance.", 403);
-  const item = manifest.files.find(file => file.kind === kind && file.year === filters.year && file.storeId === storeId);
-  if (!item || item.path !== `${filters.year}/${kind}/${storeId}.jsonl.gz`) throw httpError("Archivo no disponible.", 404);
+  const monthly = manifest.schemaVersion === 2;
+  if (monthly && !filters.month) throw httpError("Selecciona el mes del archivo.", 400);
+  const item = manifest.files.find(file => file.kind === kind && file.year === filters.year && file.storeId === storeId
+    && (!monthly || file.month === filters.month));
+  if (!item || item.path !== (monthly ? `${filters.year}/${kind}/${storeId}/${String(filters.month).padStart(2, "0")}.jsonl.gz`
+    : `${filters.year}/${kind}/${storeId}.jsonl.gz`)) throw httpError("Archivo no disponible.", 404);
   const data = await readFile(join(localDirectory, item.path));
   return { statusCode: 200, isBase64Encoded: true,
     headers: { "Content-Type": "application/gzip", "Cache-Control": "no-store" }, body: data.toString("base64") };
@@ -739,7 +775,8 @@ async function annualSummaryExcel(event, sessionUser) {
     && item.path === `${filters.year}/summary/${item.storeId}.json.gz`);
   if (!matches.length) throw httpError("No hay información para ese año.", 404);
   const storeRows = await Promise.all(matches.map(async item => {
-    const path = annualSummaryPath(release.version, item.year, item.storeId);
+    const path = manifest.schemaVersion === 2 ? annualMonthlySummaryPath(release.version, item.year, item.storeId)
+      : annualSummaryPath(release.version, item.year, item.storeId);
     const blob = localDirectory ? await readFile(join(localDirectory, item.path))
       : await systemsStorage().download(path).then(result => {
         if (result.error || !result.data) throw httpError("No se pudo leer el resumen anual.", 503);
@@ -755,6 +792,9 @@ async function annualSummaryExcel(event, sessionUser) {
 
 async function commercialAssistantChat(event, sessionUser) {
   const access = await currentCommercialAccess(sessionUser);
+  if (!["gerente_comercial", "jefe_comercial", "jefe_zonal", "coach"].includes(access.role)) {
+    throw httpError("El consejo IA no corresponde a tu rol.", 403);
+  }
   const key = process.env.GROQ_API_KEY;
   if (!key) throw httpError("El asistente comercial aún no está configurado.", 503);
   const input = bodyOf(event);
@@ -787,7 +827,10 @@ async function commercialAssistantChat(event, sessionUser) {
 }
 
 async function commercialAssistantTranscribe(event, sessionUser) {
-  await currentCommercialAccess(sessionUser);
+  const access = await currentCommercialAccess(sessionUser);
+  if (!["gerente_comercial", "jefe_comercial", "jefe_zonal", "coach"].includes(access.role)) {
+    throw httpError("La transcripción IA no corresponde a tu rol.", 403);
+  }
   const key = process.env.GROQ_API_KEY;
   if (!key) throw httpError("La transcripción comercial aún no está configurada.", 503);
   const input = bodyOf(event);
@@ -3698,10 +3741,20 @@ async function getMiTienda(user) {
 
 async function updateMiTiendaData(event, user) {
   const data = bodyOf(event);
-  const editable = ["metraje_m2", "capacidad_stock_unid"];
-  if (Object.keys(data).some(key => !editable.includes(key))) throw httpError("Solo puedes editar los metros cuadrados y la capacidad de tu tienda.", 403);
+  const editable = ["nombre", "formato", "distrito", "direccion", "metraje_m2", "capacidad_stock_unid"];
+  if (Object.keys(data).some(key => !editable.includes(key))) throw httpError("Ese campo de tienda no se puede editar desde este módulo.", 403);
   const payload = {};
-  for (const key of editable) {
+  for (const [key, max] of [["nombre", 120], ["distrito", 80], ["direccion", 180]]) {
+    if (data[key] === undefined) continue;
+    const value = cleanText(data[key]);
+    if (value.length < (key === "nombre" || key === "distrito" ? 2 : 3) || value.length > max) throw httpError(`El campo ${key} no es válido.`, 400);
+    payload[key] = value;
+  }
+  if (data.formato !== undefined) {
+    if (!["PROPIA", "METRO"].includes(data.formato)) throw httpError("El formato no es válido.", 400);
+    payload.formato = data.formato;
+  }
+  for (const key of ["metraje_m2", "capacidad_stock_unid"]) {
     if (data[key] === undefined) continue;
     const value = Number(data[key]);
     if (data[key] === "" || data[key] == null || !Number.isFinite(value) || value < 0
@@ -4139,6 +4192,9 @@ export async function handler(event) {
     }
     if (path === "/commercial/annual-reports" && method === "GET") {
       return json(200, await annualReportCatalog(user));
+    }
+    if (path === "/commercial/annual-reports/dimensions" && method === "GET") {
+      return json(200, await annualReportDimensions(event, user));
     }
     if (path === "/commercial/operational-summary" && method === "GET") {
       return json(200, await commercialOperationalSummary(user));
