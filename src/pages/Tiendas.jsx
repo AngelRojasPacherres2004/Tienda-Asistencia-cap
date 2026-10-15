@@ -8,7 +8,7 @@ import {
 import Reportes from "./Reportes";
 
 const blank = {
-  nombre: "", codigo: "", direccion: "", distrito: "", provincia: "", departamento: "", zona: "",
+  nombre: "", codigo: "", direccion: "", distrito: "", provincia: "", departamento: "",
   formato: "", fecha_apertura: "", fecha_cierre: "", metraje_m2: "",
   capacidad_stock_unid: "", cant_colaboradores_normal: "", colaboradores_camp: "", alquiler_mensual: "",
   jefe_id: "", cluster_id: "", estado: "activo",
@@ -72,7 +72,6 @@ export default function Tiendas({ user }) {
       departamento: String(item.departamento || "").toUpperCase(),
       provincia: String(item.provincia || "").toUpperCase(),
       distrito: String(item.distrito || "").toUpperCase(),
-      zona: String(item.zona || "").toUpperCase(),
       formato: ["PROPIA", "METRO"].includes(formato) ? formato : "",
       jefe_id: item.jefe_id || "",
     });
@@ -110,7 +109,6 @@ export default function Tiendas({ user }) {
       <PageHeader
         eyebrow={isZonal ? "Gestión zonal" : ""}
         title={isZonal ? "Mis tiendas" : user?.rol === "gerente_comercial" ? "Tiendas y clústeres" : "Tiendas"}
-        subtitle={isZonal ? "Tiendas de tu zona" : ""}
         action={canEdit ? <button className="button button--primary" onClick={openNew}>Nueva tienda</button> : null}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
@@ -177,7 +175,6 @@ export default function Tiendas({ user }) {
             <Field label="Departamento *" hint="Selecciona primero el departamento."><select required value={editing.departamento || ""} onChange={(e) => setEditing((current) => ({ ...current, departamento: e.target.value, provincia: "", distrito: "" }))}><option value="">Selecciona un departamento</option>{editing.departamento && !departments.includes(editing.departamento) && <option value={editing.departamento}>{editing.departamento}</option>}{departments.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
             <Field label="Provincia *"><select required disabled={!editing.departamento} value={editing.provincia || ""} onChange={(e) => setEditing((current) => ({ ...current, provincia: e.target.value, distrito: "" }))}><option value="">Selecciona una provincia</option>{editing.provincia && !provinces.includes(editing.provincia) && <option value={editing.provincia}>{editing.provincia}</option>}{provinces.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
             <Field label="Distrito *"><select required disabled={!editing.provincia} value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)}><option value="">Selecciona un distrito</option>{editing.distrito && !districts.includes(editing.distrito) && <option value={editing.distrito}>{editing.distrito}</option>}{districts.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
-            <Field label="Zona"><input maxLength="80" value={editing.zona || ""} onChange={(e) => set("zona", e.target.value.toUpperCase())} /></Field>
             <div className="form-section-title span-2"><strong>Formato y vigencia</strong><span>Características comerciales y fechas de operación.</span></div>
             <Field label="Formato *"><select required value={editing.formato || ""} onChange={(e) => set("formato", e.target.value)}><option value="">Selecciona un formato</option>{catalogs.formatos.map((value) => <option key={value} value={value}>{value === "PROPIA" ? "Propia" : "Metro"}</option>)}</select></Field>
             <Field label="Fecha de apertura *"><input required type="date" value={editing.fecha_apertura || ""} onChange={(e) => set("fecha_apertura", e.target.value)} /></Field>
@@ -222,7 +219,7 @@ export default function Tiendas({ user }) {
           </div>
           {detailView === "reportes" && <Reportes user={user} embedded fixedStoreId={viewing.id} initialKind="documentos" allowedKinds={["documentos","reclamaciones","acciones","requerimientos","supervisiones"]}/>}
           {detailView === "informacion" && <dl className="store-detail-grid">
-            {[['Estado',<StatusBadge key="estado" value={viewing.estado}/>],['Código',viewing.codigo],['Dirección',viewing.direccion],['Distrito',viewing.distrito],['Provincia',viewing.provincia],['Departamento',viewing.departamento],['Zona',viewing.zona],['Formato',viewing.formato],['Fecha de apertura',viewing.fecha_apertura],['Fecha de cierre',viewing.fecha_cierre],['Metraje',viewing.metraje_m2!=null?`${viewing.metraje_m2} m²`:null],['Capacidad de stock',viewing.capacidad_stock_unid],['Dotación habitual',viewing.cant_colaboradores_normal],['Dotación en campaña',viewing.colaboradores_camp],['Alquiler mensual',viewing.alquiler_mensual!=null?`S/ ${Number(viewing.alquiler_mensual).toLocaleString('es-PE',{minimumFractionDigits:2})}`:null],['Clúster',clusterLabel(viewing.cluster_nombre)]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value === null || value === undefined || value === "" ? "Sin registrar" : value}</dd></div>)}
+            {[['Estado',<StatusBadge key="estado" value={viewing.estado}/>],['Código',viewing.codigo],['Dirección',viewing.direccion],['Distrito',viewing.distrito],['Provincia',viewing.provincia],['Departamento',viewing.departamento],['Formato',viewing.formato],['Fecha de apertura',viewing.fecha_apertura],['Fecha de cierre',viewing.fecha_cierre],['Metraje',viewing.metraje_m2!=null?`${viewing.metraje_m2} m²`:null],['Capacidad de stock',viewing.capacidad_stock_unid],['Dotación habitual',viewing.cant_colaboradores_normal],['Dotación en campaña',viewing.colaboradores_camp],['Alquiler mensual',viewing.alquiler_mensual!=null?`S/ ${Number(viewing.alquiler_mensual).toLocaleString('es-PE',{minimumFractionDigits:2})}`:null],['Clúster',clusterLabel(viewing.cluster_nombre)]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value === null || value === undefined || value === "" ? "Sin registrar" : value}</dd></div>)}
           </dl>}
           {detailView === "equipo" && (!storeUsers ? <Loading label="Cargando equipo de la tienda..." /> : <div className="store-users">
             <section className="store-users__leader">

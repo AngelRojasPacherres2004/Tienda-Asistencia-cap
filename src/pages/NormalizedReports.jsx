@@ -11,9 +11,11 @@ const empty = { year: "", month: "", day: "", cluster: "", format: "", storeId: 
 const unique = values => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
 const paramsOf = values => new URLSearchParams(Object.entries(values).filter(([, value]) => value !== ""));
 const options = values => values.map(([value, label]) => <option key={value} value={value}>{label || value}</option>);
+const catalogCache = new Map();
 
-async function* rowsFrom(url) {
-  const response = await fetch(url, { credentials: "same-origin" });
+async function* rowsFrom(responsePromise) {
+  const { response, error } = await responsePromise;
+  if (error) throw error;
   if (!response.ok) throw new Error("No se pudo leer el archivo anual.");
   if (!response.body || !window.DecompressionStream) throw new Error("Tu navegador no admite estos archivos comprimidos.");
   const reader = response.body.pipeThrough(new DecompressionStream("gzip")).pipeThrough(new TextDecoderStream()).getReader();
@@ -34,19 +36,33 @@ async function* rowsFrom(url) {
   } finally { await reader.cancel().catch(() => {}); }
 }
 
-async function saveCsv(result, filters, kind, name, handle) {
+async function saveCsv(result, filters, kind, name, handle, cutoff, onProgress) {
   const writer = handle ? await handle.createWritable() : null;
   const chunks = writer ? null : [];
   let count = 0;
+  let scanned = 0;
   let buffer = "\uFEFF" + result.columns.map(key => ANNUAL_REPORT_LABELS[key] || key).join(",") + "\r\n";
   async function flush() { if (writer) await writer.write(buffer); else chunks.push(buffer); buffer = ""; }
   try {
-    for (const file of result.files) for await (const row of rowsFrom(file.url)) {
-      if (!matchesAnnualRow(row, filters, kind)) continue;
-      if (count >= MAX_ROWS) throw new Error("Supera el límite de filas de Excel. Selecciona una tienda, mes o clasificación.");
-      buffer += csvLine(row, result.columns);
-      count += 1;
-      if (buffer.length > 512_000) await flush();
+    const responses = new Map();
+    const prefetch = index => {
+      if (index >= result.files.length || responses.has(index)) return;
+      responses.set(index, fetch(result.files[index].url, { credentials: "same-origin" })
+        .then(response => ({ response }), error => ({ error })));
+    };
+    for (let index = 0; index < Math.min(3, result.files.length); index++) prefetch(index);
+    for (let index = 0; index < result.files.length; index++) {
+      prefetch(index + 3);
+      for await (const row of rowsFrom(responses.get(index))) {
+        if (++scanned % 10_000 === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
+        if (!matchesAnnualRow(row, filters, kind, cutoff)) continue;
+        if (count >= MAX_ROWS) throw new Error("Supera el límite de filas de Excel. Selecciona una tienda, mes o clasificación.");
+        buffer += csvLine(row, result.columns);
+        count += 1;
+        if (buffer.length > 512_000) await flush();
+      }
+      responses.delete(index);
+      onProgress?.(index + 1, result.files.length);
     }
     if (!count) throw new Error("No hay registros para estos filtros.");
     if (buffer) await flush();
@@ -62,18 +78,26 @@ async function saveCsv(result, filters, kind, name, handle) {
 }
 
 export default function NormalizedReports({ user }) {
-  const [catalog, setCatalog] = useState(null);
+  const cacheKey = String(user?.id || user?.usuario || '');
+  const [catalog, setCatalog] = useState(() => catalogCache.get(cacheKey)?.data || null);
   const [filters, setFilters] = useState(empty);
   const [kind, setKind] = useState("ventas");
   const [busy, setBusy] = useState("");
+  const [progress, setProgress] = useState("");
   const [message, setMessage] = useState(null);
   useEffect(() => {
     let active = true;
+    const cached = catalogCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < 60_000) {
+      setCatalog(cached.data);
+      setFilters(current => ({ ...current, year: current.year || String(cached.data.years?.[0] || '') }));
+      return () => { active = false; };
+    }
     api("/commercial/annual-reports")
-      .then(data => { if (active) { setCatalog(data); setFilters(current => ({ ...current, year: String(data.years?.[0] || "") })); } })
+      .then(data => { if (active) { catalogCache.set(cacheKey, { at: Date.now(), data }); setCatalog(data); setFilters(current => ({ ...current, year: current.year || String(data.years?.[0] || "") })); } })
       .catch(error => { if (active) setMessage({ type: "error", text: error.message }); });
     return () => { active = false; };
-  }, []);
+  }, [cacheKey]);
   const stores = catalog?.stores || [];
   const allowedStores = stores.filter(store => (!filters.cluster || store.cluster === filters.cluster)
     && (!filters.format || store.format === filters.format));
@@ -108,7 +132,7 @@ export default function NormalizedReports({ user }) {
     });
   }
   async function run(type) {
-    setBusy(type); setMessage(null);
+    setBusy(type); setProgress(""); setMessage(null);
     try {
       const active = { ...filters, year: Number(filters.year), month: filters.month ? Number(filters.month) : "",
         day: filters.day ? Number(filters.day) : "" };
@@ -122,7 +146,8 @@ export default function NormalizedReports({ user }) {
           catch (error) { if (error.name === "AbortError") return; throw error; }
         }
         const result = await api(`/commercial/annual-reports/links?${paramsOf({ ...applied, kind })}`);
-        const count = await saveCsv(result, applied, kind, name, handle);
+        const count = await saveCsv(result, applied, kind, name, handle, catalog?.cutoffs?.[kind],
+          (done, total) => setProgress(`${done}/${total}`));
         if (count) setMessage({ type: "success", text: `${count.toLocaleString("es-PE")} filas descargadas.` });
       } else {
         const done = await downloadFile(`/api/commercial/annual-reports/summary.xlsx?${paramsOf(active)}`,
@@ -130,22 +155,25 @@ export default function NormalizedReports({ user }) {
         if (done) setMessage({ type: "success", text: "Resumen descargado." });
       }
     } catch (error) { setMessage({ type: "error", text: error.message }); }
-    finally { setBusy(""); }
+    finally { setBusy(""); setProgress(""); }
   }
   const field = (name, key, entries, disabled = false) => <label key={key}>{name}<select value={filters[key]} disabled={disabled}
     onChange={event => change(key, event.target.value)}>{options(entries)}</select></label>;
+  const availableClusters = unique(stores.map(store => store.cluster));
+  const availableFormats = unique(stores.filter(store => !filters.cluster || store.cluster === filters.cluster).map(store => store.format));
+  const singleStoreRole = user?.rol === "jefe_tienda";
   return <section className="panel annual-reports">
-    <header className="report-workspace__header"><h2>Cifras comerciales</h2></header>
+    <header className="report-workspace__header"><h2>Análisis y cifras</h2></header>
     {message && <Notice type={message.type} onClose={() => setMessage(null)}>{message.text}</Notice>}
-    {!catalog ? <p>Cargando reportes…</p> : !catalog.ready ?
+    {!catalog ? <div className="annual-reports__skeleton" aria-label="Preparando catálogo de reportes"/> : !catalog.ready ?
       <p>Los reportes del corte actual aún no están preparados.</p> : <>
       <div className="annual-reports__filters">
         {field("Año", "year", catalog.years.map(year => [String(year)]))}
         {field("Mes", "month", [["", "Todo el año"], ...months.map((label, index) => [String(index + 1), label])])}
         {field("Día", "day", [["", "Todos"], ...Array.from({ length: dayCount }, (_, index) => [String(index + 1)])], !filters.month)}
-        {field("Clúster", "cluster", [["", "Todos"], ...unique(stores.map(store => store.cluster)).map(value => [value])])}
-        {field("Formato", "format", [["", "Todos"], ...unique(stores.filter(store => !filters.cluster || store.cluster === filters.cluster).map(store => store.format)).map(value => [value])])}
-        {field("Tienda", "storeId", [["", "Todas las permitidas"], ...allowedStores.map(store => [store.id, store.name])])}
+        {!singleStoreRole && availableClusters.length > 1 && field("Clúster", "cluster", [["", "Todos"], ...availableClusters.map(value => [value])])}
+        {!singleStoreRole && availableFormats.length > 1 && field("Formato", "format", [["", "Todos"], ...availableFormats.map(value => [value])])}
+        {!singleStoreRole && allowedStores.length > 1 && field("Tienda", "storeId", [["", "Todas las permitidas"], ...allowedStores.map(store => [store.id, store.name])])}
         {field("Rubro", "rubro", [["", "Todos"], ...rubros.map(value => [value])])}
         {field("Género", "gender", [["", "Todos"], ...genders.map(value => [value])])}
         {field("Línea", "linea", [["", "Todas"], ...lines.map(value => [value])])}
@@ -154,10 +182,9 @@ export default function NormalizedReports({ user }) {
       <div className="annual-reports__actions">
         <label>Detalle<select value={kind} onChange={event => setKind(event.target.value)}>{catalog.reports.map(item =>
           <option key={item.id} value={item.id} disabled={!item.years.includes(Number(filters.year))}>{item.label}{item.years.includes(Number(filters.year)) ? "" : " · sin datos"}</option>)}</select></label>
-        <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? "Descargando…" : "Descargar detalle CSV"}</button>
-        {user?.rol !== "coach" && <button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Resumen general Excel"}</button>}
+        <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
       </div>
-      <small className="annual-reports__note">Cada descarga corresponde a un solo año. El detalle tiene columnas separadas; el resumen combina indicadores por día y tienda.</small>
+      {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
       {exceedsExcel && <small className="annual-reports__note">Este detalle tiene más de 1 048 575 filas. Elige un mes, tienda o clasificación para abrirlo completo en Excel.</small>}
       {!productFilters && <small className="annual-reports__note">El detalle de tráfico no se clasifica por producto.</small>}
     </>}

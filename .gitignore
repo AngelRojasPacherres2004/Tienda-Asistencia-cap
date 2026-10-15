@@ -4,6 +4,7 @@ dist/
 .angular/
 .netlify/
 .env
+.etl_work/
 .env.*
 !.env.example
 *.log

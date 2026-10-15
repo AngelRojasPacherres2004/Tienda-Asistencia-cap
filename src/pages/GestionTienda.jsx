@@ -77,7 +77,7 @@ export default function GestionTienda({ user }) {
   };
 
   return <>
-    <PageHeader eyebrow="Operaciones" title={user.rol === "jefe_zonal" ? "Control de administradores" : "Gestión de tienda"} subtitle={user.rol === "jefe_zonal" ? "Errores y amonestaciones de los administradores de tu clúster." : "Resumen de incidencias, amonestaciones, errores y vencimientos documentarios."} action={central.has(user.rol) && <select value={storeId} onChange={(e) => setStoreId(e.target.value)}><option value="">Selecciona tienda</option>{stores.map((s) => <option value={s.id} key={s.id}>{s.nombre}</option>)}</select>} />
+    <PageHeader eyebrow="Operaciones" title={user.rol === "jefe_zonal" ? "Control de administradores" : "Gestión de tienda"} action={central.has(user.rol) && <select value={storeId} onChange={(e) => setStoreId(e.target.value)}><option value="">Selecciona tienda</option>{stores.map((s) => <option value={s.id} key={s.id}>{s.nombre}</option>)}</select>} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     {!data ? <Loading /> : <>
       <div className="metrics-grid ops-metrics">{Object.entries(data.summary).map(([key, value]) => <article className="metric-card" key={key}><span><Gauge size={18} /></span><div><small>{key.replaceAll("_", " ")}</small><strong>{value}</strong></div></article>)}</div>

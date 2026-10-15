@@ -75,8 +75,9 @@ export function parseAnnualFilters(input = {}) {
   return result;
 }
 
-export function matchesAnnualRow(row, filters, kind) {
+export function matchesAnnualRow(row, filters, kind, cutoff = "") {
   if (Number(row.anio) !== filters.year) return false;
+  if (cutoff && row.fecha > cutoff) return false;
   if (filters.month !== "" && Number(row.mes) !== filters.month) return false;
   if (filters.day !== "" && Number(row.dia) !== filters.day) return false;
   if (filters.storeId && row.tienda_id !== filters.storeId) return false;

@@ -7,6 +7,19 @@ import { CanvasRenderer } from 'echarts/renderers';
 
 use([BarChart, LineChart, PieChart, DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, CanvasRenderer]);
 
+function blackChartText<T>(value: T): T {
+  const visit = (node: unknown, key = ''): unknown => {
+    if (Array.isArray(node)) return node.map(item => visit(item));
+    if (!node || typeof node !== 'object') return node;
+    const source = node as Record<string, unknown>;
+    const copy: Record<string, unknown> = {};
+    for (const [field, child] of Object.entries(source)) copy[field] = visit(child, field);
+    if (['axisLabel', 'axisName', 'nameTextStyle', 'textStyle', 'label', 'title'].includes(key) && copy['show'] !== false) copy['color'] = '#111111';
+    return copy;
+  };
+  return visit(value) as T;
+}
+
 @Component({
   selector: 'dashboard-chart',
   standalone: true,
@@ -56,7 +69,7 @@ export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDest
       if (!this.chart || !this.option) return;
       // Un solo render por frame y reemplazo atómico. Evita que ECharts mezcle
       // ejes nuevos con series anteriores durante cambios rápidos de filtros/página.
-      this.chart.setOption(this.option, {
+      this.chart.setOption(blackChartText(this.option), {
         notMerge: true,
         lazyUpdate: true,
       });

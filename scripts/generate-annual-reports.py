@@ -60,9 +60,9 @@ SUMMARY_SQL = {
     "ingresos": """select fecha_ingreso fecha, tienda_id, rubro, linea, sub_linea,
         sum(total_ingreso) valor_ingreso, sum(cantidad_recibida) unidades
         from {fact} group by 1, 2, 3, 4, 5""",
-    "stock": """select fecha_corte fecha, tienda_id, rubro, linea, sub_linea,
+    "stock": """select fecha_corte fecha, tienda_id, rubro, linea, sub_linea, estado_stock,
         sum(valor_stock) valor_stock, sum(cantidad) unidades
-        from {fact} group by 1, 2, 3, 4, 5""",
+        from {fact} group by 1, 2, 3, 4, 5, 6""",
     "transferencias": """select fecha_transferencia fecha, tienda_origen_id tienda_id,
         rubro, linea, sub_linea, 'SALIDA' direccion,
         sum(total_transferencia) valor_transferencia, sum(cantidad) unidades

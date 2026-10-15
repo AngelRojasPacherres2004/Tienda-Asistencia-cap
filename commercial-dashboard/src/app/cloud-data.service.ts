@@ -31,6 +31,17 @@ export type DashboardAccessProfile = {
   stores: string[];
   clusters: string[];
 };
+export type OperationalSummary = {
+  training: { storeId: string; role: string; course: string; state: string }[];
+  departures: { storeId: string; date: string; reason: string }[];
+  incidents: { storeId: string; date: string; type: string }[];
+};
+export type CompanyRankingData = {
+  stores: { storeId: string; store: string; alias: string; format: string; cluster: string; isStore: boolean;
+    areaM2: number; capacity: number; status: string; openingDate?: string; closingDate?: string }[];
+  monthlyStore: { periodId: number; storeId: string; net: number; transactions: number }[];
+  predictiveStore: { storeId: string; rotation: number | null; stockValue: number; sales30: number }[];
+};
 
 const LOCAL_ACCESS: DashboardAccessProfile = {
   roleCode: 'jefe_comercial',
@@ -248,6 +259,16 @@ export class CloudDataService {
 
   accessToken(): string {
     return this.session()?.access_token ?? '';
+  }
+
+  async operationalSummary(): Promise<OperationalSummary | null> {
+    if (!this.portalMode) return null;
+    return this.portalRequest<OperationalSummary>('/commercial/operational-summary');
+  }
+
+  async companyRanking(): Promise<CompanyRankingData | null> {
+    if (!this.portalMode) return null;
+    return this.portalRequest<CompanyRankingData>('/commercial/company-ranking');
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {

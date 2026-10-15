@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExcelJS from "exceljs";
-import { Download, Edit3, Eye, FileSpreadsheet, FileUp, Trash2, Upload, UsersRound } from "lucide-react";
+import { Download, Edit3, Eye, FileSpreadsheet, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
 import { clusterLabel, isCommercialCluster } from "../lib/clusters";
 import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
@@ -290,7 +290,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   );
 
   if (zonalTeam && workspace === "reportes") return <>
-    <PageHeader eyebrow="Jefe zonal" title="Mis equipos" subtitle="Personal, asistencia, amonestaciones, errores y capacitación de las tiendas de tu zona." />
+    <PageHeader eyebrow="Jefe zonal" title="Mis equipos" />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <div className="module-view-tabs"><button onClick={() => setWorkspace("equipo")}>Equipo</button><button className="active">Reportes y exportación</button></div>
     <Reportes user={user} embedded initialKind="personal" allowedKinds={["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones"]} />
@@ -301,18 +301,17 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       <PageHeader
         eyebrow={embedded ? "" : zonalTeam ? "Jefe zonal" : isCentral ? "Jerarquía" : "Mi tienda"}
         title={embedded ? "Jefes zonales" : zonalTeam ? "Mis equipos" : "Usuarios a mi cargo"}
-        subtitle={embedded ? "" : zonalTeam ? "Consulta el equipo completo de cada tienda y administra las cuentas de sus administradores." : "Solo puedes administrar los rangos autorizados debajo de tu cargo."}
         action={<div className="header-actions">
           {zonalTeam ? <button className="button button--primary" onClick={openNew}>Nuevo administrador</button> : <>
           {isCentral ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
-            <button className="button button--ghost" onClick={() => importInput.current?.click()} disabled={busy}><FileUp size={15} />Importar Excel</button>
+            <button className="button button--ghost" title="Cargar Excel" aria-label="Cargar Excel" onClick={() => importInput.current?.click()} disabled={busy}><Upload size={17} /></button>
             <button className="button button--soft" onClick={() => downloadUsersAdmin()}><Download size={15} />Exportar Excel</button>
             <input ref={importInput} type="file" accept=".xlsx" onChange={importUsersAdmin} hidden />
           </> : <>
             <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(false)}><Download size={16} />Exportar Excel</button>
             <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(true)}><FileSpreadsheet size={16} />Descargar plantilla</button>
-            <button className="button button--soft" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={16} />Importar Excel</button>
+            <button className="button button--soft" title="Cargar Excel" aria-label="Cargar Excel" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel} />
           </>}
           <button className="button button--primary" onClick={openNew}>{embedded ? "Nuevo jefe zonal" : "Nuevo usuario"}</button>

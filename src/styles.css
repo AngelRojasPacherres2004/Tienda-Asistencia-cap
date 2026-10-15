@@ -1531,15 +1531,12 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .requirement-areas button.selected { color:#ead9af; border-color:rgba(220,184,107,.42); background:rgba(205,169,95,.1); }
 .requirement-areas button i { width:18px; height:18px; display:grid; place-items:center; flex:0 0 auto; border:1px solid rgba(205,169,95,.28); border-radius:5px; color:#17130c; background:#171719; font-style:normal; }
 .requirement-areas button.selected i { border-color:#d6b66f; background:#d6b66f; }
-.file-picker { position:relative; min-height:48px; display:flex; align-items:center; gap:10px; padding:7px 12px; border:1px dashed rgba(205,169,95,.26); border-radius:11px; color:#9f978b; background:#101012; cursor:pointer; transition:border-color .15s ease,background .15s ease; }
-.file-picker:hover { border-color:rgba(220,184,107,.55); background:#151513; }
-.file-picker.has-file { border-style:solid; border-color:rgba(102,190,145,.4); background:rgba(66,143,103,.07); }
-.field .file-picker input { position:absolute; width:1px; min-height:1px; padding:0; opacity:0; pointer-events:none; }
-.file-picker__icon { width:31px; height:31px; display:grid; place-items:center; flex:0 0 auto; border-radius:8px; color:#d4b46d; background:rgba(205,169,95,.1); }
-.file-picker__copy { min-width:0; display:grid; gap:2px; flex:1; }
-.file-picker__copy strong { overflow:hidden; color:#ded6c9; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
-.file-picker__copy small { color:#766f65; font-size:8px; }
-.file-picker.has-file > svg { color:#68c69b; }
+.upload-picker { display:inline-flex; align-items:center; gap:8px; width:max-content; max-width:100%; min-height:40px; cursor:pointer; }
+.upload-picker input { position:absolute; width:1px; height:1px; min-height:1px; padding:0; border:0; opacity:0; }
+.upload-picker__icon { display:grid; place-items:center; width:40px; height:40px; border:1px solid var(--border, #b8c9dc); border-radius:9px; background:var(--surface, #fff); color:#173f8a; }
+.upload-picker:hover .upload-picker__icon, .upload-picker:focus-within .upload-picker__icon { border-color:#173f8a; box-shadow:0 0 0 3px rgba(23,63,138,.12); }
+.upload-picker.is-disabled { opacity:.55; pointer-events:none; }
+.upload-picker__name { min-width:0; max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text, #203b56); font-size:12px; font-weight:600; }
 .requirement-form .form-actions { position:sticky; z-index:2; bottom:-22px; padding:14px 0 0; margin-top:2px; background:linear-gradient(to bottom,rgba(20,20,22,0),#141416 13px); }
 .record-actions { display:flex; gap:6px; }.record-actions button { border:0; color:#ccb06f; background:transparent; font-size:9px; cursor:pointer; }
 .form-hint { padding:10px 12px; border-radius:8px; color:#9a9287; background:rgba(205,169,95,.06); font-size:10px; }

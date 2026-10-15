@@ -22,6 +22,7 @@ test("el detalle separa fecha, tienda y producto y evita fórmulas CSV", () => {
   assert.ok(ANNUAL_DETAIL_COLUMNS.ventas.includes("descripcion"));
   assert.equal(matchesAnnualRow(row, parseAnnualFilters({ year: "2026", month: "9", gender: "DAMA" }), "ventas"), true);
   assert.equal(matchesAnnualRow(row, parseAnnualFilters({ year: "2026", month: "8" }), "ventas"), false);
+  assert.equal(matchesAnnualRow(row, parseAnnualFilters({ year: "2026" }), "ventas", "2026-09-26"), false);
   assert.equal(csvLine(row, ["descripcion"]).trim(), "'=2+2");
 });
 
@@ -32,13 +33,16 @@ test("resumen no suma stock entre fotos ni inventa conversión con filtro de pro
     { kind: "ventas_diario", fecha: "2026-09-27", anio: 2026, mes: 9, dia: 27, tienda_id: "T012", venta_neta: 150, transacciones: 3 },
     { kind: "trafico", fecha: "2026-09-27", anio: 2026, mes: 9, dia: 27, tienda_id: "T012", personas: 10 },
     { kind: "stock", fecha: "2026-06-30", anio: 2026, mes: 6, dia: 30, tienda_id: "T012", rubro: "TEXTIL", unidades: 10, valor_stock: 100 },
-    { kind: "stock", fecha: "2026-07-31", anio: 2026, mes: 7, dia: 31, tienda_id: "T012", rubro: "TEXTIL", unidades: 8, valor_stock: 80 },
+    { kind: "stock", fecha: "2026-07-31", anio: 2026, mes: 7, dia: 31, tienda_id: "T012", rubro: "TEXTIL", estado_stock: "BUENO", unidades: 6, valor_stock: 60 },
+    { kind: "stock", fecha: "2026-07-31", anio: 2026, mes: 7, dia: 31, tienda_id: "T012", rubro: "TEXTIL", estado_stock: "MERMA", unidades: 2, valor_stock: 20 },
+    { kind: "stock", fecha: "2026-08-31", anio: 2026, mes: 8, dia: 31, tienda_id: "T012", rubro: "TEXTIL", unidades: 100, valor_stock: 1000 },
   ] }];
   const cutoffs = { ventas: "2026-09-27", trafico: "2026-09-27", stock: "2026-07-31" };
   const summary = summarizeAnnualReports(storeRows, filters, { T012: { name: "AYACUCHO" } }, cutoffs);
   assert.equal(summary.totals.venta_neta, 120);
   assert.equal(summary.totals.transacciones, 0);
   assert.equal(summary.stock.unidades, 8);
+  assert.deepEqual(summary.stockStores.map(row => [row.estado, row.unidades]), [["BUENO", 6], ["MERMA", 2]]);
   assert.deepEqual(summary.stockDates, ["2026-07-31"]);
   const september = summarizeAnnualReports(storeRows,
     parseAnnualFilters({ year: "2026", month: "9", rubro: "TEXTIL" }),
@@ -47,5 +51,8 @@ test("resumen no suma stock entre fotos ni inventa conversión con filtro de pro
   const workbook = buildAnnualSummaryWorkbook(summary, filters, { T012: { name: "AYACUCHO" } });
   assert.equal(workbook.worksheets.length, 3);
   assert.equal(workbook.getWorksheet("Resumen").getCell("B8").value, "No disponible");
+  assert.equal(workbook.getWorksheet("Resumen").getCell("C5").value, null);
   assert.equal(workbook.getWorksheet("Diario por tienda").getCell("F2").value, "AYACUCHO");
+  assert.equal(workbook.getWorksheet("Stock por tienda").getCell("D2").value, "BUENO");
+  assert.equal(workbook.getWorksheet("Stock por tienda").getCell("D3").value, "MERMA");
 });

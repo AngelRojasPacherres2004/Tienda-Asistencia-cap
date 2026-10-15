@@ -191,6 +191,43 @@ async function currentCommercialAccess(sessionUser) {
   return { ...access, role: account.rol };
 }
 
+async function commercialOperationalSummary(sessionUser) {
+  const access = await currentCommercialAccess(sessionUser);
+  const { data: mappings, error: mappingError } = await supabase.from('commercial_store_map')
+    .select('dashboard_store_id,tienda_id').in('dashboard_store_id', access.storeIds);
+  if (mappingError) throw dbError(mappingError);
+  const storeIds = [...new Set((mappings || []).map(row => row.tienda_id))];
+  if (!storeIds.length) return { training: [], departures: [], incidents: [] };
+  const dashboardId = new Map(mappings.map(row => [row.tienda_id, row.dashboard_store_id]));
+  const [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult] = await Promise.all([
+    supabase.from('usuarios').select('id,tienda_id,rol,fecha_salida,motivo_salida').in('tienda_id', storeIds),
+    supabase.from('capacitacion_progreso').select('usuario_id,tienda_id,curso_id,estado').in('tienda_id', storeIds),
+    supabase.from('cursos').select('id,nombre').eq('activo', true),
+    supabase.from('incidencias').select('tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01'),
+    supabase.from('incidencias_zonales').select('tienda_origen_id,tienda_afectada_id,fecha,tipo,alcance')
+      .or(`tienda_origen_id.in.(${storeIds.join(',')}),tienda_afectada_id.in.(${storeIds.join(',')})`).gte('fecha', '2024-01-01'),
+  ]);
+  const failure = [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult].find(result => result.error);
+  if (failure) throw dbError(failure.error);
+  const roles = new Map(usersResult.data.map(user => [user.id, user.rol]));
+  const courseNames = new Map(coursesResult.data.map(course => [course.id, course.nombre]));
+  return {
+    training: trainingResult.data.filter(row => courseNames.has(row.curso_id)).map(row => ({
+      storeId: dashboardId.get(row.tienda_id), role: roles.get(row.usuario_id) || '',
+      course: courseNames.get(row.curso_id), state: row.estado,
+    })),
+    departures: usersResult.data.filter(user => user.fecha_salida && user.motivo_salida).map(user => ({
+      storeId: dashboardId.get(user.tienda_id), date: user.fecha_salida, reason: user.motivo_salida,
+    })),
+    incidents: [
+      ...incidentsResult.data.map(row => ({ storeId: dashboardId.get(row.tienda_id), date: row.fecha?.slice(0, 10), type: row.tipo })),
+      ...zonalResult.data.filter(row => row.alcance !== 'entre_tiendas').map(row => ({
+        storeId: dashboardId.get(row.tienda_afectada_id || row.tienda_origen_id), date: row.fecha, type: row.tipo,
+      })),
+    ],
+  };
+}
+
 async function publishedCommercialRelease() {
   const { data, error } = await supabase.from("dashboard_releases")
     .select("id,version,sales_cutoff,stock_cutoff,published_at")
@@ -246,6 +283,38 @@ async function commercialFileSource(sessionUser, logicalName) {
     cacheVersion: release.version,
     cacheEnabled: true,
   };
+}
+
+let companyRankingCache = null;
+async function commercialCompanyRanking(sessionUser) {
+  await currentCommercialAccess(sessionUser);
+  const release = await publishedCommercialRelease();
+  if (companyRankingCache?.version === release.version) return companyRankingCache.value;
+  const rows = await commercialFileRows(release.id, { scopeType: 'all' }, 'dashboard.json');
+  const parts = rows[0]?.parts || [];
+  if (!parts.length || !parts.every(part => validCommercialPartPath(part.path, { scopeType: 'all' }, 'dashboard.json'))) {
+    throw httpError('El ranking general no está disponible.', 503);
+  }
+  const chunks = await Promise.all(parts.map(async part => {
+    const result = await supabase.storage.from('dashboard-data').download(part.path);
+    if (result.error || !result.data) throw httpError('No se pudo leer el ranking general.', 503);
+    const bytes = Buffer.from(await result.data.arrayBuffer());
+    return part.encoding === 'gzip' ? gunzipSync(bytes).toString('utf8') : bytes.toString('utf8');
+  }));
+  const dashboard = JSON.parse(chunks.join(''));
+  const value = {
+    stores: (dashboard.stores || []).filter(store => store.isStore).map(store => ({
+      storeId: store.storeId, store: store.store, alias: store.alias, isStore: true,
+      format: store.format, cluster: store.cluster, areaM2: store.areaM2, capacity: store.capacity,
+      status: store.status, openingDate: store.openingDate, closingDate: store.closingDate,
+    })),
+    monthlyStore: (dashboard.monthlyStore || []).map(row => ({ periodId: row.periodId, storeId: row.storeId,
+      net: row.net, transactions: row.transactions })),
+    predictiveStore: (dashboard.predictiveStore || []).map(row => ({ storeId: row.storeId,
+      rotation: row.rotation, stockValue: row.stockValue, sales30: row.sales30 })),
+  };
+  companyRankingCache = { version: release.version, value };
+  return value;
 }
 
 const systemsStorage = () => supabase.storage.from("dashboard-data");
@@ -539,7 +608,18 @@ async function normalizedReportLink(event, sessionUser) {
   return { url: data.signedUrl };
 }
 
+let annualManifestCache = null;
 async function annualReportManifest() {
+  if (annualManifestCache && Date.now() < annualManifestCache.expires) return annualManifestCache.promise;
+  const promise = loadAnnualReportManifest().catch(error => {
+    if (annualManifestCache?.promise === promise) annualManifestCache = null;
+    throw error;
+  });
+  annualManifestCache = { promise, expires: Date.now() + 30_000 };
+  return promise;
+}
+
+async function loadAnnualReportManifest() {
   const release = await publishedCommercialRelease();
   // El directorio local solo se usa para revisar la nueva publicación antes de subirla.
   const localDirectory = process.env.CONTEXT === "production" ? null
@@ -547,7 +627,8 @@ async function annualReportManifest() {
   if (localDirectory) {
     try {
       const local = JSON.parse(await readFile(join(localDirectory, "manifest.json"), "utf8"));
-      if (local.cutoffs?.ventas === release.sales_cutoff && local.cutoffs?.stock === release.stock_cutoff) {
+      if (local.cutoffs?.ventas && local.cutoffs?.stock
+        && local.cutoffs.ventas <= release.sales_cutoff && local.cutoffs.stock <= release.stock_cutoff) {
         return { release, manifest: { ...local, version: release.version, releaseId: release.id }, localDirectory };
       }
     } catch { /* Sin archivos locales: consultar la publicación privada. */ }
@@ -558,7 +639,8 @@ async function annualReportManifest() {
   try { manifest = JSON.parse(await result.data.text()); }
   catch { throw httpError("El catálogo anual no se pudo leer.", 503); }
   if (manifest.releaseId !== release.id || manifest.version !== release.version
-    || manifest.cutoffs?.ventas !== release.sales_cutoff || manifest.cutoffs?.stock !== release.stock_cutoff
+    || !manifest.cutoffs?.ventas || !manifest.cutoffs?.stock
+    || manifest.cutoffs.ventas > release.sales_cutoff || manifest.cutoffs.stock > release.stock_cutoff
     || !Array.isArray(manifest.files) || !Array.isArray(manifest.summaries)) {
     throw httpError("Los reportes anuales no corresponden al corte publicado.", 503);
   }
@@ -621,7 +703,7 @@ async function annualDetailLinks(event, sessionUser) {
       return { storeId: item.storeId, rows: item.rows,
         url: `/api/commercial/annual-reports/local-file?year=${item.year}&kind=${kind}&storeId=${item.storeId}` };
     } else {
-      const signed = await systemsStorage().createSignedUrl(path, 300);
+      const signed = await systemsStorage().createSignedUrl(path, 1200);
       if (signed.error || !signed.data?.signedUrl) throw httpError("No se pudo preparar el detalle anual.", 503);
       return { storeId: item.storeId, rows: item.rows, url: signed.data.signedUrl };
     }
@@ -3588,7 +3670,7 @@ const miTiendaTables = {
 async function getMiTienda(user) {
   const storeId = user.tienda_id;
   const [store, documentos, reclamaciones, acciones, requerimientos, seguimientos, visitas, observaciones, apoyos] = await Promise.all([
-    supabase.from("tiendas").select("id,codigo,nombre,zona,formato,distrito,direccion,alquiler_mensual,estado,clusters(nombre)").eq("id", storeId).single(),
+    supabase.from("tiendas").select("id,nombre,formato,distrito,direccion,metraje_m2,capacidad_stock_unid").eq("id", storeId).single(),
     supabase.from("documentos_municipales").select("*").eq("tienda_id", storeId).order("fecha_vencimiento"),
     supabase.from("reclamaciones_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("acciones_tienda").select("*").eq("tienda_id", storeId).order("fecha"),
@@ -3602,7 +3684,7 @@ async function getMiTienda(user) {
   const today = todayISO();
   const docs = documentos.data || [], claims = reclamaciones.data || [], acts = acciones.data || [];
   return {
-    tienda: { ...store.data, cluster: store.data?.clusters?.nombre || null, clusters: undefined },
+    tienda: store.data,
     documentos: docs, reclamaciones: claims, acciones: acts, requerimientos: (requerimientos.data || []).map((item) => ({ ...item, seguimientos: (seguimientos.data || []).filter((entry) => entry.requerimiento_id === item.id) })),
     visitas: (visitas.data || []).map(serializeVisit), observaciones: observaciones.data || [], apoyos_seguridad: apoyos.data || [],
     resumen: {
@@ -3616,16 +3698,17 @@ async function getMiTienda(user) {
 
 async function updateMiTiendaData(event, user) {
   const data = bodyOf(event);
+  const editable = ["metraje_m2", "capacidad_stock_unid"];
+  if (Object.keys(data).some(key => !editable.includes(key))) throw httpError("Solo puedes editar los metros cuadrados y la capacidad de tu tienda.", 403);
   const payload = {};
-  const nombre = cleanText(data.nombre);
-  if (nombre.length < 2) throw httpError("El nombre de la tienda debe tener al menos 2 caracteres.", 400);
-  if (!tiendaEstados.has(data.estado)) throw httpError("El estado operativo no es válido.", 400);
-  if (data.formato && !["METRO", "PROPIA"].includes(cleanText(data.formato).toUpperCase())) throw httpError("Selecciona un formato válido: Metro o Propia.", 400);
-  payload.nombre = nombre;
-  payload.estado = data.estado;
-  for (const key of ["codigo", "zona", "formato", "distrito", "direccion"]) payload[key] = cleanText(data[key]) || null;
-  payload.alquiler_mensual = data.alquiler_mensual === "" || data.alquiler_mensual == null ? null : Number(data.alquiler_mensual);
-  if (payload.alquiler_mensual !== null && (!Number.isFinite(payload.alquiler_mensual) || payload.alquiler_mensual < 0)) throw httpError("El alquiler mensual debe ser un monto válido.", 400);
+  for (const key of editable) {
+    if (data[key] === undefined) continue;
+    const value = Number(data[key]);
+    if (data[key] === "" || data[key] == null || !Number.isFinite(value) || value < 0
+      || (key === "capacidad_stock_unid" && !Number.isInteger(value))) throw httpError(`El valor de ${key === "metraje_m2" ? "metros cuadrados" : "capacidad"} no es válido.`, 400);
+    payload[key] = value;
+  }
+  if (!Object.keys(payload).length) throw httpError("No hay datos para actualizar.", 400);
   const { error } = await supabase.from("tiendas").update(payload).eq("id", user.tienda_id);
   if (error) throw dbError(error);
 }
@@ -4056,6 +4139,12 @@ export async function handler(event) {
     }
     if (path === "/commercial/annual-reports" && method === "GET") {
       return json(200, await annualReportCatalog(user));
+    }
+    if (path === "/commercial/operational-summary" && method === "GET") {
+      return json(200, await commercialOperationalSummary(user));
+    }
+    if (path === "/commercial/company-ranking" && method === "GET") {
+      return json(200, await commercialCompanyRanking(user));
     }
     if (path === "/commercial/annual-reports/links" && method === "GET") {
       return json(200, await annualDetailLinks(event, user));

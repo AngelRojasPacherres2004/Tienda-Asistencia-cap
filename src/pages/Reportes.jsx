@@ -124,6 +124,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
   }, [filters]);
 
   useEffect(() => {
+    if (commercialSelected) return undefined;
     let active = true;
     const controller = new AbortController();
     const key = `${user?.id || user?.usuario}|${kind}|${query}`;
@@ -142,7 +143,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
         .catch((error) => { if (active) { setRows([]); setLoadError(error.message); } });
     }
     return () => { active = false; controller.abort(); };
-  }, [kind, query, loadAttempt, user?.id, user?.usuario]);
+  }, [commercialSelected, kind, query, loadAttempt, user?.id, user?.usuario]);
 
   const selectReport = (next) => {
     const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
@@ -173,7 +174,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     />}
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     {hasCommercialReports && <div className="annual-reports__tabs" role="tablist" aria-label="Grupos de reportes">
-      <button type="button" role="tab" aria-selected={commercialSelected} className={commercialSelected ? "is-active" : ""} onClick={() => setGroup("cifras")}>Cifras comerciales</button>
+      <button type="button" role="tab" aria-selected={commercialSelected} className={commercialSelected ? "is-active" : ""} onClick={() => setGroup("cifras")}>Análisis y cifras</button>
       <button type="button" role="tab" aria-selected={!commercialSelected} className={!commercialSelected ? "is-active" : ""} onClick={() => setGroup("personas")}>Personas y operación</button>
     </div>}
     {commercialSelected ? <NormalizedReports user={user}/> : <>
@@ -185,8 +186,8 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
         <div className="report-workspace__actions"><strong className="report-count">{rows ? rows.length : "—"} registros</strong>{embedded && exportButton}</div>
       </header>
       {kind === "asistencias" && <p className="report-method-note">El resumen cuenta únicamente marcas registradas. Una persona sin marca no se considera automáticamente una falta.</p>}
-      {rows && (kind === "personal" || kind === "asistencias") && <div className="report-stat-strip">
-        {(kind === "personal" ? [["Personas",rows.length],["Activos",rows.filter(row=>row.estado==="activo").length],["Inactivos",rows.filter(row=>row.estado==="inactivo").length]] : [["Marcas",rows.length],["Asistencias",rows.filter(row=>row.estado==="presente").length],["Tardanzas",rows.filter(row=>row.estado==="tardanza").length],["Faltas registradas",rows.filter(row=>row.estado==="falta").length]]).map(([label,value])=><div key={label}><strong>{value}</strong><span>{label}</span></div>)}
+      {rows && kind === "asistencias" && <div className="report-stat-strip">
+        {[["Marcas",rows.length],["Asistencias",rows.filter(row=>row.estado==="presente").length],["Tardanzas",rows.filter(row=>row.estado==="tardanza").length],["Faltas registradas",rows.filter(row=>row.estado==="falta").length]].map(([label,value])=><div key={label}><strong>{value}</strong><span>{label}</span></div>)}
       </div>}
 
       <form className="report-filters" onSubmit={applyFilters}>

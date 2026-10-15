@@ -6,7 +6,7 @@ import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
-import { CloudDataService } from './cloud-data.service';
+import { CloudDataService, type CompanyRankingData, type OperationalSummary } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers } from './stock-transfers';
 import { SectionLoads } from './section-loads';
@@ -257,28 +257,26 @@ export class App implements OnInit {
     return out;
   }
   readonly page = signal<1 | 2 | 3>(1);
+  readonly operationalSummary = signal<OperationalSummary | null>(null);
+  readonly companyRankingData = signal<CompanyRankingData | null>(null);
   readonly expandedChart = signal<string | null>(null);
   readonly ticketChartYear = signal(new Date().getFullYear());
-  readonly ticketChartStore = signal('');
-  readonly ticketChartYears = computed(() => [...new Set([
-    new Date().getFullYear(), ...(this.data()?.metadata.years ?? [])
-  ])].sort((a, b) => b - a));
+  readonly ticketChartSelectedStores = signal<string[]>([]);
+  readonly ticketChartYears = computed(() => [2026, 2025, 2024].filter(year => (this.data()?.metadata.years ?? []).includes(year)));
   readonly ticketChartStores = computed(() => {
     const d = this.data();
     const year = this.ticketChartYear();
-    const selected = new Set(this.selectedStores());
     return (d?.stores ?? []).filter(store =>
       this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store)
       && this.formatMatches(store) && this.storeOverlapsPeriod(store, year * 100 + 1, year * 100 + 12)
-      && (!selected.size || selected.has(store.storeId))
     ).sort((a, b) => (a.alias || a.store).localeCompare(b.alias || b.store));
   });
   readonly ticketMonthlyRows = computed(() => {
     this.data();
     const year = this.ticketChartYear();
-    const selectedStore = this.ticketChartStore();
+    const selectedStores = new Set(this.ticketChartSelectedStores());
     const ids = new Set(this.ticketChartStores()
-      .filter(store => !selectedStore || store.storeId === selectedStore)
+      .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
       .map(store => store.storeId));
     return MONTHS.map((label, index) => {
       const rows = this.rowsForPeriods([year * 100 + index + 1], ids);
@@ -329,14 +327,18 @@ export class App implements OnInit {
     };
   });
   openTicketChart(): void {
-    this.ticketChartYear.set(new Date().getFullYear());
-    this.ticketChartStore.set('');
+    this.ticketChartYear.set(this.ticketChartYears()[0] || 2026);
+    this.ticketChartSelectedStores.set([]);
     this.toggleChartExpansion('ticket-average');
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
   }
   setTicketChartYear(year: number): void {
     this.ticketChartYear.set(year);
-    if (!this.ticketChartStores().some(store => store.storeId === this.ticketChartStore())) this.ticketChartStore.set('');
+    const available = new Set(this.ticketChartStores().map(store => store.storeId));
+    this.ticketChartSelectedStores.update(ids => ids.filter(id => available.has(id)));
+  }
+  toggleTicketChartStore(storeId: string): void {
+    this.ticketChartSelectedStores.update(ids => ids.includes(storeId) ? ids.filter(id => id !== storeId) : [...ids, storeId]);
   }
   keepTicketFocus(event: Event): void {
     const key = event as KeyboardEvent;
@@ -1243,6 +1245,14 @@ export class App implements OnInit {
       birthdayDate: birthday ? birthday.date.split('-').reverse().join('/') : '',
     };
   });
+  readonly birthdayMonthRows = computed(() => {
+    const month = this.selectedMonth();
+    const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
+    return this.talentProfiles().filter(row => row.birthDate && Number(row.birthDate.slice(5, 7)) === month)
+      .map(row => ({ name: row.name, store: stores.get(row.storeId) || row.storeId,
+        role: row.role, day: Number(row.birthDate!.slice(8, 10)) }))
+      .sort((a, b) => a.day - b.day || a.name.localeCompare(b.name));
+  });
 
   // Capacidad de dotación real contra los dos parámetros maestros de DimTiendas.
   readonly talentStoreRows = computed(() => {
@@ -1427,15 +1437,18 @@ export class App implements OnInit {
   readonly talentExitRows = computed(() => {
     const categories = ['MEJOR OFERTA', 'SALUD', 'AUSENTISMO', 'PERSONAL', 'DESERCIÓN', 'CAMBIO DE TIENDA'];
     const counts = new Map(categories.map(category => [category, 0])); const ids = this.filteredStoreIds();
-    for (const row of this.data()?.personnelProfiles || []) {
-      if (!ids.has(row.storeId) || !row.retirementReason || (row.retirementDate && !row.retirementDate.startsWith(String(this.year())))) continue;
+    const source = this.operationalSummary()
+      ? this.operationalSummary()!.departures.map(row => ({ storeId: row.storeId, retirementDate: row.date, retirementReason: row.reason }))
+      : (this.data()?.personnelProfiles || []);
+    for (const row of source) {
+      if (!ids.has(row.storeId) || !row.retirementReason || !row.retirementDate || !this.selectedPeriods().has(Number(row.retirementDate.slice(0, 7).replace('-', '')))) continue;
       const reason = this.normalized(row.retirementReason);
       const category = reason.includes('MEJOR OFERTA') || reason.includes('OTRO EMPLEO') ? 'MEJOR OFERTA'
         : reason.includes('SALUD') ? 'SALUD'
         : reason.includes('AUSENT') ? 'AUSENTISMO'
         : reason.includes('DESERC') ? 'DESERCIÓN'
         : reason.includes('CAMBIO') && reason.includes('TIENDA') ? 'CAMBIO DE TIENDA'
-        : reason.includes('PERSONAL') ? 'PERSONAL' : '';
+        : reason.includes('PERSONAL') ? 'PERSONAL' : 'PERSONAL';
       if (category) counts.set(category, (counts.get(category) || 0) + 1);
     }
     return categories.map(category => ({ category, count: counts.get(category) || 0 }));
@@ -1450,32 +1463,46 @@ export class App implements OnInit {
     } as EChartsOption;
   });
 
-  private courseProgressOption(rows: { name: string; value: number }[], color: string): EChartsOption {
+  private courseProgressOption(rows: { name: string; value: number; total: number }[], color: string): EChartsOption {
     return { animation: false, grid: { left: 128, right: 42, top: 8, bottom: 22 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any[]) => { const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row?.name || '', [{ label: 'Avance visual', value: this.percent((row?.value || 0) / 100) }, { label: 'Estado', value: 'PENDIENTE DE FUENTE' }]); } },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any[]) => { const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row?.name || '', [{ label: 'Avance registrado', value: this.percent((row?.value || 0) / 100) }, { label: 'Asignaciones', value: this.number(row?.total || 0) }]); } },
       xAxis: { type: 'value', min: 0, max: 100, interval: 25, axisLabel: { formatter: (value: number) => `${value}%`, color: '#64748B', fontSize: 8 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.name), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { width: 116, overflow: 'truncate', color: '#334155', fontSize: 8, fontWeight: 700 } },
       series: [{ type: 'bar', data: rows.map(row => row.value), barMaxWidth: 19, showBackground: true, backgroundStyle: { color: '#EEF2F7', borderRadius: 5 }, itemStyle: { color, borderRadius: [0, 5, 5, 0] }, label: { show: true, position: 'right', formatter: '{c}%', color: '#172033', fontSize: 9, fontWeight: 800 } }]
     } as EChartsOption;
   }
-  readonly sellerTrainingOption = computed<EChartsOption>(() => this.courseProgressOption([
-    { name: 'Técnicas de venta', value: 72 }, { name: 'Producto y surtido', value: 58 },
-    { name: 'Atención y reclamos', value: 64 }, { name: 'Venta omnicanal', value: 41 }
-  ], C.teal));
-  readonly administratorTrainingOption = computed<EChartsOption>(() => this.courseProgressOption([
-    { name: 'Liderazgo operativo', value: 68 }, { name: 'Inventario y merma', value: 74 },
-    { name: 'Seguridad y SST', value: 55 }, { name: 'Gestión de equipos', value: 46 }
-  ], C.purple));
+  private trainingRowsFor(audience: 'SELLERS' | 'ADMINISTRATORS') {
+    const ids = this.filteredStoreIds();
+    const rows = (this.operationalSummary()?.training || []).filter(row => ids.has(row.storeId)
+      && (audience === 'SELLERS' ? row.role === 'vendedor' : ['jefe_tienda', 'asistente_tienda'].includes(row.role)));
+    const courses = grouped(rows, row => row.course);
+    return [...courses.entries()].map(([name, assigned]) => ({ name, total: assigned.length,
+      value: Math.round(100 * assigned.filter(row => row.state === 'completado').length / assigned.length) }))
+      .sort((a, b) => b.total - a.total).slice(0, 4);
+  }
+  readonly sellerTrainingOption = computed<EChartsOption>(() => this.courseProgressOption(this.trainingRowsFor('SELLERS'), C.teal));
+  readonly administratorTrainingOption = computed<EChartsOption>(() => this.courseProgressOption(this.trainingRowsFor('ADMINISTRATORS'), C.purple));
   readonly selectedTrainingOption = computed<EChartsOption>(() => this.trainingAudience() === 'SELLERS'
     ? this.sellerTrainingOption() : this.administratorTrainingOption());
+  readonly talentIncidentRows = computed(() => {
+    const ids = this.filteredStoreIds();
+    const periods = this.selectedPeriods();
+    const counts = new Map<string, number>();
+    const externalTypes = new Set(['robo', 'robo_frustrado', 'estafa', 'asalto', 'fiscalizacion',
+      'proveedor', 'logistica_externa', 'infraestructura_externa']);
+    const labels: Record<string, string> = { robo: 'Robo', robo_frustrado: 'Robo frustrado', cambio_precio: 'Cambio de precio',
+      proveedor: 'Proveedor', logistica_externa: 'Logística externa', infraestructura_externa: 'Infraestructura externa', fiscalizacion: 'Fiscalización', otro: 'Otros' };
+    for (const row of this.operationalSummary()?.incidents || []) {
+      if (!externalTypes.has(row.type) || !ids.has(row.storeId) || !periods.has(Number(row.date.slice(0, 7).replace('-', '')))) continue;
+      const label = labels[row.type] || row.type.replaceAll('_', ' ');
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    return [...counts.entries()].map(([name, value], index) => ({ name, value, itemStyle: { color: [C.red, C.orange, C.purple, C.blue, C.gold, C.teal][index % 6] } }));
+  });
   readonly talentIncidentsOption = computed<EChartsOption>(() => ({
-    animation: false, tooltip: { trigger: 'item', confine: true, formatter: (params: any) => this.tooltip(params.name, [{ label: 'Casos referenciales', value: this.number(Number(params.value)) }, { label: 'Participación', value: `${params.percent}%` }]) },
+    animation: false, tooltip: { trigger: 'item', confine: true, formatter: (params: any) => this.tooltip(params.name, [{ label: 'Casos registrados', value: this.number(Number(params.value)) }, { label: 'Participación', value: `${params.percent}%` }]) },
     legend: { bottom: 0, type: 'scroll', textStyle: { fontSize: 8 } },
-    series: [{ type: 'pie', radius: ['43%', '73%'], center: ['50%', '44%'], label: { show: true, fontSize: 8, formatter: '{b}\n{d}%' }, data: [
-      { name: 'Libro de reclamaciones', value: 12, itemStyle: { color: C.red } }, { name: 'Denuncias', value: 3, itemStyle: { color: C.orange } },
-      { name: 'Indecopi', value: 5, itemStyle: { color: C.purple } }, { name: 'Fiscalización municipal', value: 7, itemStyle: { color: C.blue } },
-      { name: 'Defensa Civil', value: 4, itemStyle: { color: C.gold } }
-    ] }]
+    series: [{ type: 'pie', radius: ['43%', '73%'], center: ['50%', '44%'], label: { show: true, fontSize: 8, formatter: '{b}\n{d}%' }, data: this.talentIncidentRows() }]
   }));
 
   readonly assistantContext = computed(() => {
@@ -2057,7 +2084,7 @@ export class App implements OnInit {
     return this.comboOption(months.map(month => MONTHS[month - 1]), real, target, units);
   });
   readonly rankingStoreCountLabel = computed(() => {
-    const stores = (this.data()?.stores || []).filter(store => store.isStore && this.storeAllowedByAccess(store))
+    const stores = (this.companyRankingData()?.stores || this.data()?.stores || []).filter(store => store.isStore)
       .filter(store => this.storeOverlapsPeriod(store, this.year() * 100 + 1, this.year() * 100 + 12));
     const closed = stores.filter(store => store.closingDate?.startsWith(`${this.year()}-`)).length;
     const active = Math.max(0, stores.length - closed);
@@ -2098,21 +2125,24 @@ export class App implements OnInit {
   });
   readonly rankingOption = computed<EChartsOption>(() => {
     const d = this.data(); if (!d) return {};
+    const company = this.companyRankingData();
     const selectedMetrics = this.rankingMetrics();
     const selectedYear = this.year(); const periods = this.selectedPeriods();
     // El universo siempre incluye todas las tiendas que estuvieron vigentes en
     // algún momento del año, incluso si una cerró durante ese ejercicio.
-    const candidates = d.stores
-      .filter(store => store.isStore && this.storeAllowedByAccess(store))
+    const candidates = (company?.stores || d.stores)
+      .filter(store => store.isStore)
       .filter(store => this.storeOverlapsPeriod(store, selectedYear * 100 + 1, selectedYear * 100 + 12));
     const candidateIds = new Set(candidates.map(store => store.storeId));
-    const factRows = this.dateRangeActive()
-      ? this.dailyRowsInRange(candidateIds, true)
-      : this.currentDimensionFilter(this.indexedRows(this.currentDimensionIndex(), periods, candidateIds));
+    const factRows = company
+      ? company.monthlyStore.filter(row => candidateIds.has(row.storeId) && periods.has(row.periodId))
+      : this.dateRangeActive()
+        ? this.dailyRowsInRange(candidateIds, true)
+        : this.currentDimensionFilter(this.indexedRows(this.currentDimensionIndex(), periods, candidateIds));
     const groups = grouped(factRows, row => row.storeId);
     // El resumen de rotación por tienda ya viene en dashboard.json. Usarlo aquí
     // evita depender del detalle pesado de productos, que se carga recién en Inventario.
-    const predictive = new Map((d.predictiveStore || []).map(row => [row.storeId, row]));
+    const predictive = new Map((company?.predictiveStore || d.predictiveStore || []).map(row => [row.storeId, row]));
     const stockYear = Number(d.metadata.stockCutoff.slice(0, 4));
     const metrics = candidates.map(store => {
       const rows = groups.get(store.storeId) || [];
@@ -2238,7 +2268,7 @@ export class App implements OnInit {
 
   readonly inventoryAreaSummary = computed(() => {
     const ids = this.filteredStoreIds();
-    const rows = (this.data()?.predictiveCategory || []).filter(row => ids.has(row.storeId) && this.categoryMatches(row.category));
+    const rows = (this.data()?.predictiveCategory || []).filter(row => ids.has(row.storeId));
     const groups = grouped(rows, row => this.areaHead(row.category));
     const totalValue = rows.reduce((total, row) => total + (Number(row.stockValue) || 0), 0);
     const colors: Record<string, string> = { TEXTIL: C.navy, CALZADO: C.red, HOGAR: C.gold, ELECTRO: C.blue, TECNOLOGIA: C.teal, 'PERFUMERÍA Y JOYERÍA': C.purple, 'FERRETERÍA Y AUTOMOTRIZ': C.orange, 'PRODUCTOS VARIOS': C.slate };
@@ -2248,9 +2278,16 @@ export class App implements OnInit {
     }).filter(row => row.value > 0).sort((a, b) => b.value - a.value);
   });
 
+  readonly inventoryOverviewTotals = computed(() => {
+    const ids = this.filteredStoreIds();
+    const rows = (this.data()?.stockStore || []).filter(row => ids.has(row.storeId));
+    return { units: sum(rows, 'units'), value: sum(rows, 'value'),
+      capacity: this.filteredStores().reduce((total, store) => total + (store.capacity || 0), 0) };
+  });
+
   readonly inventoryOverviewOption = computed<EChartsOption>(() => {
     const rows = this.inventoryAreaSummary();
-    const totals = this.stockTotals();
+    const totals = this.inventoryOverviewTotals();
     const occupied = Math.min(totals.units, totals.capacity);
     const free = Math.max(0, totals.capacity - totals.units);
     const overflow = Math.max(0, totals.units - totals.capacity);
@@ -2692,6 +2729,8 @@ export class App implements OnInit {
   async signOut(): Promise<void> {
     await this.cloud.signOut();
     this.data.set(null);
+    this.operationalSummary.set(null);
+    this.companyRankingData.set(null);
     this.sellerPerformanceData.set([]);
     this.sellerDetailLoaded.set(false);
     this.loadingError.set('');
@@ -2722,6 +2761,8 @@ export class App implements OnInit {
       this.sellerPerformanceData.set(loaded.sellerPerformance || []);
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
       this.data.set(loaded);
+      this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
+      this.cloud.companyRanking().then(ranking => this.companyRankingData.set(ranking)).catch(() => this.companyRankingData.set(null));
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();

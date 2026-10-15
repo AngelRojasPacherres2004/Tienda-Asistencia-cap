@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileSpreadsheet, HardDriveUpload } from "lucide-react";
 import { api, formatDateTime, todayISO } from "../lib/api";
 import { Notice, PageHeader } from "../components/UI";
+import UploadPicker from "../components/UploadPicker";
 import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES } from "../../shared/commercialBatch.js";
 import { SYSTEM_UPLOAD_MAX_BYTES, validateSystemUpload } from "../../shared/systemUpload.js";
 import "./system-uploads.css";
@@ -99,10 +100,10 @@ export default function RmsBatchUpload() {
     <form className="system-uploads__card" onSubmit={submit}>
       <div className="system-uploads__heading"><HardDriveUpload size={23}/><h2>Lote comercial</h2></div>
       <div className="commercial-batch__fields">
-        {COMMERCIAL_BATCH_SOURCES.map(item => <label className="system-uploads__field" key={item.id}>{item.label}
-          <input type="file" accept=".xlsx,.parquet" disabled={busy}
-            onChange={event => setFiles(previous => ({ ...previous, [item.id]: event.target.files?.[0] || null }))}/>
-        </label>)}
+        {COMMERCIAL_BATCH_SOURCES.map(item => <div className="system-uploads__field" key={item.id}><span>{item.label}</span>
+          <UploadPicker label={`Cargar ${item.label}`} file={files[item.id]} accept=".xlsx,.parquet" disabled={busy}
+            onChange={file => setFiles(previous => ({ ...previous, [item.id]: file }))}/>
+        </div>)}
         <label className="system-uploads__field">Fecha de corte
           <select value={cutoff} disabled={busy} onChange={event => setCutoff(event.target.value)}>
             {options.map(value => <option value={value} key={value}>{value.split("-").reverse().join("/")}</option>)}

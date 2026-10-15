@@ -2,7 +2,6 @@ import ExcelJS from "exceljs";
 import { genderFromLine } from "../../shared/annualReports.js";
 
 const BLUE = "183F87";
-const LIGHT = "EAF2FA";
 const PRODUCT_KINDS = new Set(["ventas", "ingresos", "stock", "transferencias"]);
 
 function productMatches(row, filters) {
@@ -39,12 +38,14 @@ export function summarizeAnnualReports(storeRows, filters, stores, cutoffs = {})
     if (!selectedStores.has(storeId)) continue;
     for (const item of rows) {
       if (item.tienda_id !== storeId) continue;
+      const sourceKind = item.kind === "ventas_diario" ? "ventas" : item.kind;
+      if (cutoffs[sourceKind] && item.fecha > cutoffs[sourceKind]) continue;
       const productKind = PRODUCT_KINDS.has(item.kind);
       if (productKind && !productMatches(item, filters)) continue;
       if (item.kind === "stock") {
         if (Number(item.anio) !== filters.year || item.fecha > periodEnd) continue;
         const current = stockByStore.get(storeId);
-        if (!current || item.fecha > current.fecha) stockByStore.set(storeId, { fecha: item.fecha, unidades: 0, valor: 0 });
+        if (!current || item.fecha > current.fecha) stockByStore.set(storeId, { fecha: item.fecha, unidades: 0, valor: 0, estados: new Map() });
         continue;
       }
       if (!inPeriod(item, filters)) continue;
@@ -72,6 +73,11 @@ export function summarizeAnnualReports(storeRows, filters, stores, cutoffs = {})
           || item.tienda_id !== storeId || !productMatches(item, filters)) continue;
         snapshot.unidades += Number(item.unidades || 0);
         snapshot.valor += Number(item.valor_stock || 0);
+        const status = String(item.estado_stock || "SIN CLASIFICAR").toUpperCase();
+        const statusRow = snapshot.estados.get(status) || { estado: status, unidades: 0, valor: 0 };
+        statusRow.unidades += Number(item.unidades || 0);
+        statusRow.valor += Number(item.valor_stock || 0);
+        snapshot.estados.set(status, statusRow);
       }
     }
   }
@@ -88,15 +94,17 @@ export function summarizeAnnualReports(storeRows, filters, stores, cutoffs = {})
   const periodStart = `${filters.year}-${String(filters.month || 1).padStart(2, "0")}-${String(filters.day || 1).padStart(2, "0")}`;
   const unavailable = Object.fromEntries(Object.entries(cutoffs).map(([kind, cutoff]) => [kind, !cutoff || cutoff < periodStart]));
   return { rows: result, totals, stock: stockByStore.size ? stock : null,
-    stockStores: [...stockByStore.entries()].map(([storeId, row]) => ({ storeId, ...row })),
+    stockStores: [...stockByStore.entries()].flatMap(([storeId, row]) =>
+      [...row.estados.values()].sort((a, b) =>
+        (a.estado === "BUENO" ? -1 : b.estado === "BUENO" ? 1 : a.estado.localeCompare(b.estado, "es")))
+        .map(status => ({ storeId, fecha: row.fecha, ...status }))),
     stockDates: [...new Set([...stockByStore.values()].map(row => row.fecha))].sort(),
     productFiltered, unavailable, cutoffs };
 }
 
 function styleTable(sheet, headerRow) {
   const row = sheet.getRow(headerRow);
-  row.font = { name: "Arial", bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
-  row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${BLUE}` } };
+  row.font = { name: "Arial", bold: true, color: { argb: `FF${BLUE}` }, size: 10 };
   row.alignment = { vertical: "middle", horizontal: "center" };
   row.height = 23;
   sheet.views = [{ state: "frozen", ySplit: headerRow }];
@@ -111,43 +119,31 @@ export function buildAnnualSummaryWorkbook(summary, filters, stores) {
   sheet.views = [{ showGridLines: false }];
   sheet.getCell("A2").value = `Resumen comercial ${filters.year}`;
   sheet.getCell("A2").font = { name: "Arial", size: 16, bold: true, color: { argb: `FF${BLUE}` } };
-  const scope = [filters.month ? `Mes ${filters.month}` : "Año completo", filters.day ? `Día ${filters.day}` : "",
+  const scope = [filters.month ? `Mes ${filters.month}` : "", filters.day ? `Día ${filters.day}` : "",
     filters.cluster, filters.format, filters.storeId && stores[filters.storeId]?.name,
     filters.rubro, filters.gender, filters.linea, filters.sublinea].filter(Boolean).join(" · ");
   sheet.getCell("A3").value = scope;
   sheet.getCell("A3").font = { name: "Arial", size: 10, italic: true, color: { argb: "FF58677A" } };
-  sheet.getRow(5).values = ["Indicador", "Resultado", "Corte / definición"];
+  sheet.getRow(5).values = ["Indicador", "Resultado"];
   styleTable(sheet, 5);
   const { totals, productFiltered, unavailable } = summary;
   const indicators = [
-    ["Venta neta (S/)", unavailable.ventas ? null : totals.venta_neta, summary.cutoffs.ventas || "Sin fuente"],
-    ["Unidades vendidas", unavailable.ventas ? null : totals.unidades_vendidas, "Unidades del período"],
-    ["Transacciones", productFiltered || unavailable.ventas ? null : totals.transacciones,
-      productFiltered ? "No comparable con filtro de producto" : "Tickets distintos"],
-    ["Tráfico", productFiltered || unavailable.trafico ? null : totals.trafico,
-      productFiltered ? "No tiene clasificación de producto" : summary.cutoffs.trafico || "Sin fuente"],
-    ["Ticket promedio (S/)", productFiltered || !totals.transacciones || unavailable.ventas ? null : totals.venta_neta / totals.transacciones,
-      "Venta neta / transacciones"],
-    ["Conversión", productFiltered || !totals.trafico || unavailable.ventas || unavailable.trafico ? null : totals.transacciones / totals.trafico,
-      "Transacciones / tráfico"],
-    ["Ingresos (unidades)", unavailable.ingresos ? null : totals.unidades_ingreso, summary.cutoffs.ingresos || "Sin fuente"],
-    ["Ingresos (S/)", unavailable.ingresos ? null : totals.valor_ingreso, "Valor del período"],
-    ["Transferencias de entrada (unidades)", unavailable.transferencias ? null : totals.transferencias_entrada,
-      summary.cutoffs.transferencias || "Sin fuente"],
-    ["Transferencias de salida (unidades)", unavailable.transferencias ? null : totals.transferencias_salida,
-      summary.cutoffs.transferencias || "Sin fuente"],
-    ["Stock (unidades)", summary.stock?.unidades ?? null,
-      summary.stockDates.length ? `Foto de corte: ${summary.stockDates.join(", ")}` : "Sin corte en el período"],
-    ["Stock (S/)", summary.stock?.valor ?? null, "No se suma entre fechas de corte"],
+    ["Venta neta (S/)", unavailable.ventas ? null : totals.venta_neta],
+    ["Unidades vendidas", unavailable.ventas ? null : totals.unidades_vendidas],
+    ["Transacciones", productFiltered || unavailable.ventas ? null : totals.transacciones],
+    ["Tráfico", productFiltered || unavailable.trafico ? null : totals.trafico],
+    ["Ticket promedio (S/)", productFiltered || !totals.transacciones || unavailable.ventas ? null : totals.venta_neta / totals.transacciones],
+    ["Conversión", productFiltered || !totals.trafico || unavailable.ventas || unavailable.trafico ? null : totals.transacciones / totals.trafico],
+    ["Ingresos (unidades)", unavailable.ingresos ? null : totals.unidades_ingreso],
+    ["Ingresos (S/)", unavailable.ingresos ? null : totals.valor_ingreso],
+    ["Stock (unidades)", summary.stock?.unidades ?? null],
+    ["Stock (S/)", summary.stock?.valor ?? null],
   ];
-  for (const [label, value, note] of indicators) sheet.addRow([label, value ?? "No disponible", note]);
+  for (const [label, value] of indicators) sheet.addRow([label, value ?? "No disponible"]);
   sheet.getColumn(1).width = 38;
   sheet.getColumn(2).width = 23;
-  sheet.getColumn(3).width = 48;
-  for (let row = 6; row <= 17; row++) {
+  for (let row = 6; row <= 5 + indicators.length; row++)
     sheet.getCell(row, 2).numFmt = row === 11 ? "0.0%" : "#,##0.00";
-    if (row % 2 === 0) sheet.getRow(row).fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${LIGHT}` } };
-  }
 
   const detail = workbook.addWorksheet("Diario por tienda");
   detail.views = [{ showGridLines: false }];
@@ -183,14 +179,15 @@ export function buildAnnualSummaryWorkbook(summary, filters, stores) {
     { header: "Código de tienda", key: "tienda_id", width: 18 },
     { header: "Tienda", key: "tienda", width: 30 },
     { header: "Fecha de corte", key: "fecha", width: 16 },
+    { header: "Estado de stock", key: "estado", width: 20 },
     { header: "Unidades", key: "unidades", width: 17 },
     { header: "Valor de stock (S/)", key: "valor", width: 22 },
   ];
   for (const row of summary.stockStores) inventory.addRow({
     tienda_id: row.storeId, tienda: stores[row.storeId]?.name || row.storeId,
-    fecha: row.fecha, unidades: row.unidades, valor: row.valor,
+    fecha: row.fecha, estado: row.estado, unidades: row.unidades, valor: row.valor,
   });
   styleTable(inventory, 1);
-  inventory.getColumn("E").numFmt = "#,##0.00";
+  inventory.getColumn("F").numFmt = "#,##0.00";
   return workbook;
 }
