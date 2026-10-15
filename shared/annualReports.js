@@ -1,3 +1,5 @@
+export const MAX_SALES_EXCEL_ROWS = 50_000;
+
 export const ANNUAL_REPORT_KINDS = Object.freeze([
   { id: "ventas", label: "Ventas", dateLabel: "Fecha de venta", productFilters: true },
   { id: "stock", label: "Stock", dateLabel: "Fecha de corte", productFilters: true },

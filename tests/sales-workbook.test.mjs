@@ -16,6 +16,14 @@ test("el Excel conserva fechas, códigos, textos y números al reabrirlo y recon
   const reopened = new ExcelJS.Workbook();
   await reopened.xlsx.load(await workbook.xlsx.writeBuffer());
   const sheet = reopened.getWorksheet("Ventas");
+  const summary = reopened.getWorksheet("Resumen");
+  assert.equal(reopened.worksheets[0].name, "Resumen");
+  assert.equal(reopened.views[0].activeTab, 0);
+  assert.equal(summary.getCell("B9").result, 59.9);
+  assert.equal(summary.getCell("B10").result, 1);
+  assert.equal(summary.getCell("B11").result, 2);
+  assert.equal(summary.getCell("B15").value, "AYACUCHO");
+  assert.equal(summary.getCell("E15").result, 59.9);
   assert.equal(count, 2);
   assert.equal(sheet.getCell("A9").value.toISOString().slice(0, 10), sale.fecha);
   assert.equal(sheet.getCell("G9").value, sale.nro_venta);
@@ -29,6 +37,7 @@ test("el Excel conserva fechas, códigos, textos y números al reabrirlo y recon
   assert.equal(sheet.getCell("J5").result, 2);
   assert.match(sheet.getCell("A3").value, /se(?:p)?tiembre.*AYACUCHO/i);
   assert.equal(sheet.views[0].ySplit, 8);
+  assert.equal(sheet.views[0].activeCell, "B9");
   assert.equal(sheet.autoFilter, "A8:R10");
 });
 
@@ -38,5 +47,6 @@ test("no transforma importes ausentes en ventas cero ni crea un archivo sin resu
   assert.equal(sheet.getCell("P9").value, null);
   assert.equal(sheet.getCell("G5").value, "No disponible");
   assert.equal(sheet.getCell("G6").value, "No disponible");
+  assert.equal(workbook.getWorksheet("Resumen").getCell("B9").value, "No disponible");
   await assert.rejects(buildSalesWorkbook([], options), /No hay registros/);
 });

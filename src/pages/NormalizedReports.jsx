@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { api, downloadFile } from "../lib/api";
 import { Notice } from "../components/UI";
-import { ANNUAL_REPORT_LABELS, csvLine, genderFromLine, matchesAnnualRow } from "../../shared/annualReports.js";
+import { ANNUAL_REPORT_LABELS, MAX_SALES_EXCEL_ROWS, csvLine, genderFromLine, matchesAnnualRow } from "../../shared/annualReports.js";
 import "./system-uploads.css";
 
 const MAX_ROWS = 1_048_575; // Una fila adicional para encabezados.
@@ -148,6 +148,7 @@ export default function NormalizedReports({ user }) {
   const rowFilterActive = !!(filters.day || (!catalog?.monthly && filters.month) || (productFilters
     && (filters.rubro || filters.gender || filters.linea || filters.sublinea)));
   const exceedsExcel = sourceRows > MAX_ROWS && !rowFilterActive;
+  const exceedsStyledExcel = sourceRows > MAX_SALES_EXCEL_ROWS && !rowFilterActive;
   const dayCount = filters.month ? new Date(Number(filters.year), Number(filters.month), 0).getDate() : 0;
   function change(key, value) {
     if (key === "year") setKind("ventas");
@@ -175,7 +176,9 @@ export default function NormalizedReports({ user }) {
         const period = [filters.year, filters.month && String(filters.month).padStart(2, "0"), filters.day && String(filters.day).padStart(2, "0")].filter(Boolean).join("-");
         const name = `detalle-${kind}-${period}${filters.storeId ? `-${filters.storeId}` : ""}.${excel ? "xlsx" : "csv"}`;
         let handle = null;
-        if (window.showSaveFilePicker) {
+        // XLSX must be complete before a download is created; an early file picker
+        // leaves an empty file behind when filtering, generation or fetching fails.
+        if (!excel && window.showSaveFilePicker) {
           try { handle = await window.showSaveFilePicker({ suggestedName: name,
             types: excel ? [{ description: "Libro de Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
               : [{ description: "CSV para Excel", accept: { "text/csv": [".csv"] } }] }); }
@@ -191,16 +194,11 @@ export default function NormalizedReports({ user }) {
           setProgress("Preparando Excel…");
           await new Promise(resolve => window.setTimeout(resolve, 0));
           const buffer = await generated.workbook.xlsx.writeBuffer();
-          if (handle) {
-            const writer = await handle.createWritable();
-            try { await writer.write(buffer); await writer.close(); }
-            catch (error) { await writer.abort().catch(() => {}); throw error; }
-          } else {
-            const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-            const link = document.createElement("a"); link.href = url; link.download = name;
-            document.body.appendChild(link); link.click(); link.remove();
-            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-          }
+          if (!buffer.byteLength) throw new Error("No se pudo generar el Excel. Intenta con un mes o una tienda.");
+          const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+          const link = document.createElement("a"); link.href = url; link.download = name;
+          document.body.appendChild(link); link.click(); link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
           count = generated.count;
         } else count = await saveCsv(result, applied, kind, name, handle, catalog?.cutoffs?.[kind], onProgress);
         if (count) setMessage({ type: "success", text: `${count.toLocaleString("es-PE")} filas descargadas.` });
@@ -240,12 +238,14 @@ export default function NormalizedReports({ user }) {
       <div className="annual-reports__actions">
         <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{catalog.reports.map(item =>
           <option key={item.id} value={item.id} disabled={!item.years.includes(Number(filters.year))}>{item.label}{item.years.includes(Number(filters.year)) ? "" : " · sin datos"}</option>)}</select></label>
-        {user?.rol === "coach" && <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("excel")}><FileSpreadsheet size={16}/>{busy === "excel" ? `Generando ${progress || "…"}` : "Descargar Excel"}</button>}
+        {user?.rol === "coach" && <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel || exceedsStyledExcel} onClick={() => run("excel")}><FileSpreadsheet size={16}/>{busy === "excel" ? `Generando ${progress || "…"}` : "Descargar Excel"}</button>}
         <button type="button" className={`button ${user?.rol === "coach" ? "button--ghost" : "button--primary"}`} disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
       </div>
       {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
       {exceedsExcel && <small className="annual-reports__note">Este detalle tiene más de 1 048 575 filas. Elige un mes, tienda o clasificación para abrirlo completo en Excel.</small>}
-      {user?.rol === "coach" && <small className="annual-reports__note">Excel con formato: hasta 50 000 filas. Para selecciones mayores, filtra por mes o tienda, o descarga el CSV completo.</small>}
+      {user?.rol === "coach" && <small className="annual-reports__note">{exceedsStyledExcel
+        ? `La selección contiene ${sourceRows.toLocaleString("es-PE")} filas y supera las 50 000 del Excel. Selecciona un mes, una tienda o una clasificación; también puedes descargar el CSV completo.`
+        : "Excel con resumen y detalle: hasta 50 000 filas. Para selecciones mayores, filtra por mes o tienda, o descarga el CSV completo."}</small>}
       {!productFilters && <small className="annual-reports__note">El detalle de tráfico no se clasifica por producto.</small>}
     </>}
   </section>;

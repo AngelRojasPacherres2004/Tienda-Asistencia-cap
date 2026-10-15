@@ -1,8 +1,8 @@
 import ExcelJS from "exceljs";
-import { ANNUAL_DETAIL_COLUMNS, ANNUAL_REPORT_LABELS } from "../../shared/annualReports.js";
+import { ANNUAL_DETAIL_COLUMNS, ANNUAL_REPORT_LABELS, MAX_SALES_EXCEL_ROWS } from "../../shared/annualReports.js";
 
 // Keep browser memory bounded; CSV remains available for larger selections.
-export const MAX_SALES_EXCEL_ROWS = 50_000;
+export { MAX_SALES_EXCEL_ROWS } from "../../shared/annualReports.js";
 const HEADER_ROW = 8;
 const BLUE = "183F87";
 const INK = "24364B";
@@ -15,17 +15,94 @@ function numberValue(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function overviewTableHeader(row, labels) {
+  row.values = labels;
+  row.height = 30;
+  row.eachCell(cell => {
+    cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${BLUE}` } };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  });
+}
+
+function fillOverview(sheet, { filters, stores, cutoff, month, count, sales, units, salesValues, unitValues, byStore, lastRow }) {
+  sheet.columns = [18, 36, 18, 18, 24, 18].map(width => ({ width }));
+  sheet.views = [{ showGridLines: false, zoomScale: 100, activeCell: "A1" }];
+  sheet.getCell("A2").value = `Resumen de ventas ${filters.year}`;
+  sheet.getCell("A2").font = { name: "Arial", size: 16, bold: true, color: { argb: `FF${BLUE}` } };
+  sheet.getRow(2).height = 32;
+  const context = {
+    A3: "Período", B3: [month, filters.day ? `Día ${filters.day}` : ""].filter(Boolean).join(" · "),
+    A4: "Tienda", B4: filters.storeId ? stores.find(store => store.id === filters.storeId)?.name || filters.storeId : "Todas las tiendas seleccionadas",
+    A5: "Clasificación", B5: [filters.rubro, filters.gender, filters.linea, filters.sublinea].filter(Boolean).join(" · ") || "Todas",
+    D3: "Datos al", E3: cutoff ? new Date(`${cutoff}T00:00:00Z`) : "Sin fecha de corte",
+    D4: "Formato", E4: filters.format || "Todos", D5: "Clúster", E5: filters.cluster || "Todos",
+  };
+  for (const [address, value] of Object.entries(context)) {
+    const cell = sheet.getCell(address);
+    cell.value = value;
+    cell.font = { name: "Arial", size: 10, bold: /^[AD]/.test(address), color: { argb: `FF${INK}` } };
+    cell.alignment = { vertical: "middle", wrapText: true };
+  }
+  sheet.getCell("E3").numFmt = "dd/mm/yyyy";
+  for (const row of [3, 4, 5]) sheet.getRow(row).height = Math.max(28, Math.ceil(String(sheet.getCell(row, 2).value).length / 32) * 14 + 10);
+  overviewTableHeader(sheet.getRow(8), ["Indicador", "Resultado"]);
+  const metrics = [
+    ["Venta neta", salesValues ? { formula: `SUM('Ventas'!P9:P${lastRow})`, result: sales } : "No disponible", MONEY],
+    ["Unidades vendidas", unitValues ? { formula: `SUM('Ventas'!N9:N${lastRow})`, result: units } : "No disponible", "#,##0"],
+    ["Registros", { formula: `COUNTA('Ventas'!B9:B${lastRow})`, result: count }, "#,##0"],
+  ];
+  metrics.forEach(([label, value, format], index) => {
+    const row = sheet.getRow(9 + index);
+    row.values = [label, value]; row.height = 30;
+    row.eachCell((cell, col) => {
+      cell.font = { name: "Arial", size: col === 2 ? 12 : 10, bold: col === 2, color: { argb: `FF${BLUE}` } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAF0FA" } };
+      cell.alignment = { vertical: "middle", horizontal: col === 2 ? "right" : "left" };
+    });
+    row.getCell(2).numFmt = format;
+  });
+  sheet.getCell("D9").value = { text: "Abrir detalle de ventas", hyperlink: "#'Ventas'!A8" };
+  sheet.getCell("D9").font = { name: "Arial", size: 11, bold: true, underline: true, color: { argb: `FF${BLUE}` } };
+  sheet.getCell("A13").value = "Ventas por tienda";
+  sheet.getCell("A13").font = { name: "Arial", size: 12, bold: true, color: { argb: `FF${BLUE}` } };
+  sheet.getRow(13).height = 28;
+  overviewTableHeader(sheet.getRow(14), ["Código", "Tienda", "Registros", "Unidades", "Venta neta (S/)", "Participación"]);
+  const storeRows = [...byStore.values()].sort((a, b) => b.sales - a.sales);
+  storeRows.forEach((store, index) => {
+    const rowNumber = 15 + index;
+    const row = sheet.getRow(rowNumber);
+    row.values = [store.id, store.name,
+      { formula: `COUNTIF('Ventas'!$E$9:$E$${lastRow},A${rowNumber})`, result: store.count },
+      store.unitValues ? { formula: `SUMIF('Ventas'!$E$9:$E$${lastRow},A${rowNumber},'Ventas'!$N$9:$N$${lastRow})`, result: store.units } : null,
+      store.salesValues ? { formula: `SUMIF('Ventas'!$E$9:$E$${lastRow},A${rowNumber},'Ventas'!$P$9:$P$${lastRow})`, result: store.sales } : null,
+      store.salesValues && sales ? { formula: `E${rowNumber}/$B$9`, result: store.sales / sales } : null];
+    row.height = Math.max(28, Math.ceil(store.name.length / 32) * 14 + 10);
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      cell.font = { name: "Arial", size: 10, color: { argb: `FF${INK}` } };
+      cell.alignment = { vertical: "middle", horizontal: col > 2 ? "right" : "left", wrapText: col === 2 };
+      if (index % 2 === 1) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5FA" } };
+      cell.numFmt = col === 5 ? MONEY : col === 6 ? "0.0%" : col > 2 ? "#,##0" : "@";
+    });
+  });
+  sheet.autoFilter = `A14:F${14 + storeRows.length}`;
+  sheet.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+    printArea: `A1:F${14 + storeRows.length}` };
+}
+
 export async function buildSalesWorkbook(rows, { filters, stores = [], cutoff = "" }) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Asiste";
   workbook.created = new Date();
   workbook.calcProperties.fullCalcOnLoad = true;
+  workbook.views = [{ activeTab: 0, firstSheet: 0 }];
+  const overview = workbook.addWorksheet("Resumen", { properties: { tabColor: { argb: `FF${BLUE}` } } });
   const sheet = workbook.addWorksheet("Ventas", { properties: { tabColor: { argb: `FF${BLUE}` } } });
   const columns = ANNUAL_DETAIL_COLUMNS.ventas;
   const widths = [15, 9, 8, 8, 19, 30, 22, 23, 52, 21, 25, 25, 22, 16, 21, 23, 24, 21];
   sheet.columns = columns.map((key, index) => ({ key, width: widths[index] }));
   sheet.views = [{ showGridLines: false, state: "frozen", xSplit: 1, ySplit: HEADER_ROW,
-    topLeftCell: "B9", activeCell: "A1", zoomScale: 90 }];
+    topLeftCell: "B9", activeCell: "B9", zoomScale: 90 }];
   sheet.getCell("A2").value = `Reporte de ventas ${filters.year}`;
   sheet.getCell("A2").font = { name: "Arial", size: 16, bold: true, color: { argb: `FF${BLUE}` } };
   sheet.getRow(2).height = 28;
@@ -58,6 +135,7 @@ export async function buildSalesWorkbook(rows, { filters, stores = [], cutoff = 
     cell.border = { right: { style: "thin", color: { argb: "FFFFFFFF" } } };
   });
   let count = 0, sales = 0, units = 0, salesValues = 0, unitValues = 0;
+  const byStore = new Map();
   for await (const item of rows) {
     if (count >= MAX_SALES_EXCEL_ROWS) throw new Error("El Excel admite hasta 50 000 filas por descarga. Filtra por mes, tienda o clasificación, o usa Descargar CSV para obtener el detalle completo.");
     const values = columns.map(key => {
@@ -82,6 +160,14 @@ export async function buildSalesWorkbook(rows, { filters, stores = [], cutoff = 
     });
     if (values[15] != null) { sales += values[15]; salesValues++; }
     if (values[13] != null) { units += values[13]; unitValues++; }
+    const storeId = String(item.tienda_id || "");
+    if (!byStore.has(storeId)) byStore.set(storeId, { id: storeId,
+      name: stores.find(store => store.id === storeId)?.name || String(item.tienda || storeId),
+      count: 0, sales: 0, units: 0, salesValues: 0, unitValues: 0 });
+    const store = byStore.get(storeId);
+    store.count++;
+    if (values[15] != null) { store.sales += values[15]; store.salesValues++; }
+    if (values[13] != null) { store.units += values[13]; store.unitValues++; }
     count++;
   }
   if (!count) throw new Error("No hay registros para estos filtros.");
@@ -103,5 +189,6 @@ export async function buildSalesWorkbook(rows, { filters, stores = [], cutoff = 
     fitToWidth: 1, fitToHeight: 0, printTitlesRow: `${HEADER_ROW}:${HEADER_ROW}`,
     printArea: `A1:R${lastRow}`, margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
   sheet.headerFooter.oddFooter = "&LAsiste · Ventas&R&P / &N";
+  fillOverview(overview, { filters, stores, cutoff, month, count, sales, units, salesValues, unitValues, byStore, lastRow });
   return { workbook, count };
 }
