@@ -37,33 +37,38 @@ async function* rowsFrom(responsePromise) {
   } finally { await reader.cancel().catch(() => {}); }
 }
 
+async function* matchingReportRows(result, filters, kind, cutoff, onProgress) {
+  let scanned = 0;
+  const responses = new Map();
+  const prefetch = index => {
+    if (index >= result.files.length || responses.has(index)) return;
+    responses.set(index, fetch(result.files[index].url, { credentials: "same-origin" })
+      .then(response => ({ response }), error => ({ error })));
+  };
+  for (let index = 0; index < Math.min(3, result.files.length); index++) prefetch(index);
+  for (let index = 0; index < result.files.length; index++) {
+    prefetch(index + 3);
+    for await (const row of rowsFrom(responses.get(index))) {
+      if (++scanned % 10_000 === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
+      if (matchesAnnualRow(row, filters, kind, cutoff)) yield row;
+    }
+    responses.delete(index);
+    onProgress?.(index + 1, result.files.length);
+  }
+}
+
 async function saveCsv(result, filters, kind, name, handle, cutoff, onProgress) {
   const writer = handle ? await handle.createWritable() : null;
   const chunks = writer ? null : [];
   let count = 0;
-  let scanned = 0;
   let buffer = "\uFEFF" + result.columns.map(key => ANNUAL_REPORT_LABELS[key] || key).join(",") + "\r\n";
   async function flush() { if (writer) await writer.write(buffer); else chunks.push(buffer); buffer = ""; }
   try {
-    const responses = new Map();
-    const prefetch = index => {
-      if (index >= result.files.length || responses.has(index)) return;
-      responses.set(index, fetch(result.files[index].url, { credentials: "same-origin" })
-        .then(response => ({ response }), error => ({ error })));
-    };
-    for (let index = 0; index < Math.min(3, result.files.length); index++) prefetch(index);
-    for (let index = 0; index < result.files.length; index++) {
-      prefetch(index + 3);
-      for await (const row of rowsFrom(responses.get(index))) {
-        if (++scanned % 10_000 === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
-        if (!matchesAnnualRow(row, filters, kind, cutoff)) continue;
-        if (count >= MAX_ROWS) throw new Error("Supera el límite de filas de Excel. Selecciona una tienda, mes o clasificación.");
-        buffer += csvLine(row, result.columns);
-        count += 1;
-        if (buffer.length > 512_000) await flush();
-      }
-      responses.delete(index);
-      onProgress?.(index + 1, result.files.length);
+    for await (const row of matchingReportRows(result, filters, kind, cutoff, onProgress)) {
+      if (count >= MAX_ROWS) throw new Error("Supera el límite de filas de Excel. Selecciona una tienda, mes o clasificación.");
+      buffer += csvLine(row, result.columns);
+      count += 1;
+      if (buffer.length > 512_000) await flush();
     }
     if (!count) throw new Error("No hay registros para estos filtros.");
     if (buffer) await flush();
@@ -164,18 +169,40 @@ export default function NormalizedReports({ user }) {
     try {
       const active = { ...filters, year: Number(filters.year), month: filters.month ? Number(filters.month) : "",
         day: filters.day ? Number(filters.day) : "" };
-      if (type === "detail") {
+      if (type === "detail" || type === "excel") {
         const applied = productFilters ? active : { ...active, rubro: "", gender: "", linea: "", sublinea: "" };
-        const name = `detalle-${kind}-${filters.year}.csv`;
+        const excel = type === "excel";
+        const period = [filters.year, filters.month && String(filters.month).padStart(2, "0"), filters.day && String(filters.day).padStart(2, "0")].filter(Boolean).join("-");
+        const name = `detalle-${kind}-${period}${filters.storeId ? `-${filters.storeId}` : ""}.${excel ? "xlsx" : "csv"}`;
         let handle = null;
         if (window.showSaveFilePicker) {
           try { handle = await window.showSaveFilePicker({ suggestedName: name,
-            types: [{ description: "CSV para Excel", accept: { "text/csv": [".csv"] } }] }); }
+            types: excel ? [{ description: "Libro de Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
+              : [{ description: "CSV para Excel", accept: { "text/csv": [".csv"] } }] }); }
           catch (error) { if (error.name === "AbortError") return; throw error; }
         }
         const result = await api(`/commercial/annual-reports/links?${paramsOf({ ...applied, kind })}`);
-        const count = await saveCsv(result, applied, kind, name, handle, catalog?.cutoffs?.[kind],
-          (done, total) => setProgress(`${done}/${total}`));
+        const onProgress = (done, total) => setProgress(`${done}/${total}`);
+        let count;
+        if (excel) {
+          const { buildSalesWorkbook } = await import("../lib/salesWorkbook");
+          const generated = await buildSalesWorkbook(matchingReportRows(result, applied, kind, catalog?.cutoffs?.[kind], onProgress),
+            { filters: applied, stores, cutoff: catalog?.cutoffs?.[kind] });
+          setProgress("Preparando Excel…");
+          await new Promise(resolve => window.setTimeout(resolve, 0));
+          const buffer = await generated.workbook.xlsx.writeBuffer();
+          if (handle) {
+            const writer = await handle.createWritable();
+            try { await writer.write(buffer); await writer.close(); }
+            catch (error) { await writer.abort().catch(() => {}); throw error; }
+          } else {
+            const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+            const link = document.createElement("a"); link.href = url; link.download = name;
+            document.body.appendChild(link); link.click(); link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          }
+          count = generated.count;
+        } else count = await saveCsv(result, applied, kind, name, handle, catalog?.cutoffs?.[kind], onProgress);
         if (count) setMessage({ type: "success", text: `${count.toLocaleString("es-PE")} filas descargadas.` });
       } else {
         const done = await downloadFile(`/api/commercial/annual-reports/summary.xlsx?${paramsOf(active)}`,
@@ -213,10 +240,12 @@ export default function NormalizedReports({ user }) {
       <div className="annual-reports__actions">
         <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{catalog.reports.map(item =>
           <option key={item.id} value={item.id} disabled={!item.years.includes(Number(filters.year))}>{item.label}{item.years.includes(Number(filters.year)) ? "" : " · sin datos"}</option>)}</select></label>
-        <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
+        {user?.rol === "coach" && <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("excel")}><FileSpreadsheet size={16}/>{busy === "excel" ? `Generando ${progress || "…"}` : "Descargar Excel"}</button>}
+        <button type="button" className={`button ${user?.rol === "coach" ? "button--ghost" : "button--primary"}`} disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
       </div>
       {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
       {exceedsExcel && <small className="annual-reports__note">Este detalle tiene más de 1 048 575 filas. Elige un mes, tienda o clasificación para abrirlo completo en Excel.</small>}
+      {user?.rol === "coach" && <small className="annual-reports__note">Excel con formato: hasta 50 000 filas. Para selecciones mayores, filtra por mes o tienda, o descarga el CSV completo.</small>}
       {!productFilters && <small className="annual-reports__note">El detalle de tráfico no se clasifica por producto.</small>}
     </>}
   </section>;
