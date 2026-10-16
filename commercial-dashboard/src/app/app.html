@@ -261,7 +261,35 @@
             </div>
           </article>
           <article class="card chart-card growth"><h2><svg><use href="/comercial/assets/icons.svg#trend"></use></svg> TENDENCIA INTERANUAL ACUMULADA VENTAS</h2><dashboard-chart [option]="growthOption()" label="Venta acumulada del año seleccionado frente al año anterior" /></article>
-          <article class="card chart-card price-range-card" [class.chart-expanded]="expandedChart() === 'price-range'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('price-range')" [attr.aria-label]="expandedChart() === 'price-range' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'price-range' ? '×' : '⛶' }}</button><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RANGO DE PRECIOS VENDIDOS</h2><div class="price-range-chart-content"><dashboard-chart [option]="priceRangeOption()" label="Venta y unidades por rango de precios vendidos" />@if (expandedChart() === 'price-range') { <div class="price-range-detail-table" aria-label="Detalle por rango de precios"><div class="price-range-detail-head"><span>RANGO</span><span>VENTA NETA</span><span>PARTICIPACIÓN</span><span>UNIDADES</span><span>PRECIO PROM.</span></div><div class="price-range-detail-body">@for (range of priceRangeSummary(); track range.label) { <div><strong>{{ range.label }}</strong><span>{{ money(range.net, true) }}</span><span>{{ percent(range.share) }}</span><span>{{ number(range.units) }}</span><span>{{ money(range.averagePrice) }}</span></div> } @empty { <p>N/A</p> }</div></div> }</div></article>
+          <article class="card chart-card price-range-card" [class.chart-expanded]="expandedChart() === 'price-range'">
+            <button type="button" class="chart-expand" (click)="toggleChartExpansion('price-range')" [attr.aria-label]="expandedChart() === 'price-range' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'price-range' ? '×' : '⛶' }}</button>
+            <h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RANGO DE PRECIOS VENDIDOS</h2>
+            @if (expandedChart() === 'price-range') {
+              <div class="filters" aria-label="Comparación anual de rangos de precio">
+                <label>Año base<strong>{{ year() }}</strong></label>
+                <label>Comparar con<select aria-label="Año de comparación de precios" [ngModel]="priceComparisonYear() ?? 0" (ngModelChange)="priceComparisonSelectedYear.set($event)" [disabled]="dateRangeActive() || !priceComparisonYears().length"><option [ngValue]="0">Sin comparación</option>@for (otherYear of priceComparisonYears(); track otherYear) { <option [ngValue]="otherYear">{{ otherYear }}</option> }</select></label>
+              </div>
+              <p>{{ dateRangeActive() ? 'Quita el filtro de día para comparar los mismos meses entre años.' : 'Mismos meses, tiendas y filtros de producto en ambos años. Venta en soles a la izquierda; unidades a la derecha. El último mes puede ser parcial según el corte publicado.' }}</p>
+            }
+            <div class="price-range-chart-content">
+              <dashboard-chart [option]="priceRangeOption()" label="Venta y unidades por rango de precios vendidos; comparación anual al ampliar" />
+              @if (expandedChart() === 'price-range') {
+                <div class="price-range-detail-table" aria-label="Detalle por rango de precios y año">
+                  <div class="price-range-detail-head"><span>RANGO / AÑO</span><span>VENTA NETA</span><span>PARTICIPACIÓN</span><span>UNIDADES</span><span>PRECIO PROM.</span></div>
+                  <div class="price-range-detail-body">
+                    @if (priceComparisonActive()) {
+                      @for (range of priceComparisonRows(); track range.label) {
+                        <div style="background:#F8F4FF;border-left:3px solid #8B5CF6"><strong>{{ range.label }}<br/><small>{{ year() }}</small></strong><span>{{ money(range.actual.available ? range.actual.net : null, true) }}</span><span>{{ percent(range.actual.share) }}</span><span>{{ number(range.actual.available ? range.actual.units : null) }}</span><span>{{ money(range.actual.averagePrice) }}</span></div>
+                        <div style="background:#EFF6FF;border-left:3px solid #2563EB"><strong>{{ range.label }}<br/><small>{{ priceComparisonYear() }}</small></strong><span>{{ money(range.comparison.available ? range.comparison.net : null, true) }}</span><span>{{ percent(range.comparison.share) }}</span><span>{{ number(range.comparison.available ? range.comparison.units : null) }}</span><span>{{ money(range.comparison.averagePrice) }}</span></div>
+                      }
+                    } @else {
+                      @for (range of priceRangeSummary(); track range.label) { <div><strong>{{ range.label }}</strong><span>{{ money(range.net, true) }}</span><span>{{ percent(range.share) }}</span><span>{{ number(range.units) }}</span><span>{{ money(range.averagePrice) }}</span></div> } @empty { <p>N/A</p> }
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </article>
         </div>
       </section>
     } @else if (page() === 2) {

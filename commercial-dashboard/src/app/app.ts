@@ -10,6 +10,7 @@ import { CloudDataService, type CompanyRankingData, type OperationalSummary } fr
 import { nextBirthday } from './next-birthday';
 import { stockTransfers } from './stock-transfers';
 import { SectionLoads } from './section-loads';
+import { comparePriceBands } from './price-comparison';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -163,6 +164,7 @@ export class App implements OnInit {
   readonly sellerPerformanceData = signal<SellerPerformanceRow[]>([]);
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
+  readonly priceComparisonSelectedYear = signal<number | null>(null);
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -2501,11 +2503,25 @@ export class App implements OnInit {
         label: { show: true, position: 'right', color: '#172033', fontSize: 10, fontWeight: 800, formatter: (params: any) => this.percent(rows[params.dataIndex]?.share ?? null) } }]
     } as EChartsOption;
   });
+  readonly priceComparisonYears = computed(() => [...new Set(this.priceRangeData().map(row => Math.floor(row.periodId / 100)))].filter(year => year !== this.year()).sort((a, b) => b - a));
+  readonly priceComparisonYear = computed(() => {
+    if (this.dateRangeActive() || this.priceComparisonSelectedYear() === 0) return null;
+    const years = this.priceComparisonYears(), selected = this.priceComparisonSelectedYear();
+    return selected != null && years.includes(selected) ? selected : years.includes(this.year() - 1) ? this.year() - 1 : years[0] ?? null;
+  });
+  readonly priceComparisonActive = computed(() => this.expandedChart() === 'price-range' && this.priceComparisonYear() != null);
+  readonly priceComparisonRows = computed(() => {
+    this.priceRangeData();
+    const ids = this.filteredStoreIds();
+    const rowsForYear = (year: number) => this.indexedRows(this.monthlyPriceRangeIndex, new Set(this.activeMonths().map(month => year * 100 + month)), ids)
+      .filter(row => this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+    return comparePriceBands(rowsForYear(this.year()), this.priceComparisonYear() == null ? [] : rowsForYear(this.priceComparisonYear()!));
+  });
   readonly priceRangeSummary = computed(() => {
     this.priceRangeData();
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
-      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
     const groups = grouped(rows, row => String(row.bandOrder));
     const bands = [
       'S/ 0–30', 'S/ 31–60', 'S/ 61–90', 'S/ 91–120', 'S/ 121–150', 'S/ 151–180',
@@ -2519,6 +2535,7 @@ export class App implements OnInit {
     return values.map(value => ({ ...value, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
   });
   readonly priceRangeOption = computed<EChartsOption>(() => {
+    if (this.priceComparisonActive()) return this.expandedPriceComparisonOption();
     const values = this.priceRangeSummary();
     const bands = values.map(value => value.label);
     const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
@@ -2548,6 +2565,53 @@ export class App implements OnInit {
       ]
     } as EChartsOption;
   });
+  private expandedPriceComparisonOption(): EChartsOption {
+    const rows = this.priceComparisonRows();
+    const actualYear = this.year(), otherYear = this.priceComparisonYear();
+    const labels = [`VENTA ${actualYear}`, `VENTA ${otherYear}`, `UNIDADES ${actualYear}`, `UNIDADES ${otherYear}`];
+    const sales = rows.flatMap(row => [row.actual, row.comparison].filter(value => value.available).map(value => value.net));
+    const units = rows.flatMap(row => [row.actual, row.comparison].filter(value => value.available).map(value => value.units));
+    const bar = (comparison: boolean) => ({
+      name: labels[comparison ? 1 : 0], type: 'bar', yAxisIndex: 0,
+      data: rows.map(row => { const value = comparison ? row.comparison : row.actual; return value.available ? value.net : null; }),
+      barMaxWidth: 24, barGap: '15%', barCategoryGap: '25%', z: 5,
+      itemStyle: { color: comparison ? '#BFDBFE' : '#DCCAF3', borderColor: comparison ? '#2563EB' : '#8B5CF6', borderWidth: 1, borderRadius: [3, 3, 0, 0] },
+      label: { show: true, position: 'top', formatter: (params: any) => {
+        const row = rows[params.dataIndex]; return this.percent((comparison ? row.comparison : row.actual).share);
+      }, fontSize: 9, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', padding: [2, 3], borderRadius: 3 },
+      labelLayout: { hideOverlap: true },
+    });
+    const line = (comparison: boolean) => ({
+      name: labels[comparison ? 3 : 2], type: 'line', yAxisIndex: 1,
+      data: rows.map(row => { const value = comparison ? row.comparison : row.actual; return value.available ? value.units : null; }),
+      symbol: comparison ? 'diamond' : 'circle', symbolSize: 7, z: 20,
+      lineStyle: { width: 3, color: comparison ? '#2563EB' : C.purple, type: comparison ? 'dashed' : 'solid' },
+      itemStyle: { color: comparison ? '#2563EB' : C.purple, borderColor: '#FFFFFF', borderWidth: 1 },
+    });
+    return {
+      animation: false,
+      legend: { data: labels, top: 0, textStyle: { fontSize: 10, fontWeight: 700 } },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight,
+        formatter: (params: any[]) => {
+          const row = rows[params[0]?.dataIndex ?? 0];
+          return this.tooltip(row.label, [
+            { label: `Venta ${actualYear}`, value: this.money(row.actual.available ? row.actual.net : null, true) },
+            { label: `Venta ${otherYear}`, value: this.money(row.comparison.available ? row.comparison.net : null, true) },
+            { label: `Unidades ${actualYear}`, value: this.number(row.actual.available ? row.actual.units : null) },
+            { label: `Unidades ${otherYear}`, value: this.number(row.comparison.available ? row.comparison.units : null) },
+            { label: 'Variación de venta', value: this.percent(row.saleChange) },
+            { label: 'Variación de unidades', value: this.percent(row.unitsChange) },
+          ]);
+        } },
+      grid: { left: 65, right: 62, top: 55, bottom: 90 },
+      xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLabel: { interval: 0, rotate: 60, fontSize: 9 } },
+      yAxis: [
+        { type: 'value', min: 0, ...adaptiveValueScale(sales, 3), axisLabel: { formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+        { type: 'value', min: 0, ...adaptiveValueScale(units, 3), axisLabel: { formatter: (value: number) => this.short(value) }, splitLine: { show: false } },
+      ],
+      series: [bar(false), bar(true), line(false), line(true)],
+    } as EChartsOption;
+  }
   readonly antiquityOption = computed<EChartsOption>(() => {
     const groups = grouped(this.selectedStockOrigins(), r => String(r.originPeriodId));
     const total = sum(this.stockOrigins(), 'units');
@@ -3090,6 +3154,7 @@ export class App implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
+    this.priceComparisonSelectedYear.set(null);
     const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
