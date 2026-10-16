@@ -1364,3 +1364,16 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .static-charts { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .static-charts .price-range-card { grid-column:1 / -1; }
 }
+
+.transfer-modal { gap: 12px; }
+.transfer-modal .transfer-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; padding: 16px; border: 1px solid #dce5f2; border-radius: 12px; background: #f7f9fd; align-items: end; }
+.transfer-filters label { display: grid; gap: 7px; min-width: 0; color: #344563; font-size: 12px; font-weight: 700; }
+.transfer-filters select, .transfer-filters input { width: 100%; min-width: 0; height: 40px; padding: 0 10px; border: 1px solid #b9c8df; border-radius: 7px; background: white; color: #172d50; font: inherit; font-size: 12px; }
+.transfer-modal .transfer-filters button, .transfer-pagination button { height: 38px; padding: 0 14px; border: 1px solid #b9c8df; border-radius: 7px; background: white; color: #123a8c; font-size: 12px; font-weight: 700; cursor: pointer; }
+.transfer-modal button:disabled { opacity: .45; cursor: default; }
+.transfer-modal .transfer-filters button:hover, .transfer-pagination button:not(:disabled):hover { background: #e9f0fc; }
+.transfer-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid #e1e8f3; }
+.transfer-pagination p { margin-right: auto; }
+.transfer-chart { flex: 1; min-height: 420px; overflow: auto; }
+.transfer-chart dashboard-chart { display: block; min-width: 700px; height: 100%; }
+@media (max-width: 650px) { .transfer-modal .transfer-filters { grid-template-columns: repeat(2, minmax(0,1fr)); padding: 10px; gap: 10px; } .transfer-modal { overflow: auto; } }

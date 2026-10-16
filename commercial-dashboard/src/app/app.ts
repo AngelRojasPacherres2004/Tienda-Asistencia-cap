@@ -1739,6 +1739,8 @@ export class App implements OnInit {
   readonly predictiveStoreOptions = computed(() => this.inventoryStoresIgnoringStoreFilter());
   readonly transferRubro = signal('');
   readonly transferLine = signal('');
+  readonly transferBrand = signal('');
+  readonly transferStore = signal('');
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
   readonly transferPage = signal(0);
@@ -1748,25 +1750,39 @@ export class App implements OnInit {
   });
   readonly transferLines = computed(() => [...new Set(this.transferProducts()
     .filter(row => !this.transferRubro() || row.category === this.transferRubro()).map(row => row.line).filter(Boolean))].sort());
+  readonly transferBrands = computed(() => [...new Set(this.transferProducts()
+    .filter(row => (!this.transferRubro() || row.category === this.transferRubro())
+      && (!this.transferLine() || row.line === this.transferLine())).map(row => row.brand || 'SIN MARCA'))].sort());
+  readonly transferStores = computed(() => {
+    const ids = new Set(this.transferProducts().map(row => row.storeId));
+    return this.predictiveStoreOptions().filter(store => ids.has(store.storeId))
+      .sort((a, b) => (a.alias || a.store).localeCompare(b.alias || b.store, 'es'));
+  });
+  clearTransferFilters(): void {
+    this.transferRubro.set(''); this.transferLine.set(''); this.transferBrand.set(''); this.transferStore.set('');
+    this.transferSearch.set(''); this.transferPriority.set(''); this.transferPage.set(0);
+  }
   readonly transferAllRecommendations = computed(() => {
     const query = this.normalized(this.transferSearch());
     const rows = this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine())
+      && (!this.transferBrand() || (row.brand || 'SIN MARCA') === this.transferBrand())
       && (!query || this.normalized(`${row.productId} ${row.product}`).includes(query)));
     const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
     return stockTransfers(rows).map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
       destinationName: names.get(row.destination) || row.destination }));
   });
   readonly transferRecommendations = computed(() => this.transferAllRecommendations().filter(row =>
-    !this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical)));
-  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / 15)));
+    (!this.transferStore() || row.source === this.transferStore() || row.destination === this.transferStore())
+    && (!this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical))));
+  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / 10)));
   readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
-  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * 15, (this.transferCurrentPage() + 1) * 15));
+  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * 10, (this.transferCurrentPage() + 1) * 10));
   readonly transferChartOption = computed<EChartsOption>(() => {
     const rows = this.transferPageRows();
     return {
       animation: false, legend: { top: 0, data: ['Stock origen', 'Stock destino', 'Traslado sugerido'] },
-      grid: { left: 170, right: 24, top: 35, bottom: 25 },
+      grid: { left: 245, right: 65, top: 35, bottom: 25 },
       tooltip: { trigger: 'axis', confine: true, formatter: (params: any) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.product || '', [
@@ -1784,18 +1800,17 @@ export class App implements OnInit {
         ]);
       } },
       xAxis: { type: 'value', name: 'Unidades' },
-      yAxis: { type: 'category', inverse: true, data: rows.map(row => `${row.productId} · ${row.sourceName} → ${row.destinationName}`),
-        axisLabel: { width: 155, overflow: 'truncate', fontSize: 10 } },
+      yAxis: { type: 'category', inverse: true, data: rows.map(row => `${row.sourceName} → ${row.destinationName}\n${row.product || row.productId}`),
+        axisLabel: { width: 225, overflow: 'truncate', fontSize: 11, lineHeight: 16 } },
       series: [
         { name: 'Stock origen', type: 'bar', data: rows.map(row => row.sourceStock), itemStyle: { color: C.gold } },
         { name: 'Stock destino', type: 'bar', data: rows.map(row => row.destinationStock), itemStyle: { color: C.red } },
-        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), itemStyle: { color: C.navy } }
+        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), label: { show: true, position: 'right', fontSize: 10 }, itemStyle: { color: C.navy, borderRadius: [0, 3, 3, 0] } }
       ]
     };
   });
   openTransfers(): void {
-    this.transferRubro.set(''); this.transferLine.set(''); this.transferSearch.set('');
-    this.transferPriority.set(''); this.transferPage.set(0);
+    this.clearTransferFilters();
     this.toggleChartExpansion('stock-transfers');
     void this.ensureStockDetail();
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
