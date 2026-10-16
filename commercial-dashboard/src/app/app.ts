@@ -2012,7 +2012,10 @@ export class App implements OnInit {
     return selected.map(value => this.stockHistoryBuckets.find(bucket => bucket.value === value)?.label || value).join(' + ');
   });
   readonly stockOriginDetailPeriod = signal<number | null>(null);
-  readonly stockOriginDetailRows = computed(() => {
+  readonly stockOriginDetailStore = signal('');
+  readonly stockOriginDetailCategory = signal('');
+  readonly stockOriginDetailLine = signal('');
+  readonly stockOriginDetailAllRows = computed(() => {
     const period = this.stockOriginDetailPeriod();
     const rows = this.selectedStockOrigins().filter(row => row.originPeriodId === period);
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
@@ -2022,12 +2025,35 @@ export class App implements OnInit {
         units: sum(items, 'units'), value: sum(items, 'value') }))
       .sort((a, b) => b.units - a.units || a.store.localeCompare(b.store));
   });
+  readonly stockOriginStoreOptions = computed(() => [...new Map(this.stockOriginDetailAllRows().map(row => [row.storeId, { id: row.storeId, name: row.store }])).values()]
+    .sort((a, b) => a.name.localeCompare(b.name, 'es')));
+  readonly stockOriginCategoryOptions = computed(() => [...new Set(this.stockOriginDetailAllRows()
+    .filter(row => !this.stockOriginDetailStore() || row.storeId === this.stockOriginDetailStore()).map(row => row.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es')));
+  readonly stockOriginLineOptions = computed(() => [...new Set(this.stockOriginDetailAllRows()
+    .filter(row => (!this.stockOriginDetailStore() || row.storeId === this.stockOriginDetailStore())
+      && (!this.stockOriginDetailCategory() || row.category === this.stockOriginDetailCategory())).map(row => row.line).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es')));
+  readonly stockOriginDetailRows = computed(() => this.stockOriginDetailAllRows().filter(row =>
+    (!this.stockOriginDetailStore() || row.storeId === this.stockOriginDetailStore())
+    && (!this.stockOriginDetailCategory() || row.category === this.stockOriginDetailCategory())
+    && (!this.stockOriginDetailLine() || row.line === this.stockOriginDetailLine())));
+  clearStockOriginFilters(): void {
+    this.stockOriginDetailStore.set(''); this.stockOriginDetailCategory.set(''); this.stockOriginDetailLine.set('');
+  }
+  setStockOriginStore(value: string): void {
+    this.clearStockOriginFilters(); this.stockOriginDetailStore.set(value);
+  }
+  setStockOriginCategory(value: string): void {
+    this.stockOriginDetailCategory.set(value); this.stockOriginDetailLine.set('');
+  }
   readonly stockOriginDetailTotals = computed(() => ({
     units: sum(this.stockOriginDetailRows(), 'units'), value: sum(this.stockOriginDetailRows(), 'value')
   }));
   openStockOriginDetail(event: { data: unknown }): void {
     const period = Number((event.data as { period?: number } | null)?.period);
     if (!Number.isInteger(period) || !this.selectedStockOrigins().some(row => row.originPeriodId === period)) return;
+    this.clearStockOriginFilters();
     this.stockOriginDetailPeriod.set(period);
     if (this.expandedChart()) this.expandedChart.set('antiquity-detail');
     else this.toggleChartExpansion('antiquity-detail');
@@ -3154,6 +3180,7 @@ export class App implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
+    this.clearStockOriginFilters();
     this.priceComparisonSelectedYear.set(null);
     const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
