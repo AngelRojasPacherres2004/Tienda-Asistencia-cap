@@ -10,7 +10,6 @@ import { CloudDataService, type CompanyRankingData, type OperationalSummary } fr
 import { nextBirthday } from './next-birthday';
 import { stockTransfers } from './stock-transfers';
 import { SectionLoads } from './section-loads';
-import { comparePriceRanges, personnelGenderCounts, stockByStore } from './commercial-analysis';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -164,8 +163,6 @@ export class App implements OnInit {
   readonly sellerPerformanceData = signal<SellerPerformanceRow[]>([]);
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
-  readonly priceComparisonSelectedYear = signal(0);
-  readonly stockChartGrouping = signal<'period' | 'store'>('period');
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -406,7 +403,6 @@ export class App implements OnInit {
   // a TEXTIL y CALZADO, aun cuando el tablero comercial tenga otro rubro activo.
   readonly predictiveRubros = signal<string[]>(['TEXTIL', 'CALZADO']);
   readonly genderRubros = signal<string[]>(['TEXTIL', 'CALZADO']);
-  readonly genderSubline = signal('');
   readonly predictiveStore = signal('TODAS');
   readonly healthyCoverageDays = signal(30);
   readonly healthyCoverageUnit = signal<PredictiveTimeUnit>('MONTHS');
@@ -1218,12 +1214,6 @@ export class App implements OnInit {
       return ids.has(row.storeId) && active && categoryMatch;
     });
   });
-  readonly talentGenderRows = computed(() => {
-    const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
-    return [...grouped(this.talentProfiles(), row => row.storeId)].map(([storeId, profiles]) => ({
-      storeId, store: stores.get(storeId) || storeId, ...personnelGenderCounts(profiles),
-    })).sort((a, b) => a.store.localeCompare(b.store, 'es'));
-  });
   readonly talentProfileSummary = computed(() => {
     const profiles = this.talentProfiles(); const period = this.selectedPeriod();
     const year = Math.floor(period / 100); const month = period % 100; const day = new Date(year, month, 0).getDate();
@@ -1248,7 +1238,8 @@ export class App implements OnInit {
       && (!categories.length || (row.areaType === 'COMERCIAL' && categories.some(category => this.personnelAreaMatchesCategory(row, category)))));
     const birthday = nextBirthday(birthdayProfiles, currentDate);
     return {
-      ...personnelGenderCounts(profiles),
+      male: profiles.filter(row => row.gender === 'M').length,
+      female: profiles.filter(row => row.gender === 'F').length,
       averageAge: ages.length ? ages.reduce((total, value) => total + value, 0) / ages.length : null,
       salesStaff: profiles.filter(row => this.normalized(row.role).includes('VENDEDOR')).length,
       administrativeStaff: profiles.filter(row => row.areaType === 'SOPORTE').length,
@@ -2019,13 +2010,9 @@ export class App implements OnInit {
     return selected.map(value => this.stockHistoryBuckets.find(bucket => bucket.value === value)?.label || value).join(' + ');
   });
   readonly stockOriginDetailPeriod = signal<number | null>(null);
-  readonly stockOriginDetailStore = signal('');
-  readonly stockOriginDetailTitle = computed(() => this.stockOriginDetailStore()
-    ? (this.data()?.stores.find(store => store.storeId === this.stockOriginDetailStore())?.alias || this.stockOriginDetailStore())
-    : this.periodLabel(this.stockOriginDetailPeriod() ?? 0));
   readonly stockOriginDetailRows = computed(() => {
     const period = this.stockOriginDetailPeriod();
-    const rows = this.selectedStockOrigins().filter(row => this.stockOriginDetailStore() ? row.storeId === this.stockOriginDetailStore() : row.originPeriodId === period);
+    const rows = this.selectedStockOrigins().filter(row => row.originPeriodId === period);
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
     return [...grouped(rows, row => JSON.stringify([row.storeId, row.category, row.line, row.subline])).values()]
       .map(items => ({ storeId: items[0].storeId, store: stores.get(items[0].storeId) || items[0].storeId,
@@ -2037,12 +2024,9 @@ export class App implements OnInit {
     units: sum(this.stockOriginDetailRows(), 'units'), value: sum(this.stockOriginDetailRows(), 'value')
   }));
   openStockOriginDetail(event: { data: unknown }): void {
-    const storeId = (event.data as { storeId?: string } | null)?.storeId;
     const period = Number((event.data as { period?: number } | null)?.period);
-    if (storeId ? !this.selectedStockOrigins().some(row => row.storeId === storeId)
-      : !Number.isInteger(period) || !this.selectedStockOrigins().some(row => row.originPeriodId === period)) return;
-    this.stockOriginDetailStore.set(storeId || '');
-    this.stockOriginDetailPeriod.set(storeId ? null : period);
+    if (!Number.isInteger(period) || !this.selectedStockOrigins().some(row => row.originPeriodId === period)) return;
+    this.stockOriginDetailPeriod.set(period);
     if (this.expandedChart()) this.expandedChart.set('antiquity-detail');
     else this.toggleChartExpansion('antiquity-detail');
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLButtonElement>('.stock-origin-detail .chart-expand')?.focus());
@@ -2467,24 +2451,11 @@ export class App implements OnInit {
     if (value.endsWith('UNISEX')) return 'UNISEX';
     return null;
   }
-  readonly genderSublineRows = computed(() => {
-    this.sublineDetailLoaded();
-    const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
-    const rubros = new Set(this.genderRubros());
-    return (this.dateRangeActive() ? this.dailyRowsInRange(ids, false) : this.indexedRows(this.monthlySublineIndex, periods, ids))
-      .filter(row => rubros.has(row.category || ''));
-  });
-  readonly genderSublineOptions = computed(() => [...new Set(this.genderSublineRows()
-    .filter(row => this.genderFromLine(row.line) != null).map(row => row.subline).filter((value): value is string => !!value))]
-    .sort((a, b) => a.localeCompare(b, 'es')));
-  readonly genderActiveSubline = computed(() => this.genderSublineOptions().includes(this.genderSubline()) ? this.genderSubline() : '');
   readonly genderSummary = computed<GenderSummary[]>(() => {
     // Contexto exclusivo: Año, Mes, Clúster, Formato y Tienda. No lee los
     // filtros globales Rubro/Línea/Sublínea; TEXTIL/CALZADO se manejan localmente.
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods(); const rubros = new Set(this.genderRubros());
-    const subline = this.expandedChart() === 'gender' ? this.genderActiveSubline() : '';
-    const rows = subline ? this.genderSublineRows().filter(row => row.subline === subline)
-      : (this.dateRangeActive() ? this.dailyRowsInRange(ids, false) : this.indexedRows(this.monthlyLineIndex, periods, ids)).filter(row => rubros.has(row.category || ''));
+    const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyLineIndex, periods, ids)).filter(row => rubros.has(row.category || ''));
     const mapped = rows.map(row => ({ row, gender: this.genderFromLine(row.line) })).filter(item => item.gender != null);
     const groups = grouped(mapped, item => item.gender!); const total = mapped.reduce((value, item) => value + (item.row.net || 0), 0);
     return GENDER_ORDER.map(name => {
@@ -2530,45 +2501,27 @@ export class App implements OnInit {
         label: { show: true, position: 'right', color: '#172033', fontSize: 10, fontWeight: 800, formatter: (params: any) => this.percent(rows[params.dataIndex]?.share ?? null) } }]
     } as EChartsOption;
   });
-  readonly priceComparisonYears = computed(() => [...new Set(this.priceRangeData().map(row => Math.floor(row.periodId / 100)))].filter(year => year !== this.year()).sort((a, b) => b - a));
-  readonly priceComparisonYear = computed(() => {
-    const years = this.priceComparisonYears();
-    return years.includes(this.priceComparisonSelectedYear()) ? this.priceComparisonSelectedYear()
-      : years.includes(this.year() - 1) ? this.year() - 1 : years[0] ?? null;
-  });
-  readonly priceComparisonEnabled = computed(() => this.expandedChart() === 'price-range' && !this.dateRangeActive() && this.priceComparisonYear() != null);
   readonly priceRangeSummary = computed(() => {
     this.priceRangeData();
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
-      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
-    const comparisonPeriods = new Set(this.activeMonths().map(month => (this.priceComparisonYear() || 0) * 100 + month));
-    const comparison = this.dateRangeActive() ? [] : this.indexedRows(this.monthlyPriceRangeIndex, comparisonPeriods, ids).filter(row =>
-      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
-    return comparePriceRanges(rows, comparison);
+      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+    const groups = grouped(rows, row => String(row.bandOrder));
+    const bands = [
+      'S/ 0–30', 'S/ 31–60', 'S/ 61–90', 'S/ 91–120', 'S/ 121–150', 'S/ 151–180',
+      'S/ 181–210', 'S/ 211–240', 'S/ 241–270', 'S/ 271–300', 'S/ 301+'
+    ];
+    const values = bands.map((label, index) => {
+      const groupedRows = groups.get(String(index + 1)) || [];
+      return { label, net: sum(groupedRows, 'net'), units: sum(groupedRows, 'units') };
+    });
+    const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
+    return values.map(value => ({ ...value, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
   });
   readonly priceRangeOption = computed<EChartsOption>(() => {
     const values = this.priceRangeSummary();
     const bands = values.map(value => value.label);
     const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
-    if (this.priceComparisonEnabled()) {
-      const actual = String(this.year()), previous = String(this.priceComparisonYear());
-      return {
-        animation: false, legend: { top: 0, data: [actual, previous] },
-        grid: { left: 70, right: 25, top: 40, bottom: 90 },
-        tooltip: { trigger: 'axis', confine: true, formatter: (params: any[]) => {
-          const row = values[params[0]?.dataIndex ?? 0];
-          return this.tooltip(row.label, [{ label: `Venta ${actual}`, value: this.money(row.available ? row.net : null, true) },
-            { label: `Venta ${previous}`, value: this.money(row.comparisonNet, true) },
-            { label: 'Variación', value: this.percent(row.change) },
-            { label: `Unidades ${actual}`, value: this.number(row.units) }, { label: `Unidades ${previous}`, value: this.number(row.comparisonUnits) }]);
-        } },
-        xAxis: { type: 'category', data: bands, axisLabel: { rotate: 60, interval: 0, fontSize: 9 } },
-        yAxis: { type: 'value', axisLabel: { formatter: (value: number) => `S/ ${this.short(value)}` } },
-        series: [{ name: actual, type: 'bar', data: values.map(row => row.available ? row.net : null), itemStyle: { color: C.indigo } },
-          { name: previous, type: 'bar', data: values.map(row => row.comparisonNet), itemStyle: { color: C.purple } }],
-      } as EChartsOption;
-    }
     const priceScale = adaptiveValueScale(values.map(value => value.net), 3);
     return {
       animation: false,
@@ -2596,12 +2549,10 @@ export class App implements OnInit {
     } as EChartsOption;
   });
   readonly antiquityOption = computed<EChartsOption>(() => {
-    const byStore = this.stockChartGrouping() === 'store';
     const groups = grouped(this.selectedStockOrigins(), r => String(r.originPeriodId));
     const total = sum(this.stockOrigins(), 'units');
-    const rows: { label: string; period?: number; storeId?: string; units: number; value: number }[] = byStore
-      ? stockByStore(this.selectedStockOrigins(), this.data()?.stores || []) : [...groups.entries()]
-      .map(([p, rs]) => ({ label: this.periodLabel(Number(p)).toUpperCase(), period: Number(p), units: sum(rs, 'units'), value: sum(rs, 'value') }))
+    const rows = [...groups.entries()]
+      .map(([p, rs]) => ({ period: Number(p), units: sum(rs, 'units'), value: sum(rs, 'value') }))
       .filter(row => row.period > 0 && row.units !== 0)
       // Regla visual: desde el origen MÁS RECIENTE del stock vigente hacia el MÁS ANTIGUO.
       .sort((a, b) => b.period - a.period);
@@ -2609,7 +2560,7 @@ export class App implements OnInit {
     const endValue = Math.max(0, visible - 1);
     return {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, borderColor: C.indigo, padding: [5, 7], textStyle: { fontSize: 9 }, position: this.tooltipToRight, formatter: (params: any[]) => { const index = params[0]?.dataIndex ?? 0; const row = rows[index]; return this.tooltip(row?.label || '', [
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, borderColor: C.indigo, padding: [5, 7], textStyle: { fontSize: 9 }, position: this.tooltipToRight, formatter: (params: any[]) => { const index = params[0]?.dataIndex ?? 0; const row = rows[index]; return this.tooltip(this.periodLabel(row.period), [
         { label: 'Unidades', value: this.number(row.units, ' und') },
         { label: 'Valor sugerido', value: this.money(row.value, true) },
         { label: 'Participación', value: total ? this.percent(row.units / total) : 'FALTA INFORMACIÓN' }
@@ -2621,13 +2572,13 @@ export class App implements OnInit {
       ] : [],
       xAxis: {
         type: 'category',
-        data: rows.map(row => row.label),
+        data: rows.map(row => this.periodLabel(row.period).toUpperCase()),
         axisTick: { show: false },
         axisLabel: { interval: 0, rotate: 90, align: 'center', verticalAlign: 'middle', margin: 44, hideOverlap: false, fontSize: 9, color: '#475569' },
         axisLine: { lineStyle: { color: '#CBD5E1' } }
       },
       yAxis: { type: 'value', axisLabel: { formatter: (value: number) => this.short(value), color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      series: [{ type: 'bar', data: rows.map(row => ({ value: row.units, period: row.period, storeId: row.storeId })), barMaxWidth: 28, itemStyle: { color: C.indigo, borderRadius: [5, 5, 0, 0] }, label: { show: true, position: 'top', formatter: (params: any) => this.short(Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+      series: [{ type: 'bar', data: rows.map(row => ({ value: row.units, period: row.period })), barMaxWidth: 28, itemStyle: { color: C.indigo, borderRadius: [5, 5, 0, 0] }, label: { show: true, position: 'top', formatter: (params: any) => this.short(Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
     } as EChartsOption;
   });
   readonly agedStockByStore = computed(() => {
@@ -2881,7 +2832,6 @@ export class App implements OnInit {
   toggleChartExpansion(id: string): void {
     const next = this.expandedChart() === id ? null : id;
     this.expandedChart.set(next);
-    if (next === 'gender') void this.ensureSublineDetail();
     this.setPageScrollLocked(!!next);
   }
   private sectionAdviceContext(id: string, section: string): string {
@@ -3019,15 +2969,7 @@ export class App implements OnInit {
   toggleGenderRubro(value: string): void {
     if (value !== 'TEXTIL' && value !== 'CALZADO') return;
     const next = this.toggleValue(this.genderRubros(), value);
-    if (next.length) { this.genderRubros.set(next); this.genderSubline.set(''); }
-  }
-  setGenderRubro(value: string): void {
-    if (value && value !== 'TEXTIL' && value !== 'CALZADO') return;
-    this.genderRubros.set(value ? [value] : ['TEXTIL', 'CALZADO']);
-    this.genderSubline.set('');
-  }
-  setGenderSubline(value: string): void {
-    if (!value || this.genderSublineOptions().includes(value)) this.genderSubline.set(value);
+    if (next.length) this.genderRubros.set(next);
   }
   toggleRankingMetric(value: RankingMetric): void {
     const next = this.toggleValue(this.rankingMetrics(), value) as RankingMetric[];
@@ -3148,8 +3090,6 @@ export class App implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
-    this.priceComparisonSelectedYear.set(0); this.stockChartGrouping.set('period'); this.stockOriginDetailStore.set('');
-    this.genderSubline.set('');
     const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
