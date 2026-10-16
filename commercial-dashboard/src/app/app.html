@@ -71,7 +71,7 @@
           <label>Tienda<select aria-label="Tienda del detalle de stock" [ngModel]="stockOriginDetailStore()" (ngModelChange)="setStockOriginStore($event)"><option value="">Todas las tiendas</option>@for (store of stockOriginStoreOptions(); track store.id) { <option [value]="store.id">{{ store.name }} · {{ store.id }}</option> }</select></label>
           <label>Rubro<select aria-label="Rubro del detalle de stock" [ngModel]="stockOriginDetailCategory()" (ngModelChange)="setStockOriginCategory($event)"><option value="">Todos los rubros</option>@for (category of stockOriginCategoryOptions(); track category) { <option [value]="category">{{ category }}</option> }</select></label>
           <label>Línea<select aria-label="Línea del detalle de stock" [ngModel]="stockOriginDetailLine()" (ngModelChange)="stockOriginDetailLine.set($event)"><option value="">Todas las líneas</option>@for (line of stockOriginLineOptions(); track line) { <option [value]="line">{{ line }}</option> }</select></label>
-          <button type="button" class="reset" (click)="clearStockOriginFilters()" [disabled]="!stockOriginDetailStore() && !stockOriginDetailCategory() && !stockOriginDetailLine()">Limpiar filtros de la lista</button>
+          <button type="button" class="reset" style="width: auto; padding: 0 12px; white-space: nowrap;" (click)="clearStockOriginFilters()" [disabled]="!stockOriginDetailStore() && !stockOriginDetailCategory() && !stockOriginDetailLine()">Limpiar filtros de la lista</button>
         </div>
         <p>{{ number(stockOriginDetailTotals().units, ' und') }} · {{ money(stockOriginDetailTotals().value) }}</p>
         <p>Detalle por tienda, rubro, línea y sublínea. La fuente de antigüedad no contiene códigos ni nombres individuales de productos.</p>
