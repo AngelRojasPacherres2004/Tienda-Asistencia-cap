@@ -403,6 +403,7 @@ export class App implements OnInit {
   // a TEXTIL y CALZADO, aun cuando el tablero comercial tenga otro rubro activo.
   readonly predictiveRubros = signal<string[]>(['TEXTIL', 'CALZADO']);
   readonly genderRubros = signal<string[]>(['TEXTIL', 'CALZADO']);
+  readonly genderSubline = signal('');
   readonly predictiveStore = signal('TODAS');
   readonly healthyCoverageDays = signal(30);
   readonly healthyCoverageUnit = signal<PredictiveTimeUnit>('MONTHS');
@@ -2451,11 +2452,24 @@ export class App implements OnInit {
     if (value.endsWith('UNISEX')) return 'UNISEX';
     return null;
   }
+  readonly genderSublineRows = computed(() => {
+    this.sublineDetailLoaded();
+    const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
+    const rubros = new Set(this.genderRubros());
+    return (this.dateRangeActive() ? this.dailyRowsInRange(ids, false) : this.indexedRows(this.monthlySublineIndex, periods, ids))
+      .filter(row => rubros.has(row.category || ''));
+  });
+  readonly genderSublineOptions = computed(() => [...new Set(this.genderSublineRows()
+    .filter(row => this.genderFromLine(row.line) != null).map(row => row.subline).filter((value): value is string => !!value))]
+    .sort((a, b) => a.localeCompare(b, 'es')));
+  readonly genderActiveSubline = computed(() => this.genderSublineOptions().includes(this.genderSubline()) ? this.genderSubline() : '');
   readonly genderSummary = computed<GenderSummary[]>(() => {
     // Contexto exclusivo: Año, Mes, Clúster, Formato y Tienda. No lee los
     // filtros globales Rubro/Línea/Sublínea; TEXTIL/CALZADO se manejan localmente.
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods(); const rubros = new Set(this.genderRubros());
-    const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyLineIndex, periods, ids)).filter(row => rubros.has(row.category || ''));
+    const subline = this.expandedChart() === 'gender' ? this.genderActiveSubline() : '';
+    const rows = subline ? this.genderSublineRows().filter(row => row.subline === subline)
+      : (this.dateRangeActive() ? this.dailyRowsInRange(ids, false) : this.indexedRows(this.monthlyLineIndex, periods, ids)).filter(row => rubros.has(row.category || ''));
     const mapped = rows.map(row => ({ row, gender: this.genderFromLine(row.line) })).filter(item => item.gender != null);
     const groups = grouped(mapped, item => item.gender!); const total = mapped.reduce((value, item) => value + (item.row.net || 0), 0);
     return GENDER_ORDER.map(name => {
@@ -2832,6 +2846,7 @@ export class App implements OnInit {
   toggleChartExpansion(id: string): void {
     const next = this.expandedChart() === id ? null : id;
     this.expandedChart.set(next);
+    if (next === 'gender') void this.ensureSublineDetail();
     this.setPageScrollLocked(!!next);
   }
   private sectionAdviceContext(id: string, section: string): string {
@@ -2969,7 +2984,15 @@ export class App implements OnInit {
   toggleGenderRubro(value: string): void {
     if (value !== 'TEXTIL' && value !== 'CALZADO') return;
     const next = this.toggleValue(this.genderRubros(), value);
-    if (next.length) this.genderRubros.set(next);
+    if (next.length) { this.genderRubros.set(next); this.genderSubline.set(''); }
+  }
+  setGenderRubro(value: string): void {
+    if (value && value !== 'TEXTIL' && value !== 'CALZADO') return;
+    this.genderRubros.set(value ? [value] : ['TEXTIL', 'CALZADO']);
+    this.genderSubline.set('');
+  }
+  setGenderSubline(value: string): void {
+    if (!value || this.genderSublineOptions().includes(value)) this.genderSubline.set(value);
   }
   toggleRankingMetric(value: RankingMetric): void {
     const next = this.toggleValue(this.rankingMetrics(), value) as RankingMetric[];
@@ -3090,6 +3113,7 @@ export class App implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
+    this.genderSubline.set('');
     const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);

@@ -252,6 +252,12 @@
           <article class="card chart-card gender-card" [class.chart-expanded]="expandedChart() === 'gender'">
             <button type="button" class="chart-expand" (click)="toggleChartExpansion('gender')" [attr.aria-label]="expandedChart() === 'gender' ? 'Cerrar gráfico' : 'Ampliar participación por género'">{{ expandedChart() === 'gender' ? '×' : '⛶' }}</button>
             <h2><svg><use href="/comercial/assets/icons.svg#category"></use></svg> PARTICIPACIÓN GÉNERO</h2>
+            @if (expandedChart() === 'gender') {
+              <div class="filters gender-expanded-filters" aria-label="Filtros de participación por género">
+                <label>Rubro<select aria-label="Rubro de participación por género" [value]="genderRubros().length === 1 ? genderRubros()[0] : ''" (change)="setGenderRubro($any($event.target).value)"><option value="">Textil y calzado</option><option value="TEXTIL">Textil</option><option value="CALZADO">Calzado</option></select></label>
+                <label>Sublínea<select aria-label="Sublínea de participación por género" [value]="genderActiveSubline()" [disabled]="!genderSublineOptions().length" (change)="setGenderSubline($any($event.target).value)"><option value="">Todas las sublíneas</option>@for (subline of genderSublineOptions(); track subline) { <option [value]="subline">{{ subline }}</option> }</select></label>
+              </div>
+            }
             <div class="gender-chart-content">
               <div class="gender-donut-pane">
                 <dashboard-chart [option]="genderOption()" label="Participación de venta por género" />
