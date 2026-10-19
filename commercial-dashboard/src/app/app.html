@@ -89,6 +89,21 @@
         <p>Se resaltan todos los empates. Los meses sin transacciones no participan en los máximos y mínimos.</p>
       </section>
     }
+    @if (expandedChart() === 'conversion-average') {
+      <section class="card chart-card chart-expanded ticket-modal" role="dialog" aria-modal="true" aria-labelledby="conversion-chart-title" tabindex="-1" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
+        <button type="button" class="chart-expand" aria-label="Cerrar gráfico de conversión" (click)="closeExpandedChart()">×</button>
+        <h2 id="conversion-chart-title">CONVERSIÓN POR MES · {{ ticketChartYear() }}</h2>
+        <div class="ticket-modal-filters">
+          <label class="ticket-year-selector">Año <select [ngModel]="ticketChartYear()" (ngModelChange)="setTicketChartYear($event)">@for (yearOption of ticketChartYears(); track yearOption) { <option [ngValue]="yearOption">{{ yearOption }}</option> }</select></label>
+          @if (!storeFilterLocked()) { <div class="filter-field"><span>Tiendas</span><details class="filter-dropdown"><summary>{{ ticketChartSelectedStores().length ? ticketChartSelectedStores().length + ' seleccionadas' : 'Todas las tiendas permitidas' }}</summary><div class="filter-menu"><button type="button" (click)="ticketChartSelectedStores.set([])">Todas</button>@for (storeOption of ticketChartStores(); track storeOption.storeId) { <button type="button" [class.active]="ticketChartSelectedStores().includes(storeOption.storeId)" [attr.aria-pressed]="ticketChartSelectedStores().includes(storeOption.storeId)" (click)="toggleTicketChartStore(storeOption.storeId)">{{ storeOption.alias || storeOption.store }}</button> }</div></details></div> }
+        </div>
+        @if (!conversionChartHasData()) { <p role="status">No hay tráfico registrado para calcular la conversión de {{ ticketChartYear() }}.</p> }
+        <div class="ticket-modal-content">
+          <dashboard-chart [option]="conversionMonthlyOption()" label="Evolución mensual de conversión" />
+          <div class="ticket-monthly-table"><table aria-label="Conversión, transacciones y tráfico por mes"><thead><tr><th scope="col">Mes</th><th scope="col">Conversión</th><th scope="col">Transacciones</th><th scope="col">Tráfico</th></tr></thead><tbody>@for (row of conversionMonthlyRows(); track row.label) { <tr><th scope="row">{{ row.label }}</th><td>{{ percent(row.conversion) }}</td><td>{{ number(row.transactions) }}</td><td>{{ number(row.traffic) }}</td></tr> }</tbody></table></div>
+        </div>
+      </section>
+    }
     <header class="brand-header">
       <div class="brand-block"><img src="/comercial/logo-almacen-remates.png" alt="Almacén de Remates" />@if (cloud.accessProfile()?.scopeType === 'all') { <p class="store-summary"><strong>{{ annualStoreSummary().total }} TIENDAS</strong><span>{{ annualStoreSummary().metro }} METRO</span><span>{{ annualStoreSummary().outside }} NO METRO</span></p> }</div>
       <div>
@@ -207,7 +222,7 @@
         <div class="kpi-strip">
           @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() === 'METRO') { <article title="Fórmula: Σ(visitas registradas) en tiendas de formato METRO, según el período y filtros."><span>TRÁFICO METRO</span><strong [class.missing]="metrics().trafficMetro == null">{{ number(metrics().trafficMetro) }}</strong></article> }
           @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() !== 'METRO') { <article title="Fórmula: Σ(visitas registradas) en tiendas de formato distinto de METRO, según el período y filtros."><span>TRÁFICO OTRAS TDS.</span><strong [class.missing]="metrics().trafficOther == null">{{ number(metrics().trafficOther) }}</strong></article> }
-          <article title="Fórmula: número de transacciones ÷ tráfico total × 100."><span>CONVERSIÓN</span><strong>{{ percent(metrics().conversion) }}</strong></article>
+          <article class="ticket-kpi conversion-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Fórmula: transacciones ÷ tráfico × 100. Ver evolución mensual" (click)="openConversionChart()" (keydown.enter)="openConversionChart()" (keydown.space)="$event.preventDefault(); openConversionChart()"><span>CONVERSIÓN</span><strong>{{ percent(metrics().conversion) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article>
           <article class="ticket-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver ticket promedio por mes" (click)="openTicketChart()" (keydown.enter)="openTicketChart()" (keydown.space)="$event.preventDefault(); openTicketChart()"><span>TICKET PROMEDIO</span><strong>{{ money(metrics().ticket) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article>
           <article title="Fórmula: venta neta ÷ (Σ metraje físico de tiendas filtradas × 80%)."><span>VENTA × M²</span><strong>{{ money(metrics().saleM2) }}</strong></article>
           <article class="collaborator-kpi" title="Fórmula: venta neta del período ÷ colaboradores promedio del contexto filtrado."><span>VENTA × COLAB <em>{{ number(metrics().personnel) }} COLAB.</em></span><strong [class.missing]="metrics().saleCollaborator == null">{{ money(metrics().saleCollaborator, true) }}</strong></article>

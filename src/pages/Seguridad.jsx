@@ -1,7 +1,7 @@
 import { NORMAL_TRAFFIC_HOURS } from "../../shared/metrics.js";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ShieldAlert, UsersRound } from "lucide-react";
-import { api, formatDateTime, todayISO } from "../lib/api";
+import { api, formatDate, formatDateTime, todayISO } from "../lib/api";
 import { EmptyState, Loading, Notice, PageHeader } from "../components/UI";
 
 const TOTAL_RANGOS_TRAFICO = NORMAL_TRAFFIC_HOURS.length;
@@ -10,7 +10,20 @@ export default function Seguridad({ user }) {
   const [traffic, setTraffic] = useState(null);
   const [incidents, setIncidents] = useState(null);
   const [notice, setNotice] = useState(null);
-  useEffect(() => { Promise.all([api("/trafico"), api("/incidencias")]).then(([a, b]) => { setTraffic(a); setIncidents(b); }).catch((e) => setNotice({ type: "error", text: e.message })); }, []);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    const from = `${todayISO().slice(0, 7)}-01`;
+    Promise.allSettled([api(`/trafico?desde=${from}`), api(`/incidencias?desde=${from}`)])
+      .then(([trafficResult, incidentResult]) => {
+        if (!active) return;
+        setTraffic(trafficResult.status === "fulfilled" ? trafficResult.value : []);
+        setIncidents(incidentResult.status === "fulfilled" ? incidentResult.value : []);
+        const failures = [trafficResult, incidentResult].filter(result => result.status === "rejected");
+        setNotice(failures.length ? { type: "error", text: failures.map(result => result.reason?.message || "No se pudo cargar una sección.").join(" ") } : null);
+      });
+    return () => { active = false; };
+  }, [retry]);
   const todayTraffic = useMemo(() => {
     const records = (traffic || []).filter((row) => row.fecha === todayISO());
     if (!records.length) return null;
@@ -22,21 +35,24 @@ export default function Seguridad({ user }) {
     };
   }, [traffic]);
   const todayIncidents = (incidents || []).filter((r) => limaDate(r.fecha) === todayISO());
-  const activity = useMemo(() => [...(traffic || []).map((r) => ({ date: r.updated_at, text: `Tráfico registrado · ${r.cantidad} visitantes` })), ...(incidents || []).map((r) => ({ date: r.created_at || r.fecha, text: `${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}` }))].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5), [traffic, incidents]);
-  if (!traffic || !incidents) return notice ? <Notice type="error">{notice.text}</Notice> : <Loading />;
+  const activity = useMemo(() => [
+    ...(traffic || []).map((r) => ({ order: `${r.fecha}T${r.rango_hora?.slice(0, 5) || "00:00"}`, when: `${formatDate(r.fecha)} · ${r.rango_hora || "Sin hora"}`, text: `Tráfico registrado · ${r.cantidad} visitantes` })),
+    ...(incidents || []).map((r) => ({ order: `${limaDate(r.fecha)}T${timeOf(r.fecha)}`, when: formatDateTime(r.fecha), text: `${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}` })),
+  ].sort((a, b) => b.order.localeCompare(a.order)).slice(0, 5), [traffic, incidents]);
+  if (!traffic || !incidents) return <Loading />;
   const registeredRanges = todayTraffic?.rangosRegistrados ?? 0;
   const missingRanges = Math.max(TOTAL_RANGOS_TRAFICO - registeredRanges, 0);
   return <>
     <PageHeader eyebrow="Seguridad" title="Inicio" subtitle={`Tienda asignada: ${user?.tienda_nombre || "Sin tienda asignada"} · Control operativo del día`} />
-    {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
+    {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text} <button type="button" className="button button--ghost button--small" onClick={() => setRetry(value => value + 1)}>Reintentar</button></Notice>}
     <div className="security-home-layout"><div>
       <div className="security-metrics"><Metric icon={UsersRound} tone="green" label="Rangos de tráfico hoy" value={`${registeredRanges} / ${TOTAL_RANGOS_TRAFICO}`} footer={`${registeredRanges} con datos · ${missingRanges} faltantes`} /><Metric icon={ShieldAlert} tone="red" label="Incidencias de hoy" value={todayIncidents.length} footer={`${todayIncidents.filter((r) => r.gravedad === "alta").length} de alta severidad`} /></div>
       <section className="panel security-pending"><header className="panel__header"><div><h2>Pendientes del día</h2><p>Acciones necesarias para completar la jornada</p></div></header>{missingRanges > 0 ? <Pending tone="warning" icon={AlertTriangle} title="Tráfico pendiente" detail={`${registeredRanges} de ${TOTAL_RANGOS_TRAFICO} turnos registrados · faltan ${missingRanges}`} /> : <Pending tone="done" icon={CheckCircle2} title="Tráfico completo" detail={`${TOTAL_RANGOS_TRAFICO} turnos normales registrados · ${todayTraffic?.cantidad || 0} visitantes`} />}{todayIncidents.slice(0, 3).map((r) => <Pending key={r.id} tone="danger" icon={AlertTriangle} title={`${r.codigo || `INC-${String(r.id).padStart(4, "0")}`} · ${r.asunto}`} detail={`${r.estado || "abierta"} · ${r.gravedad}`} />)}{!todayIncidents.length && <p className="security-all-clear">No hay incidencias registradas hoy.</p>}</section>
-    </div><section className="panel security-activity"><header className="panel__header"><h2>Actividad reciente</h2></header>{activity.length ? activity.map((item, i) => <div className="activity-row" key={`${item.date}-${i}`}><time>{timeOf(item.date)}</time><span>{item.text}</span></div>) : <EmptyState icon={Clock3} title="Sin actividad" text="Los registros recientes aparecerán aquí." />}</section></div>
+    </div><section className="panel security-activity"><header className="panel__header"><h2>Actividad reciente</h2></header>{activity.length ? activity.map((item, i) => <div className="activity-row" key={`${item.order}-${i}`}><time>{item.when}</time><span>{item.text}</span></div>) : <EmptyState icon={Clock3} title="Sin actividad" text="Los registros recientes aparecerán aquí." />}</section></div>
     <section className="panel security-recent"><header className="panel__header"><div><h2>Incidencias recientes</h2><p>Últimos eventos registrados en la tienda</p></div></header><div className="security-table"><div className="security-table__head"><span>Código</span><span>Fecha</span><span>Tipo</span><span>Severidad</span><span>Estado</span></div>{incidents.slice(0, 6).map((r) => <div className="security-table__row" key={r.id}><strong>{r.codigo || `INC-${String(r.id).padStart(4, "0")}`}</strong><span>{formatDateTime(r.fecha)}</span><span>{r.tipo || r.asunto}</span><span className={`security-pill security-pill--${r.gravedad}`}>{r.gravedad}</span><span className="security-pill">{r.estado || "abierta"}</span></div>)}</div></section>
   </>;
 }
 function Metric({ icon: Icon, tone, label, value, footer }) { return <article className="security-metric"><span className={`security-metric__icon security-metric__icon--${tone}`}><Icon size={20} /></span><div><small>{label}</small><strong>{value}</strong><em className={`tone-${tone}`}>{footer}</em></div></article>; }
 function Pending({ icon: Icon, tone, title, detail }) { return <div className={`pending-row pending-row--${tone}`}><Icon size={18} /><div><strong>{title}</strong><small>{detail}</small></div><span>{tone === "done" ? "Completado" : "Requiere acción"}</span></div>; }
-function timeOf(value) { return value ? new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—"; }
+function timeOf(value) { return value ? new Intl.DateTimeFormat("en-GB", { timeZone: "America/Lima", hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "00:00"; }
 function limaDate(value) { const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); return `${parts.year}-${parts.month}-${parts.day}`; }

@@ -37,6 +37,7 @@ const Select = ({ label, name, form, setForm, options }) => <Field label={label}
 export default function MiTiendaGestion() {
   const [data,setData] = useState(null), [tab,setTab] = useState("resumen"), [sub,setSub] = useState("municipal");
   const [modal,setModal] = useState(null), [form,setForm] = useState(null), [busy,setBusy] = useState(false), [error,setError] = useState("");
+  const [actionError,setActionError] = useState("");
   const load = () => api("/mi-tienda-gestion").then(setData).catch((e) => setData({ error:e.message }));
   useEffect(() => { load(); }, []);
   const open = (type, values={}) => {
@@ -63,13 +64,23 @@ export default function MiTiendaGestion() {
       await api(`/mi-tienda-gestion/${endpoint}`, { method:form.id && modal!=="seguimiento_requerimiento" ? "PUT":"POST", body:payload }); setModal(null); await load();
     } catch(e) { setError(e.message); } finally { setBusy(false); }
   };
-  const viewFile = async (path) => { const {url}=await api("/mi-tienda-gestion/archivo-url",{method:"POST",body:{path}}); window.open(url,"_blank","noopener,noreferrer"); };
+  const viewFile = async (path) => {
+    setActionError("");
+    try { const {url}=await api("/mi-tienda-gestion/archivo-url",{method:"POST",body:{path}}); window.open(url,"_blank","noopener,noreferrer"); }
+    catch (e) { setActionError(e.message); }
+  };
+  const exportFile = async (kind, filename) => {
+    setActionError("");
+    try { await downloadFile(`/api/reportes/${kind}/export.xlsx`, filename); }
+    catch (e) { setActionError(e.message); }
+  };
   const currentRows = useMemo(() => data?.[sub === "municipal" ? "documentos" : sub] || [], [data,sub]);
   if (!data) return <Loading />;
-  if (data.error) return <Notice type="error">{data.error}</Notice>;
+  if (data.error) return <div><Notice type="error">{data.error}</Notice><button className="button button--ghost" onClick={load}>Reintentar</button></div>;
   const t=data.tienda || {}, r=data.resumen || {};
   return <section className="store-management-page">
     <PageHeader eyebrow="Gestión de tienda" title="Mi tienda" />
+    {actionError && <Notice type="error">{actionError}</Notice>}
     <div className="mini-tabs">{tabs.map(([id,label]) => <button className={tab===id?"active":""} onClick={()=>setTab(id)} key={id}>{label}</button>)}</div>
 
     {tab === "resumen" && <div className="store-module">
@@ -79,9 +90,9 @@ export default function MiTiendaGestion() {
 
     {tab === "documentos" && <ModuleTabs items={[["municipal","Documentación municipal"],["reclamaciones","Libro de reclamaciones"],["alertas","Configuración de alertas"]]} sub={sub} setSub={setSub} />}
     {tab === "operacion" && <ModuleTabs items={[["acciones","Acciones de tienda"],["requerimientos","Requerimientos de tienda"]]} sub={sub} setSub={setSub} />}
-    {tab === "auditorias" && <AuditObservationCenter observations={data.observaciones||[]} visits={data.visitas||[]} onLift={(row)=>open("observacion",{...row,archivo:null})} onViewFile={viewFile} onExport={()=>downloadFile("/api/reportes/supervisiones/export.xlsx","reporte-auditorias.xlsx")}/>}
+    {tab === "auditorias" && <AuditObservationCenter observations={data.observaciones||[]} visits={data.visitas||[]} onLift={(row)=>open("observacion",{...row,archivo:null})} onViewFile={viewFile} onExport={()=>exportFile("supervisiones","reporte-auditorias.xlsx")}/>}
     {sub === "alertas" && <DocumentAlertSettings documents={data.documentos || []} reload={load} />}
-    {!['resumen','auditorias'].includes(tab) && sub !== "alertas" && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>downloadFile(`/api/reportes/${reportKindBySub[sub]}/export.xlsx`,`reporte-${reportKindBySub[sub]}.xlsx`)} />}
+    {!['resumen','auditorias'].includes(tab) && sub !== "alertas" && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>exportFile(reportKindBySub[sub],`reporte-${reportKindBySub[sub]}.xlsx`)} />}
 
     <EditorModal type={modal} form={form} setForm={setForm} error={error} busy={busy} onClose={()=>setModal(null)} onSave={modal==="datos" ? async()=>{setBusy(true);try{await api("/mi-tienda-gestion/datos",{method:"PUT",body:form});setModal(null);await load();}catch(e){setError(e.message);}finally{setBusy(false);}} : save} />
   </section>;

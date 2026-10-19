@@ -4,6 +4,7 @@ import { portalStores } from "../scripts/portal-store-catalog.mjs";
 
 const site = process.env.PORTAL_SITE_URL?.replace(/\/$/, "");
 const password = process.env.PORTAL_INITIAL_PASSWORD;
+const monthStart = `${new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Lima", year: "numeric", month: "2-digit" }).format(new Date())}-01`;
 
 test("cada Seguridad accede solo a sus módulos y tienda", { skip: !site || !password }, async () => {
   const accounts = [];
@@ -30,13 +31,14 @@ test("cada Seguridad accede solo a sus módulos y tienda", { skip: !site || !pas
     const headers = { Cookie: account.cookie };
     const otherStore = accounts[(index + 1) % accounts.length].storeId;
     for (const endpoint of ["/api/trafico", "/api/incidencias"]) {
-      const response = await fetch(`${site}${endpoint}`, { headers });
+      const period = `desde=${monthStart}`;
+      const response = await fetch(`${site}${endpoint}?${period}`, { headers });
       assert.equal(response.status, 200, `${account.username}: ${endpoint}`);
       const rows = await response.json();
       assert.ok(Array.isArray(rows), `${account.username}: ${endpoint} devuelve filas`);
       assert.ok(rows.every((row) => Number(row.tienda_id) === account.storeId),
         `${account.username}: ${endpoint} solo muestra su tienda`);
-      const forbidden = await fetch(`${site}${endpoint}?tienda_id=${otherStore}`, { headers });
+      const forbidden = await fetch(`${site}${endpoint}?${period}&tienda_id=${otherStore}`, { headers });
       assert.equal(forbidden.status, 403, `${account.username}: ${endpoint} no permite otra tienda`);
     }
     for (const endpoint of ["/api/dashboard", "/api/commercial/access", "/api/commercial/manifest", "/api/commercial/files/dashboard.json"]) {

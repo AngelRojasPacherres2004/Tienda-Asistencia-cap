@@ -56,17 +56,57 @@ console.log(JSON.stringify({ version: release.version, years: manifest.years,
 if (!apply) process.exit(0);
 const bucket = client.storage.from("dashboard-data");
 const manifestPath = `${monthly ? "commercial-annual-v2" : "commercial-annual"}/${release.version}/manifest.json`;
-if ((await bucket.info(manifestPath)).data) throw new Error("La versión anual ya está publicada.");
-for (const file of files) {
-  const existing = await bucket.info(file.storagePath);
-  if (existing.data) {
-    if (Number(existing.data.size) !== file.bytes) throw new Error(`Conflicto en ${file.storagePath}`);
-    continue;
+if ((await bucket.info(manifestPath)).data) {
+  const { data, error } = await bucket.download(manifestPath);
+  if (error || !data) throw new Error("No se pudo verificar el catálogo anual publicado.");
+  const previous = JSON.parse(await data.text());
+  if (previous.releaseId !== release.id || previous.version !== release.version
+    || JSON.stringify(previous.cutoffs) !== JSON.stringify(manifest.cutoffs)
+    || previous.files?.length !== manifest.files.filter(row => allowed.has(row.storeId)).length) {
+    throw new Error("El catálogo anual existente no coincide con este corte.");
   }
-  const { error } = await bucket.upload(file.storagePath, await readFile(file.filePath),
-    { contentType: "application/octet-stream", upsert: false });
-  if (error) throw new Error(`No se pudo publicar ${file.storagePath}: ${error.message}`);
+  console.log("Reportes anuales ya publicados para esta versión.");
+  process.exit(0);
 }
+// Los detalles mensuales son independientes. Una concurrencia moderada evita
+// miles de viajes secuenciales sin saturar el servicio ni publicar el catálogo
+// hasta que todos los archivos estén confirmados.
+let nextFile = 0;
+const uploadErrors = [];
+const retryable = error => /too many connections|rate limit|\b429\b|\b502\b|\b503\b|fetch failed|service unavailable/i.test(String(error?.message || error));
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function uploadOnceAvailable(file) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const existing = await bucket.info(file.storagePath);
+      if (existing.data) {
+        if (Number(existing.data.size) !== file.bytes) throw new Error(`Conflicto en ${file.storagePath}`);
+        return;
+      }
+      if (existing.error && retryable(existing.error)) throw existing.error;
+      const { error } = await bucket.upload(file.storagePath, await readFile(file.filePath),
+        { contentType: "application/octet-stream", upsert: false });
+      if (error) throw new Error(`No se pudo publicar ${file.storagePath}: ${error.message}`);
+      return;
+    } catch (error) {
+      if (!retryable(error) || attempt === 7) throw error;
+      await pause(Math.min(10000, 500 * 2 ** attempt));
+    }
+  }
+}
+await Promise.all(Array.from({ length: Math.min(2, files.length) }, async () => {
+  while (nextFile < files.length && uploadErrors.length === 0) {
+    const file = files[nextFile++];
+    try {
+      await uploadOnceAvailable(file);
+      await pause(100);
+    } catch (error) {
+      uploadErrors.push(error);
+      break;
+    }
+  }
+}));
+if (uploadErrors.length) throw uploadErrors[0];
 const published = { ...manifest, releaseId: release.id, version: release.version,
   files: manifest.files.filter(row => allowed.has(row.storeId)),
   summaries: manifest.summaries.filter(row => allowed.has(row.storeId)),

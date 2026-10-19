@@ -13,7 +13,7 @@ export default function MiTienda({ user, onNavigate }) {
   const isZonal = user.rol === "jefe_zonal";
   const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? "all" : user.tienda_id || "");
   const [zonalAlerts, setZonalAlerts] = useState(null);
-  const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [incidents, setIncidents] = useState([]); const [notice, setNotice] = useState(null);
+  const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [notice, setNotice] = useState(null);
   const [dashboardKey, setDashboardKey] = useState(0); const dashboardRequestId = useRef(0);
   const currentPeriodDate = todayISO();
   const [matrixPeriod, setMatrixPeriod] = useState({ year: currentPeriodDate.slice(0, 4), monthNumber: currentPeriodDate.slice(5, 7), week: "", day: "" });
@@ -25,7 +25,12 @@ export default function MiTienda({ user, onNavigate }) {
     const selectedStore = stores.find((store) => String(store.id) === String(storeId));
     const profileRequest = isZonal ? Promise.resolve({ tienda_nombre: selectedStore?.nombre, tienda_direccion: selectedStore?.direccion, tienda_alquiler_mensual: selectedStore?.alquiler_mensual }) : api("/perfil");
     const peopleRequest = api(`/personal/resumen${suffix}`);
-    return Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest, api(`/documentos-alertas${suffix}`), api(`/errores-personal${suffix}`), api(`/incidencias${suffix}`)]).then(([p, s, team, docs, errorRows, incidentRows]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(isOperationalDemo() ? { ...s, trafico_hoy: demoTrafficTotal({ id: storeId || user.tienda_id }, [todayISO()]) } : s); setPeople(team); setDocuments(docs); setErrors(errorRows); setIncidents(incidentRows); setNotice(null); }).catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); });
+    const essential = Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest])
+      .then(([p, s, team]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(isOperationalDemo() ? { ...s, trafico_hoy: demoTrafficTotal({ id: storeId || user.tienda_id }, [todayISO()]) } : s); setPeople(team); setNotice(null); })
+      .catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); });
+    Promise.allSettled([api(`/documentos-alertas${suffix}`), api(`/errores-personal${suffix}`)])
+      .then(([docs, errorRows]) => { if (requestId !== dashboardRequestId.current) return; setDocuments(docs.status === "fulfilled" ? docs.value : []); setErrors(errorRows.status === "fulfilled" ? errorRows.value : []); });
+    return essential;
   }, [isZonal, storeId, stores, user.tienda_id]);
   useEffect(() => { if (!isZonal) return; api("/tiendas").then((rows) => { setStores(rows); setStoreId((current) => current || rows[0]?.id || ""); }).catch((e) => setNotice({ type: "error", text: e.message })); }, [isZonal]);
   useEffect(() => { if (!isZonal) return; api("/zonal/asistencia").then((attendance) => setZonalAlerts({ attendance })).catch(() => setZonalAlerts(null)); }, [isZonal]);
@@ -48,9 +53,8 @@ export default function MiTienda({ user, onNavigate }) {
   const activePeople = people.filter((person) => person.estado === "activo");
   const employees = activePeople.filter((person) => ["trabajador", "vendedor", "asistente", "caja", "almacenero", "jefe_area"].includes(person.rol));
   const securityPeople = activePeople.filter((person) => ["seguridad", "jefe_seguridad"].includes(person.rol));
-  const securityIncidentTypes = new Set(["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]);
-  const securityIncidents = incidents.filter((incident) => securityIncidentTypes.has(incident.tipo)).length;
-  const administrativeIncidents = incidents.filter((incident) => !securityIncidentTypes.has(incident.tipo)).length;
+  const securityIncidents = summary.incidencias_seguridad || 0;
+  const administrativeIncidents = summary.incidencias_administrativas || 0;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   return <section className="store-dashboard-shell is-light">
     <header className="store-dashboard-hero"><div><span><Users size={28} /></span><div><h1>{isZonal ? storeName.toUpperCase() : "RESUMEN DE MI TIENDA"}</h1></div></div><div className="store-dashboard-view-controls">{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button type="button" onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={15} />Limpiar filtros</button></div></header>

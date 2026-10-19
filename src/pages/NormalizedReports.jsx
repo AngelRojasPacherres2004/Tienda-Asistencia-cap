@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { api, downloadFile } from "../lib/api";
 import { Notice } from "../components/UI";
@@ -131,12 +131,17 @@ export default function NormalizedReports({ user }) {
   const sublines = filters.linea ? unique(dimensions.filter(row => (!filters.rubro || row[0] === filters.rubro)
     && row[1] === filters.linea).map(row => row[2])) : [];
   const genders = unique(dimensions.filter(row => !filters.rubro || row[0] === filters.rubro).map(row => genderFromLine(row[1])));
+  const visibleReports = (catalog?.reports || []).filter(item => item.years?.length);
   const productFilters = catalog?.reports?.find(item => item.id === kind)?.productFilters !== false;
   const kindAvailable = catalog?.reports?.find(item => item.id === kind)?.years?.includes(Number(filters.year));
   const selectedIds = new Set(selectedStores.map(store => store.id));
-  const availableMonths = catalog?.monthly ? [...new Set((catalog.fileRows || []).filter(item => item.year === Number(filters.year)
-    && item.kind === kind && selectedIds.has(item.storeId)).map(item => item.month))].filter(Boolean).sort((a, b) => a - b)
-    : months.map((_, index) => index + 1);
+  const availableMonths = useMemo(() => catalog?.monthly ? [...new Set((catalog.fileRows || []).filter(item => item.year === Number(filters.year)
+    && item.kind === kind && dimensionStoreIds.split(",").includes(item.storeId)).map(item => item.month))].filter(Boolean).sort((a, b) => a - b)
+    : [], [catalog?.monthly, catalog?.fileRows, filters.year, kind, dimensionStoreIds]);
+  useEffect(() => {
+    if (filters.month && availableMonths.includes(Number(filters.month))) return;
+    setFilters(current => ({ ...current, month: availableMonths.at(-1) ? String(availableMonths.at(-1)) : "", day: "" }));
+  }, [filters.month, availableMonths]);
   const sourceRows = (catalog?.fileRows || []).filter(item => item.year === Number(filters.year)
     && item.kind === kind && selectedIds.has(item.storeId) && (!catalog?.monthly || !filters.month || item.month === Number(filters.month)))
     .reduce((sum, item) => sum + item.rows, 0);
@@ -160,13 +165,14 @@ export default function NormalizedReports({ user }) {
     });
   }
   async function run(type) {
+    if (!filters.month) { setMessage({ type: "error", text: "Selecciona un mes con datos para descargar." }); return; }
     setBusy(type); setProgress(""); setMessage(null);
     try {
       const active = { ...filters, year: Number(filters.year), month: filters.month ? Number(filters.month) : "",
         day: filters.day ? Number(filters.day) : "" };
       if (type === "detail") {
         const applied = productFilters ? active : { ...active, rubro: "", gender: "", linea: "", sublinea: "" };
-        const name = `detalle-${kind}-${filters.year}.csv`;
+        const name = `detalle-${kind}-${filters.year}-${filters.month.padStart(2, "0")}.csv`;
         let handle = null;
         if (window.showSaveFilePicker) {
           try { handle = await window.showSaveFilePicker({ suggestedName: name,
@@ -179,7 +185,7 @@ export default function NormalizedReports({ user }) {
         if (count) setMessage({ type: "success", text: `${count.toLocaleString("es-PE")} filas descargadas.` });
       } else {
         const done = await downloadFile(`/api/commercial/annual-reports/summary.xlsx?${paramsOf(active)}`,
-          `resumen-comercial-${filters.year}.xlsx`);
+          `resumen-comercial-${filters.year}-${filters.month.padStart(2, "0")}.xlsx`);
         if (done) setMessage({ type: "success", text: "Resumen descargado." });
       }
     } catch (error) { setMessage({ type: "error", text: error.message }); }
@@ -197,10 +203,11 @@ export default function NormalizedReports({ user }) {
       ? <button type="button" className="button button--ghost" onClick={() => { setMessage(null); setRetry(value => value + 1); }}>Reintentar carga de reportes</button>
       : <div className="annual-reports__skeleton" aria-label="Preparando catálogo de reportes"/>) : !catalog.ready ?
       <div className="annual-reports__empty"><p>Los reportes del corte actual aún no están preparados.</p>
-        <button type="button" className="button button--ghost" onClick={() => { setCatalog(null); setRetry(value => value + 1); }}>Volver a consultar</button></div> : <>
+        <button type="button" className="button button--ghost" onClick={() => { setCatalog(null); setRetry(value => value + 1); }}>Volver a consultar</button></div> : !catalog.monthly ?
+      <div className="annual-reports__empty"><p>Los archivos mensuales aún no están preparados para este corte.</p></div> : <>
       <div className="annual-reports__filters">
         {field("Año", "year", catalog.years.map(year => [String(year)]))}
-        {field("Mes", "month", [["", "Todo el año"], ...availableMonths.map(month => [String(month), months[month - 1]])])}
+        {field("Mes", "month", [["", "Selecciona un mes"], ...availableMonths.map(month => [String(month), months[month - 1]])])}
         {field("Día", "day", [["", "Todos"], ...Array.from({ length: dayCount }, (_, index) => [String(index + 1)])], !filters.month)}
         {!singleStoreRole && availableClusters.length > 1 && field("Clúster", "cluster", [["", "Todos"], ...availableClusters.map(value => [value])])}
         {!singleStoreRole && availableFormats.length > 1 && field("Formato", "format", [["", "Todos"], ...availableFormats.map(value => [value])])}
@@ -211,11 +218,11 @@ export default function NormalizedReports({ user }) {
         {field("Sublínea", "sublinea", [["", "Todas"], ...sublines.map(value => [value])], !filters.linea)}
       </div>
       <div className="annual-reports__actions">
-        <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{catalog.reports.map(item =>
+        <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{visibleReports.map(item =>
           <option key={item.id} value={item.id} disabled={!item.years.includes(Number(filters.year))}>{item.label}{item.years.includes(Number(filters.year)) ? "" : " · sin datos"}</option>)}</select></label>
-        <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
+        <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !filters.month || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
       </div>
-      {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
+      {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !filters.month || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
       {exceedsExcel && <small className="annual-reports__note">Este detalle tiene más de 1 048 575 filas. Elige un mes, tienda o clasificación para abrirlo completo en Excel.</small>}
       {!productFilters && <small className="annual-reports__note">El detalle de tráfico no se clasifica por producto.</small>}
     </>}

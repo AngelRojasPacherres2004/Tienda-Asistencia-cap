@@ -37,7 +37,7 @@ export default function Tiendas({ user }) {
   const [formError, setFormError] = useState("");
   const [success, setSuccess] = useState(null);
 
-  const load = () => api("/tiendas").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
+  const load = () => api("/tiendas").then(setItems).catch((err) => { setItems([]); setNotice({ type: "error", text: err.message }); });
   const loadUsuarios = () => api("/usuarios").then(setUsuarios).catch(() => {});
   useEffect(() => { load(); loadUsuarios(); api("/tiendas/catalogos").then(setCatalogs).catch(() => {}); if (user?.rol === "gerente_comercial") api("/clusters").then(setClusters).catch(() => {}); if(isZonal)api("/zonal/cluster").then(setZonalCluster).catch(()=>setZonalCluster(null)); }, [user?.rol,isZonal]);
 
@@ -60,7 +60,7 @@ export default function Tiendas({ user }) {
     setViewing(item);
     setDetailView(tab); setTeamPage(1); setTeamRole("todos");
     setStoreUsers(null);
-    api(`/tiendas/${item.id}/usuarios`).then(setStoreUsers).catch((err) => setNotice({ type: "error", text: err.message }));
+    api(`/tiendas/${item.id}/usuarios`).then(setStoreUsers).catch((err) => { setStoreUsers([]); setNotice({ type: "error", text: err.message }); });
   };
   const closeEditor = () => { setEditing(null); setFormError(""); };
   const openNew = () => { setFormError(""); setEditing({ ...blank }); };
@@ -100,7 +100,9 @@ export default function Tiendas({ user }) {
   };
 
   const teamMembers = storeUsers || [];
-  const filteredTeam = teamMembers.filter((item) => teamRole === "todos" || item.rol === teamRole);
+  const filteredTeam = teamMembers.filter((item) => teamRole === "todos" || item.rol === teamRole)
+    .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+      || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
   const teamRoles = [...new Set(teamMembers.map((item) => item.rol))].sort();
   useEffect(() => setTeamPage(1), [teamRole]);
 
@@ -227,7 +229,7 @@ export default function Tiendas({ user }) {
               <div><span>Administrador de tienda</span><strong>{viewing.jefe_nombre || "Sin administrador asignado"}</strong><small>{viewing.jefe_nombre ? <StatusBadge value={viewing.jefe_estado}/> : "Pendiente de asignación"}</small></div>
             </section>
             <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{filteredTeam.length} de {teamMembers.length} personas</h3></div><select value={teamRole} onChange={(event)=>setTeamRole(event.target.value)}><option value="todos">Todos los roles</option>{teamRoles.map((role)=><option key={role} value={role}>{roleLabels[role] || role.replaceAll("_"," ")}</option>)}</select></div>
-            {filteredTeam.length ? <><div className="store-users__list">{filteredTeam.slice((teamPage-1)*5,teamPage*5).map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>{roleLabels[item.rol] || item.rol?.replaceAll("_", " ")} · {item.usuario ? `@${item.usuario}` : "Sin credenciales"}</small></div><StatusBadge value={item.estado} /></div>)}</div><Pagination page={teamPage} pages={Math.max(1,Math.ceil(filteredTeam.length/5))} onChange={setTeamPage}/></> : <EmptyState icon={UsersRound} title="Sin personal con ese rol" text="Prueba con otro filtro o registra personal desde Mis equipos." />}
+            {filteredTeam.length ? <><div className="store-users__list">{filteredTeam.slice((teamPage-1)*5,teamPage*5).map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>{roleLabels[item.rol] || item.rol?.replaceAll("_", " ")}{item.telefono ? ` · ${item.telefono}` : ""}{item.reingreso ? " · Reingreso" : ""}</small></div><StatusBadge value={item.estado} /></div>)}</div><Pagination page={teamPage} pages={Math.max(1,Math.ceil(filteredTeam.length/5))} onChange={setTeamPage}/></> : <EmptyState icon={UsersRound} title="Sin personal con ese rol" text="Prueba con otro filtro o registra personal desde Mis equipos." />}
           </div>)}
         </>}
       </Modal>

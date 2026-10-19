@@ -365,6 +365,14 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .status--justificado, .status--descanso, .status--sin-registrar, .status--descanso_medico { color: #6251a6; background: #eeebf8; }
 .status--apoyo { color: #2f6fae; background: #e8f1fb; }
 .row-actions { display: flex; justify-content: flex-end; gap: 5px; }
+.security-admin-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 16px; }
+.security-admin-filters label { display: grid; gap: 5px; min-width: 170px; color: #254363; font-size: 12px; font-weight: 700; }
+.security-admin-filters select, .security-admin-filters input { min-height: 39px; padding: 7px 10px; border: 1px solid #c8d8e5; border-radius: 8px; background: #fff; color: #172b46; }
+.security-admin-table-wrap { overflow-x: auto; }
+.security-admin-table { width: 100%; min-width: 850px; border-collapse: collapse; color: #172b46; }
+.security-admin-table th, .security-admin-table td { padding: 12px 10px; border-bottom: 1px solid #dce6ee; text-align: left; vertical-align: middle; }
+.security-admin-table th { color: #183c64; background: #eaf2f8; font-size: 12px; }
+.security-admin-table td { font-size: 13px; }
 .row-actions button { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; color: #6f7c90; background: #fff; }
 .row-actions button:hover { color: var(--blue); border-color: #b7c9dd; background: #f5f9fd; }
 .row-actions button.danger:hover, button.danger:hover { color: var(--red); border-color: #e7b7b4; background: #fff5f4; }
@@ -1136,7 +1144,7 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .pending-row--done { color: #55c78f; background: rgba(58,181,124,.11); }.pending-row--warning { color: #e1ad4f; background: rgba(221,164,59,.11); }.pending-row--danger { color: #ee7777; background: rgba(238,119,119,.12); }
 .pending-row div { display: grid; gap: 3px; }.pending-row strong { color: #eee8de; font-size: 12px; }.pending-row small { color: #9b9387; }.pending-row > span { padding: 6px 10px; border-radius: 999px; background: rgba(0,0,0,.16); font-size: 9px; font-weight: 700; }
 .security-all-clear { padding: 8px 20px 20px; color: #61c997; }
-.security-activity { min-height: 300px; }.activity-row { display: grid; grid-template-columns: 52px 1fr; gap: 9px; padding: 16px 18px; border-top: 1px solid rgba(205,169,95,.1); }.activity-row time { color: #d5b46b; font-size: 10px; }.activity-row span { color: #b7aea1; font-size: 11px; line-height: 1.4; }
+.security-activity { min-height: 300px; }.activity-row { display: grid; grid-template-columns: minmax(100px, 128px) minmax(0, 1fr); gap: 9px; padding: 16px 18px; border-top: 1px solid rgba(205,169,95,.1); }.activity-row time { color: #d5b46b; font-size: 10px; }.activity-row span { color: #b7aea1; font-size: 11px; line-height: 1.4; }
 .security-recent,.security-history { margin-top: 20px; }.security-history { padding-bottom: 14px; }
 .security-table { padding: 0 18px 14px; overflow-x: auto; }.security-table__head,.security-table__row { min-width: 680px; display: grid; grid-template-columns: 120px 170px 1fr 110px 110px; align-items: center; gap: 12px; padding: 13px 12px; }.security-table__head { color: #8f887d; border-radius: 9px; background: #101012; font-size: 9px; font-weight: 700; }.security-table__row { color: #bdb5a9; border-bottom: 1px solid rgba(205,169,95,.1); font-size: 11px; }.security-table__row strong { color: #eee8de; }
 .security-table__head--traffic,.security-table__row--traffic { min-width: 800px; grid-template-columns: 130px 100px 110px 120px 1fr 42px; }.security-table__head--incidents,.security-table__row--incidents { min-width: 900px; grid-template-columns: 110px 160px 1fr 1fr 100px 110px 42px; }
@@ -2189,3 +2197,13 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 @media(max-width:750px) { .commercial-role .store-dashboard-personnel-kpis,.commercial-role .store-dashboard-paired-kpis { grid-template-columns:1fr; }.operational-demo-banner a { margin-left:0; } }
 .commercial-portal-host { display: block; width: 100%; font-family: "Segoe UI", Arial, sans-serif; }
 .workspace .workspace__content--commercial { width: 100%; max-width: none; padding: 18px 12px 30px; }
+@media(max-width:600px) {
+  .store-management-page .subsection-tabs { width:100%; flex-wrap:wrap; overflow:visible; }
+  .store-management-page .subsection-tabs button { flex:1 1 140px; white-space:normal; }
+  .module-view-tabs[aria-label="Información de seguridad"] { width:100%; flex-wrap:wrap; overflow:visible; }
+  .module-view-tabs[aria-label="Información de seguridad"] button { flex:1 1 42%; white-space:normal; }
+  .security-admin-panel .security-admin-filters label,
+  .security-admin-panel .security-admin-filters .button { width:100%; min-width:0; }
+  .security-admin-panel .security-admin-filters .button { justify-content:center; }
+  .security-admin-panel .security-admin-table-wrap { overflow-x:auto; }
+}

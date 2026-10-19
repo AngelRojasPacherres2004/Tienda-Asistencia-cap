@@ -34,9 +34,10 @@ const HistorialMovimientos = lazy(() => import("./pages/HistorialMovimientos"));
 const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const RmsBatchUpload = lazy(() => import("./pages/RmsBatchUpload"));
+const SecurityAdmin = lazy(() => import("./pages/SecurityAdmin"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
   jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
@@ -95,6 +96,7 @@ export default function App() {
     profile: <Profile />,
     gestion: <GestionTienda user={user} />,
     seguridad: <Seguridad user={user} />,
+    "seguridad-central": user.rol === "administrador_seguridad" ? <SecurityAdmin /> : <Dashboard user={user} />,
     "seguridad-trafico": <TraficoSeguridad user={user} />,
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
     "mi-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,

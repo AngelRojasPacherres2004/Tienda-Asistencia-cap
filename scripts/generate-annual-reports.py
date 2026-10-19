@@ -83,12 +83,13 @@ def json_value(value):
     return value
 
 
-def source(root, kind):
+def source(root, kind, cutoff=None):
     name = "FactTraficoClientes" if kind == "trafico" else "Fact" + kind.capitalize()
     path = root / "capa2" / (name + ".parquet")
     if not path.is_file():
         raise FileNotFoundError(path)
-    return "read_parquet('" + str(path).replace("'", "''") + "')"
+    raw = "read_parquet('" + str(path).replace("'", "''") + "')"
+    return f"(select * from {raw} where {DATE_FIELDS[kind]} <= DATE '{cutoff}')" if cutoff else raw
 
 
 def write_query(connection, query, output, kind, stores, years, handles, counts, dimensions=None):
@@ -111,7 +112,7 @@ def write_query(connection, query, output, kind, stores, years, handles, counts,
                 dimensions[(year, store)].add((row.get("rubro") or "", row.get("linea") or "", row.get("sub_linea") or ""))
 
 
-def generate(root, output, requested_years):
+def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None):
     connection = duckdb.connect()
     store_rows = connection.execute("""select tienda_id, tienda, alias, cluster, formato_tienda
         from read_parquet(?) where tienda_id like 'T___'""",
@@ -121,17 +122,26 @@ def generate(root, output, requested_years):
     if not stores:
         raise ValueError("No se encontraron tiendas homologadas.")
     years = set(requested_years)
+    effective_cutoffs = {kind: stock_cutoff if kind == "stock" else sales_cutoff for kind in DATE_FIELDS}
+    if sales_cutoff:
+        available = connection.execute(f"select max(fecha_venta) from {source(root, 'ventas', sales_cutoff)}").fetchone()[0]
+        if str(available) != sales_cutoff:
+            raise ValueError("No hay ventas hasta la fecha de corte solicitada.")
+    if stock_cutoff:
+        available = connection.execute(f"select max(fecha_corte) from {source(root, 'stock', stock_cutoff)}").fetchone()[0]
+        if str(available) != stock_cutoff:
+            raise ValueError("No existe la foto de stock para el corte solicitado.")
     cutoffs = {}
     for kind, field in DATE_FIELDS.items():
         cutoffs[kind] = str(connection.execute(
-            f"select max({field}) from {source(root, kind)}").fetchone()[0] or "")
+            f"select max({field}) from {source(root, kind, effective_cutoffs[kind])}").fetchone()[0] or "")
 
     detail_handles, detail_counts = {}, defaultdict(int)
     dimensions = defaultdict(set)
     try:
         for kind, template in DETAIL_SQL.items():
             print(f"Detalle {kind}...", flush=True)
-            write_query(connection, template.format(fact=source(root, kind)), output, kind,
+            write_query(connection, template.format(fact=source(root, kind, effective_cutoffs[kind])), output, kind,
                         stores, years, detail_handles, detail_counts, dimensions)
     finally:
         for handle in detail_handles.values():
@@ -142,7 +152,7 @@ def generate(root, output, requested_years):
         for kind, template in SUMMARY_SQL.items():
             print(f"Resumen {kind}...", flush=True)
             fact_kind = "ventas" if kind == "ventas_diario" else kind
-            query = template.format(fact=source(root, fact_kind))
+            query = template.format(fact=source(root, fact_kind, effective_cutoffs[fact_kind]))
             cursor = connection.execute(query)
             columns = [column[0] for column in cursor.description]
             while block := cursor.fetchmany(10000):
@@ -191,11 +201,13 @@ if __name__ == "__main__":
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--years", required=True, help="Un año o lista separada por comas")
+    parser.add_argument("--sales-cutoff", help="Corte comercial AAAA-MM-DD")
+    parser.add_argument("--stock-cutoff", help="Última foto de stock AAAA-MM-DD")
     args = parser.parse_args()
     selected = [int(year) for year in args.years.split(",")]
     if not selected or any(year < 2024 or year > 2100 for year in selected):
         parser.error("Indica años válidos.")
-    result = generate(args.source_root, args.output, selected)
+    result = generate(args.source_root, args.output, selected, args.sales_cutoff, args.stock_cutoff)
     print(json.dumps({"years": result["years"], "files": len(result["files"]),
                       "summaries": len(result["summaries"]),
                       "bytes": sum(row["bytes"] for row in result["files"] + result["summaries"])}, ensure_ascii=False))

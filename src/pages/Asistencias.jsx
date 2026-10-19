@@ -26,7 +26,8 @@ export default function Asistencias() {
   const [success, setSuccess] = useState(null);
 
   const loadRoster = useCallback(() => (
-    api(`/asistencias?fecha=${fecha}&estado=${mostrar}`).then(setRoster).catch((error) => setNotice({ type: "error", text: error.message }))
+    api(`/asistencias?fecha=${fecha}&estado=${mostrar}`).then((result) => { setRoster(result); setNotice(null); })
+      .catch((error) => { setRoster({ fecha, empleados: [] }); setNotice({ type: "error", text: error.message }); })
   ), [fecha, mostrar]);
   useEffect(() => { setRoster(null); loadRoster(); }, [loadRoster]);
   useEffect(() => { setPending({}); }, [fecha]);

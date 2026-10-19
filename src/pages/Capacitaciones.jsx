@@ -111,7 +111,9 @@ export default function Capacitaciones({ user }) {
 
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
-  const baseVisibles = showInactivos ? (trabajadores || []) : activos;
+  const baseVisibles = showInactivos ? [...(trabajadores || [])].sort((a, b) =>
+    (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+    || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es")) : activos;
   const visibles = isCoach ? baseVisibles.filter(person => [person.nombres, person.apellidos, person.usuario].join(" ").toLocaleLowerCase("es").includes(personSearch.trim().toLocaleLowerCase("es"))) : baseVisibles;
   const pages=Math.max(1,Math.ceil(visibles.length/8));
   const visiblePeople=visibles.slice((page-1)*8,page*8);
@@ -439,7 +441,9 @@ export function AsignarPanel({ cursos, onAssigned, estadosPermitidos = ["pendien
     .filter((t) => filtroEstado === "todos" || t.estado === filtroEstado)
     .filter((t) => filtroRol === "todos" || t.rol === filtroRol)
     .filter((t) => permiteEstadoActual(t.progreso_estado))
-    .filter((t) => [t.nombres, t.apellidos, t.usuario].join(" ").toLowerCase().includes(search.toLowerCase()));
+    .filter((t) => [t.nombres, t.apellidos, t.usuario].join(" ").toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+      || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
 
   const toggle = (id) => setSelected((current) => {
     const next = new Set(current);

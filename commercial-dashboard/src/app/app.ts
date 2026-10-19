@@ -285,6 +285,41 @@ export class App implements OnInit {
       return { label, net, transactions, ticket: transactions > 0 ? net / transactions : null };
     });
   });
+  readonly conversionMonthlyRows = computed(() => {
+    this.data();
+    const year = this.ticketChartYear();
+    const selectedStores = new Set(this.ticketChartSelectedStores());
+    const ids = new Set(this.ticketChartStores()
+      .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
+      .map(store => store.storeId));
+    return MONTHS.map((label, index) => {
+      const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
+      const transactions = sum(rows, 'transactions');
+      const traffic = sum(rows, 'traffic');
+      return { label, transactions, traffic, conversion: traffic > 0 ? transactions / traffic : null };
+    });
+  });
+  readonly conversionChartHasData = computed(() => this.conversionMonthlyRows().some(row => row.conversion !== null));
+  readonly conversionMonthlyOption = computed<EChartsOption>(() => {
+    const rows = this.conversionMonthlyRows();
+    return {
+      animation: false,
+      grid: { left: 24, right: 24, top: 35, bottom: 30, containLabel: true },
+      tooltip: { trigger: 'axis', confine: true, formatter: (params: any) => {
+        const row = rows[params[0]?.dataIndex ?? 0];
+        return this.tooltip(`${row.label} ${this.ticketChartYear()}`, [
+          { label: 'Conversión', value: this.percent(row.conversion) },
+          { label: 'Transacciones', value: this.number(row.transactions) },
+          { label: 'Tráfico', value: this.number(row.traffic) },
+        ]);
+      } },
+      xAxis: { type: 'category', data: MONTHS, axisLabel: { color: C.slate } },
+      yAxis: { type: 'value', axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` } },
+      series: [{ name: 'Conversión', type: 'line', data: rows.map(row => row.conversion),
+        connectNulls: false, symbolSize: 8, itemStyle: { color: C.navy },
+        lineStyle: { width: 3 }, areaStyle: { color: C.pale, opacity: .5 } }],
+    };
+  });
   readonly ticketChartHasData = computed(() => this.ticketMonthlyRows().some(row => row.ticket !== null));
   readonly ticketMonthlyExtremes = computed(() => {
     const rows = this.ticketMonthlyRows().filter(row => row.transactions > 0);
@@ -331,6 +366,11 @@ export class App implements OnInit {
     this.ticketChartSelectedStores.set([]);
     this.toggleChartExpansion('ticket-average');
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
+  }
+  openConversionChart(): void {
+    this.ticketChartYear.set(this.ticketChartYears()[0] || 2026);
+    this.ticketChartSelectedStores.set([]);
+    this.toggleChartExpansion('conversion-average');
   }
   setTicketChartYear(year: number): void {
     this.ticketChartYear.set(year);
@@ -2877,8 +2917,10 @@ export class App implements OnInit {
   }
   closeExpandedChart(): void {
     const wasTicket = this.expandedChart() === 'ticket-average';
+    const wasConversion = this.expandedChart() === 'conversion-average';
     this.expandedChart.set(null); this.setPageScrollLocked(false);
     if (wasTicket) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.ticket-kpi')?.focus();
+    if (wasConversion) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.conversion-kpi')?.focus();
   }
   private setPageScrollLocked(locked: boolean): void {
     if (typeof document === 'undefined') return;

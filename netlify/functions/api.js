@@ -13,11 +13,13 @@ import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
 import { normalizeLaborArea } from "../../src/lib/laborAreas.js";
 import { normalizeDepartureReason, validDepartureReason } from "../../src/lib/personnelCatalogs.js";
+import { normalizedPersonnelFields } from "../../shared/personnelNormalization.js";
+import { isSecurityIncident } from "../../shared/securityIncidents.js";
 import { randomUUID } from "node:crypto";
 import { SYSTEM_UPLOAD_CHUNK_SIZE, SYSTEM_SOURCES, validateSystemUpload, systemPartPath, systemManifestPath } from "../../shared/systemUpload.js";
 import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchPath, commercialBatchSources, validateBatchId, validateCutoff } from "../../shared/commercialBatch.js";
 import { NORMALIZED_REPORTS, normalizedReportPath } from "../../shared/normalizedReports.js";
-import { ANNUAL_REPORT_KINDS, ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, annualMonthlyReportPath, annualMonthlySummaryPath, parseAnnualFilters } from "../../shared/annualReports.js";
+import { ANNUAL_REPORT_KINDS, ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, annualMonthlyReportPath, annualMonthlySummaryPath, parseAnnualFilters, csvLine } from "../../shared/annualReports.js";
 import { summarizeAnnualReports, buildAnnualSummaryWorkbook } from "../lib/annual-report-workbook.js";
 import { readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
@@ -32,11 +34,12 @@ const headers = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
-const userRoles = new Set(["gerencia_general", "gerente_comercial", "sistemas", "marketing", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
-const centralRoles = new Set(["gerencia_general", "gerente_comercial", "sistemas", "marketing", "coach", "jefe_zonal"]);
+const userRoles = new Set(["gerencia_general", "gerente_comercial", "administrador_seguridad", "sistemas", "marketing", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+const centralRoles = new Set(["gerencia_general", "gerente_comercial", "administrador_seguridad", "sistemas", "marketing", "coach", "jefe_zonal"]);
 const storeManagementRoles = new Set(["jefe_tienda", "asistente_tienda"]);
 const oversightRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal"]);
 const storeStaffRoles = ["jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"];
+const attendanceStaffRoles = storeStaffRoles.filter(role => !["seguridad", "jefe_seguridad"].includes(role));
 const userStates = new Set(["activo", "inactivo"]);
 const tiendaEstados = new Set(["activo", "inactivo"]);
 const asistenciaEstados = new Set([
@@ -584,29 +587,10 @@ async function normalizedReportCatalog(sessionUser) {
     stores, ready: true };
 }
 
-async function normalizedReportLink(event, sessionUser) {
-  const access = await currentCommercialAccess(sessionUser);
-  const { kind, storeId } = event.queryStringParameters || {};
-  if (access.role === "coach" && kind !== "ventas") throw httpError("Este reporte no corresponde a tu rol.", 403);
-  if (!access.storeIds.includes(storeId)) throw httpError("La tienda no corresponde a tu alcance.", 403);
-  const release = await publishedCommercialRelease();
-  let path;
-  try { path = normalizedReportPath(release.version, kind, storeId); }
-  catch { throw httpError("Reporte comercial no válido.", 400); }
-  const result = await systemsStorage().download(`commercial-reports/${release.version}/manifest.json`);
-  if (result.error || !result.data) throw httpError("El reporte aún no se ha publicado.", 404);
-  let manifest;
-  try { manifest = JSON.parse(await result.data.text()); }
-  catch { throw httpError("El catálogo de reportes no se pudo leer.", 503); }
-  if (manifest.releaseId !== release.id || manifest.version !== release.version
-    || !manifest.files?.some(file => file.path === path && file.kind === kind && file.storeId === storeId)) {
-    throw httpError("Este reporte no está disponible para la publicación actual.", 404);
-  }
-  const { data, error } = await systemsStorage().createSignedUrl(path, 120, {
-    download: `reporte-${kind}-${storeId}-${release.sales_cutoff}.csv`,
-  });
-  if (error || !data?.signedUrl) throw httpError("No se pudo preparar la descarga.", 503);
-  return { url: data.signedUrl };
+async function normalizedReportLink() {
+  // La ruta heredada firma CSV de un año completo; mientras se exijan descargas
+  // mensuales no debe quedar como vía alternativa al límite del módulo actual.
+  throw httpError("La descarga anual está temporalmente deshabilitada. Usa Análisis y cifras y selecciona un mes.", 410);
 }
 
 let annualManifestCache = null;
@@ -631,8 +615,8 @@ async function loadAnnualReportManifest() {
   for (const localDirectory of localDirectories) {
     try {
       const local = JSON.parse(await readFile(join(localDirectory, "manifest.json"), "utf8"));
-      if (local.cutoffs?.ventas && local.cutoffs?.stock
-        && local.cutoffs.ventas <= release.sales_cutoff && local.cutoffs.stock <= release.stock_cutoff) {
+      if (local.cutoffs?.ventas === release.sales_cutoff
+        && local.cutoffs?.stock === release.stock_cutoff) {
         return { release, manifest: { ...local, version: release.version, releaseId: release.id }, localDirectory };
       }
     } catch { /* Sin archivos locales: consultar la publicación privada. */ }
@@ -682,7 +666,8 @@ async function annualReportCatalog(sessionUser) {
   const initialDimensions = annualDimensionTuples(manifest, years[0], access.storeIds);
   return { ready: true, monthly: manifest.schemaVersion === 2, years, cutoffs: manifest.cutoffs,
     fileRows: files.map(({ year, kind, storeId, month, rows }) => ({ year, kind, storeId, month, rows })),
-    reports: ANNUAL_REPORT_KINDS.filter(item => access.role !== "coach" || item.id === "ventas")
+    reports: ANNUAL_REPORT_KINDS.filter(item => (access.role !== "coach" || item.id === "ventas")
+      && files.some(file => file.kind === item.id && file.rows > 0))
       .map(item => ({ ...item, years: [...new Set(files.filter(file => file.kind === item.id).map(file => file.year))] })),
     stores: access.storeIds.filter(storeId => manifest.stores?.[storeId]).map(storeId => ({
       id: storeId, ...manifest.stores[storeId],
@@ -713,11 +698,13 @@ async function annualDetailLinks(event, sessionUser) {
   const kind = event.queryStringParameters?.kind;
   annualKindAllowed(access.role, kind);
   const filters = annualFilters(event.queryStringParameters, manifest);
+  if (!filters.month) throw httpError("Por ahora las descargas se realizan por mes. Selecciona un mes.", 400);
+  if (manifest.schemaVersion !== 2) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
   const monthly = manifest.schemaVersion === 2;
   const matching = manifest.files.filter(item => item.kind === kind && item.year === filters.year
-    && selected.includes(item.storeId) && (!monthly || !filters.month || item.month === filters.month)
+    && selected.includes(item.storeId) && (!monthly || item.month === filters.month)
     && item.path === (monthly ? `${filters.year}/${kind}/${item.storeId}/${String(item.month).padStart(2, "0")}.jsonl.gz`
       : `${filters.year}/${kind}/${item.storeId}.jsonl.gz`));
   if (!matching.length) throw httpError("No hay registros de esa fuente para el año y tiendas seleccionados.", 404);
@@ -753,7 +740,8 @@ async function annualLocalDetailFile(event, sessionUser) {
   const storeId = String(event.queryStringParameters?.storeId || "");
   if (!annualStores(access, manifest, { ...filters, storeId }).includes(storeId)) throw httpError("Tienda fuera de alcance.", 403);
   const monthly = manifest.schemaVersion === 2;
-  if (monthly && !filters.month) throw httpError("Selecciona el mes del archivo.", 400);
+  if (!filters.month) throw httpError("Selecciona el mes del archivo.", 400);
+  if (!monthly) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
   const item = manifest.files.find(file => file.kind === kind && file.year === filters.year && file.storeId === storeId
     && (!monthly || file.month === filters.month));
   if (!item || item.path !== (monthly ? `${filters.year}/${kind}/${storeId}/${String(filters.month).padStart(2, "0")}.jsonl.gz`
@@ -768,6 +756,8 @@ async function annualSummaryExcel(event, sessionUser) {
   const { release, manifest, localDirectory } = await annualReportManifest();
   if (!manifest) throw httpError("El resumen anual aún no está publicado.", 404);
   const filters = annualFilters(event.queryStringParameters, manifest);
+  if (!filters.month) throw httpError("Por ahora las descargas se realizan por mes. Selecciona un mes.", 400);
+  if (manifest.schemaVersion !== 2) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
   if (access.role === "coach") throw httpError("El resumen integral no corresponde al rol Coach.", 403);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
@@ -1058,7 +1048,7 @@ async function activeStoreIds() {
 }
 
 function allowedCreatedRoles(actor) {
-  if (actor.rol === "gerencia_general") return new Set(["gerente_comercial", "coach"]);
+  if (actor.rol === "gerencia_general") return new Set(["gerente_comercial", "coach", "administrador_seguridad"]);
   if (actor.rol === "gerente_comercial") return new Set(["jefe_zonal"]);
   if (actor.rol === "jefe_zonal") return new Set(["jefe_tienda"]);
   if (actor.rol === "jefe_tienda") return new Set(["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
@@ -1087,7 +1077,7 @@ async function listUsers(actor, storeId = null, options = {}) {
     .from("usuarios")
     .select("id,nombres,apellidos,dni,tipo_documento,usuario,telefono,email,fecha_nacimiento,mes_cumpleanos,sueldo,sexo,nacionalidad,direccion,distrito,area_laboral,carrera,grado_academico,ciclo_semestre,regimen_jornada,tipo_turno,tiene_parentesco,tipo_parentesco,familiar_vinculo,estado_civil,numero_hijos,talla_zapatillas,talla_polo,telefono_emergencia,alergia,condicion_salud,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
     .order("nombres");
-  if (actor.rol === "gerencia_general" && !storeId) request = request.in("rol", ["gerente_comercial", "coach"]);
+  if (actor.rol === "gerencia_general" && !storeId) request = request.in("rol", ["gerente_comercial", "coach", "administrador_seguridad"]);
   if (actor.rol === "gerente_comercial" && !storeId) request = request.eq("rol", "jefe_zonal");
   if (actor.rol === "jefe_zonal" && !storeId) {
     const ids = await zonalStoreIds(actor.id);
@@ -1105,17 +1095,29 @@ async function listUsers(actor, storeId = null, options = {}) {
   if (storeId) request = request.eq("tienda_id", storeId);
   const data = await fetchAllReportPages(request.order("id"));
   if (!data?.length) return [];
-  const [{ data: optionalRows }, { data: schedules, error: scheduleError }] = await Promise.all([
-    supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", data.map((row) => row.id)),
-    supabase.from("horarios_trabajadores").select("usuario_id,dia_semana,trabaja,hora_entrada,hora_salida").in("usuario_id", data.map((row) => row.id)).order("dia_semana"),
-  ].map(request => readAllResult(request)));
-  if (scheduleError) throw dbError(scheduleError);
+  const ids = data.map(row => row.id);
+  const [optionalResult, schedulesResult, periodsResult] = await Promise.allSettled([
+    readAllResult(supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", ids)),
+    readAllResult(supabase.from("horarios_trabajadores").select("usuario_id,dia_semana,trabaja,hora_entrada,hora_salida").in("usuario_id", ids).order("dia_semana")),
+    readAllResult(supabase.from("periodos_laborales").select("usuario_id,id").in("usuario_id", ids)),
+  ]);
+  const optionalRows = optionalResult.status === "fulfilled" ? optionalResult.value.data : [];
+  const schedules = schedulesResult.status === "fulfilled" ? schedulesResult.value.data : [];
+  const periods = periodsResult.status === "fulfilled" ? periodsResult.value.data : [];
   const optionalById = new Map((optionalRows || []).map((row) => [row.id, row]));
+  const schedulesByUser = new Map();
+  for (const schedule of schedules || []) {
+    if (!schedulesByUser.has(schedule.usuario_id)) schedulesByUser.set(schedule.usuario_id, []);
+    schedulesByUser.get(schedule.usuario_id).push(schedule);
+  }
+  const periodCount = new Map();
+  for (const period of periods || []) periodCount.set(period.usuario_id, (periodCount.get(period.usuario_id) || 0) + 1);
   const rows = data.map((row) => ({
     ...mapUserRow(row), ...(optionalById.get(row.id) || {}),
     area_laboral: normalizeLaborArea(row.area_laboral) || null,
     motivo_salida: normalizeDepartureReason(optionalById.get(row.id)?.motivo_salida) || null,
-    horarios: (schedules || []).filter((schedule) => schedule.usuario_id === row.id),
+    horarios: schedulesByUser.get(row.id) || [],
+    reingreso: (periodCount.get(row.id) || 0) > 1,
   }));
   if (["gerencia_general", "gerente_comercial"].includes(actor.rol) && rows.some((row) => row.rol === "jefe_zonal")) {
     const { data: assignments, error: assignmentError } = await supabase
@@ -1126,7 +1128,8 @@ async function listUsers(actor, storeId = null, options = {}) {
       row.cluster_id = cluster?.id || null; row.cluster_nombre = cluster?.nombre || null; row.tienda_ids = (cluster?.tiendas || []).map((item) => item.id);
     }
   }
-  return rows;
+  return rows.sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+    || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
 }
 
 async function ensureUniqueUser(usuario, dni, excludeId) {
@@ -1207,6 +1210,7 @@ async function createUser(event, actor) {
   if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id));
   const password = data.password ? String(data.password) : null;
+  const personnel = normalizedPersonnelFields(data);
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
     telefono: data.telefono ? cleanText(data.telefono) : null, email: data.email ? cleanText(data.email).toLowerCase() : null, rol: data.rol,
@@ -1214,8 +1218,8 @@ async function createUser(event, actor) {
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, mes_cumpleanos: data.mes_cumpleanos || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
-    sexo: data.sexo || "no_especificado", direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
-    nacionalidad: data.nacionalidad ? cleanText(data.nacionalidad) : null, area_laboral: data.area_laboral ? normalizeLaborArea(data.area_laboral) : null, carrera: data.carrera ? cleanText(data.carrera) : null,
+    sexo: data.sexo || "no_especificado", direccion: data.direccion ? cleanText(data.direccion) : null, distrito: personnel.distrito,
+    nacionalidad: personnel.nacionalidad, area_laboral: data.area_laboral ? normalizeLaborArea(data.area_laboral) : null, carrera: personnel.carrera,
     grado_academico: data.grado_academico || "sin_especificar", ciclo_semestre: data.grado_academico === "universitario" && data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
     regimen_jornada: data.regimen_jornada || null, tipo_turno: data.tipo_turno || null,
     tiene_parentesco: Boolean(data.tiene_parentesco), tipo_parentesco: data.tiene_parentesco ? cleanText(data.tipo_parentesco) : null,
@@ -1298,7 +1302,7 @@ async function importStoreUsers(event, actor) {
 
 async function updateUser(event, id, actor) {
   const data = bodyOf(event);
-  const { data: current } = await supabase.from("usuarios").select("rol,estado,tienda_id,password,zonal_creador_id").eq("id", id).maybeSingle();
+  const { data: current } = await supabase.from("usuarios").select("rol,estado,dni,tienda_id,fecha_salida,password,zonal_creador_id").eq("id", id).maybeSingle();
   if (!current) throw httpError("Usuario no encontrado.", 404);
   if (storeManagementRoles.has(actor.rol)) data.tienda_id = actor.tienda_id;
   validateUserPayload(data);
@@ -1307,7 +1311,11 @@ async function updateUser(event, id, actor) {
   }
   await assertUserScope(actor, current.rol, current.tienda_id);
   if (actor.rol === "jefe_zonal" && data.tienda_id) await assertUserScope(actor, data.rol, data.tienda_id);
-  if (data.rol !== current.rol) throw httpError("No se permite cambiar el rango de un usuario existente.", 400);
+  const rehire = data.reingreso_confirmado === true;
+  if (rehire && (current.estado !== "inactivo" || current.dni !== cleanText(data.dni) || !current.fecha_salida || data.fecha_ingreso <= current.fecha_salida || data.fecha_salida)) {
+    throw httpError("El reingreso requiere una ficha inactiva del mismo DNI y una fecha posterior a la baja.", 400);
+  }
+  if (data.rol !== current.rol) throw httpError("No se permite cambiar el rango de un usuario existente. Solicita el cambio de cargo antes del reingreso.", 400);
   if (actor.rol === "gerente_comercial" && data.rol === "jefe_zonal") await validateZonalCluster(data.cluster_id, id);
   const usuario = cleanUsuario(data.usuario) || null;
   const dni = cleanText(data.dni);
@@ -1315,6 +1323,7 @@ async function updateUser(event, id, actor) {
   if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id), id);
   const nextState = data.fecha_salida ? "inactivo" : data.estado;
+  const personnel = normalizedPersonnelFields(data);
   const nextStoreId = data.rol === "jefe_tienda" && nextState === "inactivo" ? null : data.tienda_id;
   const payload = {
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario,
@@ -1323,8 +1332,8 @@ async function updateUser(event, id, actor) {
     fecha_ingreso: data.fecha_ingreso, fecha_salida: data.fecha_salida || null,
     condicion_salud: data.condicion_salud ? cleanText(data.condicion_salud) : null,
     fecha_nacimiento: data.fecha_nacimiento || null, mes_cumpleanos: data.mes_cumpleanos || null, sueldo: data.sueldo === "" || data.sueldo == null ? null : Number(data.sueldo),
-    sexo: data.sexo || "no_especificado", direccion: data.direccion ? cleanText(data.direccion) : null, distrito: data.distrito ? cleanText(data.distrito) : null,
-    nacionalidad: data.nacionalidad ? cleanText(data.nacionalidad) : null, area_laboral: data.area_laboral ? normalizeLaborArea(data.area_laboral) : null, carrera: data.carrera ? cleanText(data.carrera) : null,
+    sexo: data.sexo || "no_especificado", direccion: data.direccion ? cleanText(data.direccion) : null, distrito: personnel.distrito,
+    nacionalidad: personnel.nacionalidad, area_laboral: data.area_laboral ? normalizeLaborArea(data.area_laboral) : null, carrera: personnel.carrera,
     grado_academico: data.grado_academico || "sin_especificar", ciclo_semestre: data.grado_academico === "universitario" && data.ciclo_semestre ? cleanText(data.ciclo_semestre) : null,
     regimen_jornada: data.regimen_jornada || null, tipo_turno: data.tipo_turno || null,
     tiene_parentesco: Boolean(data.tiene_parentesco), tipo_parentesco: data.tiene_parentesco ? cleanText(data.tipo_parentesco) : null,
@@ -1682,7 +1691,7 @@ async function listAsistenciasDia(event, user) {
   const tiendaScope = await resolveStoreScope(user, query.tienda_id);
   const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
   let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado")
-    .in("rol", storeStaffRoles).order("nombres");
+    .in("rol", attendanceStaffRoles).order("nombres");
   empleadosQuery = applyStoreScope(empleadosQuery, tiendaScope);
   if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
   let registrosQuery = supabase.from("asistencias").select("*").eq("fecha", fecha);
@@ -1710,10 +1719,10 @@ async function guardarAsistenciasLote(event, user) {
   if (!Array.isArray(data.marcas) || !data.marcas.length) throw httpError("No hay marcas para guardar.", 400);
   const usuarioIds = validIds(data.marcas.map((marca) => marca.usuario_id));
   const { data: empleados, error: eError } = await readAllResult(supabase.from("usuarios")
-    .select("id,tienda_id").in("id", usuarioIds));
+    .select("id,tienda_id,rol").in("id", usuarioIds));
   if (eError) throw dbError(eError);
-  if (empleados.length !== usuarioIds.length || empleados.some((emp) => emp.tienda_id !== user.tienda_id)) {
-    throw httpError("Uno de los trabajadores seleccionados no pertenece a tu tienda.", 400);
+  if (empleados.length !== usuarioIds.length || empleados.some((emp) => emp.tienda_id !== user.tienda_id || !attendanceStaffRoles.includes(emp.rol))) {
+    throw httpError("La asistencia solo se registra para personal de la tienda que participa en ese control; Seguridad queda excluida.", 400);
   }
   const tiendaByUser = new Map(empleados.map((emp) => [emp.id, emp.tienda_id]));
 
@@ -2672,8 +2681,12 @@ async function listOperational(table, event, user, select = "*") {
     const { data: chief } = await supabase.from("usuarios").select("id").eq("tienda_id", storeId).eq("rol", "jefe_tienda").maybeSingle();
     request = request.eq("usuario_id", chief?.id || 0);
   }
-  if (event.queryStringParameters?.desde) request = request.gte("fecha", event.queryStringParameters.desde);
-  if (event.queryStringParameters?.hasta) request = request.lte("fecha", event.queryStringParameters.hasta);
+  const { desde, hasta } = event.queryStringParameters || {};
+  if (desde && !isISODate(desde) || hasta && !isISODate(hasta) || desde && hasta && desde > hasta) {
+    throw httpError("Selecciona un período válido.", 400);
+  }
+  if (desde) request = request.gte("fecha", table === "incidencias" ? `${desde}T00:00:00-05:00` : desde);
+  if (hasta) request = request.lte("fecha", table === "incidencias" ? `${hasta}T23:59:59.999-05:00` : hasta);
   const data = await fetchAllReportPages(request.order(table === "documentos_tienda" ? "fecha_vencimiento" : "fecha", { ascending: false }).order("id"));
   return data;
 }
@@ -2915,9 +2928,79 @@ async function updateIncident(event, user, id) {
 async function listIncidents(event, user) {
   const rows = await listOperational("incidencias", event, user,
     "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,codigo_nissei,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
-  if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter((row) => ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"].includes(row.tipo));
-  if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return rows.filter((row) => ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"].includes(row.tipo));
+  if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter(isSecurityIncident);
+  if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return rows.filter((row) => !isSecurityIncident(row));
   return rows;
+}
+
+const securityReportColumns = ["tipo_registro", "fecha", "tienda", "rango_hora", "hora_evento", "visitantes", "tipo_incidencia", "gravedad", "estado", "descripcion", "unidades_afectadas", "valor_referencial"];
+const securityReportLabels = ["Tipo de registro", "Fecha", "Tienda", "Rango horario", "Hora del hecho", "Visitantes", "Tipo de incidencia", "Gravedad", "Estado", "Descripción", "Unidades afectadas", "Valor referencial (S/)"];
+
+async function securityAdminReport(event) {
+  const query = event.queryStringParameters || {};
+  const kind = ["todo", "trafico", "incidencias", "personal"].includes(query.tipo) ? query.tipo : "todo";
+  const today = todayISO();
+  const desde = query.desde || `${today.slice(0, 7)}-01`;
+  const hasta = query.hasta || today;
+  if (kind !== "personal" && (!isISODate(desde) || !isISODate(hasta) || desde > hasta
+    || (Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86400000 > 30)) {
+    throw httpError("Selecciona un período válido de hasta 31 días.", 400);
+  }
+  const storeId = query.tienda_id ? Number(query.tienda_id) : null;
+  if (query.tienda_id && (!Number.isInteger(storeId) || storeId < 1)) throw httpError("Tienda no válida.", 400);
+  const stores = await fetchAllReportPages(supabase.from("tiendas").select("id,nombre").order("nombre"));
+  if (storeId && !stores.some(store => store.id === storeId)) throw httpError("Tienda no encontrada.", 404);
+  const storeNames = new Map(stores.map(store => [store.id, store.nombre]));
+  if (kind === "personal") {
+    let request = supabase.from("usuarios").select("id,nombres,apellidos,dni,telefono,rol,estado,tienda_id,fecha_ingreso,fecha_salida")
+      .in("rol", ["seguridad", "jefe_seguridad"]);
+    if (storeId) request = request.eq("tienda_id", storeId);
+    const people = await fetchAllReportPages(request.order("id"));
+    const rows = people.map(person => ({ ...person, tienda: storeNames.get(person.tienda_id) || "—" }))
+      .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+        || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
+    if (query.export === "1") {
+      const columns = ["tienda", "nombres", "apellidos", "dni", "telefono", "rol", "estado", "fecha_ingreso", "fecha_salida"];
+      const labels = ["Tienda", "Nombres", "Apellidos", "DNI", "Teléfono", "Cargo", "Estado", "Fecha de ingreso", "Fecha de salida"];
+      return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="personal-seguridad.csv"', "Cache-Control": "no-store" },
+        body: "\uFEFF" + labels.map(label => csvLine({ label }, ["label"]).trim()).join(",") + "\r\n" + rows.map(row => csvLine(row, columns)).join("") };
+    }
+    return { rows: rows.slice((Math.max(1, Number.parseInt(query.page, 10) || 1) - 1) * 100, Math.max(1, Number.parseInt(query.page, 10) || 1) * 100), total: rows.length, stores };
+  }
+  const requests = [];
+  if (kind !== "incidencias") {
+    let traffic = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,observaciones")
+      .gte("fecha", desde).lte("fecha", hasta);
+    if (storeId) traffic = traffic.eq("tienda_id", storeId);
+    requests.push(fetchAllReportPages(traffic.order("id")));
+  } else requests.push(Promise.resolve([]));
+  if (kind !== "trafico") {
+    let incidents = supabase.from("incidencias").select("id,tienda_id,fecha,tipo,asunto,gravedad,estado,descripcion,incidencia_productos(cantidad,valor)")
+      .in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"])
+      .gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59.999-05:00`);
+    if (storeId) incidents = incidents.eq("tienda_id", storeId);
+    requests.push(fetchAllReportPages(incidents.order("id")));
+  } else requests.push(Promise.resolve([]));
+  const [traffic, allIncidents] = await Promise.all(requests);
+  const incidents = allIncidents.filter(isSecurityIncident);
+  const rows = [
+    ...traffic.map(row => ({ id: `T-${row.id}`, tipo_registro: "Tráfico", fecha: row.fecha,
+      tienda: storeNames.get(row.tienda_id) || "—", rango_hora: row.rango_hora, hora_evento: "",
+      visitantes: Number(row.cantidad) || 0, tipo_incidencia: "", gravedad: "", estado: "Registrado",
+      descripcion: row.observaciones || "", unidades_afectadas: "", valor_referencial: "" })),
+    ...incidents.map(row => ({ id: `I-${row.id}`, tipo_registro: "Incidencia", fecha: businessDate(row.fecha),
+      tienda: storeNames.get(row.tienda_id) || "—", rango_hora: "", hora_evento: formatLimaTime(row.fecha), visitantes: "",
+      tipo_incidencia: humanize(row.tipo), gravedad: humanize(row.gravedad), estado: humanize(row.estado),
+      descripcion: row.descripcion || "", unidades_afectadas: (row.incidencia_productos || []).reduce((n, item) => n + (Number(item.cantidad) || 0), 0),
+      valor_referencial: (row.incidencia_productos || []).reduce((n, item) => n + (Number(item.valor) || 0), 0) })),
+  ].sort((a, b) => b.fecha.localeCompare(a.fecha) || a.tienda.localeCompare(b.tienda, "es") || a.id.localeCompare(b.id));
+  if (query.export === "1") {
+    const body = "\uFEFF" + securityReportLabels.map(label => csvLine({ label }, ["label"]).trim()).join(",") + "\r\n"
+      + rows.map(row => csvLine(row, securityReportColumns)).join("");
+    return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="seguridad-${kind}-${desde}-${hasta}.csv"`, "Cache-Control": "no-store" }, body };
+  }
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+  return { rows: rows.slice((page - 1) * 100, page * 100), total: rows.length, stores };
 }
 
 async function listBrands() {
@@ -3130,21 +3213,26 @@ async function dashboardPeople(event, user) {
 async function operationalSummary(event, user) {
   const storeId = await operationalStoreId(event, user);
   const today = todayISO();
-  const [traffic, incidents, warnings, errors, documents, administration, activePersonnel] = await Promise.all([
+  const [traffic, incidents, securityFixed, securityOther, warnings, errors, documents, administration, activePersonnel] = await Promise.all([
     supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
     supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+    supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
+    supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
     supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
     supabase.from("documentos_municipales").select("fecha_vencimiento,dias_alerta").eq("tienda_id", storeId).gte("fecha_vencimiento", today),
     supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
     supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", storeStaffRoles),
   ]);
-  for (const result of [traffic, incidents, warnings, errors]) if (result.error) throw dbError(result.error);
+  for (const result of [traffic, incidents, securityFixed, securityOther, warnings, errors]) if (result.error) throw dbError(result.error);
   if (administration.error) throw dbError(administration.error);
   if (activePersonnel.error) throw dbError(activePersonnel.error);
   if (documents.error) throw dbError(documents.error);
   const documentosPorVencer = (documents.data || []).filter((row) => Number(row.fecha_vencimiento.slice(0, 10).replaceAll("-", "")) >= Number(today.replaceAll("-", "")) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length;
-  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0, amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
+  const securityIncidents = (securityFixed.count || 0) + (securityOther.count || 0);
+  return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0,
+    incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents,
+    amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
 }
 
 async function listTrafficMatrix(event, user) {
@@ -3217,7 +3305,7 @@ async function getZonalModule(event, user, kind) {
   if (kind === "asistencia") {
     const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
     const [{ data: people, error: peopleError }, { data: attendance, error: attendanceError }] = await Promise.all([
-      supabase.from("usuarios").select("id,tienda_id,fecha_ingreso,fecha_salida").in("tienda_id", ids).in("rol", storeStaffRoles).lte("fecha_ingreso", fecha).or(`fecha_salida.is.null,fecha_salida.gte.${fecha}`),
+      supabase.from("usuarios").select("id,tienda_id,fecha_ingreso,fecha_salida").in("tienda_id", ids).in("rol", attendanceStaffRoles).lte("fecha_ingreso", fecha).or(`fecha_salida.is.null,fecha_salida.gte.${fecha}`),
       supabase.from("asistencias").select("tienda_id,usuario_id,estado,created_at").in("tienda_id", ids).eq("fecha", fecha),
     ].map(request => readAllResult(request)));
     if (peopleError) throw dbError(peopleError); if (attendanceError) throw dbError(attendanceError);
@@ -3339,14 +3427,13 @@ async function getZonalComparison(event, user) {
   alertWindow.setUTCDate(alertWindow.getUTCDate() + 365);
   const deadline = alertWindow.toISOString().slice(0, 10);
   const [people, attendance, traffic, incidents, errors, documents] = await Promise.all([
-    fetchAllReportPages(supabase.from("usuarios").select("id,tienda_id,fecha_ingreso,fecha_salida,periodos_laborales!periodos_laborales_usuario_id_fkey(fecha_ingreso,fecha_salida)").in("tienda_id", ids).in("rol", storeStaffRoles).order("id")),
+    fetchAllReportPages(supabase.from("usuarios").select("id,tienda_id,rol,fecha_ingreso,fecha_salida,periodos_laborales!periodos_laborales_usuario_id_fkey(fecha_ingreso,fecha_salida)").in("tienda_id", ids).in("rol", storeStaffRoles).order("id")),
     fetchAllReportPages(supabase.from("asistencias").select("id,tienda_id,usuario_id,fecha,estado").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,cantidad").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
-    fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,tipo").in("tienda_id", ids).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59.999-05:00`).order("id")),
+    fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,tipo,asunto").in("tienda_id", ids).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59.999-05:00`).order("id")),
     fetchAllReportPages(supabase.from("errores_personal").select("id,tienda_id").in("tienda_id", ids).gte("fecha", desde).lte("fecha", hasta).order("id")),
     fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id,fecha_vencimiento,dias_alerta").in("tienda_id", ids).gte("fecha_vencimiento", fecha).lte("fecha_vencimiento", deadline).order("id")),
   ]);
-  const securityTypes = new Set(["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]);
   return { fecha, desde, hasta, tiendas: stores.map((store) => {
     const staff = people.filter(person => Number(person.tienda_id) === Number(store.id));
     const marks = attendance.filter(row => Number(row.tienda_id) === Number(store.id));
@@ -3363,11 +3450,11 @@ async function getZonalComparison(event, user) {
       asistentes: marks.filter((row) => presenteEstados.has(row.estado)).length,
       marcas: new Set(marks.map((row) => `${row.usuario_id}|${row.fecha}`)).size,
       otros: marks.filter((row) => !["presente", "tardanza", "falta"].includes(row.estado)).length,
-      pendientes: pendingAttendance(staff, marks, desde, hasta),
+      pendientes: pendingAttendance(staff.filter(person => attendanceStaffRoles.includes(person.rol)), marks, desde, hasta),
       conteos_trafico: traffic.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
       visitas: traffic.filter((row) => Number(row.tienda_id) === Number(store.id)).reduce((sum, row) => sum + Number(row.cantidad || 0), 0),
-      incidencias_seguridad: storeIncidents.filter((row) => securityTypes.has(row.tipo)).length,
-      incidencias_administrativas: storeIncidents.filter((row) => !securityTypes.has(row.tipo)).length,
+      incidencias_seguridad: storeIncidents.filter(isSecurityIncident).length,
+      incidencias_administrativas: storeIncidents.filter((row) => !isSecurityIncident(row)).length,
       errores: errors.filter((row) => Number(row.tienda_id) === Number(store.id)).length,
       documentos_por_vencer: documents.filter((row) => Number(row.tienda_id) === Number(store.id) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${fecha}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length,
     };
@@ -3533,7 +3620,8 @@ async function getReportRows(event, user, kind) {
     let request = supabase.from("usuarios").select("id,tienda_id,nombres,apellidos,dni,usuario,telefono,sexo,area_laboral,grado_academico,ciclo_semestre,carrera,fecha_nacimiento,mes_cumpleanos,estado_civil,numero_hijos,direccion,distrito,nacionalidad,regimen_jornada,rol,estado,fecha_ingreso,fecha_salida,motivo_salida,tiendas!usuarios_tienda_id_fkey(nombre)").in("rol", storeStaffRoles).order("nombres");
     request = applyStoreScope(request, scope);
     const data = await fetchAllReportPages(request.order("id"));
-    rows = (data || []).map((row) => ({ id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", sexo:humanize(row.sexo), area:normalizeLaborArea(row.area_laboral) || "", nivel_estudios:humanize(row.grado_academico), ciclo_semestre:row.ciclo_semestre || "", carrera:row.carrera || "", edad:reportAge(row.fecha_nacimiento, isISODate(query.hasta) ? query.hasta : todayISO()), fecha_nacimiento:row.fecha_nacimiento || "", mes_cumpleanos:row.mes_cumpleanos || row.fecha_nacimiento?.slice(5,7) || "", estado_civil:humanize(row.estado_civil), numero_hijos:row.numero_hijos ?? "", telefono:row.telefono || "", direccion:row.direccion || "", distrito:row.distrito || "", nacionalidad:row.nacionalidad || "", jornada:row.regimen_jornada || "", fecha_ingreso:row.fecha_ingreso || "", fecha_salida:row.fecha_salida || "", motivo_salida:normalizeDepartureReason(row.motivo_salida) || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }));
+    rows = (data || []).map((row) => { const normalized = normalizedPersonnelFields(row); return { id:row.id, nombre:`${row.nombres || ""} ${row.apellidos || ""}`.trim(), tienda:row.tiendas?.nombre || "Sin asignar", rol:row.rol === "jefe_tienda" ? "Administrador de tienda" : humanize(row.rol), dni:row.dni || "", sexo:humanize(row.sexo), area:normalizeLaborArea(row.area_laboral) || "", nivel_estudios:humanize(row.grado_academico), ciclo_semestre:row.ciclo_semestre || "", carrera:normalized.carrera || "", edad:reportAge(row.fecha_nacimiento, isISODate(query.hasta) ? query.hasta : todayISO()), fecha_nacimiento:row.fecha_nacimiento || "", mes_cumpleanos:row.mes_cumpleanos || row.fecha_nacimiento?.slice(5,7) || "", estado_civil:humanize(row.estado_civil), numero_hijos:row.numero_hijos ?? "", telefono:row.telefono || "", direccion:row.direccion || "", distrito:normalized.distrito || "", nacionalidad:normalized.nacionalidad || "", jornada:row.regimen_jornada ? `${row.regimen_jornada.replace("h", " horas")}` : "", fecha_ingreso:row.fecha_ingreso || "", fecha_salida:row.fecha_salida || "", motivo_salida:normalizeDepartureReason(row.motivo_salida) || "", estado:row.estado, _fecha:row.fecha_ingreso, _estado:row.estado }; })
+      .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1) || a.nombre.localeCompare(b.nombre, "es"));
   }
   if (kind === "asistencias") {
     let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });
@@ -4180,6 +4268,11 @@ export async function handler(event) {
 
     if (path === "/commercial/access" && method === "GET") {
       return json(200, { access: await currentCommercialAccess(user) });
+    }
+    if (path === "/seguridad-central" && method === "GET") {
+      ensureAuth(event, "administrador_seguridad");
+      const result = await securityAdminReport(event);
+      return result.statusCode ? result : json(200, result);
     }
     if (path === "/commercial/manifest" && method === "GET") {
       return json(200, await commercialManifest(user));

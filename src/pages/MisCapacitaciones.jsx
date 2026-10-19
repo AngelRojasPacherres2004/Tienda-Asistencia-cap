@@ -10,7 +10,7 @@ export default function MisCapacitaciones() {
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    api("/mis-capacitaciones").then(setItems).catch((err) => setNotice({ type: "error", text: err.message }));
+    api("/mis-capacitaciones").then(setItems).catch((err) => { setItems([]); setNotice({ type: "error", text: err.message }); });
   }, []);
 
   return (
