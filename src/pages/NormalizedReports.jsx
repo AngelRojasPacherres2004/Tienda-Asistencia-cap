@@ -79,7 +79,7 @@ async function saveCsv(result, filters, kind, name, handle, cutoff, onProgress) 
 }
 
 export default function NormalizedReports({ user }) {
-  const cacheKey = String(user?.id || user?.usuario || '');
+  const cacheKey = `${user?.id || user?.usuario || ''}:${user?.rol || ''}:${user?.tienda_id || ''}`;
   const [catalog, setCatalog] = useState(() => catalogCache.get(cacheKey)?.data || null);
   const [filters, setFilters] = useState(empty);
   const [kind, setKind] = useState("ventas");

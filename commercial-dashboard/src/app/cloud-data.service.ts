@@ -428,8 +428,13 @@ export class CloudDataService {
   }
 
   private async portalRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(`/api${path}`, { credentials: 'same-origin', cache: 'no-store', ...options });
-    const payload = await response.json().catch(() => ({})) as T & { error?: string };
+    const requestHeaders = new Headers(options.headers);
+    if (this.config.storeContextId) requestHeaders.set('X-Store-Context', String(this.config.storeContextId));
+    const response = await fetch(`/api${path}`, { credentials: 'same-origin', cache: 'no-store', ...options, headers: requestHeaders });
+    const payload = await response.json().catch(() => ({})) as T & { error?: string; code?: string };
+    if (payload.code === 'STORE_ACCESS_REVOKED' || payload.code === 'STORE_CONTEXT_CHANGED') {
+      window.dispatchEvent(new CustomEvent('store-access-changed', { detail: payload.error }));
+    }
     if (!response.ok) throw new Error(payload.error || `No se pudo consultar Asiste (HTTP ${response.status}).`);
     return payload;
   }

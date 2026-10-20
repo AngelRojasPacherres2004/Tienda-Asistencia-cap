@@ -16,6 +16,7 @@ import { normalizeDepartureReason, validDepartureReason } from "../../src/lib/pe
 import { normalizedPersonnelFields } from "../../shared/personnelNormalization.js";
 import { isSecurityIncident } from "../../shared/securityIncidents.js";
 import { randomUUID } from "node:crypto";
+import { resolveAdministratorContext, storeSupportCatalog, saveStoreSupport } from "../lib/store-support.js";
 import { SYSTEM_UPLOAD_CHUNK_SIZE, SYSTEM_SOURCES, validateSystemUpload, systemPartPath, systemManifestPath } from "../../shared/systemUpload.js";
 import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchPath, commercialBatchSources, validateBatchId, validateCutoff } from "../../shared/commercialBatch.js";
 import { NORMALIZED_REPORTS, normalizedReportPath } from "../../shared/normalizedReports.js";
@@ -158,7 +159,7 @@ function currentUser(event) {
 }
 
 function ensureAuth(event, roles) {
-  const user = currentUser(event);
+  const user = event.authUser || currentUser(event);
   if (!user) throw httpError("Tu sesión expiró. Inicia sesión nuevamente.", 401);
   if (roles) {
     const allowed = Array.isArray(roles) ? roles : [roles];
@@ -175,6 +176,31 @@ async function withStoreName(user) {
   return { ...user, tienda_nombre: store?.nombre || null };
 }
 
+function sessionClaims(user) {
+  return {
+    id: user.id, nombres: user.nombres, apellidos: user.apellidos, usuario: user.usuario,
+    rol: user.rol, tienda_id: user.tienda_principal_id ?? user.tienda_id,
+    cambio_credenciales_pendiente: Boolean(user.cambio_credenciales_pendiente),
+    credenciales_actualizadas_en: user.credenciales_actualizadas_en || null,
+    ...(user.rol === "jefe_tienda" ? { tienda_contexto_id: user.tienda_contexto_id ?? user.tienda_id } : {}),
+    ...(user.apoyo_temporal ? { apoyo_temporal: true } : {}),
+  };
+}
+
+async function authenticatedContext(event, allowFallback = false) {
+  const session = ensureAuth(event);
+  if (session.rol === "jefe_tienda" || session.tienda_contexto_id) {
+    return resolveAdministratorContext(supabase, session, { allowFallback, expectedStore: allowFallback ? null : event.headers["x-store-context"] });
+  }
+  if (session.rol === "jefe_zonal") {
+    const { data: account, error } = await supabase.from("usuarios").select("id,nombres,apellidos,usuario,rol,estado,tienda_id").eq("id", session.id).maybeSingle();
+    if (error) throw dbError(error);
+    if (!account || account.estado !== "activo" || account.rol !== "jefe_zonal") throw httpError("Tu autorización ha cambiado. Inicia sesión nuevamente.", 401);
+    return { ...session, ...account };
+  }
+  return session;
+}
+
 async function currentCommercialAccess(sessionUser) {
   const [{ data: account, error: accountError }, { data: scope, error: scopeError }, { data: storeMap, error: mapError }] = await Promise.all([
     supabase.from("usuarios").select("id,rol,estado,tienda_id").eq("id", sessionUser.id).maybeSingle(),
@@ -189,7 +215,12 @@ async function currentCommercialAccess(sessionUser) {
     if (error) throw dbError(error);
     assignedCluster = data;
   }
-  const access = commercialAccess(account, scope, storeMap || [], assignedCluster);
+  // The active support store was checked against current grants at the request boundary.
+  const contextualAccount = account?.rol === "jefe_tienda" ? { ...account, tienda_id: sessionUser.tienda_id } : account;
+  const contextualStore = account?.rol === "jefe_tienda" && Number(sessionUser.tienda_id) !== Number(account.tienda_id)
+    ? (storeMap || []).find(row => Number(row.tienda_id) === Number(sessionUser.tienda_id)) : null;
+  const contextualScope = contextualStore ? { scope_type: "store", scope_value: contextualStore.dashboard_store_id } : scope;
+  const access = commercialAccess(contextualAccount, contextualScope, storeMap || [], assignedCluster);
   if (!access) throw httpError("Tu usuario no tiene acceso a los datos comerciales de este alcance.", 403);
   return { ...access, role: account.rol };
 }
@@ -991,8 +1022,9 @@ async function login(event) {
     cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
     credenciales_actualizadas_en: account.credenciales_actualizadas_en,
   };
-  const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
-  const user = await withStoreName(sessionUser);
+  const user = account.rol === "jefe_tienda"
+    ? await resolveAdministratorContext(supabase, sessionUser, { allowFallback: true }) : await withStoreName(sessionUser);
+  const token = jwt.sign(sessionClaims(user), jwtSecret(), { expiresIn: "10h" });
   return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
 }
 
@@ -1055,9 +1087,11 @@ async function changeCredentials(event, user) {
     .select("id,nombres,apellidos,usuario,rol,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en").maybeSingle();
   if (error) throw dbError(error);
   if (!updated) throw httpError("El permiso ya fue utilizado o deshabilitado. Vuelve a iniciar sesión.", 409);
-  const sessionUser = { ...updated };
-  const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
-  return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
+  const sessionUser = { ...updated, tienda_contexto_id: user.tienda_contexto_id };
+  const account = updated.rol === "jefe_tienda"
+    ? await resolveAdministratorContext(supabase, sessionUser, { allowFallback: true }) : await withStoreName(sessionUser);
+  const token = jwt.sign(sessionClaims(account), jwtSecret(), { expiresIn: "10h" });
+  return json(200, { user: account }, { "Set-Cookie": sessionCookie(token, event) });
 }
 
 async function loginApoyoSeguridad(event) {
@@ -2262,6 +2296,13 @@ async function getPerfil(user) {
     .select("id,nombres,apellidos,dni,usuario,telefono,rol,estado,fecha_creacion,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre,direccion,alquiler_mensual,estado)")
     .eq("id", user.id).single();
   if (error) throw dbError(error);
+  if (user.rol === "jefe_tienda" && Number(user.tienda_id) !== Number(data.tienda_id)) {
+    const { data: store, error: storeError } = await supabase.from("tiendas").select("nombre,direccion,alquiler_mensual,estado").eq("id", user.tienda_id).maybeSingle();
+    if (storeError) throw dbError(storeError);
+    data.tienda_principal_id = data.tienda_id;
+    data.tienda_id = user.tienda_id;
+    data.tiendas = store;
+  }
   const monthStart = `${todayISO().slice(0, 7)}-01`;
   const today = todayISO();
   const { data: mes, error: attendanceError } = await readAllResult(supabase.from("asistencias").select("estado")
@@ -4351,12 +4392,17 @@ export async function handler(event) {
         usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
         cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
         credenciales_actualizadas_en: account.credenciales_actualizadas_en,
+        ...(session.apoyo_temporal ? { apoyo_temporal: true } : {}),
+        ...(account.rol === "jefe_tienda" ? { tienda_contexto_id: session.tienda_contexto_id } : {}),
       };
-      const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
-      return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
+      const user = account.rol === "jefe_tienda"
+        ? await resolveAdministratorContext(supabase, sessionUser, { allowFallback: true }) : await withStoreName(sessionUser);
+      const token = jwt.sign(sessionClaims(user), jwtSecret(), { expiresIn: "10h" });
+      return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
     }
 
-    const user = ensureAuth(event);
+    const user = await authenticatedContext(event, path === "/auth/change-credentials");
+    event.authUser = user;
     if (path === "/auth/change-credentials" && method === "POST") return await changeCredentials(event, user);
     if (user.cambio_credenciales_pendiente) throw httpError("Actualiza tu usuario y contraseña para continuar.", 403);
 
@@ -4366,6 +4412,24 @@ export async function handler(event) {
     const credentialPermissionMatch = path.match(/^\/systems\/credential-permissions\/(\d+)$/);
     if (credentialPermissionMatch && method === "PATCH") {
       return json(200, await setCredentialPermission(event, user, credentialPermissionMatch[1]));
+    }
+
+    if (path === "/auth/tienda" && method === "POST") {
+      ensureAuth(event, "jefe_tienda");
+      const storeId = Number(bodyOf(event).tienda_id);
+      if (!Number.isSafeInteger(storeId) || !(user.tiendas_disponibles || []).some(store => Number(store.id) === storeId)) throw httpError("No tienes acceso habilitado a esa tienda.", 403);
+      const selected = await resolveAdministratorContext(supabase, { ...sessionClaims(user), tienda_contexto_id: storeId });
+      return json(200, { user: selected }, { "Set-Cookie": sessionCookie(jwt.sign(sessionClaims(selected), jwtSecret(), { expiresIn: "10h" }), event) });
+    }
+    if (path === "/zonal/apoyos-tienda" && method === "GET") {
+      return json(200, await storeSupportCatalog(supabase, user, zonalStoreIds));
+    }
+    if (path === "/zonal/apoyos-tienda" && method === "POST") {
+      return json(201, await saveStoreSupport(supabase, user, bodyOf(event), zonalStoreIds));
+    }
+    const storeSupportMatch = path.match(/^\/zonal\/apoyos-tienda\/(\d+)$/);
+    if (storeSupportMatch && method === "PATCH") {
+      return json(200, await saveStoreSupport(supabase, user, bodyOf(event), zonalStoreIds, Number(storeSupportMatch[1])));
     }
 
     if (path === "/systems/uploads" && method === "GET") {
@@ -4885,6 +4949,6 @@ export async function handler(event) {
   } catch (error) {
     const status = error.status || 500;
     if (status >= 500) console.error(error);
-    return json(status, { error: error.message || "Ocurrió un error inesperado." });
+    return json(status, { error: error.message || "Ocurrió un error inesperado.", ...(error.code ? { code: error.code } : {}) });
   }
 }

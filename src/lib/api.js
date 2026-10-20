@@ -1,4 +1,13 @@
 import { businessDate } from "../../shared/metrics.js";
+let activeStoreContext = null;
+export function setStoreContext(user) {
+  activeStoreContext = user?.rol === "jefe_tienda" ? user.tienda_id : null;
+}
+function checkContextError(payload) {
+  if (["STORE_ACCESS_REVOKED", "STORE_CONTEXT_CHANGED"].includes(payload.code)) {
+    window.dispatchEvent(new CustomEvent("store-access-changed", { detail: payload.error }));
+  }
+}
 export async function api(path, options = {}) {
   let response;
   const timeoutSignal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(45000) : undefined;
@@ -10,6 +19,7 @@ export async function api(path, options = {}) {
     signal,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(activeStoreContext ? { "X-Store-Context": String(activeStoreContext) } : {}),
       ...options.headers,
     },
     body: options.body && typeof options.body !== "string"
@@ -21,6 +31,7 @@ export async function api(path, options = {}) {
   }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    checkContextError(payload);
     const error = new Error(payload.error || "No se pudo completar la operación.");
     error.status = response.status;
     throw error;
@@ -48,6 +59,7 @@ export const estadoAsistenciaLabels = {
 };
 
 export async function downloadFile(url, fallbackName) {
+  const storeContext = activeStoreContext;
   let fileHandle = null;
   if (typeof window.showSaveFilePicker === "function") {
     try {
@@ -63,9 +75,10 @@ export async function downloadFile(url, fallbackName) {
       throw error;
     }
   }
-  const response = await fetch(url, { credentials: "include" });
+  const response = await fetch(url, { credentials: "include", headers: storeContext ? { "X-Store-Context": String(storeContext) } : {} });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
+    checkContextError(payload);
     throw new Error(payload.error || "No se pudo generar el archivo.");
   }
   const disposition = response.headers.get("Content-Disposition") || "";
