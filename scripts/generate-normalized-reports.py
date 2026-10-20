@@ -69,8 +69,8 @@ def generate(root: Path, output: Path, sales_cutoff: str, stock_cutoff: str, sto
     output.mkdir(parents=True, exist_ok=True)
     connection = duckdb.connect()
     maxima = {
-        "ventas": connection.sql(f"select max(fecha_venta) from read_parquet('{source(root / 'capa2' / 'FactVentas.parquet')}')").fetchone()[0],
-        "stock": connection.sql(f"select max(fecha_corte) from read_parquet('{source(root / 'capa2' / 'FactStock.parquet')}')").fetchone()[0],
+        "ventas": connection.sql(f"select max(fecha_venta) from read_parquet('{source(root / 'capa2' / 'FactVentas.parquet')}') where fecha_venta <= DATE '{sales_cutoff}'").fetchone()[0],
+        "stock": connection.sql(f"select max(fecha_corte) from read_parquet('{source(root / 'capa2' / 'FactStock.parquet')}') where fecha_corte <= DATE '{stock_cutoff}'").fetchone()[0],
     }
     if str(maxima["ventas"]) != sales_cutoff or str(maxima["stock"]) != stock_cutoff:
         raise ValueError(f"Los cortes de Capa 2 {maxima} no coinciden con la publicación; no se generan reportes mezclados.")

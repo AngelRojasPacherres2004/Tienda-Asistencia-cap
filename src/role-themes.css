@@ -26,6 +26,9 @@
 .app-light .recharts-cartesian-axis-tick text { fill: #41566a; }
 .app-light .recharts-cartesian-grid line { stroke: #d9dfe3; }
 .app-theme :is(.row-actions, .company-card__footer) { gap: 10px; flex-wrap: wrap; }
+.app-theme .data-table--usuarios-tienda .row-actions, .app-theme .data-table--usuarios-zonal .row-actions { flex-wrap: nowrap; gap: 6px; }
+.app-theme .data-table--usuarios-tienda > :is(.data-table__head, .data-table__row) { grid-template-columns: minmax(220px,1.7fr) minmax(105px,.7fr) minmax(125px,1fr) minmax(110px,.8fr) minmax(145px,1fr) minmax(95px,.7fr) 150px; }
+.app-theme .data-table--usuarios-zonal > :is(.data-table__head, .data-table__row) { min-width: 1150px; grid-template-columns: minmax(220px,1.6fr) minmax(105px,.7fr) minmax(115px,.7fr) minmax(135px,.9fr) minmax(150px,1fr) minmax(95px,.7fr) 110px; }
 .app-theme .row-actions button, .app-theme .company-card__footer button { width: 40px; min-height: 40px; flex: 0 0 auto; padding: 0; }
 .app-theme :is(.table-panel, .data-table, .security-table, .report-table-wrap) { max-width: 100%; overflow-x: auto; }
 .app-theme :is(.data-table__head, .data-table__row, .security-table__head, .security-table__row) { column-gap: 24px; padding: 16px 20px; }

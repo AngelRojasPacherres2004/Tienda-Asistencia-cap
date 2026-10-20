@@ -111,7 +111,9 @@ export default function Capacitaciones({ user }) {
 
   const activos = (trabajadores || []).filter((t) => t.estado === "activo");
   const inactivos = (trabajadores || []).filter((t) => t.estado === "inactivo");
-  const baseVisibles = showInactivos ? (trabajadores || []) : activos;
+  const baseVisibles = showInactivos ? [...(trabajadores || [])].sort((a, b) =>
+    (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+    || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es")) : activos;
   const visibles = isCoach ? baseVisibles.filter(person => [person.nombres, person.apellidos, person.usuario].join(" ").toLocaleLowerCase("es").includes(personSearch.trim().toLocaleLowerCase("es"))) : baseVisibles;
   const pages=Math.max(1,Math.ceil(visibles.length/8));
   const visiblePeople=visibles.slice((page-1)*8,page*8);
@@ -166,7 +168,7 @@ export default function Capacitaciones({ user }) {
         </div>
       ) : <EmptyState icon={GraduationCap} title="Sin personas para supervisar" text={`Todavía no hay ${supervisedLabel} disponibles en tu alcance.`} />}
 
-      {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal"].includes(user?.rol)} onSaved={() => setRefreshVersion(value => value + 1)} onClose={() => setPerfilId(null)} />}
+      {perfilId && <TrabajadorPerfilView id={perfilId} readOnly={["gerencia_general", "gerente_comercial", "jefe_zonal", "coach"].includes(user?.rol)} onClose={() => setPerfilId(null)} />}
 
       {zonal ? <div className="module-section-heading"><span className="eyebrow">Resumen</span><h2>Avance de capacitaciones</h2></div> : <PageHeader eyebrow={isCoach ? "Seguimiento general" : "Seguimiento"} title={isCoach ? "Capacitaciones asignadas por rol" : "Resumen de capacitaciones"} />}
       {!cursos ? <Loading /> : cursos.length ? (
@@ -213,7 +215,7 @@ function CoachComparisonPanel({ cursos, cursoId, setCursoId, stores, clusters, r
   </section>;
 }
 
-function TrabajadorPerfilView({ id, onClose, onSaved, readOnly = false }) {
+function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
   const [data, setData] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [savingCurso, setSavingCurso] = useState(null);
@@ -244,7 +246,6 @@ function TrabajadorPerfilView({ id, onClose, onSaved, readOnly = false }) {
         body: { estado: draft.estado, duracion_horas: draft.duracion_horas || null, nota: draft.nota === "" ? null : draft.nota, resultado: draft.resultado || "na" },
       });
       await load();
-      onSaved?.();
       setSuccess({ title: "Progreso actualizado", message: "La capacitación del trabajador se guardó correctamente." });
     } catch (err) {
       setNotice({ type: "error", text: err.message });
@@ -440,7 +441,9 @@ export function AsignarPanel({ cursos, onAssigned, estadosPermitidos = ["pendien
     .filter((t) => filtroEstado === "todos" || t.estado === filtroEstado)
     .filter((t) => filtroRol === "todos" || t.rol === filtroRol)
     .filter((t) => permiteEstadoActual(t.progreso_estado))
-    .filter((t) => [t.nombres, t.apellidos, t.usuario].join(" ").toLowerCase().includes(search.toLowerCase()));
+    .filter((t) => [t.nombres, t.apellidos, t.usuario].join(" ").toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+      || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
 
   const toggle = (id) => setSelected((current) => {
     const next = new Set(current);

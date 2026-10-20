@@ -1,56 +1,79 @@
-import { stockTransfers } from '../commercial-dashboard/src/app/stock-transfers.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
+import { stockTransfers, transferTotals } from '../commercial-dashboard/src/app/stock-transfers.ts';
+
 const require = createRequire(new URL('../commercial-dashboard/package.json', import.meta.url));
 const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const names = ['transferLines','transferBrands','transferStores','transferAllRecommendations','transferRecommendations',
-  'transferPageCount','transferCurrentPage','transferPageRows','clearTransferFilters'];
-const code = ts.transpileModule(`export class Subject {${app.members.filter(member => names.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-const exports = {};
-vm.runInNewContext(code, {exports, computed: read => read, stockTransfers});
-const signal = initial => { let value = initial; const read = () => value; read.set = next => { value = next; }; return read; };
-
-const fixture = () => {
-  const rows = [
-    {storeId:'A',productId:'SKU1',brand:'UNO',stockUnits:100,goodUnits:100,units30:0},
-    {storeId:'B',productId:'SKU1',brand:'UNO',stockUnits:0,goodUnits:0,units30:20},
-    {storeId:'A',productId:'SKU2',brand:'DOS',stockUnits:100,goodUnits:100,units30:0},
-    {storeId:'C',productId:'SKU2',brand:'DOS',stockUnits:0,goodUnits:0,units30:10},
-  ].map(row=>({...row,category:'TEXTIL',line:'DAMA',product:row.productId}));
-  return Object.assign(new exports.Subject(), {
-    transferProducts:()=>rows, predictiveStoreOptions:()=>['A','B','C'].map(storeId=>({storeId,store:storeId})),
-    transferBrand:signal(''), transferStore:signal(''), transferRubro:signal(''), transferLine:signal(''),
-    transferSearch:signal(''), transferPriority:signal(''), transferPage:signal(0), normalized:value=>value.toLowerCase(),
-  });
+const members = app.members.filter(member => member.name?.getText(tree).startsWith('transfer') || ['resetTransferFilters', 'normalized', 'number'].includes(member.name?.getText(tree)));
+const code = ts.transpileModule(`export class Subject {${members.map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const signal = initial => {
+  let value = initial;
+  const get = () => value;
+  get.set = next => { value = next; };
+  return get;
 };
-test('brand filters products and store matches either end without removing the counterpart',()=>{
-  const subject=fixture();
-  assert.equal(subject.transferRecommendations().length,2);
-  subject.transferStore.set('B');
-  assert.equal(subject.transferRecommendations().length,1);
-  assert.equal(subject.transferRecommendations()[0].source,'A');
-  subject.transferStore.set('A');
-  assert.equal(subject.transferRecommendations().length,2);
-  subject.transferBrand.set('DOS');
-  assert.equal(subject.transferRecommendations().length,1);
-  assert.equal(subject.transferRecommendations()[0].destination,'C');
-  subject.transferStore.set('B');
-  assert.equal(subject.transferRecommendations().length,0);
-  subject.clearTransferFilters();
-  assert.equal(subject.transferRecommendations().length,2);
-  assert.equal(subject.transferBrands().join(','),'DOS,UNO');
+const exports = {};
+vm.runInNewContext(code, { exports, signal, computed: fn => fn, stockTransfers, transferTotals });
+const product = (storeId, stockUnits, units30, productId = 'P1', brand = 'ADIDAS', category = 'TEXTIL') => ({ storeId, stockUnits, goodUnits: stockUnits, units30, productId, product: productId === 'P1' ? 'Polo caballero' : 'Zapatilla', brand, category, line: category === 'TEXTIL' ? 'ROPA CABALLERO' : 'CALZADO CABALLERO' });
+function fixture() {
+  const subject = new exports.Subject();
+  subject.predictiveStoreOptions = () => ['A', 'B', 'C'].map(storeId => ({ storeId, alias: storeId, isStore: true }));
+  subject.staticPredictiveProducts = () => [product('A', 100, 10), product('B', 0, 10), product('C', 12, 20), product('A', 80, 0, 'P2', 'NIKE', 'CALZADO'), product('B', 0, 20, 'P2', 'NIKE', 'CALZADO'), product('OUTSIDE', 1000, 1000)];
+  return subject;
+}
+const totals = subject => ({ ...subject.transferSummary() });
+
+test('brand, line, category, product search and reset update both routes and totals', () => {
+  const subject = fixture();
+  assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 60 });
+  subject.transferBrand.set('ADIDAS');
+  assert.deepEqual(totals(subject), { stockUnits: 112, salesUnits: 40 });
+  subject.transferBrand.set(''); subject.transferRubro.set('CALZADO');
+  assert.deepEqual(totals(subject), { stockUnits: 80, salesUnits: 20 });
+  subject.transferRubro.set(''); subject.transferLine.set('ROPA CABALLERO');
+  assert.deepEqual(totals(subject), { stockUnits: 112, salesUnits: 40 });
+  subject.transferLine.set(''); subject.transferSearch.set('P2');
+  assert.deepEqual(totals(subject), { stockUnits: 80, salesUnits: 20 });
+  subject.resetTransferFilters();
+  assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 60 });
 });
-test('pagination stays in range when the filtered result shrinks',()=>{
-  const subject=fixture();subject.transferPage.set(99);
-  assert.equal(subject.transferCurrentPage(),0);
-  assert.equal(subject.transferPageRows().length,2);
-  subject.transferBrand.set('MISSING');
-  assert.equal(subject.transferPageRows().length,0);
-  assert.equal(subject.transferPageCount(),1);
+
+test('choosing a destination preserves available donors and sums only that store', () => {
+  const subject = fixture();
+  subject.transferStore.set('C');
+  assert.equal(subject.transferRecommendations().length, 1);
+  assert.equal(subject.transferRecommendations()[0].source, 'A');
+  assert.deepEqual(totals(subject), { stockUnits: 12, salesUnits: 20 });
+  subject.transferPriority.set('CRITICAL');
+  assert.equal(subject.transferRecommendations().length, 0);
+  assert.deepEqual(totals(subject), { stockUnits: 0, salesUnits: 0 });
+});
+
+test('summary covers all filtered pages and page is clamped when filters reduce the list', () => {
+  const subject = fixture();
+  subject.staticPredictiveProducts = () => Array.from({ length: 12 }, (_, i) => [product('A', 100, 0, `P${i}`), product('B', 0, 20, `P${i}`)]).flat();
+  subject.transferPage.set(1);
+  assert.equal(subject.transferPageRows().length, 2);
+  assert.deepEqual(totals(subject), { stockUnits: 1200, salesUnits: 240 });
+  subject.transferSearch.set('P11');
+  assert.equal(subject.transferCurrentPage(), 0);
+  assert.equal(subject.transferPageRows().length, 1);
+  assert.deepEqual(totals(subject), { stockUnits: 100, salesUnits: 20 });
+});
+
+test('the three original bar series follow the filtered opportunities', () => {
+  const subject = fixture();
+  subject.transferBrand.set('ADIDAS');
+  const options = subject.transferChartOption();
+  assert.deepEqual(Array.from(options.series, series => series.name), ['Stock origen', 'Stock destino', 'Traslado sugerido']);
+  assert.deepEqual(Array.from(options.series[0].data), [100, 100]);
+  assert.deepEqual(Array.from(options.series[1].data), [0, 12]);
+  subject.transferPriority.set('CRITICAL');
+  assert.deepEqual(Array.from(subject.transferChartOption().series[0].data), [100]);
 });

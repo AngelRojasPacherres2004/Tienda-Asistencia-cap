@@ -17,26 +17,26 @@ import duckdb
 
 DETAIL_SQL = {
     "ventas": """select fecha_venta fecha, year(fecha_venta) anio, month(fecha_venta) mes,
-        day(fecha_venta) dia, tienda_id, tienda, nro_venta, codigo_nissei, descripcion,
+        day(fecha_venta) dia, tienda_id, tienda, nro_venta, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, cantidad, precio_real, total_venta,
         tipo_documento, estado from {fact}""",
     "stock": """select fecha_corte fecha, year(fecha_corte) anio, month(fecha_corte) mes,
-        day(fecha_corte) dia, tienda_id, tienda, codigo_nissei, descripcion,
+        day(fecha_corte) dia, tienda_id, tienda, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, estado_stock, cantidad, valor_stock from {fact}""",
     "ingresos": """select fecha_ingreso fecha, year(fecha_ingreso) anio, month(fecha_ingreso) mes,
-        day(fecha_ingreso) dia, tienda_id, tienda, codigo_nissei, descripcion,
+        day(fecha_ingreso) dia, tienda_id, tienda, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, proveedor, cantidad_recibida, total_ingreso,
         tipo_movimiento_ingreso from {fact}""",
     "transferencias": """select fecha_transferencia fecha, year(fecha_transferencia) anio,
         month(fecha_transferencia) mes, day(fecha_transferencia) dia,
         tienda_origen_id tienda_id, tienda_origen tienda, 'SALIDA' direccion,
         tienda_origen_id, tienda_origen, tienda_destino_id, tienda_destino, nro_guia,
-        codigo_nissei, descripcion, rubro, linea, sub_linea, marca, cantidad,
+        codigo_nissei, lote, descripcion, rubro, linea, sub_linea, marca, cantidad,
         total_transferencia, estado_transferencia from {fact}
         union all select fecha_transferencia, year(fecha_transferencia),
         month(fecha_transferencia), day(fecha_transferencia),
         tienda_destino_id, tienda_destino, 'ENTRADA', tienda_origen_id, tienda_origen,
-        tienda_destino_id, tienda_destino, nro_guia, codigo_nissei, descripcion,
+        tienda_destino_id, tienda_destino, nro_guia, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, cantidad, total_transferencia,
         estado_transferencia from {fact}""",
     "trafico": """select fecha, year(fecha) anio, month(fecha) mes, day(fecha) dia,
@@ -83,12 +83,13 @@ def json_value(value):
     return value
 
 
-def source(root, kind):
+def source(root, kind, cutoff=None):
     name = "FactTraficoClientes" if kind == "trafico" else "Fact" + kind.capitalize()
     path = root / "capa2" / (name + ".parquet")
     if not path.is_file():
         raise FileNotFoundError(path)
-    return "read_parquet('" + str(path).replace("'", "''") + "')"
+    raw = "read_parquet('" + str(path).replace("'", "''") + "')"
+    return f"(select * from {raw} where {DATE_FIELDS[kind]} <= DATE '{cutoff}')" if cutoff else raw
 
 
 def write_query(connection, query, output, kind, stores, years, handles, counts, dimensions=None):
@@ -111,7 +112,7 @@ def write_query(connection, query, output, kind, stores, years, handles, counts,
                 dimensions[(year, store)].add((row.get("rubro") or "", row.get("linea") or "", row.get("sub_linea") or ""))
 
 
-def generate(root, output, requested_years):
+def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None):
     connection = duckdb.connect()
     store_rows = connection.execute("""select tienda_id, tienda, alias, cluster, formato_tienda
         from read_parquet(?) where tienda_id like 'T___'""",
@@ -121,17 +122,29 @@ def generate(root, output, requested_years):
     if not stores:
         raise ValueError("No se encontraron tiendas homologadas.")
     years = set(requested_years)
+    effective_cutoffs = {kind: stock_cutoff if kind == "stock" else sales_cutoff for kind in DATE_FIELDS}
+    if sales_cutoff:
+        available = connection.execute(f"select max(fecha_venta) from {source(root, 'ventas', sales_cutoff)}").fetchone()[0]
+        if str(available) != sales_cutoff:
+            raise ValueError("No hay ventas hasta la fecha de corte solicitada.")
+    if stock_cutoff:
+        available = connection.execute(f"select max(fecha_corte) from {source(root, 'stock', stock_cutoff)}").fetchone()[0]
+        if str(available) != stock_cutoff:
+            raise ValueError("No existe la foto de stock para el corte solicitado.")
     cutoffs = {}
     for kind, field in DATE_FIELDS.items():
         cutoffs[kind] = str(connection.execute(
-            f"select max({field}) from {source(root, kind)}").fetchone()[0] or "")
+            f"select max({field}) from {source(root, kind, effective_cutoffs[kind])}").fetchone()[0] or "")
 
     detail_handles, detail_counts = {}, defaultdict(int)
+    detail_columns = {}
     dimensions = defaultdict(set)
     try:
         for kind, template in DETAIL_SQL.items():
             print(f"Detalle {kind}...", flush=True)
-            write_query(connection, template.format(fact=source(root, kind)), output, kind,
+            query = template.format(fact=source(root, kind, effective_cutoffs[kind]))
+            detail_columns[kind] = [column[0] for column in connection.execute(f"{query} limit 0").description]
+            write_query(connection, query, output, kind,
                         stores, years, detail_handles, detail_counts, dimensions)
     finally:
         for handle in detail_handles.values():
@@ -142,7 +155,7 @@ def generate(root, output, requested_years):
         for kind, template in SUMMARY_SQL.items():
             print(f"Resumen {kind}...", flush=True)
             fact_kind = "ventas" if kind == "ventas_diario" else kind
-            query = template.format(fact=source(root, fact_kind))
+            query = template.format(fact=source(root, fact_kind, effective_cutoffs[fact_kind]))
             cursor = connection.execute(query)
             columns = [column[0] for column in cursor.description]
             while block := cursor.fetchmany(10000):
@@ -179,6 +192,7 @@ def generate(root, output, requested_years):
                           "bytes": target.stat().st_size, "path": f"{year}/summary/{store}.json.gz"})
     manifest = {"generatedAt": datetime.now(timezone.utc).isoformat(),
                 "years": sorted({item["year"] for item in files}), "cutoffs": cutoffs,
+                "detailColumns": detail_columns,
                 "stores": stores, "files": files, "summaries": summaries,
                 "dimensions": {f"{year}/{store}": sorted(map(list, values))
                                for (year, store), values in dimensions.items()}}
@@ -191,11 +205,13 @@ if __name__ == "__main__":
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--years", required=True, help="Un año o lista separada por comas")
+    parser.add_argument("--sales-cutoff", help="Corte comercial AAAA-MM-DD")
+    parser.add_argument("--stock-cutoff", help="Última foto de stock AAAA-MM-DD")
     args = parser.parse_args()
     selected = [int(year) for year in args.years.split(",")]
     if not selected or any(year < 2024 or year > 2100 for year in selected):
         parser.error("Indica años válidos.")
-    result = generate(args.source_root, args.output, selected)
+    result = generate(args.source_root, args.output, selected, args.sales_cutoff, args.stock_cutoff)
     print(json.dumps({"years": result["years"], "files": len(result["files"]),
                       "summaries": len(result["summaries"]),
                       "bytes": sum(row["bytes"] for row in result["files"] + result["summaries"])}, ensure_ascii=False))

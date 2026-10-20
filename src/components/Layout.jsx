@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
+  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import "../role-themes.css";
@@ -87,8 +87,12 @@ const navByRole = {
     { id: "seguridad-trafico", label: "Tráfico", icon: Users },
     { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
   ],
+  administrador_seguridad: [
+    { id: "seguridad-central", label: "Control de seguridad", icon: ShieldCheck },
+  ],
   sistemas: [
     { id: "sistemas", label: "Carga de datos", icon: FileSpreadsheet },
+    { id: "sistemas-credenciales", label: "Acceso y credenciales", icon: KeyRound },
   ],
 };
 navByRole.jefe_seguridad = navByRole.seguridad;
@@ -98,7 +102,7 @@ navByRole.caja = navByRole.trabajador;
 navByRole.almacenero = navByRole.trabajador;
 navByRole.jefe_area = navByRole.trabajador;
 const roleLabels = {
-  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", sistemas: "Sistemas", marketing: "Marketing", coach: "Coach",
+  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", sistemas: "Sistemas", marketing: "Marketing", coach: "Coach",
   jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };

@@ -1,12 +1,12 @@
-:host { position: fixed; right: 0; bottom: 24px; z-index: 1200; font-family: "Segoe UI", Arial, sans-serif; }
+:host { position: fixed; right: 16px; bottom: 20px; z-index: 1200; font-family: "Segoe UI", Arial, sans-serif; }
 button, textarea { font: inherit; }
 .assistant-launcher {
-  display: grid; width: 43px; height: 38px; place-items: center; padding: 0;
-  border: 1px solid rgba(255,255,255,.34); border-right: 0; border-radius: 18px 0 0 18px; background: #123a8c; color: #fff;
+  display: grid; width: 46px; height: 46px; place-items: center; padding: 0;
+  border: 1px solid rgba(255,255,255,.34); border-radius: 50%; background: #123a8c; color: #fff;
   box-shadow: 0 8px 22px rgba(15,35,70,.22); cursor: pointer; opacity: .78; transition: width .18s ease, opacity .18s ease;
 }
-.assistant-launcher:hover, .assistant-launcher:focus-visible, .assistant-launcher[aria-expanded="true"] { width: 52px; opacity: 1; }
-.assistant-launcher span { font-size: .66rem; font-weight: 950; letter-spacing: .03em; }
+.assistant-launcher:hover, .assistant-launcher:focus-visible, .assistant-launcher[aria-expanded="true"] { opacity: 1; }
+.assistant-launcher span { display: block; font-size: .8rem; font-weight: 900; line-height: 1; letter-spacing: 0; }
 .assistant-panel {
   position: absolute; right: 10px; bottom: 50px; display: grid; grid-template-rows: auto auto minmax(180px, 1fr) auto auto auto;
   width: min(390px, calc(100vw - 28px)); height: min(590px, calc(100dvh - 95px)); overflow: hidden;

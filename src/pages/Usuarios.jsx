@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ExcelJS from "exceljs";
 import { Download, Edit3, Eye, FileSpreadsheet, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
 import { clusterLabel, isCommercialCluster } from "../lib/clusters";
@@ -11,8 +10,8 @@ import {
 import Reportes from "./Reportes";
 import ApoyoTienda from "./ApoyoTienda";
 
-const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
-const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
+const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
+const rolesByManager = { gerencia_general: ["gerente_comercial", "coach", "administrador_seguridad"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
 const weekDays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const birthdayMonths = [["01", "Enero"], ["02", "Febrero"], ["03", "Marzo"], ["04", "Abril"], ["05", "Mayo"], ["06", "Junio"], ["07", "Julio"], ["08", "Agosto"], ["09", "Septiembre"], ["10", "Octubre"], ["11", "Noviembre"], ["12", "Diciembre"]];
 const districts = ["LIMA", "ATE", "BARRANCO", "BREÑA", "CARABAYLLO", "CHORRILLOS", "CIENEGUILLA", "COMAS", "EL AGUSTINO", "INDEPENDENCIA", "JESÚS MARÍA", "LA MOLINA", "LA VICTORIA", "LINCE", "LOS OLIVOS", "LURIGANCHO", "LURÍN", "MAGDALENA DEL MAR", "MIRAFLORES", "PACHACÁMAC", "PUCUSANA", "PUEBLO LIBRE", "PUENTE PIEDRA", "PUNTA HERMOSA", "PUNTA NEGRA", "RÍMAC", "SAN BARTOLO", "SAN BORJA", "SAN ISIDRO", "SAN JUAN DE LURIGANCHO", "SAN JUAN DE MIRAFLORES", "SAN LUIS", "SAN MARTÍN DE PORRES", "SAN MIGUEL", "SANTA ANITA", "SANTA MARÍA DEL MAR", "SANTA ROSA", "SANTIAGO DE SURCO", "SURQUILLO", "VILLA EL SALVADOR", "VILLA MARÍA DEL TRIUNFO"];
@@ -54,6 +53,8 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [rehire, setRehire] = useState(null);
   const importInput = useRef(null);
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -64,7 +65,12 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [errorForm, setErrorForm] = useState({ categoria: "Operativo", descripcion: "", accion_correctiva: "", fecha: todayISO() });
   const fileRef = useRef(null);
 
-  const load = useCallback(() => api(zonalTeam ? "/zonal/personal" : "/usuarios").then(setItems).catch((err) => setNotice({ type: "error", text: err.message })), [zonalTeam]);
+  const load = useCallback(() => {
+    setLoadError("");
+    return api(zonalTeam ? "/zonal/personal" : "/usuarios")
+      .then((rows) => setItems(rows))
+      .catch((err) => { setItems([]); setLoadError(err.message || "No se pudo cargar el personal."); });
+  }, [zonalTeam]);
   const loadTiendas = useCallback(
     () => (isCentral ? api("/tiendas").then(setTiendas).catch(() => {}) : Promise.resolve()),
     [isCentral],
@@ -80,7 +86,8 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     (roleFilter === "todos" || item.rol === roleFilter) &&
     [item.nombres, item.apellidos, item.dni, item.usuario, item.tienda_nombre]
       .join(" ").toLowerCase().includes(search.toLowerCase()),
-  ), [items, search, statusFilter, storeFilter, roleFilter]);
+  ).sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
+    || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es")), [items, search, statusFilter, storeFilter, roleFilter]);
   const pages = Math.max(1, Math.ceil(filtered.length / 10));
   const visibleItems = filtered.slice((page - 1) * 10, page * 10);
   const visibleRoles = [...new Set((items || []).map((item) => item.rol))].sort();
@@ -135,14 +142,14 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     setFieldErrors((current) => ({ ...current, horarios: "" }));
   };
 
-  const save = async (event) => {
-    event.preventDefault();
+  const save = async (event, confirmedRehire = false) => {
+    event?.preventDefault();
     clearErrors();
     const errors = {};
     for (const field of ["nombres", "apellidos", "dni", "fecha_ingreso"]) {
       if (!String(editing[field] ?? "").trim()) errors[field] = "Este campo es obligatorio.";
     }
-    if (!["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(editing.rol) && !editing.tienda_id && isCentral && !(zonalTeam && editing.rol === "jefe_tienda")) errors.tienda_id = "Selecciona una tienda.";
+    if (!["gerencia_general", "gerente_comercial", "administrador_seguridad", "coach", "jefe_zonal"].includes(editing.rol) && !editing.tienda_id && isCentral && !(zonalTeam && editing.rol === "jefe_tienda")) errors.tienda_id = "Selecciona una tienda.";
     if (user?.rol === "gerente_comercial" && editing.rol === "jefe_zonal" && !editing.cluster_id) errors.cluster_id = "Selecciona un clúster.";
     if (editing.nombres && editing.nombres.trim().length < 2) errors.nombres = "Ingresa al menos 2 caracteres.";
     if (editing.apellidos && editing.apellidos.trim().length < 2) errors.apellidos = "Ingresa al menos 2 caracteres.";
@@ -158,16 +165,34 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     if (editing.tiene_parentesco && !String(editing.familiar_vinculo || "").trim()) errors.familiar_vinculo = "Indica el nombre del familiar o vínculo.";
     if ((editing.horarios || []).some((row) => row.trabaja && (!row.hora_entrada || !row.hora_salida))) errors.horarios = "Completa la entrada y salida de todos los días trabajados.";
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
+    if (!editing.id && !confirmedRehire) {
+      const previous = (items || []).find((item) => item.dni === editing.dni && item.estado === "inactivo");
+      if (previous) { setRehire(previous); return; }
+    }
     setBusy(true);
     try {
-      const payload = { ...editing, estado: editing.fecha_salida ? "inactivo" : editing.estado, tienda_id: ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal"].includes(editing.rol) ? null : Number(editing.tienda_id) || null };
+      const source = confirmedRehire && rehire
+        ? { ...rehire, ...Object.fromEntries(Object.entries(editing).filter(([, value]) => value !== "" && value != null)) }
+        : editing;
+      const payload = { ...source, estado: source.fecha_salida ? "inactivo" : source.estado, tienda_id: ["gerencia_general", "gerente_comercial", "administrador_seguridad", "coach", "jefe_zonal"].includes(source.rol) ? null : Number(source.tienda_id) || null };
+      if (confirmedRehire && rehire) {
+        payload.id = rehire.id;
+        payload.rol = rehire.rol;
+        payload.fecha_salida = null;
+        payload.motivo_salida = null;
+        payload.estado = "activo";
+        payload.reingreso_confirmado = true;
+        if (!editing.usuario) payload.usuario = rehire.usuario;
+        if (!editing.horarios?.some((row) => row.trabaja)) payload.horarios = rehire.horarios;
+      }
       if (!payload.password) delete payload.password;
-      await api(editing.id ? `/usuarios/${editing.id}` : "/usuarios", {
-        method: editing.id ? "PUT" : "POST", body: payload,
+      await api(editing.id || confirmedRehire ? `/usuarios/${editing.id || rehire.id}` : "/usuarios", {
+        method: editing.id || confirmedRehire ? "PUT" : "POST", body: payload,
       });
+      setRehire(null);
       closeEditor();
       await Promise.all([load(), loadClusters()]);
-      setSuccess({ title: editing.id ? "Usuario actualizado" : "Usuario creado", message: editing.id ? "Los cambios del usuario se guardaron correctamente." : "El nuevo usuario fue registrado correctamente." });
+      setSuccess({ title: confirmedRehire ? "Reingreso registrado" : editing.id ? "Usuario actualizado" : "Usuario creado", message: confirmedRehire ? "Se conservó la ficha y se abrió un nuevo período laboral." : editing.id ? "Los cambios del usuario se guardaron correctamente." : "El nuevo usuario fue registrado correctamente." });
     } catch (err) {
       const message = err.message || "No se pudo guardar el usuario.";
       if (/DNI|CE|documento/i.test(message)) setFieldErrors({ dni: message });
@@ -198,6 +223,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     if (!file) return;
     setBusy(true); setNotice(null);
     try {
+      const { default: ExcelJS } = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
       const sheet = workbook.worksheets[0];
@@ -255,6 +281,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     if (!file) return;
     setBusy(true); setNotice(null);
     try {
+      const { default: ExcelJS } = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
       const sheet = workbook.worksheets[0];
@@ -321,6 +348,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         </div>}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
+      {loadError && <Notice type="error" onClose={() => setLoadError("")}>{loadError} <button type="button" className="button button--ghost button--small" onClick={() => { setItems(null); load(); }}>Reintentar</button></Notice>}
       {zonalTeam && workspaceTabs}
       <div className="toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre, DNI o usuario…" />
@@ -332,9 +360,9 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
 
       {!items ? <Loading /> : filtered.length ? (
         <div className="table-panel">
-          <div className={`data-table ${isCentral ? "data-table--usuarios" : "data-table--usuarios-tienda"}`}>
+          <div className={`data-table ${zonalTeam ? "data-table--usuarios-zonal" : isCentral ? "data-table--usuarios" : "data-table--usuarios-tienda"}`}>
             <div className="data-table__head">
-              <span>Persona</span><span>DNI</span><span>Usuario</span><span>Teléfono</span>
+              <span>Persona</span><span>DNI</span>{!zonalTeam && <span>Usuario</span>}<span>Teléfono</span>
               {isCentral && <><span>Rol</span><span>Tienda / clúster</span></>}
               {!isCentral && <span>Rol</span>}
               <span>Estado</span><span />
@@ -343,10 +371,10 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
               <div className="data-table__row" key={item.id}>
                 <div className="person-cell">
                   <span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span>
-                  <div><button className="person-link" onClick={() => openView(item)}>{item.nombres} {item.apellidos}</button><small>{item.usuario ? `@${item.usuario}` : "Sin acceso al sistema"}</small></div>
+                  <div><button className="person-link" onClick={() => openView(item)}>{item.nombres} {item.apellidos}</button>{item.reingreso && <small>Reingreso</small>}</div>
                 </div>
                 <span className="mono">{item.dni}</span>
-                <span className="cell-primary">{item.usuario || "Sin acceso"}</span>
+                {!zonalTeam && <span className="cell-primary">{item.usuario || "—"}</span>}
                 <span>{item.telefono || "—"}</span>
                 {!isCentral && <span className="personnel-role">{roleLabels[item.rol] || item.rol?.replaceAll("_", " ") || "Sin rol"}</span>}
                 {isCentral && <>
@@ -472,7 +500,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         {viewing && <div className="worker-file">
           {workerFile?.error && <Notice type="error">{workerFile.error}</Notice>}
           <section><h3>Datos personales</h3><dl><div><dt>Documento</dt><dd>{(viewing.tipo_documento || "dni").toUpperCase()} {viewing.dni}</dd></div><div><dt>Teléfono</dt><dd>{viewing.telefono || "—"}</dd></div><div><dt>Nacimiento</dt><dd>{viewing.fecha_nacimiento || "—"}</dd></div><div><dt>Nacionalidad</dt><dd>{viewing.nacionalidad || "—"}</dd></div><div><dt>Distrito</dt><dd>{viewing.distrito || "—"}</dd></div><div><dt>Dirección</dt><dd>{viewing.direccion || "—"}</dd></div></dl></section>
-          <section><h3>Datos laborales</h3><dl><div><dt>Rol</dt><dd>{roleLabels[viewing.rol] || viewing.rol}</dd></div><div><dt>Área</dt><dd>{viewing.area_laboral || "—"}</dd></div><div><dt>Ingreso</dt><dd>{viewing.fecha_ingreso}</dd></div><div><dt>Nivel de estudio</dt><dd>{viewing.grado_academico?.replaceAll("_", " ") || "—"}</dd></div><div><dt>Carrera</dt><dd>{viewing.carrera || "—"}</dd></div><div><dt>Jornada / turno</dt><dd>{viewing.regimen_jornada?.toUpperCase() || "—"} · {viewing.tipo_turno?.replaceAll("_", " ") || "—"}</dd></div></dl></section>
+          <section><h3>Datos laborales</h3><dl><div><dt>Cargo</dt><dd>{roleLabels[viewing.rol] || viewing.rol}</dd></div><div><dt>Área</dt><dd>{viewing.area_laboral || "—"}</dd></div><div><dt>Ingreso</dt><dd>{viewing.fecha_ingreso}</dd></div><div><dt>Reingreso</dt><dd>{viewing.reingreso ? "Sí" : "No"}</dd></div><div><dt>Nivel de estudios</dt><dd>{viewing.grado_academico?.replaceAll("_", " ") || "—"}</dd></div><div><dt>Carrera</dt><dd>{viewing.carrera || "—"}</dd></div><div><dt>Jornada / turno</dt><dd>{viewing.regimen_jornada?.toUpperCase() || "—"} · {viewing.tipo_turno?.replaceAll("_", " ") || "—"}</dd></div></dl></section>
           <section><h3>Horario semanal</h3>{viewing.horarios?.some((row) => row.trabaja) ? <div className="worker-schedule">{viewing.horarios.filter((row) => row.trabaja).map((row) => <div key={row.dia_semana}><strong>{weekDays[Number(row.dia_semana) - 1]}</strong><span>{row.hora_entrada?.slice(0, 5)} – {row.hora_salida?.slice(0, 5)}</span></div>)}</div> : <p>Sin horario registrado.</p>}</section>
           <section><h3>Amonestaciones</h3>{workerFile ? workerFile.warnings.length ? <div className="worker-file__list">{workerFile.warnings.map((row) => <div key={row.id}><strong>{row.tipo.replaceAll("_", " ")}</strong><span>{row.fecha}</span><p>{row.motivo}</p></div>)}</div> : <p>Sin amonestaciones registradas.</p> : <Loading />}
             {user.rol === "jefe_tienda" && <form className="worker-warning-form" onSubmit={saveWarning}><select value={warningForm.tipo} onChange={(e) => setWarningForm({ ...warningForm, tipo: e.target.value })}><option value="verbal">Verbal</option><option value="carta_amonestacion">Carta</option><option value="memorandum">Memorándum</option></select><input type="date" value={warningForm.fecha} onChange={(e) => setWarningForm({ ...warningForm, fecha: e.target.value })} /><input required placeholder="Motivo" value={warningForm.motivo} onChange={(e) => setWarningForm({ ...warningForm, motivo: e.target.value })} /><button className="button button--soft" disabled={busy}>Registrar amonestación</button></form>}
@@ -492,6 +520,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         onClose={() => setDeleting(null)}
         onConfirm={remove}
       />
+      <ConfirmDialog open={!!rehire} title="Reingreso de personal" message={`El DNI ${rehire?.dni || ""} ya tiene una ficha inactiva. ¿Estás seguro de reactivar a ${rehire?.nombres || ""} ${rehire?.apellidos || ""} y conservar su historial?`} busy={busy} onClose={() => setRehire(null)} onConfirm={() => save(null, true)} />
       <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
   );

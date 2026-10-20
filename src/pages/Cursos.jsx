@@ -29,8 +29,8 @@ export default function Cursos({ user }) {
   const [encargadoError, setEncargadoError] = useState("");
   const [success, setSuccess] = useState(null);
 
-  const loadCursos = () => api("/cursos").then(setCursos).catch((err) => setNotice({ type: "error", text: err.message }));
-  const loadEncargados = () => api("/encargados").then(setEncargados).catch((err) => setNotice({ type: "error", text: err.message }));
+  const loadCursos = () => api("/cursos").then(setCursos).catch((err) => { setCursos([]); setNotice({ type: "error", text: err.message }); });
+  const loadEncargados = () => api("/encargados").then(setEncargados).catch((err) => { setEncargados([]); setNotice({ type: "error", text: err.message }); });
   useEffect(() => {
     loadCursos();
     if (!esGerenteComercial) loadEncargados();

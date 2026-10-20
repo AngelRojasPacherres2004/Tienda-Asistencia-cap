@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { api, downloadFile } from "../lib/api";
 import { Notice } from "../components/UI";
-import { ANNUAL_REPORT_LABELS, MAX_SALES_EXCEL_ROWS, csvLine, genderFromLine, matchesAnnualRow } from "../../shared/annualReports.js";
+import { ANNUAL_REPORT_LABELS, csvLine, genderFromLine, matchesAnnualRow } from "../../shared/annualReports.js";
 import "./system-uploads.css";
 
 const MAX_ROWS = 1_048_575; // Una fila adicional para encabezados.
@@ -37,38 +37,33 @@ async function* rowsFrom(responsePromise) {
   } finally { await reader.cancel().catch(() => {}); }
 }
 
-async function* matchingReportRows(result, filters, kind, cutoff, onProgress) {
-  let scanned = 0;
-  const responses = new Map();
-  const prefetch = index => {
-    if (index >= result.files.length || responses.has(index)) return;
-    responses.set(index, fetch(result.files[index].url, { credentials: "same-origin" })
-      .then(response => ({ response }), error => ({ error })));
-  };
-  for (let index = 0; index < Math.min(3, result.files.length); index++) prefetch(index);
-  for (let index = 0; index < result.files.length; index++) {
-    prefetch(index + 3);
-    for await (const row of rowsFrom(responses.get(index))) {
-      if (++scanned % 10_000 === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
-      if (matchesAnnualRow(row, filters, kind, cutoff)) yield row;
-    }
-    responses.delete(index);
-    onProgress?.(index + 1, result.files.length);
-  }
-}
-
 async function saveCsv(result, filters, kind, name, handle, cutoff, onProgress) {
   const writer = handle ? await handle.createWritable() : null;
   const chunks = writer ? null : [];
   let count = 0;
+  let scanned = 0;
   let buffer = "\uFEFF" + result.columns.map(key => ANNUAL_REPORT_LABELS[key] || key).join(",") + "\r\n";
   async function flush() { if (writer) await writer.write(buffer); else chunks.push(buffer); buffer = ""; }
   try {
-    for await (const row of matchingReportRows(result, filters, kind, cutoff, onProgress)) {
-      if (count >= MAX_ROWS) throw new Error("Supera el límite de filas de Excel. Selecciona una tienda, mes o clasificación.");
-      buffer += csvLine(row, result.columns);
-      count += 1;
-      if (buffer.length > 512_000) await flush();
+    const responses = new Map();
+    const prefetch = index => {
+      if (index >= result.files.length || responses.has(index)) return;
+      responses.set(index, fetch(result.files[index].url, { credentials: "same-origin" })
+        .then(response => ({ response }), error => ({ error })));
+    };
+    for (let index = 0; index < Math.min(3, result.files.length); index++) prefetch(index);
+    for (let index = 0; index < result.files.length; index++) {
+      prefetch(index + 3);
+      for await (const row of rowsFrom(responses.get(index))) {
+        if (++scanned % 10_000 === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
+        if (!matchesAnnualRow(row, filters, kind, cutoff)) continue;
+        if (count >= MAX_ROWS) throw new Error("Supera el límite de filas de Excel. Selecciona una tienda, mes o clasificación.");
+        buffer += csvLine(row, result.columns);
+        count += 1;
+        if (buffer.length > 512_000) await flush();
+      }
+      responses.delete(index);
+      onProgress?.(index + 1, result.files.length);
     }
     if (!count) throw new Error("No hay registros para estos filtros.");
     if (buffer) await flush();
@@ -136,19 +131,23 @@ export default function NormalizedReports({ user }) {
   const sublines = filters.linea ? unique(dimensions.filter(row => (!filters.rubro || row[0] === filters.rubro)
     && row[1] === filters.linea).map(row => row[2])) : [];
   const genders = unique(dimensions.filter(row => !filters.rubro || row[0] === filters.rubro).map(row => genderFromLine(row[1])));
+  const visibleReports = (catalog?.reports || []).filter(item => item.years?.length);
   const productFilters = catalog?.reports?.find(item => item.id === kind)?.productFilters !== false;
   const kindAvailable = catalog?.reports?.find(item => item.id === kind)?.years?.includes(Number(filters.year));
   const selectedIds = new Set(selectedStores.map(store => store.id));
-  const availableMonths = catalog?.monthly ? [...new Set((catalog.fileRows || []).filter(item => item.year === Number(filters.year)
-    && item.kind === kind && selectedIds.has(item.storeId)).map(item => item.month))].filter(Boolean).sort((a, b) => a - b)
-    : months.map((_, index) => index + 1);
+  const availableMonths = useMemo(() => catalog?.monthly ? [...new Set((catalog.fileRows || []).filter(item => item.year === Number(filters.year)
+    && item.kind === kind && dimensionStoreIds.split(",").includes(item.storeId)).map(item => item.month))].filter(Boolean).sort((a, b) => a - b)
+    : [], [catalog?.monthly, catalog?.fileRows, filters.year, kind, dimensionStoreIds]);
+  useEffect(() => {
+    if (filters.month && availableMonths.includes(Number(filters.month))) return;
+    setFilters(current => ({ ...current, month: availableMonths.at(-1) ? String(availableMonths.at(-1)) : "", day: "" }));
+  }, [filters.month, availableMonths]);
   const sourceRows = (catalog?.fileRows || []).filter(item => item.year === Number(filters.year)
     && item.kind === kind && selectedIds.has(item.storeId) && (!catalog?.monthly || !filters.month || item.month === Number(filters.month)))
     .reduce((sum, item) => sum + item.rows, 0);
   const rowFilterActive = !!(filters.day || (!catalog?.monthly && filters.month) || (productFilters
     && (filters.rubro || filters.gender || filters.linea || filters.sublinea)));
   const exceedsExcel = sourceRows > MAX_ROWS && !rowFilterActive;
-  const exceedsStyledExcel = sourceRows > MAX_SALES_EXCEL_ROWS && !rowFilterActive;
   const dayCount = filters.month ? new Date(Number(filters.year), Number(filters.month), 0).getDate() : 0;
   function change(key, value) {
     if (key === "year") setKind("ventas");
@@ -166,45 +165,27 @@ export default function NormalizedReports({ user }) {
     });
   }
   async function run(type) {
+    if (!filters.month) { setMessage({ type: "error", text: "Selecciona un mes con datos para descargar." }); return; }
     setBusy(type); setProgress(""); setMessage(null);
     try {
       const active = { ...filters, year: Number(filters.year), month: filters.month ? Number(filters.month) : "",
         day: filters.day ? Number(filters.day) : "" };
-      if (type === "detail" || type === "excel") {
+      if (type === "detail") {
         const applied = productFilters ? active : { ...active, rubro: "", gender: "", linea: "", sublinea: "" };
-        const excel = type === "excel";
-        const period = [filters.year, filters.month && String(filters.month).padStart(2, "0"), filters.day && String(filters.day).padStart(2, "0")].filter(Boolean).join("-");
-        const name = `detalle-${kind}-${period}${filters.storeId ? `-${filters.storeId}` : ""}.${excel ? "xlsx" : "csv"}`;
+        const name = `detalle-${kind}-${filters.year}-${filters.month.padStart(2, "0")}.csv`;
         let handle = null;
-        // XLSX must be complete before a download is created; an early file picker
-        // leaves an empty file behind when filtering, generation or fetching fails.
-        if (!excel && window.showSaveFilePicker) {
+        if (window.showSaveFilePicker) {
           try { handle = await window.showSaveFilePicker({ suggestedName: name,
-            types: excel ? [{ description: "Libro de Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
-              : [{ description: "CSV para Excel", accept: { "text/csv": [".csv"] } }] }); }
+            types: [{ description: "CSV para Excel", accept: { "text/csv": [".csv"] } }] }); }
           catch (error) { if (error.name === "AbortError") return; throw error; }
         }
         const result = await api(`/commercial/annual-reports/links?${paramsOf({ ...applied, kind })}`);
-        const onProgress = (done, total) => setProgress(`${done}/${total}`);
-        let count;
-        if (excel) {
-          const { buildSalesWorkbook } = await import("../lib/salesWorkbook");
-          const generated = await buildSalesWorkbook(matchingReportRows(result, applied, kind, catalog?.cutoffs?.[kind], onProgress),
-            { filters: applied, stores, cutoff: catalog?.cutoffs?.[kind] });
-          setProgress("Preparando Excel…");
-          await new Promise(resolve => window.setTimeout(resolve, 0));
-          const buffer = await generated.workbook.xlsx.writeBuffer();
-          if (!buffer.byteLength) throw new Error("No se pudo generar el Excel. Intenta con un mes o una tienda.");
-          const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-          const link = document.createElement("a"); link.href = url; link.download = name;
-          document.body.appendChild(link); link.click(); link.remove();
-          window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-          count = generated.count;
-        } else count = await saveCsv(result, applied, kind, name, handle, catalog?.cutoffs?.[kind], onProgress);
+        const count = await saveCsv(result, applied, kind, name, handle, catalog?.cutoffs?.[kind],
+          (done, total) => setProgress(`${done}/${total}`));
         if (count) setMessage({ type: "success", text: `${count.toLocaleString("es-PE")} filas descargadas.` });
       } else {
         const done = await downloadFile(`/api/commercial/annual-reports/summary.xlsx?${paramsOf(active)}`,
-          `resumen-comercial-${filters.year}.xlsx`);
+          `resumen-comercial-${filters.year}-${filters.month.padStart(2, "0")}.xlsx`);
         if (done) setMessage({ type: "success", text: "Resumen descargado." });
       }
     } catch (error) { setMessage({ type: "error", text: error.message }); }
@@ -222,10 +203,11 @@ export default function NormalizedReports({ user }) {
       ? <button type="button" className="button button--ghost" onClick={() => { setMessage(null); setRetry(value => value + 1); }}>Reintentar carga de reportes</button>
       : <div className="annual-reports__skeleton" aria-label="Preparando catálogo de reportes"/>) : !catalog.ready ?
       <div className="annual-reports__empty"><p>Los reportes del corte actual aún no están preparados.</p>
-        <button type="button" className="button button--ghost" onClick={() => { setCatalog(null); setRetry(value => value + 1); }}>Volver a consultar</button></div> : <>
+        <button type="button" className="button button--ghost" onClick={() => { setCatalog(null); setRetry(value => value + 1); }}>Volver a consultar</button></div> : !catalog.monthly ?
+      <div className="annual-reports__empty"><p>Los archivos mensuales aún no están preparados para este corte.</p></div> : <>
       <div className="annual-reports__filters">
         {field("Año", "year", catalog.years.map(year => [String(year)]))}
-        {field("Mes", "month", [["", "Todo el año"], ...availableMonths.map(month => [String(month), months[month - 1]])])}
+        {field("Mes", "month", [["", "Selecciona un mes"], ...availableMonths.map(month => [String(month), months[month - 1]])])}
         {field("Día", "day", [["", "Todos"], ...Array.from({ length: dayCount }, (_, index) => [String(index + 1)])], !filters.month)}
         {!singleStoreRole && availableClusters.length > 1 && field("Clúster", "cluster", [["", "Todos"], ...availableClusters.map(value => [value])])}
         {!singleStoreRole && availableFormats.length > 1 && field("Formato", "format", [["", "Todos"], ...availableFormats.map(value => [value])])}
@@ -236,16 +218,12 @@ export default function NormalizedReports({ user }) {
         {field("Sublínea", "sublinea", [["", "Todas"], ...sublines.map(value => [value])], !filters.linea)}
       </div>
       <div className="annual-reports__actions">
-        <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{catalog.reports.map(item =>
+        <label>Detalle<select value={kind} onChange={event => { setKind(event.target.value); setFilters(current => ({ ...current, month: "", day: "" })); }}>{visibleReports.map(item =>
           <option key={item.id} value={item.id} disabled={!item.years.includes(Number(filters.year))}>{item.label}{item.years.includes(Number(filters.year)) ? "" : " · sin datos"}</option>)}</select></label>
-        {user?.rol === "coach" && <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel || exceedsStyledExcel} onClick={() => run("excel")}><FileSpreadsheet size={16}/>{busy === "excel" ? `Generando ${progress || "…"}` : "Descargar Excel"}</button>}
-        <button type="button" className={`button ${user?.rol === "coach" ? "button--ghost" : "button--primary"}`} disabled={!!busy || !filters.year || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
+        <button type="button" className="button button--primary" disabled={!!busy || !filters.year || !filters.month || !selectedStores.length || !kindAvailable || exceedsExcel} onClick={() => run("detail")}><Download size={16}/>{busy === "detail" ? `Descargando ${progress || "…"}` : "Descargar detalle CSV"}</button>
       </div>
-      {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
+      {user?.rol !== "coach" && <div className="annual-reports__summary-action"><button type="button" className="button button--ghost" disabled={!!busy || !filters.year || !filters.month || !selectedStores.length} onClick={() => run("summary")}><FileSpreadsheet size={16}/>{busy === "summary" ? "Generando…" : "Descargar informe integral"}</button></div>}
       {exceedsExcel && <small className="annual-reports__note">Este detalle tiene más de 1 048 575 filas. Elige un mes, tienda o clasificación para abrirlo completo en Excel.</small>}
-      {user?.rol === "coach" && <small className="annual-reports__note">{exceedsStyledExcel
-        ? `La selección contiene ${sourceRows.toLocaleString("es-PE")} filas y supera las 50 000 del Excel. Selecciona un mes, una tienda o una clasificación; también puedes descargar el CSV completo.`
-        : "Excel con resumen y detalle: hasta 50 000 filas. Para selecciones mayores, filtra por mes o tienda, o descarga el CSV completo."}</small>}
       {!productFilters && <small className="annual-reports__note">El detalle de tráfico no se clasifica por producto.</small>}
     </>}
   </section>;

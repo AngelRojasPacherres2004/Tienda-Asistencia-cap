@@ -17,6 +17,10 @@ test("un reporte detallado exige un solo año y rutas sin desbordar alcance", ()
     `commercial-annual-v2/${version}/2026/ventas/T012/09.jsonl.gz`);
   assert.equal(annualMonthlySummaryPath(version, 2026, "T012"),
     `commercial-annual-v2/${version}/2026/summary/T012.json.gz`);
+  assert.equal(annualMonthlyReportPath(version, 2026, "ventas", "T012", 9, 3),
+    `commercial-annual-v3/${version}/2026/ventas/T012/09.jsonl.gz`);
+  assert.equal(annualMonthlySummaryPath(version, 2026, "T012", 3),
+    `commercial-annual-v3/${version}/2026/summary/T012.json.gz`);
   assert.throws(() => annualMonthlyReportPath(version, 2026, "ventas", "T012", 13));
 });
 
@@ -25,6 +29,10 @@ test("el detalle separa fecha, tienda y producto y evita fórmulas CSV", () => {
     tienda_id: "T012", rubro: "TEXTIL", linea: "ROPA DAMA", sub_linea: "BLUSAS", descripcion: "=2+2" };
   assert.ok(ANNUAL_DETAIL_COLUMNS.ventas.includes("dia"));
   assert.ok(ANNUAL_DETAIL_COLUMNS.ventas.includes("descripcion"));
+  for (const kind of ["ventas", "stock", "ingresos", "transferencias"]) {
+    assert.ok(ANNUAL_DETAIL_COLUMNS[kind].includes("codigo_nissei"));
+    assert.ok(ANNUAL_DETAIL_COLUMNS[kind].includes("lote"));
+  }
   assert.equal(matchesAnnualRow(row, parseAnnualFilters({ year: "2026", month: "9", gender: "DAMA" }), "ventas"), true);
   assert.equal(matchesAnnualRow(row, parseAnnualFilters({ year: "2026", month: "8" }), "ventas"), false);
   assert.equal(matchesAnnualRow(row, parseAnnualFilters({ year: "2026" }), "ventas", "2026-09-26"), false);

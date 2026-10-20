@@ -1,5 +1,3 @@
-export const MAX_SALES_EXCEL_ROWS = 50_000;
-
 export const ANNUAL_REPORT_KINDS = Object.freeze([
   { id: "ventas", label: "Ventas", dateLabel: "Fecha de venta", productFilters: true },
   { id: "stock", label: "Stock", dateLabel: "Fecha de corte", productFilters: true },
@@ -9,16 +7,16 @@ export const ANNUAL_REPORT_KINDS = Object.freeze([
 ]);
 
 export const ANNUAL_DETAIL_COLUMNS = Object.freeze({
-  ventas: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "nro_venta", "codigo_nissei", "descripcion", "rubro", "linea", "sub_linea", "marca", "cantidad", "precio_real", "total_venta", "tipo_documento", "estado"],
-  stock: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "codigo_nissei", "descripcion", "rubro", "linea", "sub_linea", "marca", "estado_stock", "cantidad", "valor_stock"],
-  ingresos: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "codigo_nissei", "descripcion", "rubro", "linea", "sub_linea", "marca", "proveedor", "cantidad_recibida", "total_ingreso", "tipo_movimiento_ingreso"],
-  transferencias: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "direccion", "tienda_origen_id", "tienda_origen", "tienda_destino_id", "tienda_destino", "nro_guia", "codigo_nissei", "descripcion", "rubro", "linea", "sub_linea", "marca", "cantidad", "total_transferencia", "estado_transferencia"],
+  ventas: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "nro_venta", "codigo_nissei", "lote", "descripcion", "rubro", "linea", "sub_linea", "marca", "cantidad", "precio_real", "total_venta", "tipo_documento", "estado"],
+  stock: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "codigo_nissei", "lote", "descripcion", "rubro", "linea", "sub_linea", "marca", "estado_stock", "cantidad", "valor_stock"],
+  ingresos: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "codigo_nissei", "lote", "descripcion", "rubro", "linea", "sub_linea", "marca", "proveedor", "cantidad_recibida", "total_ingreso", "tipo_movimiento_ingreso"],
+  transferencias: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "direccion", "tienda_origen_id", "tienda_origen", "tienda_destino_id", "tienda_destino", "nro_guia", "codigo_nissei", "lote", "descripcion", "rubro", "linea", "sub_linea", "marca", "cantidad", "total_transferencia", "estado_transferencia"],
   trafico: ["fecha", "anio", "mes", "dia", "tienda_id", "tienda", "cantidad_personas", "tipo_conteo", "fuente_conteo", "estado_registro"],
 });
 
 export const ANNUAL_REPORT_LABELS = Object.freeze({
   fecha: "Fecha", anio: "Año", mes: "Mes", dia: "Día", tienda_id: "Código de tienda", tienda: "Tienda",
-  nro_venta: "N.º de venta", codigo_nissei: "Código de producto", descripcion: "Descripción", rubro: "Rubro",
+  nro_venta: "N.º de venta", codigo_nissei: "Código Nissei", lote: "Lote", descripcion: "Descripción", rubro: "Rubro",
   linea: "Línea", sub_linea: "Sublínea", marca: "Marca", cantidad: "Unidades", precio_real: "Precio real (S/)",
   total_venta: "Venta neta (S/)", tipo_documento: "Tipo de documento", estado: "Estado",
   estado_stock: "Estado de stock", valor_stock: "Valor de stock (S/)", proveedor: "Proveedor",
@@ -59,16 +57,18 @@ export function annualSummaryPath(version, year, storeId) {
   return `commercial-annual/${version}/${year}/summary/${storeId}.json.gz`;
 }
 
-export function annualMonthlyReportPath(version, year, kind, storeId, month) {
+export function annualMonthlyReportPath(version, year, kind, storeId, month, schemaVersion = 2) {
   annualReportPath(version, year, kind, storeId);
   if (!Number.isInteger(Number(month)) || Number(month) < 1 || Number(month) > 12) {
     throw new Error("Mes de reporte no válido.");
   }
-  return `commercial-annual-v2/${version}/${year}/${kind}/${storeId}/${String(month).padStart(2, "0")}.jsonl.gz`;
+  if (![2, 3].includes(schemaVersion)) throw new Error("Versión de reporte no válida.");
+  return `commercial-annual-v${schemaVersion}/${version}/${year}/${kind}/${storeId}/${String(month).padStart(2, "0")}.jsonl.gz`;
 }
 
-export function annualMonthlySummaryPath(version, year, storeId) {
-  return annualSummaryPath(version, year, storeId).replace("commercial-annual/", "commercial-annual-v2/");
+export function annualMonthlySummaryPath(version, year, storeId, schemaVersion = 2) {
+  if (![2, 3].includes(schemaVersion)) throw new Error("Versión de reporte no válida.");
+  return annualSummaryPath(version, year, storeId).replace("commercial-annual/", `commercial-annual-v${schemaVersion}/`);
 }
 
 export function parseAnnualFilters(input = {}) {

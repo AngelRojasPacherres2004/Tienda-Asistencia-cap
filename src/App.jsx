@@ -3,6 +3,7 @@ import { api, lockStoreContext, setStoreContext } from "./lib/api";
 import { consumeStoreNavigation, restartStoreNavigation } from "./lib/storeNavigation";
 import Layout from "./components/Layout";
 import { Loading, Notice } from "./components/UI";
+import RequiredCredentialChange from "./components/RequiredCredentialChange";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -35,9 +36,11 @@ const HistorialMovimientos = lazy(() => import("./pages/HistorialMovimientos"));
 const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const RmsBatchUpload = lazy(() => import("./pages/RmsBatchUpload"));
+const SecurityAdmin = lazy(() => import("./pages/SecurityAdmin"));
+const CredentialPermissions = lazy(() => import("./pages/CredentialPermissions"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
   jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
 };
 
@@ -141,6 +144,7 @@ export default function App() {
 
   if (checking) return <div className="splash"><Loading label="Preparando tu espacio…" /></div>;
   if (!user) return <Suspense fallback={<div className="splash"><Loading /></div>}><Login onLogin={login} /></Suspense>;
+  if (user.cambio_credenciales_pendiente) return <RequiredCredentialChange user={user} onComplete={account => { setStoreContext(account); setUser(account); }} onLogout={logout} />;
 
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
@@ -160,6 +164,7 @@ export default function App() {
     profile: <Profile />,
     gestion: <GestionTienda user={user} />,
     seguridad: <Seguridad user={user} />,
+    "seguridad-central": user.rol === "administrador_seguridad" ? <SecurityAdmin /> : <Dashboard user={user} />,
     "seguridad-trafico": <TraficoSeguridad user={user} />,
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
     "mi-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,
@@ -182,6 +187,7 @@ export default function App() {
     "marketing-campanas": <Marketing section="campanas" />,
     "marketing-seguidores": <Marketing section="seguidores" />,
     sistemas: user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+    "sistemas-credenciales": user.rol === "sistemas" ? <CredentialPermissions /> : <Dashboard user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (

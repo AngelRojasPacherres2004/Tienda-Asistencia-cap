@@ -1,7 +1,7 @@
 """Partition an existing private annual report release by month, without changing source data.
 
 Run against the already validated annual export in a *different* destination folder.
-The new manifest is additive (schemaVersion 2); the legacy export remains intact.
+The new manifest is additive (schemaVersion 2 or 3); the legacy export remains intact.
 """
 
 import argparse
@@ -12,11 +12,13 @@ from pathlib import Path
 from shutil import copyfile
 
 
-def partition(source: Path, output: Path):
+def partition(source: Path, output: Path, schema_version: int = 2):
     if source.resolve() == output.resolve():
         raise ValueError("La carpeta de salida debe ser distinta de la fuente.")
+    if schema_version not in (2, 3):
+        raise ValueError("Versión de reporte no válida.")
     manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
-    if manifest.get("schemaVersion") == 2:
+    if manifest.get("schemaVersion") in (2, 3):
         raise ValueError("La fuente ya está particionada.")
     if (output / "manifest.json").exists():
         raise FileExistsError("La salida ya tiene un manifiesto; usa una carpeta nueva.")
@@ -53,7 +55,7 @@ def partition(source: Path, output: Path):
         target.parent.mkdir(parents=True, exist_ok=True)
         copyfile(source / item["path"], target)
         summaries.append(item)
-    result = {**manifest, "schemaVersion": 2, "files": files, "summaries": summaries}
+    result = {**manifest, "schemaVersion": schema_version, "files": files, "summaries": summaries}
     output.mkdir(parents=True, exist_ok=True)
     (output / "manifest.json").write_text(json.dumps(result, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return {"files": len(files), "detailRows": sum(item["rows"] for item in files),
@@ -64,5 +66,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--schema-version", type=int, choices=(2, 3), default=2)
     args = parser.parse_args()
-    print(json.dumps(partition(args.source, args.output)))
+    print(json.dumps(partition(args.source, args.output, args.schema_version)))
