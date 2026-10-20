@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck, Building2, CalendarCheck2, ClipboardCheck, Download,
-  FileCheck2, FileText, GraduationCap, ListChecks, Search, ShieldAlert, UsersRound,
+  FileCheck2, FileText, GraduationCap, Search, ShieldAlert, UsersRound,
 } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Loading, Modal, Notice, PageHeader, Pagination, StatusBadge } from "../components/UI";
@@ -36,10 +36,6 @@ const reportDefinitions = {
     label: "Reclamaciones", description: "Libro de reclamaciones y atención al consumidor.", icon: BookOpenCheck,
     columns: [["codigo", "Código"], ["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["consumidor", "Consumidor"], ["tipo", "Tipo"], ["estado", "Estado", "status"]],
   },
-  acciones: {
-    label: "Acciones", description: "Planes, activaciones y acciones operativas.", icon: ListChecks,
-    columns: [["fecha", "Fecha", "date"], ["tienda", "Tienda"], ["accion", "Acción"], ["tipo", "Tipo"], ["responsable", "Responsable"], ["estado", "Estado", "status"]],
-  },
   requerimientos: {
     label: "Requerimientos", description: "Necesidades de tienda y estado de atención.", icon: ClipboardCheck,
     columns: [["codigo", "Código"], ["tienda", "Tienda"], ["requerimiento", "Requerimiento"], ["urgencia", "Urgencia"], ["fecha_inicio", "Inicio", "date"], ["estado", "Estado", "status"]],
@@ -64,7 +60,6 @@ const statusOptions = {
   documentos: [["vigente", "Vigente"], ["por_vencer", "Por vencer"], ["vencido", "Vencido"], ["en_renovacion", "En renovación"]],
   incidencias: [["abierta", "Abierta"], ["en_seguimiento", "En seguimiento"], ["cerrada", "Cerrada"], ["registrado", "Registrada"], ["en_revision", "En revisión"], ["resuelto", "Resuelta"]],
   reclamaciones: [["registrado", "Registrado"], ["en_atencion", "En atención"], ["respondido", "Respondido"], ["cerrado", "Cerrado"]],
-  acciones: [["pendiente", "Pendiente"], ["en_progreso", "En progreso"], ["completada", "Completada"], ["cancelada", "Cancelada"]],
   requerimientos: [["pendiente", "Pendiente"], ["en_proceso", "En proceso"], ["atendido", "Atendido"], ["cancelado", "Cancelado"]],
   supervisiones: [["por_validar", "Por validar"], ["en_seguimiento", "En seguimiento"], ["cerrada", "Cerrada"]],
   capacitaciones: [["pendiente", "Pendiente"], ["en_curso", "En curso"], ["completado", "Completado"]],
