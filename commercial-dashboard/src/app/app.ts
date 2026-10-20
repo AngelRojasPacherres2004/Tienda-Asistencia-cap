@@ -8,7 +8,7 @@ import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService, type CompanyRankingData, type OperationalSummary } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
-import { stockTransfers } from './stock-transfers';
+import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
 
 type Store = {
@@ -133,7 +133,7 @@ function denseRanks(values: Array<number | null>, descending = true): Map<number
   selector: 'app-root',
   imports: [CommonModule, FormsModule, DashboardChartComponent, DashboardAssistantWidgetComponent],
   templateUrl: './app.html',
-  styleUrl: './app.scss',
+  styleUrls: ['./app.scss', './transfer-modal.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.ShadowDom,
 })
@@ -1815,63 +1815,103 @@ export class App implements OnInit {
   readonly predictiveStoreOptions = computed(() => this.inventoryStoresIgnoringStoreFilter());
   readonly transferRubro = signal('');
   readonly transferLine = signal('');
+  readonly transferBrand = signal('');
+  readonly transferStore = signal('');
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
   readonly transferPage = signal(0);
+  readonly transferPageSize = 10;
   readonly transferProducts = computed(() => {
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
-    return this.staticPredictiveProducts().filter(row => ids.has(row.storeId));
+    return this.staticPredictiveProducts().filter(row => ids.has(row.storeId) && ['TEXTIL', 'CALZADO'].includes(row.category));
   });
   readonly transferLines = computed(() => [...new Set(this.transferProducts()
     .filter(row => !this.transferRubro() || row.category === this.transferRubro()).map(row => row.line).filter(Boolean))].sort());
-  readonly transferAllRecommendations = computed(() => {
+  readonly transferBrands = computed(() => [...new Set(this.transferProducts()
+    .filter(row => (!this.transferRubro() || row.category === this.transferRubro())
+      && (!this.transferLine() || row.line === this.transferLine()))
+    .map(row => row.brand).filter(Boolean))].sort());
+  readonly transferStores = computed(() => this.predictiveStoreOptions().filter(store => store.isStore));
+  readonly transferFilteredProducts = computed(() => {
     const query = this.normalized(this.transferSearch());
-    const rows = this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
+    return this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine())
-      && (!query || this.normalized(`${row.productId} ${row.product}`).includes(query)));
+      && (!this.transferBrand() || row.brand === this.transferBrand())
+      && (!query || this.normalized(`${row.productId} ${row.product} ${row.brand}`).includes(query)));
+  });
+  readonly transferAllRecommendations = computed(() => {
     const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
-    return stockTransfers(rows).map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
+    return stockTransfers(this.transferFilteredProducts()).map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
       destinationName: names.get(row.destination) || row.destination }));
   });
   readonly transferRecommendations = computed(() => this.transferAllRecommendations().filter(row =>
-    !this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical)));
-  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / 15)));
+    (!this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical))
+    && (!this.transferStore() || row.source === this.transferStore() || row.destination === this.transferStore())));
+  readonly transferSummary = computed(() => transferTotals(this.transferFilteredProducts(), this.transferRecommendations(), this.transferStore()));
+  readonly transferHasEstimates = computed(() => this.transferRecommendations().some(row => row.estimated));
+  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / this.transferPageSize)));
   readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
-  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * 15, (this.transferCurrentPage() + 1) * 15));
+  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
   readonly transferChartOption = computed<EChartsOption>(() => {
     const rows = this.transferPageRows();
     return {
-      animation: false, legend: { top: 0, data: ['Stock origen', 'Stock destino', 'Traslado sugerido'] },
-      grid: { left: 170, right: 24, top: 35, bottom: 25 },
-      tooltip: { trigger: 'axis', confine: true, formatter: (params: any) => {
+      animation: false,
+      grid: { left: 310, right: 80, top: 42, bottom: 20 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.product || '', [
           { label: 'Código', value: row?.productId || '' },
           { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
           { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
           { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
-          { label: 'Venta origen / 30 días', value: this.number(row?.sourceSales ?? null, ' und') },
-          { label: 'Venta destino / 30 días', value: this.number(row?.destinationSales ?? null, ' und') },
+          { label: 'Ventas origen / 30 días', value: this.number(row?.sourceSales ?? null, ' und') },
+          { label: 'Ventas destino / 30 días', value: this.number(row?.destinationSales ?? null, ' und') },
           { label: 'Cobertura destino', value: this.number(row?.destinationDays ?? null, ' días') },
-          { label: 'Cobertura origen', value: row?.sourceDays == null ? 'Sin venta 30D' : this.number(row.sourceDays, ' días') },
+          { label: 'Cobertura origen', value: row?.sourceDays == null ? 'Sin ventas en 30 días' : this.number(row.sourceDays, ' días') },
           { label: 'Traslado sugerido', value: this.number(row?.suggested ?? null, ' und') },
-          { label: 'Prioridad destino', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
-          { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' }
+          { label: 'Prioridad', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
+          { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' },
         ]);
       } },
-      xAxis: { type: 'value', name: 'Unidades' },
-      yAxis: { type: 'category', inverse: true, data: rows.map(row => `${row.productId} · ${row.sourceName} → ${row.destinationName}`),
-        axisLabel: { width: 155, overflow: 'truncate', fontSize: 10 } },
+      xAxis: { type: 'value', position: 'top', name: 'Unidades', nameLocation: 'middle', nameGap: 26,
+        minInterval: 1, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#e4eaf3', type: 'dashed' } } },
+      yAxis: { type: 'category', inverse: true, data: rows.map((_, index) => String(index)),
+        axisTick: { show: false }, axisLine: { show: false },
+        splitArea: { show: true, areaStyle: { color: ['#ffffff', '#f7f9fd'] } },
+        axisLabel: { margin: 20, formatter: (value: string) => {
+          const row = rows[Number(value)];
+          if (!row) return '';
+          const words = row.product.split(/\s+/); const lines: string[] = []; let line = '';
+          for (const word of words) {
+            if (line && (line + ' ' + word).length > 38) { lines.push(line); line = word; } else line += (line ? ' ' : '') + word;
+          }
+          if (line) lines.push(line);
+          const product = lines.slice(0, 2).join('\n') + (lines.length > 2 ? '…' : '');
+          // Escape ECharts rich-text delimiters in product/store names.
+          const safe = (text: string) => text.replace(/[{}|]/g, ' ');
+          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
+        }, rich: {
+          route: { fontSize: 12, fontWeight: 800, lineHeight: 22 },
+          product: { fontSize: 11, lineHeight: 17, width: 270, overflow: 'truncate' },
+          critical: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
+          alert: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
+        } } },
       series: [
-        { name: 'Stock origen', type: 'bar', data: rows.map(row => row.sourceStock), itemStyle: { color: C.gold } },
-        { name: 'Stock destino', type: 'bar', data: rows.map(row => row.destinationStock), itemStyle: { color: C.red } },
-        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), itemStyle: { color: C.navy } }
-      ]
+        { name: 'Stock origen', type: 'bar', data: rows.map(row => row.sourceStock), itemStyle: { color: '#f4b400', borderRadius: [0, 4, 4, 0] } },
+        { name: 'Stock destino', type: 'bar', data: rows.map(row => row.destinationStock), itemStyle: { color: '#e11d2e', borderRadius: [0, 4, 4, 0] } },
+        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), itemStyle: { color: '#123a8c', borderRadius: [0, 4, 4, 0] } },
+      ].map(series => ({ ...series, barWidth: 9, barGap: '45%',
+        label: { show: true, position: 'right', distance: 8, fontSize: 11, formatter: (params: any) => `${this.number(params.value)} und` },
+        emphasis: { focus: 'series' },
+      })) as EChartsOption['series'],
     };
   });
+  resetTransferFilters(): void {
+    this.transferRubro.set(''); this.transferLine.set(''); this.transferBrand.set(''); this.transferStore.set('');
+    this.transferSearch.set(''); this.transferPriority.set(''); this.transferPage.set(0);
+  }
   openTransfers(): void {
-    this.transferRubro.set(''); this.transferLine.set(''); this.transferSearch.set('');
-    this.transferPriority.set(''); this.transferPage.set(0);
+    this.resetTransferFilters();
     this.toggleChartExpansion('stock-transfers');
     void this.ensureStockDetail();
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
@@ -3161,7 +3201,8 @@ export class App implements OnInit {
     // Angular computed values retain their last result until read again.
     // Evaluate product-level caches against the cleared source to release old rows.
     this.filteredProducts(); this.staticPredictiveProducts(); this.predictiveProducts(); this.activeProductRows();
-    this.predictiveScopedProducts(); this.transferProducts(); this.transferLines(); this.transferChartOption();
+    this.predictiveScopedProducts(); this.transferProducts(); this.transferLines(); this.transferBrands();
+    this.transferFilteredProducts(); this.transferAllRecommendations(); this.transferPageRows(); this.transferSummary(); this.transferChartOption();
     this.predictiveHealthOption(); this.predictiveBreakageOption(); this.predictiveReplenishmentOption();
     this.predictiveProjectionOption(); this.predictivePriorityProducts(); this.productExtremes();
     this.inventoryProductsIgnoringStoreFilter(); this.stockOriginDetailRows(); this.stockOrigins(); this.selectedStockOrigins();

@@ -1,0 +1,51 @@
+.transfer-modal { gap: 16px; }
+.transfer-modal > * { flex-shrink: 0; }
+.transfer-filters { display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)) minmax(150px, 1.2fr) auto; gap: 12px; padding: 16px; border: 1px solid #dbe4f2; border-radius: 12px; background: #f7f9fd; }
+.transfer-filters label { display: grid; align-content: start; gap: 8px; min-width: 0; color: #344968; font-size: 12px; font-weight: 700; }
+.transfer-filters :is(select, input) { box-sizing: border-box; width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid #bccce5; border-radius: 8px; background: #fff; color: #172f53; font: inherit; }
+.transfer-filters :is(select, input):focus-visible, .transfer-modal button:focus-visible, .transfer-list:focus-visible { outline: 3px solid #8bb4f5; outline-offset: 2px; }
+.transfer-reset, .transfer-pagination button { min-height: 40px; padding: 8px 16px; border: 1px solid #bccce5; border-radius: 8px; background: #fff; color: #123a8c; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.transfer-filters .transfer-reset { align-self: end; height: 42px; }
+.transfer-reset:hover, .transfer-pagination button:not(:disabled):hover { background: #eef4ff; border-color: #123a8c; }
+.transfer-pagination button:disabled { opacity: .4; cursor: default; }
+.transfer-intro { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding-right: 32px; }
+.transfer-inline-totals { display: flex; flex-wrap: wrap; gap: 8px 24px; color: #516581; font-size: 12px; }
+.transfer-inline-totals > span { white-space: nowrap; }
+.transfer-inline-totals strong { color: #123a8c; font-size: 14px; font-variant-numeric: tabular-nums; }
+.transfer-inline-totals > span:last-child strong { color: #187453; }
+.transfer-context { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.transfer-context p { line-height: 1.5; }
+.transfer-context .transfer-totals-note { flex-basis: 100%; font-size: 10px; }
+.transfer-rules { display: flex; flex-wrap: wrap; gap: 6px; }
+.transfer-rules span { padding: 5px 8px; border-radius: 5px; background: #f1f5f9; color: #52647c; font-size: 10px; }
+.transfer-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.transfer-pagination > p, .transfer-pagination > div { display: flex; align-items: center; gap: 12px; }
+.transfer-pagination p strong { color: #263e5f; font-size: 13px; }
+.transfer-pagination > div > span { color: #64748b; font-size: 12px; }
+.transfer-modal .transfer-list { flex: 1 1 auto; min-height: 160px; overflow: auto; overscroll-behavior: contain; border: 1px solid #dbe4f2; border-radius: 12px; }
+.transfer-chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 24px; padding: 2px 0; }
+.transfer-chart-legend span { display: inline-flex; align-items: center; gap: 7px; color: #52647c; font-size: 12px; }
+.transfer-chart-legend i { width: 24px; height: 9px; border-radius: 3px; }
+.transfer-chart-legend .origin { background: #f4b400; }
+.transfer-chart-legend .destination { background: #e11d2e; }
+.transfer-chart-legend .suggestion { background: #123a8c; }
+.transfer-modal .transfer-bars { display: block; width: 100%; min-width: 850px; min-height: 180px; }
+.transfer-empty { display: grid; place-content: center; justify-items: center; gap: 14px; flex: 1; min-height: 160px; padding: 24px; border: 1px dashed #c8d5e7; border-radius: 12px; text-align: center; }
+.transfer-modal .transfer-footnote { font-size: 10px; }
+@media (max-width: 1150px) {
+  .transfer-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .transfer-filters .transfer-reset { grid-column: 3; }
+}
+@media (max-width: 700px), (max-height: 650px) {
+  .chart-expanded.transfer-modal { overflow-y: auto; }
+  .transfer-modal .transfer-list { flex: 0 0 auto; max-height: 55vh; }
+}
+@media (max-width: 700px) {
+  .transfer-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+  .transfer-filters .transfer-reset { grid-column: auto; }
+  .transfer-search { grid-column: 1 / -1; }
+  .transfer-intro { padding-right: 0; }
+  .transfer-pagination { align-items: flex-start; flex-direction: column; }
+  .transfer-pagination > p { flex-wrap: wrap; gap: 6px 12px; }
+  .transfer-pagination > div { justify-content: space-between; width: 100%; }
+}
