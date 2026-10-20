@@ -17,26 +17,26 @@ import duckdb
 
 DETAIL_SQL = {
     "ventas": """select fecha_venta fecha, year(fecha_venta) anio, month(fecha_venta) mes,
-        day(fecha_venta) dia, tienda_id, tienda, nro_venta, codigo_nissei, descripcion,
+        day(fecha_venta) dia, tienda_id, tienda, nro_venta, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, cantidad, precio_real, total_venta,
         tipo_documento, estado from {fact}""",
     "stock": """select fecha_corte fecha, year(fecha_corte) anio, month(fecha_corte) mes,
-        day(fecha_corte) dia, tienda_id, tienda, codigo_nissei, descripcion,
+        day(fecha_corte) dia, tienda_id, tienda, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, estado_stock, cantidad, valor_stock from {fact}""",
     "ingresos": """select fecha_ingreso fecha, year(fecha_ingreso) anio, month(fecha_ingreso) mes,
-        day(fecha_ingreso) dia, tienda_id, tienda, codigo_nissei, descripcion,
+        day(fecha_ingreso) dia, tienda_id, tienda, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, proveedor, cantidad_recibida, total_ingreso,
         tipo_movimiento_ingreso from {fact}""",
     "transferencias": """select fecha_transferencia fecha, year(fecha_transferencia) anio,
         month(fecha_transferencia) mes, day(fecha_transferencia) dia,
         tienda_origen_id tienda_id, tienda_origen tienda, 'SALIDA' direccion,
         tienda_origen_id, tienda_origen, tienda_destino_id, tienda_destino, nro_guia,
-        codigo_nissei, descripcion, rubro, linea, sub_linea, marca, cantidad,
+        codigo_nissei, lote, descripcion, rubro, linea, sub_linea, marca, cantidad,
         total_transferencia, estado_transferencia from {fact}
         union all select fecha_transferencia, year(fecha_transferencia),
         month(fecha_transferencia), day(fecha_transferencia),
         tienda_destino_id, tienda_destino, 'ENTRADA', tienda_origen_id, tienda_origen,
-        tienda_destino_id, tienda_destino, nro_guia, codigo_nissei, descripcion,
+        tienda_destino_id, tienda_destino, nro_guia, codigo_nissei, lote, descripcion,
         rubro, linea, sub_linea, marca, cantidad, total_transferencia,
         estado_transferencia from {fact}""",
     "trafico": """select fecha, year(fecha) anio, month(fecha) mes, day(fecha) dia,
@@ -137,11 +137,14 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
             f"select max({field}) from {source(root, kind, effective_cutoffs[kind])}").fetchone()[0] or "")
 
     detail_handles, detail_counts = {}, defaultdict(int)
+    detail_columns = {}
     dimensions = defaultdict(set)
     try:
         for kind, template in DETAIL_SQL.items():
             print(f"Detalle {kind}...", flush=True)
-            write_query(connection, template.format(fact=source(root, kind, effective_cutoffs[kind])), output, kind,
+            query = template.format(fact=source(root, kind, effective_cutoffs[kind]))
+            detail_columns[kind] = [column[0] for column in connection.execute(f"{query} limit 0").description]
+            write_query(connection, query, output, kind,
                         stores, years, detail_handles, detail_counts, dimensions)
     finally:
         for handle in detail_handles.values():
@@ -189,6 +192,7 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
                           "bytes": target.stat().st_size, "path": f"{year}/summary/{store}.json.gz"})
     manifest = {"generatedAt": datetime.now(timezone.utc).isoformat(),
                 "years": sorted({item["year"] for item in files}), "cutoffs": cutoffs,
+                "detailColumns": detail_columns,
                 "stores": stores, "files": files, "summaries": summaries,
                 "dimensions": {f"{year}/{store}": sorted(map(list, values))
                                for (year, store), values in dimensions.items()}}

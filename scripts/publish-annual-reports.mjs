@@ -16,12 +16,17 @@ const { data: release, error: releaseError } = await client.from("dashboard_rele
   .order("published_at", { ascending: false }).limit(1).single();
 if (releaseError || !release) throw new Error("No se encontró un corte comercial publicado.");
 const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"));
-const monthly = manifest.schemaVersion === 2;
+const monthly = [2, 3].includes(manifest.schemaVersion);
+const reportVersion = monthly ? manifest.schemaVersion : null;
 if (manifest.cutoffs?.ventas !== release.sales_cutoff || manifest.cutoffs?.stock !== release.stock_cutoff) {
   throw new Error("La Capa 2 no coincide con el corte publicado; no se mezclarán fuentes.");
 }
 if (!Array.isArray(manifest.files) || !Array.isArray(manifest.summaries) || !Array.isArray(manifest.years)) {
   throw new Error("Catálogo anual incompleto.");
+}
+if (reportVersion === 3 && Object.entries(ANNUAL_DETAIL_COLUMNS).some(([kind, columns]) =>
+  JSON.stringify(manifest.detailColumns?.[kind]) !== JSON.stringify(columns))) {
+  throw new Error("El detalle no contiene todas las columnas Nissei/Lote esperadas.");
 }
 const { data: mapping, error: mappingError } = await client.from("commercial_store_map")
   .select("dashboard_store_id");
@@ -37,7 +42,7 @@ for (const item of manifest.files.filter(row => allowed.has(row.storeId))) {
   const size = (await stat(filePath)).size;
   if (size !== item.bytes || size > 50 * 1024 * 1024) throw new Error(`Archivo inválido o demasiado grande: ${item.path}`);
   files.push({ ...item, filePath, storagePath: monthly
-    ? annualMonthlyReportPath(release.version, item.year, item.kind, item.storeId, item.month)
+    ? annualMonthlyReportPath(release.version, item.year, item.kind, item.storeId, item.month, reportVersion)
     : annualReportPath(release.version, item.year, item.kind, item.storeId) });
 }
 for (const item of manifest.summaries.filter(row => allowed.has(row.storeId))) {
@@ -48,14 +53,14 @@ for (const item of manifest.summaries.filter(row => allowed.has(row.storeId))) {
   const size = (await stat(filePath)).size;
   if (size !== item.bytes || size > 50 * 1024 * 1024) throw new Error(`Archivo inválido o demasiado grande: ${item.path}`);
   files.push({ ...item, filePath, storagePath: monthly
-    ? annualMonthlySummaryPath(release.version, item.year, item.storeId)
+    ? annualMonthlySummaryPath(release.version, item.year, item.storeId, reportVersion)
     : annualSummaryPath(release.version, item.year, item.storeId) });
 }
 console.log(JSON.stringify({ version: release.version, years: manifest.years,
   objects: files.length, compressedBytes: files.reduce((sum, item) => sum + item.bytes, 0), apply }));
 if (!apply) process.exit(0);
 const bucket = client.storage.from("dashboard-data");
-const manifestPath = `${monthly ? "commercial-annual-v2" : "commercial-annual"}/${release.version}/manifest.json`;
+const manifestPath = `${monthly ? `commercial-annual-v${reportVersion}` : "commercial-annual"}/${release.version}/manifest.json`;
 if ((await bucket.info(manifestPath)).data) {
   const { data, error } = await bucket.download(manifestPath);
   if (error || !data) throw new Error("No se pudo verificar el catálogo anual publicado.");

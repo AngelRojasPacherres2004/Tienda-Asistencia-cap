@@ -609,6 +609,8 @@ async function loadAnnualReportManifest() {
   // En local se prefiere la partición mensual; la versión anual sigue disponible como respaldo.
   const localDirectories = process.env.CONTEXT === "production" ? [] : [
     ...(process.env.ANNUAL_REPORTS_DIR ? [process.env.ANNUAL_REPORTS_DIR] : []),
+    resolve(process.cwd(), "..", ".etl_work", `annual-reports-monthly-${release.sales_cutoff}-v3`),
+    resolve(process.cwd(), "..", ".etl_work", `annual-reports-monthly-${release.sales_cutoff}`),
     resolve(process.cwd(), "..", ".etl_work", "annual-reports-monthly"),
     resolve(process.cwd(), "..", ".etl_work", "annual-reports"),
   ];
@@ -621,7 +623,8 @@ async function loadAnnualReportManifest() {
       }
     } catch { /* Sin archivos locales: consultar la publicación privada. */ }
   }
-  let result = await systemsStorage().download(`commercial-annual-v2/${release.version}/manifest.json`);
+  let result = await systemsStorage().download(`commercial-annual-v3/${release.version}/manifest.json`);
+  if (result.error || !result.data) result = await systemsStorage().download(`commercial-annual-v2/${release.version}/manifest.json`);
   if (result.error || !result.data) result = await systemsStorage().download(`commercial-annual/${release.version}/manifest.json`);
   if (result.error || !result.data) return { release, manifest: null, localDirectory: null };
   let manifest;
@@ -664,7 +667,7 @@ async function annualReportCatalog(sessionUser) {
     && (access.role !== "coach" || item.kind === "ventas"));
   const years = [...new Set(files.map(item => item.year))].sort((a, b) => b - a);
   const initialDimensions = annualDimensionTuples(manifest, years[0], access.storeIds);
-  return { ready: true, monthly: manifest.schemaVersion === 2, years, cutoffs: manifest.cutoffs,
+  return { ready: true, monthly: [2, 3].includes(manifest.schemaVersion), years, cutoffs: manifest.cutoffs,
     fileRows: files.map(({ year, kind, storeId, month, rows }) => ({ year, kind, storeId, month, rows })),
     reports: ANNUAL_REPORT_KINDS.filter(item => (access.role !== "coach" || item.id === "ventas")
       && files.some(file => file.kind === item.id && file.rows > 0))
@@ -699,17 +702,17 @@ async function annualDetailLinks(event, sessionUser) {
   annualKindAllowed(access.role, kind);
   const filters = annualFilters(event.queryStringParameters, manifest);
   if (!filters.month) throw httpError("Por ahora las descargas se realizan por mes. Selecciona un mes.", 400);
-  if (manifest.schemaVersion !== 2) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
+  if (![2, 3].includes(manifest.schemaVersion)) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
-  const monthly = manifest.schemaVersion === 2;
+  const monthly = [2, 3].includes(manifest.schemaVersion);
   const matching = manifest.files.filter(item => item.kind === kind && item.year === filters.year
     && selected.includes(item.storeId) && (!monthly || item.month === filters.month)
     && item.path === (monthly ? `${filters.year}/${kind}/${item.storeId}/${String(item.month).padStart(2, "0")}.jsonl.gz`
       : `${filters.year}/${kind}/${item.storeId}.jsonl.gz`));
   if (!matching.length) throw httpError("No hay registros de esa fuente para el año y tiendas seleccionados.", 404);
   const files = matching.map(item => {
-    const path = monthly ? annualMonthlyReportPath(release.version, item.year, item.kind, item.storeId, item.month)
+    const path = monthly ? annualMonthlyReportPath(release.version, item.year, item.kind, item.storeId, item.month, manifest.schemaVersion)
       : annualReportPath(release.version, item.year, item.kind, item.storeId);
     return { path, storeId: item.storeId, rows: item.rows,
       url: localDirectory
@@ -739,7 +742,7 @@ async function annualLocalDetailFile(event, sessionUser) {
   const filters = annualFilters(event.queryStringParameters, manifest);
   const storeId = String(event.queryStringParameters?.storeId || "");
   if (!annualStores(access, manifest, { ...filters, storeId }).includes(storeId)) throw httpError("Tienda fuera de alcance.", 403);
-  const monthly = manifest.schemaVersion === 2;
+  const monthly = [2, 3].includes(manifest.schemaVersion);
   if (!filters.month) throw httpError("Selecciona el mes del archivo.", 400);
   if (!monthly) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
   const item = manifest.files.find(file => file.kind === kind && file.year === filters.year && file.storeId === storeId
@@ -757,7 +760,7 @@ async function annualSummaryExcel(event, sessionUser) {
   if (!manifest) throw httpError("El resumen anual aún no está publicado.", 404);
   const filters = annualFilters(event.queryStringParameters, manifest);
   if (!filters.month) throw httpError("Por ahora las descargas se realizan por mes. Selecciona un mes.", 400);
-  if (manifest.schemaVersion !== 2) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
+  if (![2, 3].includes(manifest.schemaVersion)) throw httpError("Los archivos mensuales aún no están preparados para este corte.", 503);
   if (access.role === "coach") throw httpError("El resumen integral no corresponde al rol Coach.", 403);
   const selected = annualStores(access, manifest, filters);
   if (!selected.length) throw httpError("No hay tiendas en el alcance seleccionado.", 404);
@@ -765,7 +768,7 @@ async function annualSummaryExcel(event, sessionUser) {
     && item.path === `${filters.year}/summary/${item.storeId}.json.gz`);
   if (!matches.length) throw httpError("No hay información para ese año.", 404);
   const storeRows = await Promise.all(matches.map(async item => {
-    const path = manifest.schemaVersion === 2 ? annualMonthlySummaryPath(release.version, item.year, item.storeId)
+    const path = [2, 3].includes(manifest.schemaVersion) ? annualMonthlySummaryPath(release.version, item.year, item.storeId, manifest.schemaVersion)
       : annualSummaryPath(release.version, item.year, item.storeId);
     const blob = localDirectory ? await readFile(join(localDirectory, item.path))
       : await systemsStorage().download(path).then(result => {
