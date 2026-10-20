@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loading, Notice } from "../components/UI";
 
-export default function CommercialPortal() {
+export default function CommercialPortal({ storeContextId = null }) {
   const host = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -17,7 +17,7 @@ export default function CommercialPortal() {
         const script = documentHtml.querySelector('script[type="module"][src]')?.getAttribute("src");
         const stylesheet = documentHtml.querySelector('link[rel="stylesheet"]')?.getAttribute("href");
         if (!script || !stylesheet) throw new Error("El dashboard comercial necesita compilarse nuevamente.");
-        window.__DASHBOARD_CONFIG__ = { dataMode: "portal", groqAssistantEnabled: true };
+        window.__DASHBOARD_CONFIG__ = { dataMode: "portal", groqAssistantEnabled: true, storeContextId };
         await import(/* @vite-ignore */ new URL(script, `${location.origin}/comercial/`).href);
         if (!active) return;
         dispose = await window.mountCommercialDashboard(host.current, new URL(stylesheet, `${location.origin}/comercial/`).href);
@@ -29,7 +29,7 @@ export default function CommercialPortal() {
     };
     load();
     return () => { active = false; dispose?.(); };
-  }, []);
+  }, [storeContextId]);
 
   return (
     <section className="commercial-portal" aria-label="Dashboard ejecutivo comercial">

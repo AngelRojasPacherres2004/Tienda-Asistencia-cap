@@ -9,6 +9,7 @@ import {
   ConfirmDialog, EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 import Reportes from "./Reportes";
+import ApoyoTienda from "./ApoyoTienda";
 
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const rolesByManager = { gerencia_general: ["gerente_comercial", "coach"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
@@ -289,11 +290,12 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     && (!cluster.jefe_zonal_id || String(cluster.jefe_zonal_id) === String(editing?.id)),
   );
 
-  if (zonalTeam && workspace === "reportes") return <>
+  const workspaceTabs = <div className="module-view-tabs" aria-label="Secciones de Mis equipos">{[["equipo", "Equipo"], ["apoyo", "Apoyo tienda"], ["reportes", "Reportes y exportación"]].map(([value, label]) => <button key={value} className={workspace === value ? "active" : ""} onClick={() => setWorkspace(value)}>{label}</button>)}</div>;
+  if (zonalTeam && workspace !== "equipo") return <>
     <PageHeader eyebrow="Jefe zonal" title="Mis equipos" />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-    <div className="module-view-tabs"><button onClick={() => setWorkspace("equipo")}>Equipo</button><button className="active">Reportes y exportación</button></div>
-    <Reportes user={user} embedded initialKind="personal" allowedKinds={["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones"]} />
+    {workspaceTabs}
+    {workspace === "apoyo" ? <ApoyoTienda /> : <Reportes user={user} embedded initialKind="personal" allowedKinds={["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones"]} />}
   </>;
 
   return (
@@ -319,7 +321,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         </div>}
       />
       {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-      {zonalTeam && <div className="module-view-tabs"><button className="active">Equipo</button><button onClick={() => setWorkspace("reportes")}>Reportes y exportación</button></div>}
+      {zonalTeam && workspaceTabs}
       <div className="toolbar">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre, DNI o usuario…" />
         {zonalTeam && <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)}><option value="todos">Todas las tiendas</option><option value="sin_asignar">Sin tienda asignada</option>{tiendas.map((store) => <option key={store.id} value={String(store.id)}>{store.nombre}</option>)}</select>}

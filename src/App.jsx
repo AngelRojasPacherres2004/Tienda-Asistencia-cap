@@ -1,7 +1,7 @@
-import { Component, Fragment, lazy, Suspense, useEffect, useState } from "react";
-import { api } from "./lib/api";
+import { Component, Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { api, setStoreContext } from "./lib/api";
 import Layout from "./components/Layout";
-import { Loading } from "./components/UI";
+import { Loading, Notice } from "./components/UI";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -54,10 +54,14 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [page, setPage] = useState("dashboard");
+  const [switchingStore, setSwitchingStore] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState("");
+  const sessionRequest = useRef(0);
 
   useEffect(() => {
     api("/auth/me")
       .then(({ user: account }) => {
+        setStoreContext(account);
         setUser(account);
         setPage(homePageByRole[account.rol] || "dashboard");
       })
@@ -65,13 +69,53 @@ export default function App() {
       .finally(() => setChecking(false));
   }, []);
 
+  useEffect(() => {
+    if (user?.rol !== "jefe_tienda" || switchingStore) return;
+    let active = true, pending = false;
+    const refresh = async event => {
+      if (pending) return;
+      pending = true;
+      const request = ++sessionRequest.current;
+      try {
+        const { user: account } = await api("/auth/me");
+        if (!active || request !== sessionRequest.current) return;
+        setStoreContext(account);
+        setUser(current => JSON.stringify(current) === JSON.stringify(account) ? current : account);
+        if (account.apoyo_revocado || event?.detail) setSessionNotice(event?.detail || "El apoyo se deshabilitó. Se ha restablecido tu tienda principal.");
+      } catch (err) {
+        if (active && request === sessionRequest.current && err.status === 401) { setStoreContext(null); setUser(null); }
+      } finally { pending = false; }
+    };
+    const interval = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("store-access-changed", refresh);
+    return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); window.removeEventListener("store-access-changed", refresh); };
+  }, [user?.rol, switchingStore]);
+
   const login = (account) => {
+    setStoreContext(account);
     setUser(account);
     setPage(homePageByRole[account.rol] || "dashboard");
   };
   const logout = async () => {
+    ++sessionRequest.current;
     await api("/auth/logout", { method: "POST" }).catch(() => {});
     setUser(null);
+    setStoreContext(null);
+  };
+  const changeStore = async storeId => {
+    if (switchingStore || Number(storeId) === Number(user.tienda_id)) return;
+    ++sessionRequest.current;
+    setSwitchingStore(true); setSessionNotice("");
+    try {
+      const { user: account } = await api("/auth/tienda", { method: "POST", body: { tienda_id: Number(storeId) } });
+      setStoreContext(account); setUser(account);
+    } catch (err) {
+      setSessionNotice(err.message);
+      // A grant may have been revoked while the selector was open.
+      const result = await api("/auth/me").catch(() => null);
+      if (result) { setStoreContext(result.user); setUser(result.user); }
+    } finally { setSwitchingStore(false); }
   };
 
   if (checking) return <div className="splash"><Loading label="Preparando tu espacio…" /></div>;
@@ -81,7 +125,7 @@ export default function App() {
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
     dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+      ? <CommercialPortal storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: user.rol === "gerente_comercial" ? <CommercialPersonnel user={user} /> : isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
@@ -120,8 +164,9 @@ export default function App() {
   }[page] || <Dashboard user={user} />;
 
   return (
-    <Layout user={user} page={page} onNavigate={setPage} onLogout={logout}>
-      <PageErrorBoundary key={page}><Suspense fallback={<Loading />}>{content}</Suspense></PageErrorBoundary>
+    <Layout user={user} page={page} onNavigate={setPage} onLogout={logout} onStoreChange={changeStore} switchingStore={switchingStore}>
+      {sessionNotice && <Notice type="error" onClose={() => setSessionNotice("")}>{sessionNotice}</Notice>}
+      {switchingStore ? <Loading label="Cambiando de tienda…" /> : <PageErrorBoundary key={`${user.id}:${user.tienda_id}:${page}`}><Suspense fallback={<Loading />}>{content}</Suspense></PageErrorBoundary>}
     </Layout>
   );
 }

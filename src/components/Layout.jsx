@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import "../role-themes.css";
 import "../marketing-light.css";
 import "../dashboard-light.css";
+import "../store-support.css";
 import { isOperationalDemo } from "../lib/operationalDemo";
 
 const navByRole = {
@@ -102,7 +103,7 @@ const roleLabels = {
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
 
-export default function Layout({ user, page, onNavigate, onLogout, children }) {
+export default function Layout({ user, page, onNavigate, onLogout, onStoreChange, switchingStore, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -153,6 +154,10 @@ export default function Layout({ user, page, onNavigate, onLogout, children }) {
           <strong>Menú</strong>
         </div>
         <div className={`workspace__content ${isCommercialDashboard ? "workspace__content--commercial" : ""}`}>
+          {user.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="store-context-toolbar">
+            <label><Building2 size={17} />Tienda activa<select aria-label="Cambiar tienda activa" value={String(user.tienda_id || "")} disabled={switchingStore} onChange={event => onStoreChange(event.target.value)}>{user.tiendas_disponibles.map(store => <option key={store.id} value={String(store.id)}>{store.nombre}{store.principal ? " · Principal" : " · Apoyo"}</option>)}</select></label>
+            <span className="store-context-label">{user.tienda_id === user.tienda_principal_id ? "Tienda principal" : "Acceso de apoyo habilitado"}</span>
+          </div>}
           {page === "asiste-operativo" && isOperationalDemo() && <div className="operational-demo-banner" role="status"><strong>VISTA DEMO LOCAL</strong><span>Tráfico y comparativo zonal simulados. No se guardan en bd-app ni alteran los KPI reales.</span><a href={window.location.pathname}>Ver datos reales</a></div>}
           {!isDashboard && <div className="marketing-theme-toolbar">
             <button type="button" className="button button--ghost marketing-theme-toggle" onClick={toggleMarketingTheme} aria-label={`Cambiar a modo ${marketingTheme === "light" ? "oscuro" : "claro"}`}>
