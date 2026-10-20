@@ -131,3 +131,45 @@ test("HTTP session selector scopes reads, writes and commercial access; disablin
     assert.ok(refreshed.headers["Set-Cookie"]);
   } finally { globalThis.fetch = previousFetch; }
 });
+
+test("credential changes preserve the selected support store and refreshes retain credential validation", async () => {
+  const { data, fetch } = setup();
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = fetch;
+  const account = data.usuarios.find(person => person.id === 2);
+  account.usuario = "alf";
+  account.credenciales_actualizadas_en = "2026-10-20T10:00:00.000Z";
+  account.cambio_credenciales_pendiente = false;
+  data.apoyos_administradores_tienda.push({ id: 1, usuario_id: 2, tienda_id: 20, habilitado: true });
+  const invoke = (path, token, method = "GET", body) => handler({
+    path: `/api${path}`, httpMethod: method,
+    headers: { ...(token ? { authorization: `Bearer ${token}`, "x-store-context": String(jwt.decode(token).tienda_contexto_id || 10) } : {}) },
+    queryStringParameters: {}, body: body ? JSON.stringify(body) : null,
+  });
+  const cookieToken = response => response.headers["Set-Cookie"].match(/asiste_session=([^;]+)/)[1];
+  try {
+    const login = await invoke("/auth/login", null, "POST", { usuario: "alf", password: "test-only" });
+    assert.equal(login.statusCode, 200, login.body);
+    const selected = await invoke("/auth/tienda", cookieToken(login), "POST", { tienda_id: 20 });
+    assert.equal(selected.statusCode, 200, selected.body);
+    const selectedToken = cookieToken(selected);
+    assert.equal(jwt.decode(selectedToken).credenciales_actualizadas_en, account.credenciales_actualizadas_en);
+    const refresh = await invoke("/auth/me", selectedToken);
+    assert.equal(refresh.statusCode, 200, refresh.body);
+    assert.equal(JSON.parse(refresh.body).user.tienda_id, 20);
+    assert.equal(refresh.headers["Set-Cookie"], undefined, "A routine refresh cannot overwrite another tab's newer store cookie");
+    account.cambio_credenciales_pendiente = true;
+    const pending = await invoke("/auth/me", selectedToken);
+    assert.equal(pending.statusCode, 200, pending.body);
+    assert.equal(JSON.parse(pending.body).user.cambio_credenciales_pendiente, true);
+    const pendingToken = cookieToken(pending);
+    assert.equal((await invoke("/auth/tienda", pendingToken, "POST", { tienda_id: 10 })).statusCode, 403);
+    const changed = await invoke("/auth/change-credentials", pendingToken, "POST", { usuario: "ana.nueva", password: "NuevaClave123!", confirmarPassword: "NuevaClave123!" });
+    assert.equal(changed.statusCode, 200, changed.body);
+    assert.equal(JSON.parse(changed.body).user.tienda_id, 20);
+    assert.equal(JSON.parse(changed.body).user.tienda_principal_id, 10);
+    assert.equal(jwt.decode(cookieToken(changed)).cambio_credenciales_pendiente, false);
+    assert.equal((await invoke("/auth/me", selectedToken)).statusCode, 401, "The old credential epoch remains invalid after changing stores");
+    assert.equal((await invoke("/auth/me", cookieToken(changed))).statusCode, 200);
+  } finally { globalThis.fetch = previousFetch; }
+});

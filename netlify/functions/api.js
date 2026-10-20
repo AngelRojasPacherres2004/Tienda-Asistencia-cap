@@ -4400,8 +4400,10 @@ export async function handler(event) {
       };
       const user = account.rol === "jefe_tienda"
         ? await resolveAdministratorContext(supabase, sessionUser, { allowFallback: true }) : await withStoreName(sessionUser);
-      const token = jwt.sign(sessionClaims(user), jwtSecret(), { expiresIn: "10h" });
-      return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
+      // Routine refreshes must not overwrite a newer store selection made in another tab.
+      const changed = user.apoyo_revocado || JSON.stringify(sessionClaims(user)) !== JSON.stringify(sessionClaims(session));
+      const renewed = changed ? { "Set-Cookie": sessionCookie(jwt.sign(sessionClaims(user), jwtSecret(), { expiresIn: "10h" }), event) } : {};
+      return json(200, { user }, renewed);
     }
 
     const user = await authenticatedContext(event, path === "/auth/change-credentials");
