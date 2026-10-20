@@ -2,6 +2,7 @@ import { Component, Fragment, lazy, Suspense, useEffect, useState } from "react"
 import { api } from "./lib/api";
 import Layout from "./components/Layout";
 import { Loading } from "./components/UI";
+import RequiredCredentialChange from "./components/RequiredCredentialChange";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -35,6 +36,7 @@ const AjustesZonal = lazy(() => import("./pages/AjustesZonal"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const RmsBatchUpload = lazy(() => import("./pages/RmsBatchUpload"));
 const SecurityAdmin = lazy(() => import("./pages/SecurityAdmin"));
+const CredentialPermissions = lazy(() => import("./pages/CredentialPermissions"));
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
@@ -77,6 +79,7 @@ export default function App() {
 
   if (checking) return <div className="splash"><Loading label="Preparando tu espacio…" /></div>;
   if (!user) return <Suspense fallback={<div className="splash"><Loading /></div>}><Login onLogin={login} /></Suspense>;
+  if (user.cambio_credenciales_pendiente) return <RequiredCredentialChange user={user} onComplete={setUser} onLogout={logout} />;
 
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
@@ -119,6 +122,7 @@ export default function App() {
     "marketing-campanas": <Marketing section="campanas" />,
     "marketing-seguidores": <Marketing section="seguidores" />,
     sistemas: user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+    "sistemas-credenciales": user.rol === "sistemas" ? <CredentialPermissions /> : <Dashboard user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (

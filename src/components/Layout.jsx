@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
+  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import "../role-themes.css";
@@ -91,6 +91,7 @@ const navByRole = {
   ],
   sistemas: [
     { id: "sistemas", label: "Carga de datos", icon: FileSpreadsheet },
+    { id: "sistemas-credenciales", label: "Acceso y credenciales", icon: KeyRound },
   ],
 };
 navByRole.jefe_seguridad = navByRole.seguridad;

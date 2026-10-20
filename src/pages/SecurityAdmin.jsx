@@ -23,6 +23,7 @@ export default function SecurityAdmin() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     if (!validRange) {
       setResult({ rows: [], total: 0 });
       setError("Selecciona un período válido de hasta 31 días.");
@@ -30,10 +31,10 @@ export default function SecurityAdmin() {
     }
     setError("");
     setResult(null);
-    api(`/seguridad-central?${query}`)
+    api(`/seguridad-central?${query}`, { signal: controller.signal })
       .then(data => { if (active) { setResult(data); setStores(data.stores || []); } })
       .catch(reason => { if (active) { setResult({ rows: [], total: 0 }); setError(reason.message || "No se pudo cargar el reporte."); } });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [query, retry, validRange]);
 
   const update = (setter, value) => { setter(value); setPage(1); };
@@ -46,7 +47,7 @@ export default function SecurityAdmin() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = kind === "personal" ? "personal-seguridad.csv" : `seguridad-${kind}-${from}-${to}.csv`;
+      anchor.download = kind === "personal" ? `personal-seguridad-${storeId || "todas"}.csv` : `seguridad-${kind}-${storeId || "todas"}-${from}-${to}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -63,9 +64,9 @@ export default function SecurityAdmin() {
     {error && <Notice type="error" onClose={() => setError("")}>{error} <button type="button" className="button button--ghost button--small" onClick={() => setRetry(value => value + 1)}>Reintentar</button></Notice>}
     <section className="panel security-admin-panel">
       <div className="security-admin-filters">
-        <label>Tienda<select value={storeId} onChange={event => update(setStoreId, event.target.value)}><option value="">Todas las tiendas</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>
+        <label>Tienda<select value={storeId} onChange={event => update(setStoreId, event.target.value)}><option value="">Consolidado · todas las tiendas</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>
         {kind !== "personal" && <><label>Desde<input type="date" value={from} max={to} onChange={event => update(setFrom, event.target.value)} /></label><label>Hasta<input type="date" value={to} min={from} max={todayISO()} onChange={event => update(setTo, event.target.value)} /></label></>}
-        <button type="button" className="button button--soft" disabled={!result || !!error || exporting || !result.total} onClick={download}><Download size={16} />{exporting ? "Preparando…" : "Descargar CSV"}</button>
+        <button type="button" className="button button--soft" disabled={!validRange || exporting} onClick={download}><Download size={16} />{exporting ? "Preparando…" : storeId ? "Descargar tienda" : "Descargar consolidado"}</button>
       </div>
       {!result ? <Loading /> : result.rows.length ? <>
         <div className="security-admin-table-wrap"><table className="security-admin-table"><thead><tr>{kind === "personal"

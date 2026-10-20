@@ -951,14 +951,25 @@ function validIds(list) {
 
 // ---------- Autenticación ----------
 
+async function authAccount(query) {
+  const fields = "id,nombres,apellidos,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en";
+  let result = await query(fields);
+  if (["42703", "PGRST204"].includes(result.error?.code)) {
+    // Mantiene el ingreso disponible mientras la migración se aplica en bd-app.
+    result = await query("id,nombres,apellidos,usuario,password,rol,estado,tienda_id");
+    if (result.data) {
+      result.data.cambio_credenciales_pendiente = false;
+      result.data.credenciales_actualizadas_en = null;
+    }
+  }
+  return result;
+}
+
 async function login(event) {
   const { usuario, password } = bodyOf(event);
   requireFields({ usuario, password }, ["usuario", "password"]);
-  const { data: account, error } = await supabase
-    .from("usuarios")
-    .select("id,nombres,apellidos,usuario,password,rol,estado,tienda_id")
-    .eq("usuario", cleanUsuario(usuario))
-    .maybeSingle();
+  const { data: account, error } = await authAccount(fields => supabase
+    .from("usuarios").select(fields).eq("usuario", cleanUsuario(usuario)).maybeSingle());
   if (error) throw dbError(error);
 
   const fail = () => json(401, { error: "Usuario o contrase?a incorrectos." });
@@ -974,10 +985,76 @@ async function login(event) {
   const sessionUser = {
     id: account.id, nombres: account.nombres, apellidos: account.apellidos,
     usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
+    cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
+    credenciales_actualizadas_en: account.credenciales_actualizadas_en,
   };
   const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
   const user = await withStoreName(sessionUser);
   return json(200, { user }, { "Set-Cookie": sessionCookie(token, event) });
+}
+
+async function credentialPermissions(user) {
+  await requireSystemsCredentialAdmin(user);
+  const { data, error } = await readAllResult(supabase.from("usuarios")
+    .select("id,nombres,apellidos,usuario,rol,estado,cambio_credenciales_pendiente")
+    .eq("estado", "activo").neq("password", disabledPassword).not("usuario", "is", null), "nombres");
+  if (error) throw dbError(error);
+  return { accounts: data || [] };
+}
+
+async function setCredentialPermission(event, user, targetId) {
+  await requireSystemsCredentialAdmin(user);
+  const id = Number(targetId);
+  const { enabled } = bodyOf(event);
+  if (!Number.isSafeInteger(id) || id < 1 || typeof enabled !== "boolean") throw httpError("Indica una cuenta y un permiso válidos.", 400);
+  const { data: target, error: targetError } = await supabase.from("usuarios")
+    .select("id,estado,password,usuario").eq("id", id).maybeSingle();
+  if (targetError) throw dbError(targetError);
+  if (!target || target.estado !== "activo" || !target.usuario || !target.password || target.password === disabledPassword)
+    throw httpError("La cuenta no tiene acceso activo al sistema.", 400);
+  const { data, error } = await supabase.from("usuarios")
+    .update({ cambio_credenciales_pendiente: enabled }).eq("id", id)
+    .select("id,cambio_credenciales_pendiente").single();
+  if (error) throw dbError(error);
+  return { account: data };
+}
+
+async function requireSystemsCredentialAdmin(user) {
+  if (user.rol !== "sistemas") throw httpError("Solo Sistemas puede administrar este permiso.", 403);
+  const { data, error } = await supabase.from("usuarios").select("rol,estado").eq("id", user.id).maybeSingle();
+  if (error) throw dbError(error);
+  if (data?.rol !== "sistemas" || data?.estado !== "activo") throw httpError("Tu cuenta ya no tiene permiso de Sistemas.", 403);
+}
+
+async function changeCredentials(event, user) {
+  const body = bodyOf(event);
+  const usuario = cleanUsuario(body.usuario);
+  const password = String(body.password || "");
+  if (usuario.length < 2 || usuario.length > 40 || !/^[a-z0-9._-]+$/.test(usuario))
+    throw httpError("El usuario debe tener entre 2 y 40 caracteres: letras, números, punto, guion o guion bajo.", 400);
+  if (password.length < 8 || Buffer.byteLength(password, "utf8") > 72)
+    throw httpError("La contraseña debe tener al menos 8 caracteres y no superar 72 bytes.", 400);
+  if (password !== body.confirmarPassword) throw httpError("Las contraseñas no coinciden.", 400);
+  const { data: current, error: currentError } = await supabase.from("usuarios")
+    .select("id,nombres,apellidos,usuario,rol,estado,tienda_id,cambio_credenciales_pendiente")
+    .eq("id", user.id).maybeSingle();
+  if (currentError) throw dbError(currentError);
+  if (!current || current.estado !== "activo") throw httpError("Tu cuenta ya no está activa.", 403);
+  if (!current.cambio_credenciales_pendiente) throw httpError("Sistemas no ha habilitado el cambio de credenciales para esta cuenta.", 403);
+  const { data: duplicate, error: duplicateError } = await supabase.from("usuarios")
+    .select("id").eq("usuario", usuario).neq("id", user.id).limit(1);
+  if (duplicateError) throw dbError(duplicateError);
+  if (duplicate?.length) throw httpError("Ese nombre de usuario ya está en uso.", 409);
+  const hash = await bcrypt.hash(password, 12);
+  const { data: updated, error } = await supabase.from("usuarios")
+    .update({ usuario, password: hash, cambio_credenciales_pendiente: false, credenciales_actualizadas_en: new Date().toISOString() })
+    .eq("id", user.id).eq("cambio_credenciales_pendiente", true)
+    .select("id,nombres,apellidos,usuario,rol,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en").maybeSingle();
+  if (error) throw dbError(error);
+  if (!updated) throw httpError("El permiso ya fue utilizado o deshabilitado. Vuelve a iniciar sesión.", 409);
+  const sessionUser = { ...updated };
+  const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
+  return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
 }
 
 async function loginApoyoSeguridad(event) {
@@ -2935,6 +3012,22 @@ async function listIncidents(event, user) {
 
 const securityReportColumns = ["tipo_registro", "fecha", "tienda", "rango_hora", "hora_evento", "visitantes", "tipo_incidencia", "gravedad", "estado", "descripcion", "unidades_afectadas", "valor_referencial"];
 const securityReportLabels = ["Tipo de registro", "Fecha", "Tienda", "Rango horario", "Hora del hecho", "Visitantes", "Tipo de incidencia", "Gravedad", "Estado", "Descripción", "Unidades afectadas", "Valor referencial (S/)"];
+const securityPageSize = 100;
+const securityIncidentFilter = 'tipo.in.(robo,robo_frustrado,robo_interno,estafa,asalto,fiscalizacion,cambio_precio),and(tipo.eq.otro,asunto.eq."Otra incidencia de seguridad")';
+
+async function securityPreviewRows(request, first, last) {
+  const rows = [];
+  let total = 0;
+  for (let offset = first; offset <= last; offset += 1000) {
+    const end = Math.min(last, offset + 999);
+    const { data, count, error } = await request.range(offset, end);
+    if (error) throw dbError(error);
+    if (offset === first) total = count || 0;
+    rows.push(...(data || []));
+    if (!data || data.length < end - offset + 1) break;
+  }
+  return { rows, total };
+}
 
 async function securityAdminReport(event) {
   const query = event.queryStringParameters || {};
@@ -2948,59 +3041,67 @@ async function securityAdminReport(event) {
   }
   const storeId = query.tienda_id ? Number(query.tienda_id) : null;
   if (query.tienda_id && (!Number.isInteger(storeId) || storeId < 1)) throw httpError("Tienda no válida.", 400);
-  const stores = await fetchAllReportPages(supabase.from("tiendas").select("id,nombre").order("nombre"));
+  const { data: stores, error: storesError } = await supabase.from("tiendas").select("id,nombre").order("nombre");
+  if (storesError) throw dbError(storesError);
   if (storeId && !stores.some(store => store.id === storeId)) throw httpError("Tienda no encontrada.", 404);
   const storeNames = new Map(stores.map(store => [store.id, store.nombre]));
+  const page = Math.min(100, Math.max(1, Number.parseInt(query.page, 10) || 1));
+  const first = (page - 1) * securityPageSize;
+  const last = first + securityPageSize - 1;
   if (kind === "personal") {
-    let request = supabase.from("usuarios").select("id,nombres,apellidos,dni,telefono,rol,estado,tienda_id,fecha_ingreso,fecha_salida")
-      .in("rol", ["seguridad", "jefe_seguridad"]);
+    let request = supabase.from("usuarios").select("id,nombres,apellidos,dni,telefono,rol,estado,tienda_id,fecha_ingreso,fecha_salida", { count: "exact" })
+      .in("rol", ["seguridad", "jefe_seguridad"]).order("estado").order("nombres").order("apellidos").order("id");
     if (storeId) request = request.eq("tienda_id", storeId);
-    const people = await fetchAllReportPages(request.order("id"));
-    const rows = people.map(person => ({ ...person, tienda: storeNames.get(person.tienda_id) || "—" }))
-      .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1)
-        || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
+    const result = query.export === "1"
+      ? { rows: await fetchAllReportPages(request), total: 0 }
+      : await securityPreviewRows(request, first, last);
+    const rows = result.rows.map(person => ({ ...person, tienda: storeNames.get(person.tienda_id) || "—" }));
     if (query.export === "1") {
       const columns = ["tienda", "nombres", "apellidos", "dni", "telefono", "rol", "estado", "fecha_ingreso", "fecha_salida"];
       const labels = ["Tienda", "Nombres", "Apellidos", "DNI", "Teléfono", "Cargo", "Estado", "Fecha de ingreso", "Fecha de salida"];
-      return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="personal-seguridad.csv"', "Cache-Control": "no-store" },
+      return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="personal-seguridad-${storeId || "todas"}.csv"`, "Cache-Control": "no-store" },
         body: "\uFEFF" + labels.map(label => csvLine({ label }, ["label"]).trim()).join(",") + "\r\n" + rows.map(row => csvLine(row, columns)).join("") };
     }
-    return { rows: rows.slice((Math.max(1, Number.parseInt(query.page, 10) || 1) - 1) * 100, Math.max(1, Number.parseInt(query.page, 10) || 1) * 100), total: rows.length, stores };
+    return { rows, total: result.total, stores };
   }
   const requests = [];
   if (kind !== "incidencias") {
-    let traffic = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,observaciones")
-      .gte("fecha", desde).lte("fecha", hasta);
+    let traffic = supabase.from("trafico_tienda").select("id,tienda_id,fecha,rango_hora,cantidad,observaciones", { count: "exact" })
+      .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending: false }).order("rango_hora", { ascending: false }).order("id", { ascending: false });
     if (storeId) traffic = traffic.eq("tienda_id", storeId);
-    requests.push(fetchAllReportPages(traffic.order("id")));
-  } else requests.push(Promise.resolve([]));
+    requests.push(query.export === "1" ? fetchAllReportPages(traffic).then(rows => ({ rows, total: rows.length }))
+      : securityPreviewRows(traffic, kind === "todo" ? 0 : first, kind === "todo" ? page * securityPageSize - 1 : last));
+  } else requests.push(Promise.resolve({ rows: [], total: 0 }));
   if (kind !== "trafico") {
-    let incidents = supabase.from("incidencias").select("id,tienda_id,fecha,tipo,asunto,gravedad,estado,descripcion,incidencia_productos(cantidad,valor)")
-      .in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"])
-      .gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59.999-05:00`);
+    let incidents = supabase.from("incidencias").select("id,tienda_id,fecha,tipo,asunto,gravedad,estado,descripcion,incidencia_productos(cantidad,valor)", { count: "exact" })
+      .or(securityIncidentFilter).gte("fecha", `${desde}T00:00:00-05:00`).lte("fecha", `${hasta}T23:59:59.999-05:00`)
+      .order("fecha", { ascending: false }).order("id", { ascending: false });
     if (storeId) incidents = incidents.eq("tienda_id", storeId);
-    requests.push(fetchAllReportPages(incidents.order("id")));
-  } else requests.push(Promise.resolve([]));
-  const [traffic, allIncidents] = await Promise.all(requests);
-  const incidents = allIncidents.filter(isSecurityIncident);
+    requests.push(query.export === "1" ? fetchAllReportPages(incidents).then(rows => ({ rows, total: rows.length }))
+      : securityPreviewRows(incidents, kind === "todo" ? 0 : first, kind === "todo" ? page * securityPageSize - 1 : last));
+  } else requests.push(Promise.resolve({ rows: [], total: 0 }));
+  const [trafficResult, incidentResult] = await Promise.all(requests);
+  const incidents = incidentResult.rows.filter(isSecurityIncident);
   const rows = [
-    ...traffic.map(row => ({ id: `T-${row.id}`, tipo_registro: "Tráfico", fecha: row.fecha,
+    ...trafficResult.rows.map(row => ({ id: `T-${row.id}`, tipo_registro: "Tráfico", fecha: row.fecha,
       tienda: storeNames.get(row.tienda_id) || "—", rango_hora: row.rango_hora, hora_evento: "",
       visitantes: Number(row.cantidad) || 0, tipo_incidencia: "", gravedad: "", estado: "Registrado",
-      descripcion: row.observaciones || "", unidades_afectadas: "", valor_referencial: "" })),
+      descripcion: row.observaciones || "", unidades_afectadas: "", valor_referencial: "",
+      _sortTime: `${row.fecha}T${row.rango_hora?.slice(0, 5) || "00:00"}:00-05:00` })),
     ...incidents.map(row => ({ id: `I-${row.id}`, tipo_registro: "Incidencia", fecha: businessDate(row.fecha),
       tienda: storeNames.get(row.tienda_id) || "—", rango_hora: "", hora_evento: formatLimaTime(row.fecha), visitantes: "",
       tipo_incidencia: humanize(row.tipo), gravedad: humanize(row.gravedad), estado: humanize(row.estado),
       descripcion: row.descripcion || "", unidades_afectadas: (row.incidencia_productos || []).reduce((n, item) => n + (Number(item.cantidad) || 0), 0),
-      valor_referencial: (row.incidencia_productos || []).reduce((n, item) => n + (Number(item.valor) || 0), 0) })),
-  ].sort((a, b) => b.fecha.localeCompare(a.fecha) || a.tienda.localeCompare(b.tienda, "es") || a.id.localeCompare(b.id));
+      valor_referencial: (row.incidencia_productos || []).reduce((n, item) => n + (Number(item.valor) || 0), 0), _sortTime: row.fecha })),
+  ].sort((a, b) => new Date(b._sortTime).getTime() - new Date(a._sortTime).getTime()
+    || b.id[0].localeCompare(a.id[0]) || Number(b.id.slice(2)) - Number(a.id.slice(2)))
+    .map(row => { const cleaned = { ...row }; delete cleaned._sortTime; return cleaned; });
   if (query.export === "1") {
     const body = "\uFEFF" + securityReportLabels.map(label => csvLine({ label }, ["label"]).trim()).join(",") + "\r\n"
       + rows.map(row => csvLine(row, securityReportColumns)).join("");
-    return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="seguridad-${kind}-${desde}-${hasta}.csv"`, "Cache-Control": "no-store" }, body };
+    return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="seguridad-${kind}-${storeId || "todas"}-${desde}-${hasta}.csv"`, "Cache-Control": "no-store" }, body };
   }
-  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
-  return { rows: rows.slice((page - 1) * 100, page * 100), total: rows.length, stores };
+  return { rows: kind === "todo" ? rows.slice(first, last + 1) : rows, total: trafficResult.total + incidentResult.total, stores };
 }
 
 async function listBrands() {
@@ -4235,11 +4336,34 @@ export async function handler(event) {
       return json(200, { ok: true }, { "Set-Cookie": clearSessionCookie(event) });
     }
     if (path === "/auth/me" && method === "GET") {
-      const user = await withStoreName(ensureAuth(event));
-      return json(200, { user });
+      const session = ensureAuth(event);
+      const { data: account, error } = await authAccount(fields => supabase.from("usuarios")
+        .select(fields).eq("id", session.id).maybeSingle());
+      if (error) throw dbError(error);
+      if (!account || account.estado !== "activo") throw httpError("Tu cuenta ya no está activa.", 401);
+      if ((session.credenciales_actualizadas_en || null) !== (account.credenciales_actualizadas_en || null))
+        throw httpError("Tus credenciales cambiaron. Inicia sesión nuevamente.", 401);
+      const sessionUser = {
+        id: account.id, nombres: account.nombres, apellidos: account.apellidos,
+        usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
+        cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
+        credenciales_actualizadas_en: account.credenciales_actualizadas_en,
+      };
+      const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
+      return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
     }
 
     const user = ensureAuth(event);
+    if (path === "/auth/change-credentials" && method === "POST") return await changeCredentials(event, user);
+    if (user.cambio_credenciales_pendiente) throw httpError("Actualiza tu usuario y contraseña para continuar.", 403);
+
+    if (path === "/systems/credential-permissions" && method === "GET") {
+      return json(200, await credentialPermissions(user));
+    }
+    const credentialPermissionMatch = path.match(/^\/systems\/credential-permissions\/(\d+)$/);
+    if (credentialPermissionMatch && method === "PATCH") {
+      return json(200, await setCredentialPermission(event, user, credentialPermissionMatch[1]));
+    }
 
     if (path === "/systems/uploads" && method === "GET") {
       return json(200, await systemUploadsList(user));

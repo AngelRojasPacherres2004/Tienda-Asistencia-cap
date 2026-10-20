@@ -1301,7 +1301,7 @@ export class App implements OnInit {
       const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
       const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(new Date(selectedYear, selectedMonth, 0).getDate()).padStart(2, '0')}`;
       for (const row of genderProfiles) {
-        if (!ids.has(row.storeId) || ['POR INGRESAR', 'NO INGRESO', 'ANULADO'].includes(this.normalized(row.status))
+        if (!ids.has(row.storeId) || this.normalized(row.status) !== 'ACTIVO'
           || (row.hireDate && row.hireDate > endDate) || (row.retirementDate && row.retirementDate < startDate)
           || (categories.length && (row.areaType !== 'COMERCIAL' || !categories.some(category => this.personnelAreaMatchesCategory(row, category))))) continue;
         if (row.gender === 'M') maleCount += 1;
