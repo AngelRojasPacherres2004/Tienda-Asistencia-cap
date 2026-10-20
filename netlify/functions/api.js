@@ -190,6 +190,9 @@ function sessionClaims(user) {
 async function authenticatedContext(event, allowFallback = false) {
   const session = ensureAuth(event);
   if (session.rol === "jefe_tienda" || session.tienda_contexto_id) {
+    if (!allowFallback && session.tienda_contexto_id && !event.headers["x-store-context"]) {
+      throw Object.assign(httpError("Actualiza esta ventana para continuar con la tienda activa.", 409), { code: "STORE_CONTEXT_CHANGED" });
+    }
     return resolveAdministratorContext(supabase, session, { allowFallback, expectedStore: allowFallback ? null : event.headers["x-store-context"] });
   }
   if (session.rol === "jefe_zonal") {
