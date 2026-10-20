@@ -273,7 +273,7 @@
 .page-tabs button.active span { color: #fff; }
 .section-heading { display:flex; align-items:center; gap:10px; margin:4px 0 12px; }.section-heading > span { display:grid; width:34px; height:34px; place-items:center; border-radius:9px; background:#123a8c; color:#fff; font-size:.72rem; font-weight:950; }.section-heading h2 { margin:0; color:#111; font-size:.95rem; letter-spacing:.06em; }.section-heading p { margin:2px 0 0; color:#111; font-size:.64rem; font-weight:700; }
 .block-heading { display:flex; align-items:center; gap:7px; margin:17px 0 8px; }.block-heading span { display:grid; width:22px; height:22px; place-items:center; border-radius:6px; background:#e11d2e; color:#fff; font-size:.58rem; font-weight:950; }.block-heading h2 { margin:0; color:#111; font-size:.7rem; font-weight:950; letter-spacing:.11em; }.predictive-block-title { grid-column:1/-1; }
-.section-advice-btn{display:grid;place-items:center;width:22px;height:22px;border:1px solid #a8bcde;border-radius:50%;background:#fff;color:#123a8c;cursor:pointer}.section-advice-btn:hover{background:#edf4ff}.section-advice{margin:0 0 10px;padding:12px 15px;border-left:3px solid #123a8c;border-radius:0 8px 8px 0;background:#edf4ff;color:#111;font-size:.86rem;font-weight:700;line-height:1.55;white-space:pre-line}.section-advice.error{border-left-color:#e11d2e;background:#fff1f2;color:#a51d2d}
+.section-advice-btn{display:grid;place-items:center;width:22px;height:22px;padding:0;border:1px solid #a8bcde;border-radius:50%;background:#fff;color:#123a8c;cursor:pointer;font-size:0}.section-advice-btn::before{content:'✦';font-size:14px;line-height:1;transform:translateY(-1px)}.section-advice-btn:hover{background:#edf4ff}.section-advice{margin:0 0 10px;padding:12px 15px;border-left:3px solid #123a8c;border-radius:0 8px 8px 0;background:#edf4ff;color:#111;font-size:.86rem;font-weight:700;line-height:1.55;white-space:pre-line}.section-advice.error{border-left-color:#e11d2e;background:#fff1f2;color:#a51d2d}
 .section-advice-btn[hidden], .talent-training-switch[hidden] { display:none !important; }
 
 .feature-disabled { position: relative; overflow: hidden; pointer-events: none; filter: grayscale(.7); opacity: .52; }
@@ -1296,6 +1296,8 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .talent-performance-grid .talent-card { height: 285px; min-height: 285px; }
 .talent-development-grid .talent-card { height: 220px; min-height: 220px; padding: 11px 12px; }
 .talent-development-grid .talent-card h2 { margin-bottom: 5px; font-size: .72rem; }
+.training-card { position: relative; }
+.training-card .talent-chart-title { padding-right: 30px; }
 .talent-training-switch { display: flex; flex: 0 0 auto; gap: 3px; }
 .talent-training-switch button { height: 22px; padding: 0 6px; border: 1px solid #b7c2d3; border-radius: 5px; background: #fff; color: #475569; cursor: pointer; font-size: .48rem; font-weight: 850; }
 .talent-training-switch button.active { border-color: #123a8c; background: #123a8c; color: #fff; }
@@ -1355,7 +1357,6 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .talent-development-grid { grid-template-columns: 1fr; }
   .talent-card.capacity-card { grid-column:auto; }
   .capacity-facts { grid-template-columns: 1fr; }
-  .section-advice-btn { padding:5px 6px; font-size:.5rem; }
 }
 
 @media (min-width: 901px) and (max-width: 1450px) {

@@ -1063,16 +1063,24 @@ export class App implements OnInit {
   }
 
   private personnelForSelectedContext(): number | null {
-    const periods = this.selectedMonths().length ? [...this.selectedPeriods()] : [this.selectedPeriod()];
-    const rows = this.indexedRows(this.monthlyPersonnelAreaIndex, periods, this.filteredStoreIds());
-    const categories = this.personnelCategories();
-    const applicable = categories.length
-      ? rows.filter(row => this.normalized(row.areaType) === 'COMERCIAL' && categories.some(category => this.personnelAreaMatchesCategory(row, category)))
-      : rows;
+    const periods = this.personnelPeriods();
+    const applicable = this.personnelAreaRowsForContext(periods);
     const byPeriod = new Map<number, number>();
     applicable.forEach(row => byPeriod.set(row.periodId, (byPeriod.get(row.periodId) || 0) + (row.personnel || 0)));
     const total = periods.reduce((value, period) => value + (byPeriod.get(period) || 0), 0);
     return total > 0 ? total / Math.max(1, periods.length) : null;
+  }
+
+  private personnelPeriods(): number[] {
+    return this.selectedMonths().length ? [...this.selectedPeriods()] : [this.selectedPeriod()];
+  }
+
+  private personnelAreaRowsForContext(periods: number[]): PersonnelAreaRow[] {
+    const rows = this.indexedRows(this.monthlyPersonnelAreaIndex, periods, this.filteredStoreIds());
+    const categories = this.personnelCategories();
+    return categories.length
+      ? rows.filter(row => this.normalized(row.areaType) === 'COMERCIAL' && categories.some(category => this.personnelAreaMatchesCategory(row, category)))
+      : rows;
   }
 
   // Proyección anual: combina comparables del mismo período, estacionalidad de
@@ -1277,12 +1285,37 @@ export class App implements OnInit {
       && (!row.retirementDate || row.retirementDate >= currentDate)
       && (!categories.length || (row.areaType === 'COMERCIAL' && categories.some(category => this.personnelAreaMatchesCategory(row, category)))));
     const birthday = nextBirthday(birthdayProfiles, currentDate);
+    const periods = this.personnelPeriods();
+    const personnelRows = this.personnelAreaRowsForContext(periods);
+    const personnelAverage = this.personnelForSelectedContext();
+    const averageTotal = Math.round(personnelAverage || 0);
+    const salesAverage = personnelRows.filter(row => this.normalized(row.areaType) === 'COMERCIAL')
+      .reduce((total, row) => total + (row.personnel || 0), 0) / Math.max(1, periods.length);
+    const salesStaff = Math.min(averageTotal, Math.round(salesAverage));
+    // El desglose por género proviene de fichas individuales. Se distribuye sobre
+    // la misma dotación promedio oficial para evitar mezclar un mes con varios.
+    const genderProfiles = this.data()?.personnelProfiles || [];
+    let maleCount = 0; let femaleCount = 0;
+    for (const selectedPeriod of periods) {
+      const selectedYear = Math.floor(selectedPeriod / 100); const selectedMonth = selectedPeriod % 100;
+      const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+      const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(new Date(selectedYear, selectedMonth, 0).getDate()).padStart(2, '0')}`;
+      for (const row of genderProfiles) {
+        if (!ids.has(row.storeId) || ['POR INGRESAR', 'NO INGRESO', 'ANULADO'].includes(this.normalized(row.status))
+          || (row.hireDate && row.hireDate > endDate) || (row.retirementDate && row.retirementDate < startDate)
+          || (categories.length && (row.areaType !== 'COMERCIAL' || !categories.some(category => this.personnelAreaMatchesCategory(row, category))))) continue;
+        if (row.gender === 'M') maleCount += 1;
+        if (row.gender === 'F') femaleCount += 1;
+      }
+    }
+    const knownGenders = maleCount + femaleCount;
+    const male = knownGenders ? Math.round(averageTotal * maleCount / knownGenders) : null;
     return {
-      male: profiles.filter(row => row.gender === 'M').length,
-      female: profiles.filter(row => row.gender === 'F').length,
+      male,
+      female: male == null ? null : averageTotal - male,
       averageAge: ages.length ? ages.reduce((total, value) => total + value, 0) / ages.length : null,
-      salesStaff: profiles.filter(row => this.normalized(row.role).includes('VENDEDOR')).length,
-      administrativeStaff: profiles.filter(row => row.areaType === 'SOPORTE').length,
+      salesStaff: personnelAverage == null ? null : salesStaff,
+      administrativeStaff: personnelAverage == null ? null : averageTotal - salesStaff,
       birthdayLabel: birthday?.person.name || 'N/A',
       birthdayDate: birthday ? birthday.date.split('-').reverse().join('/') : '',
     };
@@ -1411,7 +1444,7 @@ export class App implements OnInit {
     const periodCount = Math.max(1, periods.size);
     return [...salesByTeam.entries()].map(([team, rows]) => {
       const personnelTotal = [...periods].reduce((total, period) => total + sum(personnelByTeamPeriod.get(`${team}|${period}`) || [], 'personnel'), 0);
-      const averagePersonnel = personnelTotal / periodCount;
+      const averagePersonnel = personnelTotal > 0 ? Math.max(1, Math.round(personnelTotal / periodCount)) : 0;
       const averageMonthlySales = sum(rows, 'net') / periodCount;
       return { team, averagePersonnel, averageMonthlySales, productivity: averagePersonnel ? averageMonthlySales / averagePersonnel : null };
     }).filter(row => row.averagePersonnel > 0 && row.productivity != null)
@@ -1506,11 +1539,12 @@ export class App implements OnInit {
   });
 
   private courseProgressOption(rows: { name: string; value: number; total: number }[], color: string): EChartsOption {
-    return { animation: false, grid: { left: 128, right: 42, top: 8, bottom: 22 },
+    const expanded = this.expandedChart() === 'training-progress';
+    return { animation: false, grid: { left: expanded ? 250 : 128, right: 42, top: 8, bottom: 22 },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any[]) => { const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row?.name || '', [{ label: 'Avance registrado', value: this.percent((row?.value || 0) / 100) }, { label: 'Asignaciones', value: this.number(row?.total || 0) }]); } },
       xAxis: { type: 'value', min: 0, max: 100, interval: 25, axisLabel: { formatter: (value: number) => `${value}%`, color: '#64748B', fontSize: 8 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.name), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { width: 116, overflow: 'truncate', color: '#334155', fontSize: 8, fontWeight: 700 } },
-      series: [{ type: 'bar', data: rows.map(row => row.value), barMaxWidth: 19, showBackground: true, backgroundStyle: { color: '#EEF2F7', borderRadius: 5 }, itemStyle: { color, borderRadius: [0, 5, 5, 0] }, label: { show: true, position: 'right', formatter: '{c}%', color: '#172033', fontSize: 9, fontWeight: 800 } }]
+      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.name), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { width: expanded ? 238 : 116, overflow: expanded ? 'break' : 'truncate', color: '#111', fontSize: expanded ? 12 : 9, fontWeight: 700 } },
+      series: [{ type: 'bar', data: rows.map(row => row.value), barMaxWidth: 19, showBackground: true, backgroundStyle: { color: '#EEF2F7', borderRadius: 5 }, itemStyle: { color, borderRadius: [0, 5, 5, 0] }, label: { show: false } }]
     } as EChartsOption;
   }
   private trainingRowsFor(audience: 'SELLERS' | 'ADMINISTRATORS') {
@@ -1528,13 +1562,13 @@ export class App implements OnInit {
   readonly sellerTrainingOption = computed<EChartsOption>(() => this.courseProgressOption(this.trainingRowsFor('SELLERS'), C.teal));
   readonly administratorTrainingOption = computed<EChartsOption>(() => this.courseProgressOption(this.trainingRowsFor('ADMINISTRATORS'), C.purple));
   readonly sellerPendingTrainingOption = computed<EChartsOption>(() => {
-    const rows = this.trainingRowsFor('SELLERS');
+    const rows = this.trainingRowsFor('SELLERS'); const expanded = this.expandedChart() === 'training-progress';
     const max = Math.max(1, ...rows.map(row => row.pending));
-    return { animation: false, grid: { left: 128, right: 38, top: 8, bottom: 22 },
-      tooltip: { trigger: 'item', formatter: (item: any) => `${rows[item.dataIndex]?.name || ''}: ${item.value} pendientes`, confine: true },
+    return { animation: false, grid: { left: expanded ? 250 : 128, right: 38, top: 8, bottom: 22 },
+      tooltip: { trigger: 'item', formatter: (item: any) => this.tooltip(rows[item.dataIndex]?.name || '', [{ label: 'Pendientes', value: this.number(Number(item.value)) }, { label: 'Asignaciones', value: this.number(rows[item.dataIndex]?.total || 0) }]), confine: true },
       xAxis: { type: 'value', min: 0, max, minInterval: 1, axisLabel: { color: '#111', fontSize: 11 } },
-      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.name), axisLabel: { width: 116, overflow: 'truncate', color: '#111', fontSize: 11 } },
-      series: [{ type: 'bar', data: rows.map(row => row.pending), barMaxWidth: 19, itemStyle: { color: C.teal }, label: { show: true, position: 'right', color: '#111', formatter: '{c}' } }] } as EChartsOption;
+      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.name), axisLabel: { width: expanded ? 238 : 116, overflow: expanded ? 'break' : 'truncate', color: '#111', fontSize: expanded ? 12 : 9 } },
+      series: [{ type: 'bar', data: rows.map(row => row.pending), barMaxWidth: 19, itemStyle: { color: C.teal }, label: { show: false } }] } as EChartsOption;
   });
   readonly selectedTrainingOption = computed<EChartsOption>(() => this.storeFilterLocked()
     ? this.sellerPendingTrainingOption() : this.trainingAudience() === 'SELLERS'
@@ -1770,7 +1804,11 @@ export class App implements OnInit {
     return { label: 'NO REPONER', color: '#94A3B8', index: 5 };
   }
   readonly predictiveScopedProducts = computed(() => {
-    const storeIds = new Set(this.predictiveStoreOptions().map(store => store.storeId)); const rubros = new Set(this.predictiveRubros()); const selectedStore = this.predictiveStore();
+    const storeOptions = this.predictiveStoreOptions();
+    const storeIds = new Set(storeOptions.map(store => store.storeId)); const rubros = new Set(this.predictiveRubros());
+    // El alcance de tienda manda sobre el control local, incluso si su valor
+    // fue restaurado de otra sesión o modificado desde el navegador.
+    const selectedStore = this.storeFilterLocked() ? storeOptions[0]?.storeId : this.predictiveStore();
     return this.staticPredictiveProducts().filter(row => storeIds.has(row.storeId) && ['TEXTIL', 'CALZADO'].includes(row.category) && rubros.has(row.category) &&
       (selectedStore === 'TODAS' || row.storeId === selectedStore) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
   });
