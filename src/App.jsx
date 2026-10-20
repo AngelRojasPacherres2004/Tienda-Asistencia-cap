@@ -1,5 +1,6 @@
 import { Component, Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
-import { api, setStoreContext } from "./lib/api";
+import { api, lockStoreContext, setStoreContext } from "./lib/api";
+import { consumeStoreNavigation, restartStoreNavigation } from "./lib/storeNavigation";
 import Layout from "./components/Layout";
 import { Loading, Notice } from "./components/UI";
 
@@ -59,14 +60,19 @@ export default function App() {
   const sessionRequest = useRef(0);
 
   useEffect(() => {
+    let active = true;
     api("/auth/me")
       .then(({ user: account }) => {
+        if (!active) return;
         setStoreContext(account);
         setUser(account);
-        setPage(homePageByRole[account.rol] || "dashboard");
+        const navigation = consumeStoreNavigation(account);
+        setPage(navigation?.page || homePageByRole[account.rol] || "dashboard");
+        setSessionNotice(navigation?.notice || "");
       })
-      .catch(() => setUser(null))
-      .finally(() => setChecking(false));
+      .catch(() => { if (active) setUser(null); })
+      .finally(() => { if (active) setChecking(false); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -79,6 +85,11 @@ export default function App() {
       try {
         const { user: account } = await api("/auth/me");
         if (!active || request !== sessionRequest.current) return;
+        if (Number(account.tienda_id) !== Number(user.tienda_id)) {
+          lockStoreContext();
+          restartStoreNavigation(account, page, event?.detail || (account.apoyo_revocado ? "El apoyo se deshabilitó. Se ha restablecido tu tienda principal." : "La tienda activa cambió en otra ventana. Se actualizó esta vista."));
+          return;
+        }
         setStoreContext(account);
         setUser(current => JSON.stringify(current) === JSON.stringify(account) ? current : account);
         if (account.apoyo_revocado || event?.detail) setSessionNotice(event?.detail || "El apoyo se deshabilitó. Se ha restablecido tu tienda principal.");
@@ -90,7 +101,7 @@ export default function App() {
     window.addEventListener("focus", refresh);
     window.addEventListener("store-access-changed", refresh);
     return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); window.removeEventListener("store-access-changed", refresh); };
-  }, [user?.rol, switchingStore]);
+  }, [user?.rol, user?.tienda_id, page, switchingStore]);
 
   const login = (account) => {
     setStoreContext(account);
@@ -106,16 +117,26 @@ export default function App() {
   const changeStore = async storeId => {
     if (switchingStore || Number(storeId) === Number(user.tienda_id)) return;
     ++sessionRequest.current;
+    lockStoreContext();
     setSwitchingStore(true); setSessionNotice("");
+    let restarting = false;
     try {
       const { user: account } = await api("/auth/tienda", { method: "POST", body: { tienda_id: Number(storeId) } });
-      setStoreContext(account); setUser(account);
+      // A fresh page prevents an old upload/save continuation from inheriting the new store.
+      restarting = true;
+      restartStoreNavigation(account, page);
     } catch (err) {
       setSessionNotice(err.message);
       // A grant may have been revoked while the selector was open.
       const result = await api("/auth/me").catch(() => null);
-      if (result) { setStoreContext(result.user); setUser(result.user); }
-    } finally { setSwitchingStore(false); }
+      if (result && Number(result.user.tienda_id) !== Number(user.tienda_id)) {
+        restarting = true;
+        restartStoreNavigation(result.user, page, err.message);
+      } else {
+        setStoreContext(result?.user || user);
+        if (result) setUser(result.user);
+      }
+    } finally { if (!restarting) setSwitchingStore(false); }
   };
 
   if (checking) return <div className="splash"><Loading label="Preparando tu espacio…" /></div>;

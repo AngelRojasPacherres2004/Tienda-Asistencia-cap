@@ -18,7 +18,9 @@ globalThis.fetch = async (input, init = {}) => {
   const url = new URL(input);
   assert.equal(url.hostname, "training-check.invalid", "Las pruebas no deben consultar una base real");
   let data;
-  if (url.pathname.endsWith("/usuarios")) data = people.filter(person => `eq.${person.id}` === url.searchParams.get("id"));
+  if (url.pathname.endsWith("/usuarios")) data = [...people, { id: 4, rol: "jefe_tienda", estado: "activo", tienda_id: 8 }].filter(person => `eq.${person.id}` === url.searchParams.get("id"));
+  else if (url.pathname.endsWith("/apoyos_administradores_tienda")) data = [];
+  else if (url.pathname.endsWith("/tiendas")) data = [{ id: 8, nombre: "Otra tienda", estado: "activo" }];
   else if (url.pathname.endsWith("/curso_roles")) data = assigned ? [{ curso_id: 9 }] : [];
   else if (url.pathname.endsWith("/cursos")) data = [{ id: 9, nombre: "Atención al cliente", competencia: "Servicio", activo: true }];
   else if (url.pathname.endsWith("/capacitacion_progreso")) {

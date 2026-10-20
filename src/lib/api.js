@@ -1,7 +1,13 @@
 import { businessDate } from "../../shared/metrics.js";
 let activeStoreContext = null;
+let storeContextLocked = false;
 export function setStoreContext(user) {
   activeStoreContext = user?.rol === "jefe_tienda" ? user.tienda_id : null;
+  storeContextLocked = false;
+}
+export function lockStoreContext() { storeContextLocked = true; }
+function assertStoreContextOpen() {
+  if (storeContextLocked) throw new Error("La tienda está cambiando. Espera a que termine para continuar.");
 }
 function checkContextError(payload) {
   if (["STORE_ACCESS_REVOKED", "STORE_CONTEXT_CHANGED"].includes(payload.code)) {
@@ -9,6 +15,7 @@ function checkContextError(payload) {
   }
 }
 export async function api(path, options = {}) {
+  if (!path.startsWith("/auth/")) assertStoreContextOpen();
   let response;
   const timeoutSignal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(45000) : undefined;
   const signal = options.signal && timeoutSignal && typeof AbortSignal.any === "function"
@@ -59,6 +66,7 @@ export const estadoAsistenciaLabels = {
 };
 
 export async function downloadFile(url, fallbackName) {
+  assertStoreContextOpen();
   const storeContext = activeStoreContext;
   let fileHandle = null;
   if (typeof window.showSaveFilePicker === "function") {
@@ -75,6 +83,7 @@ export async function downloadFile(url, fallbackName) {
       throw error;
     }
   }
+  assertStoreContextOpen();
   const response = await fetch(url, { credentials: "include", headers: storeContext ? { "X-Store-Context": String(storeContext) } : {} });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));

@@ -80,10 +80,17 @@ test("HTTP session selector scopes reads, writes and commercial access; disablin
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetch;
   const token = claims => jwt.sign(claims, process.env.JWT_SECRET, { expiresIn: "5m" });
-  const request = (path, claims, method = "GET", body, headers = {}) => handler({
-    path: `/api${path}`, httpMethod: method, headers: { authorization: `Bearer ${typeof claims === "string" ? claims : token(claims)}`, ...headers },
-    queryStringParameters: {}, body: body ? JSON.stringify(body) : null,
-  });
+  const request = (path, claims, method = "GET", body, headers = {}) => {
+    const session = typeof claims === "string" ? jwt.decode(claims) : claims;
+    const url = new URL(`/api${path}`, "https://test.invalid");
+    return handler({
+      path: url.pathname, httpMethod: method, headers: {
+        authorization: `Bearer ${typeof claims === "string" ? claims : token(claims)}`,
+        ...(session.tienda_contexto_id ? { "x-store-context": String(session.tienda_contexto_id) } : {}), ...headers,
+      },
+      queryStringParameters: Object.fromEntries(url.searchParams), body: body ? JSON.stringify(body) : null,
+    });
+  };
   try {
     assert.equal((await request("/zonal/apoyos-tienda", admin)).statusCode, 403);
     assert.equal((await request("/auth/tienda", manager, "POST", { tienda_id: 20 })).statusCode, 403);
@@ -95,6 +102,8 @@ test("HTTP session selector scopes reads, writes and commercial access; disablin
     const selectedToken = selection.headers["Set-Cookie"].match(/asiste_session=([^;]+)/)[1];
     assert.equal(JSON.parse(selection.body).user.tienda_id, 20);
     assert.equal(JSON.parse(selection.body).user.tienda_principal_id, 10);
+    assert.equal((await request("/usuarios", selectedToken, "GET", null, { "x-store-context": "" })).statusCode, 409, "An old client without a store context must refresh before using a switched cookie");
+    assert.equal((await request("/reportes/personal?tienda_id=10", selectedToken)).statusCode, 403, "A report cannot override the active support store");
     const users = await request("/usuarios", selectedToken);
     assert.equal(users.statusCode, 200, users.body);
     assert.deepEqual(JSON.parse(users.body).map(person => person.id), [6]);
@@ -107,6 +116,7 @@ test("HTTP session selector scopes reads, writes and commercial access; disablin
     assert.equal(edit.statusCode, 200, edit.body);
     assert.equal(data.tiendas[0].direccion, "Dirección principal");
     assert.equal(data.tiendas[1].direccion, "Nueva dirección de apoyo");
+    assert.equal(data.usuarios.find(person => person.id === 2).tienda_id, 10, "Switching and editing never reassign the administrator's primary store");
     const staleTab = await request("/mi-tienda-gestion/datos", selectedToken, "PUT", { direccion: "NO CAMBIAR" }, { "x-store-context": "10" });
     assert.equal(staleTab.statusCode, 409);
     assert.equal(data.tiendas[1].direccion, "Nueva dirección de apoyo");
