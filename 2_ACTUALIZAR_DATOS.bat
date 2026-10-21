@@ -6,6 +6,8 @@ cd /d "%~dp0"
 set "WEBROOT=dashboard-web\dist\dashboard-web\browser"
 set "FECHA_CORTE="
 set "SIN_PAUSA=0"
+set "FORZAR_CAPA1="
+set "SOLO_VERIFICAR=0"
 
 :leer_argumentos
 if "%~1"=="" goto :argumentos_listos
@@ -21,6 +23,16 @@ if /I "%~1"=="--fecha-corte" (
     )
     set "FECHA_CORTE=%~2"
     shift
+    shift
+    goto :leer_argumentos
+)
+if /I "%~1"=="--forzar-capa1" (
+    set "FORZAR_CAPA1=--reconstruir-capa1"
+    shift
+    goto :leer_argumentos
+)
+if /I "%~1"=="--solo-verificar" (
+    set "SOLO_VERIFICAR=1"
     shift
     goto :leer_argumentos
 )
@@ -43,22 +55,28 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 for /f "delims=" %%F in ('.venv\Scripts\python.exe -c "from datetime import date; print(date.today().year)"') do set "ANIO_FIN=%%F"
+if "%SOLO_VERIFICAR%"=="1" goto :solo_verificar
 
 echo.
-echo Se reconstruiran Capa 1, Capa 2 y el modelo TMDL.
-if defined FECHA_CORTE (
-    echo Fecha de corte elegida: %FECHA_CORTE%
-) else (
-    echo Fecha de corte automatica: ultimo lunes.
-)
-echo Cada fuente se validara segun su frecuencia; los rezagos se avisaran.
+echo Se revisaran los Excel RMS y luego se elegira el ultimo dia de
+echo trafico con cobertura suficiente. Stock conserva su propia fecha.
 echo.
 
 ".venv\Scripts\python.exe" "piplines\ejecutar_todo.py" ^
-    --reconstruir-capa1 ^
-    --paralelismo 2 ^
-    --anio-inicio 2024 ^
-    --anio-fin "%ANIO_FIN%" %ARG_FECHA_CORTE%
+    --solo-capa1 %FORZAR_CAPA1% --paralelismo 2
+if errorlevel 1 goto :error
+
+set "CORTE_ACTUAL="
+if not exist ".etl_work" mkdir ".etl_work"
+".venv\Scripts\python.exe" "piplines\corte_comercial_automatico.py" --seleccionar %ARG_FECHA_CORTE% > ".etl_work\fecha-corte-seleccionada.txt"
+if errorlevel 1 goto :error
+set /p "CORTE_ACTUAL=" < ".etl_work\fecha-corte-seleccionada.txt"
+if not defined CORTE_ACTUAL goto :error
+echo Fecha de corte seleccionada: %CORTE_ACTUAL%
+
+".venv\Scripts\python.exe" "piplines\ejecutar_todo.py" ^
+    --solo-capa2 --paralelismo 2 ^
+    --anio-fin "%ANIO_FIN%" --fecha-corte "%CORTE_ACTUAL%"
 if errorlevel 1 goto :error
 
 echo Ejecutando validacion estricta final...
@@ -68,6 +86,9 @@ if errorlevel 1 goto :error
 if exist "dashboard-web\public" (
     echo Actualizando datos compactos del dashboard web...
     ".venv\Scripts\python.exe" "piplines\generar_datos_web.py"
+    if errorlevel 1 goto :error
+
+    ".venv\Scripts\python.exe" "piplines\corte_comercial_automatico.py" --validar --fecha-corte "%CORTE_ACTUAL%"
     if errorlevel 1 goto :error
 
     echo Datos locales preparados.
@@ -127,6 +148,19 @@ echo Parquet finales: capa2
 echo Modelo Power BI: capa2\Modelo_Dashboard.tmdl
 echo Dashboard web: ejecutar 4_EJECUTAR_DASHBOARD_WEB.bat
 echo ============================================================
+if "%SIN_PAUSA%"=="0" pause
+exit /b 0
+
+:solo_verificar
+set "CORTE_ACTUAL="
+if not exist ".etl_work" mkdir ".etl_work"
+".venv\Scripts\python.exe" "piplines\corte_comercial_automatico.py" --seleccionar %ARG_FECHA_CORTE% > ".etl_work\fecha-corte-seleccionada.txt"
+if errorlevel 1 goto :error
+set /p "CORTE_ACTUAL=" < ".etl_work\fecha-corte-seleccionada.txt"
+if not defined CORTE_ACTUAL goto :error
+".venv\Scripts\python.exe" "piplines\corte_comercial_automatico.py" --validar --fecha-corte "%CORTE_ACTUAL%"
+if errorlevel 1 goto :error
+echo Modelo local consistente para %CORTE_ACTUAL%.
 if "%SIN_PAUSA%"=="0" pause
 exit /b 0
 

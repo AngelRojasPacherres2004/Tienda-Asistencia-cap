@@ -6,6 +6,7 @@ import getpass
 import json
 import os
 import re
+import secrets
 import sys
 import urllib.error
 import urllib.request
@@ -110,39 +111,54 @@ def main() -> int:
 
     usuario = input("Usuario (sin correo): ").strip()
     username_key = usuario.casefold()
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,48}", username_key):
-        print("ERROR: el usuario debe tener entre 3 y 49 caracteres: letras, números, punto, guion o guion bajo.", file=sys.stderr)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,48}", username_key):
+        print("ERROR: el usuario debe tener entre 2 y 49 caracteres: letras, números, punto, guion o guion bajo.", file=sys.stderr)
         return 1
-    password = getpass.getpass("Contraseña nueva (mínimo 12 caracteres): ")
+    password = getpass.getpass("Contraseña nueva (mínimo 3 caracteres): ")
     confirmation = getpass.getpass("Repite la contraseña: ")
-    if len(password) < 12 or password != confirmation:
-        print("ERROR: las contraseñas no coinciden o tienen menos de 12 caracteres.", file=sys.stderr)
+    if len(password) < 3 or password != confirmation:
+        print("ERROR: las contraseñas no coinciden o tienen menos de 3 caracteres.", file=sys.stderr)
         return 1
     cargo = input("Cargo [GENERAL]: ").strip() or "GENERAL"
     dispositivo = input("Dispositivo [xxxxxxx]: ").strip() or "xxxxxxx"
-    role = (input("Rol [viewer]: ").strip().lower() or "viewer")
-    if role not in {"viewer", "manager", "admin"}:
-        print("ERROR: el rol debe ser viewer, manager o admin.", file=sys.stderr)
+    role = (input("Rol [jefe_comercial | administrador_tienda | zonal | seguridad]: ").strip().lower() or "jefe_comercial")
+    if role not in {"jefe_comercial", "administrador_tienda", "zonal", "seguridad"}:
+        print("ERROR: el rol indicado no existe en dashboard_roles.", file=sys.stderr)
         return 1
-    publisher_username = os.environ.get("SUPABASE_PUBLISHER_USERNAME", "Sistemas").strip().casefold()
+    scope_type = ""
+    scope_value = ""
+    if role == "administrador_tienda":
+        scope_type = "store"
+        scope_value = input("Tienda permitida (ID, alias o nombre; ejemplo T012): ").strip()
+    elif role == "zonal":
+        scope_type = "cluster"
+        scope_value = input("Clúster permitido (ejemplo A o B): ").strip().upper()
+    if scope_type and not scope_value:
+        print("ERROR: el rol restringido necesita una tienda o clúster.", file=sys.stderr)
+        return 1
+    publisher_username = os.environ.get("SUPABASE_PUBLISHER_USERNAME", "comercial1").strip().casefold()
     is_publisher = input("¿Es la cuenta publicadora del dashboard? [N]: ").strip().lower() in {"s", "si", "sí", "y", "yes"}
     if is_publisher:
         if username_key != publisher_username:
             print(f"ERROR: el publicador debe usar el usuario {publisher_username}.", file=sys.stderr)
             return 1
-        role = "admin"
+        role = "jefe_comercial"
+        scope_type = ""
+        scope_value = ""
 
     # Supabase Auth requiere una identidad interna; no es un correo de la
     # persona ni se muestra en la UI. El inicio de sesión siempre usa usuario.
     email = f"{username_key}@users.dashboard.local"
 
+    # La identidad de Supabase usa una clave interna aleatoria. La clave que
+    # escribe el operador se valida directamente contra dashboard_users.
     user = call(
         "POST",
         f"{base_url}/auth/v1/admin/users",
         service_key,
         {
             "email": email,
-            "password": password,
+            "password": secrets.token_urlsafe(32),
             "email_confirm": True,
             "user_metadata": {"display_name": usuario},
             # Solo el administrador local puede establecer app_metadata.
@@ -155,16 +171,6 @@ def main() -> int:
         print("ERROR: Supabase no devolvió el identificador del usuario.", file=sys.stderr)
         return 1
 
-    role_rows = call(
-        "GET",
-        f"{base_url}/rest/v1/dashboard_roles?select=id&code=eq.{role}&limit=1",
-        service_key,
-    )
-    role_id = role_rows[0].get("id") if isinstance(role_rows, list) and role_rows else None
-    if not role_id:
-        print("ERROR: el catálogo de roles aún no está aplicado en Supabase.", file=sys.stderr)
-        return 1
-
     call(
         "POST",
         f"{base_url}/rest/v1/dashboard_users?on_conflict=user_id",
@@ -175,16 +181,28 @@ def main() -> int:
             "usuario": usuario,
             "cargo": cargo,
             "dispositivo": dispositivo,
-            # Compatibilidad con el esquema anterior, mientras role_id es la fuente de verdad.
-            "role": "admin" if role == "admin" else "viewer",
-            "role_id": role_id,
+            "role": role,
+            "contrasena": password,
             "is_active": True,
         },
     )
+    if scope_type:
+        call(
+            "POST",
+            f"{base_url}/rest/v1/dashboard_user_scopes?on_conflict=user_id,scope_type,scope_value",
+            service_key,
+            {
+                "user_id": user_id,
+                "scope_type": scope_type,
+                "scope_value": scope_value,
+            },
+        )
     print(f"Usuario creado y habilitado en dashboard_users: {usuario} ({role})")
+    if scope_type:
+        print(f"Alcance asignado: {scope_type} = {scope_value}")
     if is_publisher:
         print("Cuenta publicadora configurada para 6_ACTUALIZAR_DASHBOARD_WEB.bat.")
-    print("La contraseña no fue guardada en archivos ni mostrada en consola.")
+    print("La contraseña quedó guardada en la columna contrasena de dashboard_users.")
     return 0
 
 

@@ -10,7 +10,7 @@ export type DashboardIdentity = {
   userId: string;
   email: string;
   sessionId: string;
-  profile: { is_active: boolean; active_session_id: string | null };
+  profile: { is_active: boolean; active_session_id: string | null; role: string };
 };
 
 function decodeSessionId(token: string): string {
@@ -44,16 +44,36 @@ export async function authenticateDashboardUser(request: Request): Promise<Dashb
 
   const { data: profile, error: profileError } = await supabase
     .from('dashboard_users')
-    .select('is_active,active_session_id')
+    .select('is_active,active_session_id,role')
     .eq('user_id', userData.user.id)
     .maybeSingle();
   if (profileError || !profile?.is_active) throw new AuthError('Usuario sin acceso al dashboard.', 403);
+
+  const { data: role, error: roleError } = await supabase
+    .from('dashboard_roles')
+    .select('can_access_dashboard,is_active,scope_type')
+    .eq('code', profile.role)
+    .maybeSingle();
+  if (roleError || !role?.is_active || !role.can_access_dashboard || role.scope_type === 'none') {
+    throw new AuthError('Este usuario no tiene acceso al dashboard comercial.', 403);
+  }
+  if (role.scope_type !== 'all') {
+    const { data: scopes, error: scopesError } = await supabase
+      .from('dashboard_user_scopes')
+      .select('scope_value')
+      .eq('user_id', userData.user.id)
+      .eq('scope_type', role.scope_type)
+      .limit(1);
+    if (scopesError || !scopes?.length) {
+      throw new AuthError('Este usuario todavía no tiene una tienda o clúster asignado.', 403);
+    }
+  }
 
   return {
     userId: userData.user.id,
     email: userData.user.email ?? '',
     sessionId,
-    profile: { is_active: profile.is_active, active_session_id: profile.active_session_id ?? null },
+    profile: { is_active: profile.is_active, active_session_id: profile.active_session_id ?? null, role: profile.role },
   };
 }
 

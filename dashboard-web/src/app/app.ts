@@ -5,6 +5,7 @@ import type { EChartsOption } from 'echarts';
 import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
+import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService } from './cloud-data.service';
 
 type Store = {
@@ -35,9 +36,11 @@ type ProductRow = {
 type StockOrigin = { storeId: string; category: string; line: string; subline: string; originPeriodId: number; units: number; value: number };
 type PredictiveStore = { storeId: string; stockUnits: number; stockValue: number; units30: number; sales30: number; coverageDays: number | null; rotation: number | null };
 type PredictiveCategory = { storeId: string; category: string; stockUnits: number; stockValue: number; units30: number; sales30: number; rotation: number | null };
+type HourlySalesRow = { periodId: number; date?: string; storeId: string; hour: number; transactions: number; net: number };
 type BrandSummary = { name: string; net: number; units: number; share: number; category: string };
 type CategorySummary = { name: string; net: number; units: number; share: number; topLine: string; color: string };
 type CategoryView = 'RUBRO' | 'LINEA';
+type RankingMetric = 'ROTATION' | 'NET' | 'TICKET' | 'SALE_M2';
 type GenderSummary = { name: string; net: number; units: number; share: number; averagePrice: number | null; topLine: string; color: string };
 // Fila cruda del archivo dashboard-predictive.json: ventanas 30/60/90 de venta y merma
 // ancladas al corte de stock/ventas (FactStock solo tiene una foto = el último corte,
@@ -59,6 +62,7 @@ type DashboardData = {
     coverageRanges: { min: number; max: number; label: string; color: string }[]; capacityIsProvisional: boolean;
   };
   stores: Store[]; monthlyStore: Monthly[]; monthlyPersonnelArea: PersonnelAreaRow[]; personnelProfiles?: PersonnelProfile[]; monthlyCategory: Monthly[]; monthlyCategoryTarget?: CategoryTargetRow[]; monthlyLine: Monthly[];
+  monthlyHourlySales?: HourlySalesRow[];
   dailyStore?: Monthly[];
   dailyTraffic?: { date: string; storeId: string; traffic: number }[];
   dailyReceived?: { date: string; storeId: string; received: number }[];
@@ -82,7 +86,7 @@ type PredictiveBrand = {
 };
 type FilterKey = 'month' | 'store' | 'category' | 'gender' | 'line' | 'subline' | 'cluster' | 'format';
 type StockHistoryBucket = 'ALL' | '2026' | '2025' | '2024' | '2023' | '2022' | '2021' | '2020' | '2019_PLUS';
-type RotationView = 'rotation' | 'coverage';
+type RotationView = 'rotation' | 'inventory';
 type PredictiveTimeUnit = 'MONTHS' | 'YEARS';
 type LeadTimeUnit = 'DAYS' | 'MONTHS';
 type InventoryMatrixRow = {
@@ -170,6 +174,7 @@ export class App implements OnInit {
   // Clave: periodo|tienda. Se construyen una sola vez al cargar cada JSON.
   private monthlyStoreIndex = new Map<string, Monthly[]>();
   private dailyStoreRows: Monthly[] = [];
+  private dailyHourlySalesRows: HourlySalesRow[] = [];
   private dailyDetailPromise?: Promise<void>;
   private dailyDetailRange = '';
   readonly dailyDetailLoaded = signal(false);
@@ -191,7 +196,6 @@ export class App implements OnInit {
   private priceRangeDetailPromise?: Promise<void>;
   private sellerDetailPromise?: Promise<void>;
   private pageOverflowBeforeModal = '';
-  private cloudRefreshTimer?: ReturnType<typeof setInterval>;
 
   private indexPeriodStore<T extends { periodId: number; storeId: string }>(rows: T[]): Map<string, T[]> {
     const index = new Map<string, T[]>();
@@ -253,6 +257,7 @@ export class App implements OnInit {
   readonly fromDate = signal('');
   readonly toDate = signal('');
   readonly categoryView = signal<CategoryView>('RUBRO');
+  readonly rankingMetrics = signal<RankingMetric[]>(['ROTATION', 'NET', 'TICKET', 'SALE_M2']);
   readonly selectedStores = signal<string[]>([]);
   readonly selectedCategories = signal<string[]>([]);
   readonly selectedGenders = signal<string[]>([]);
@@ -277,6 +282,11 @@ export class App implements OnInit {
     { value: '2019_PLUS', label: '2019+', title: '2019 y años anteriores' },
   ];
   readonly selectedClusters = signal<string[]>([]); readonly selectedFormats = signal<string[]>([]);
+  readonly storeFilterLocked = computed(() => this.cloud.accessProfile()?.scopeType === 'store');
+  readonly clusterFilterLocked = computed(() => {
+    const scope = this.cloud.accessProfile()?.scopeType;
+    return scope === 'store' || scope === 'cluster';
+  });
   readonly productId = signal('AUTO');
   readonly demandWindow = signal(30);
   readonly demandWindowUnit = signal<PredictiveTimeUnit>('MONTHS');
@@ -489,7 +499,7 @@ export class App implements OnInit {
     const d = this.data(); if (!d) return [];
     const cutoffYear = Number(d.metadata.salesCutoff.slice(0, 4));
     const cutoffMonth = Number(d.metadata.salesCutoff.slice(5, 7));
-    const storeIds = new Set(d.stores.filter(store => store.isStore).map(store => store.storeId));
+    const storeIds = new Set(d.stores.filter(store => store.isStore && this.storeAllowedByAccess(store)).map(store => store.storeId));
     const periods = d.monthlyStore
       .filter(row => Math.floor(row.periodId / 100) === this.year())
       .filter(row => this.year() !== cutoffYear || row.periodId % 100 <= cutoffMonth)
@@ -547,7 +557,24 @@ export class App implements OnInit {
     return !formats.length || formats.includes(store.format);
   }
   private storeSupportsSelectedScope(store: Store): boolean {
-    return this.storeBelongsToSelectedCluster(store) && this.formatMatches(store);
+    return this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store) && this.formatMatches(store);
+  }
+  private storeAllowedByAccess(store: Store): boolean {
+    const access = this.cloud.accessProfile();
+    if (!access || access.scopeType === 'all') return true;
+    if (access.scopeType === 'none') return false;
+    if (access.scopeType === 'cluster') {
+      const allowed = new Set(access.clusters.map(value => this.normalized(value)));
+      return allowed.has(this.normalized(store.cluster));
+    }
+    const storeKey = this.normalized(`${store.storeId} ${store.store} ${store.alias}`);
+    return access.stores.some(value => {
+      const normalized = this.normalized(value);
+      return normalized === this.normalized(store.storeId)
+        || normalized === this.normalized(store.store)
+        || normalized === this.normalized(store.alias)
+        || storeKey.includes(normalized);
+    });
   }
 
   // Universo de tiendas del AÑO, independiente del filtro MES. Esto evita que una
@@ -558,15 +585,16 @@ export class App implements OnInit {
     const d = this.data(); if (!d) return [];
     const from = this.year() * 100 + 1; const to = this.year() * 100 + 12;
     const selected = new Set(this.selectedStores());
-    return d.stores.filter(store => this.storeBelongsToSelectedCluster(store) && (
+    return d.stores.filter(store => this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store) && (
       this.storeOverlapsPeriod(store, from, to) || selected.has(store.storeId)
     ));
   });
   readonly clusters = computed(() => {
     const d = this.data();
-    const values = new Set((d?.stores || []).filter(s => s.isStore).map(s => s.cluster).filter(Boolean));
-    if ((d?.stores || []).some(store => this.isDistributionChannel(store))) values.add('CD');
-    this.selectedClusters().forEach(value => values.add(value));
+    const allowedStores = (d?.stores || []).filter(store => this.storeAllowedByAccess(store));
+    const values = new Set(allowedStores.filter(s => s.isStore).map(s => s.cluster).filter(Boolean));
+    if (allowedStores.some(store => this.isDistributionChannel(store))) values.add('CD');
+    this.selectedClusters().forEach(value => { if (values.has(value)) values.add(value); });
     return [...values].sort();
   });
   readonly formats = computed(() => {
@@ -594,7 +622,7 @@ export class App implements OnInit {
     const from = this.year() * 100 + 1; const to = this.year() * 100 + 12;
     const selected = new Set(this.selectedStores());
     return new Set(d.stores
-      .filter(store => this.storeBelongsToSelectedCluster(store) && this.storeOverlapsPeriod(store, from, to))
+      .filter(store => this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store) && this.storeOverlapsPeriod(store, from, to))
       .filter(store => this.formatMatches(store))
       .filter(store => !selected.size || selected.has(store.storeId))
       .map(store => store.storeId));
@@ -737,12 +765,12 @@ export class App implements OnInit {
     const monthFrom = `${key}-01`;
     const monthTo = `${key}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`;
     const promise = (async () => {
-      let detail: { dailyStore?: Monthly[] } | undefined;
+      let detail: { dailyStore?: Monthly[]; hourlySales?: HourlySalesRow[] } | undefined;
       if (!this.cloud.remoteEnabled()) {
         try {
           const response = await fetch(`/api/dashboard/daily?from=${encodeURIComponent(monthFrom)}&to=${encodeURIComponent(monthTo)}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          detail = await response.json() as { dailyStore?: Monthly[] };
+          detail = await response.json() as { dailyStore?: Monthly[]; hourlySales?: HourlySalesRow[] };
         } catch {
           // El servidor local es opcional; los archivos mensuales también sirven
           // para npm start y para la versión portátil.
@@ -750,14 +778,15 @@ export class App implements OnInit {
       }
       if (!detail) {
         try {
-          detail = await this.loadDetail<{ dailyStore: Monthly[] }>(`dashboard-daily-${key}.json`);
+          detail = await this.loadDetail<{ dailyStore: Monthly[]; hourlySales?: HourlySalesRow[] }>(`dashboard-daily-${key}.json`);
         } catch {
           // Permite abrir una publicación anterior durante la transición.
-          detail = await this.loadDetail<{ dailyStore: Monthly[] }>('dashboard-daily.json');
+          detail = await this.loadDetail<{ dailyStore: Monthly[]; hourlySales?: HourlySalesRow[] }>('dashboard-daily.json');
         }
       }
       if (this.dailyDetailRange !== key) return;
       this.dailyStoreRows = (detail.dailyStore || []).filter(row => !!row.date && row.date >= monthFrom && row.date <= monthTo);
+      this.dailyHourlySalesRows = (detail.hourlySales || []).filter(row => !!row.date && row.date >= monthFrom && row.date <= monthTo);
       this.dailyDetailLoaded.set(true);
     })();
     this.dailyDetailPromise = promise;
@@ -772,7 +801,7 @@ export class App implements OnInit {
   }
   private receivingRows(fromPeriod: number, toPeriod: number): Monthly[] {
     const d = this.data(); if (!d) return [];
-    const receivingIds = d.stores.filter(store => !store.isStore).map(store => store.storeId);
+    const receivingIds = d.stores.filter(store => !store.isStore && this.storeAllowedByAccess(store)).map(store => store.storeId);
     return this.rowsForPeriods(this.rangePeriods(fromPeriod, toPeriod), receivingIds);
   }
   readonly yearRows = computed(() => this.dateRangeActive()
@@ -856,8 +885,8 @@ export class App implements OnInit {
     const d = this.data(); if (!d) return { total: 0, metro: 0, outside: 0 };
     const cutoffYear = Number(d.metadata.salesCutoff.slice(0, 4));
     const stores = this.year() === cutoffYear
-      ? d.stores.filter(store => this.storeActiveAtDate(store, d.metadata.salesCutoff))
-      : d.stores.filter(store => store.isStore && this.storeOverlapsPeriod(store, this.year() * 100 + 1, this.year() * 100 + 12));
+      ? d.stores.filter(store => this.storeAllowedByAccess(store) && this.storeActiveAtDate(store, d.metadata.salesCutoff))
+      : d.stores.filter(store => this.storeAllowedByAccess(store) && store.isStore && this.storeOverlapsPeriod(store, this.year() * 100 + 1, this.year() * 100 + 12));
     const metro = stores.filter(store => store.format === 'METRO').length;
     return { total: stores.length, metro, outside: stores.length - metro };
   });
@@ -1409,7 +1438,7 @@ export class App implements OnInit {
       return rows;
     }
     const ids = this.filteredStoreIds();
-    if (ids.size && ids.size < d.stores.filter(store => store.isStore).length) {
+    if (ids.size && ids.size < d.stores.filter(store => store.isStore && this.storeAllowedByAccess(store)).length) {
       const rows: ProductRow[] = [];
       for (const id of ids) rows.push(...(this.stockProductsByStore.get(id) || []));
       return rows;
@@ -1419,13 +1448,19 @@ export class App implements OnInit {
   readonly filteredProducts = computed(() => {
     const ids = this.filteredStoreIds();
     const candidates = this.indexedStockCandidates();
-    const allStores = (this.data()?.stores || []).filter(store => store.isStore).length;
+    const allStores = (this.data()?.stores || []).filter(store => store.isStore && this.storeAllowedByAccess(store)).length;
     if (!this.selectedCategories().length && !this.selectedLines().length && !this.selectedSublines().length && ids.size === allStores) return candidates;
     return candidates.filter(r => ids.has(r.storeId) &&
       this.categoryMatches(r.category) && this.lineMatches(r.line) && this.sublineMatches(r.subline));
   });
-  // Snapshot fijo del último reporte. No depende de Año/Mes/Tienda/Rubro/Línea/SubLínea.
-  readonly staticPredictiveProducts = computed(() => this.staticPredictiveProductsData());
+  // Snapshot fijo del último reporte. No depende de filtros comerciales, pero sí
+  // respeta el alcance de acceso del usuario (tienda o clúster).
+  readonly staticPredictiveProducts = computed(() => {
+    const allowedIds = new Set((this.data()?.stores || [])
+      .filter(store => this.storeAllowedByAccess(store))
+      .map(store => store.storeId));
+    return this.staticPredictiveProductsData().filter(row => allowedIds.has(row.storeId));
+  });
   readonly predictiveApplicable = computed(() => {
     if (this.year() !== 2026) return false;
     const rubros = this.selectedCategories();
@@ -1720,7 +1755,7 @@ export class App implements OnInit {
     const d = this.data(); if (!d) return new Set<string>();
     const selected = new Set(this.selectedStores());
     return new Set(d.stores
-      .filter(store => this.storeBelongsToSelectedCluster(store) && (this.isDistributionChannel(store) || this.storeActiveAtDate(store, d.metadata.stockCutoff)))
+      .filter(store => this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store) && (this.isDistributionChannel(store) || this.storeActiveAtDate(store, d.metadata.stockCutoff)))
       .filter(store => this.formatMatches(store))
       .filter(store => !selected.size || selected.has(store.storeId))
       .map(store => store.storeId));
@@ -1730,7 +1765,7 @@ export class App implements OnInit {
   readonly inventoryStoresIgnoringStoreFilter = computed(() => {
     const d = this.data(); if (!d) return [];
     return d.stores.filter(store =>
-      this.storeBelongsToSelectedCluster(store) && this.formatMatches(store) &&
+      this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store) && this.formatMatches(store) &&
       (this.isDistributionChannel(store) || this.storeActiveAtDate(store, d.metadata.stockCutoff))
     );
   });
@@ -1827,6 +1862,13 @@ export class App implements OnInit {
     const units = months.map(month => sum(realRowsForMonth(month), 'units'));
     return this.comboOption(months.map(month => MONTHS[month - 1]), real, target, units);
   });
+  readonly rankingStoreCountLabel = computed(() => {
+    const stores = (this.data()?.stores || []).filter(store => store.isStore && this.storeAllowedByAccess(store))
+      .filter(store => this.storeOverlapsPeriod(store, this.year() * 100 + 1, this.year() * 100 + 12));
+    const closed = stores.filter(store => store.closingDate?.startsWith(`${this.year()}-`)).length;
+    const active = Math.max(0, stores.length - closed);
+    return `${stores.length} TIENDAS · ${active} ACTIVAS${closed ? ` + ${closed} CERRADA${closed === 1 ? '' : 'S'}` : ''}`;
+  });
   readonly growthOption = computed<EChartsOption>(() => {
     const selectedYear = this.year(); const previousYear = selectedYear - 1; const monthLimit = this.yearOnlyMonthLimit(selectedYear);
     const months = Array.from({ length: monthLimit }, (_, index) => index + 1); const ids = this.historicalYearStoreIds();
@@ -1862,68 +1904,187 @@ export class App implements OnInit {
   });
   readonly rankingOption = computed<EChartsOption>(() => {
     const d = this.data(); if (!d) return {};
+    const selectedMetrics = this.rankingMetrics();
     const selectedYear = this.year(); const periods = this.selectedPeriods();
-    const fromPeriod = selectedYear * 100 + (this.activeMonths().at(0) ?? 1); const toPeriod = selectedYear * 100 + (this.activeMonths().at(-1) ?? this.yearOnlyMonthLimit(selectedYear));
-    // Ranking comparativo: responde a todos los filtros salvo TIENDA, para
-    // conservar la comparación entre locales dentro del contexto seleccionado.
+    // El universo siempre incluye todas las tiendas que estuvieron vigentes en
+    // algún momento del año, incluso si una cerró durante ese ejercicio.
     const candidates = d.stores
-      .filter(store => this.storeBelongsToSelectedCluster(store))
-      .filter(store => this.formatMatches(store))
-      .filter(store => this.storeOverlapsPeriod(store, fromPeriod, toPeriod));
+      .filter(store => store.isStore && this.storeAllowedByAccess(store))
+      .filter(store => this.storeOverlapsPeriod(store, selectedYear * 100 + 1, selectedYear * 100 + 12));
     const candidateIds = new Set(candidates.map(store => store.storeId));
     const factRows = this.dateRangeActive()
       ? this.dailyRowsInRange(candidateIds, true)
       : this.currentDimensionFilter(this.indexedRows(this.currentDimensionIndex(), periods, candidateIds));
     const groups = grouped(factRows, row => row.storeId);
-    const predictive = new Map<string, { stockValue: number; sales30: number }>();
-    for (const row of this.inventoryProductsIgnoringStoreFilter()) {
-      const total = predictive.get(row.storeId) || { stockValue: 0, sales30: 0 };
-      total.stockValue += row.stockValue || 0; total.sales30 += row.sales30 || 0;
-      predictive.set(row.storeId, total);
-    }
+    // El resumen de rotación por tienda ya viene en dashboard.json. Usarlo aquí
+    // evita depender del detalle pesado de productos, que se carga recién en Inventario.
+    const predictive = new Map((d.predictiveStore || []).map(row => [row.storeId, row]));
     const stockYear = Number(d.metadata.stockCutoff.slice(0, 4));
     const metrics = candidates.map(store => {
       const rows = groups.get(store.storeId) || [];
-      const net = rows.length ? sum(rows, 'net') : null;
-      const transactions = rows.length ? sum(rows, 'transactions') : 0;
-      const ticket = transactions > 0 && net != null ? net / transactions : null;
+      const net = sum(rows, 'net');
+      const transactions = sum(rows, 'transactions');
+      const ticket = transactions > 0 ? net / transactions : 0;
       const predictiveRow = predictive.get(store.storeId);
-      const rotation = selectedYear === stockYear && predictiveRow && predictiveRow.stockValue > 0 ? predictiveRow.sales30 / predictiveRow.stockValue : null;
-      return { store, net, ticket, rotation };
+      const rotation = selectedYear === stockYear && predictiveRow
+        ? (predictiveRow.rotation ?? (predictiveRow.stockValue > 0 ? predictiveRow.sales30 / predictiveRow.stockValue : null))
+        : null;
+      const sellingAreaM2 = Math.max(0, Number(store.areaM2) || 0) * .8;
+      const saleM2 = sellingAreaM2 > 0 ? net / sellingAreaM2 : 0;
+      const label = `${store.alias || store.store}${store.closingDate?.startsWith(`${selectedYear}-`) ? ' · CERRADA' : ''}`;
+      return { store, label, net, saleM2, ticket, rotation };
     });
-    const saleRanks = denseRanks(metrics.map(row => row.net), true);
-    const rotationRanks = denseRanks(metrics.map(row => row.rotation), true);
-    const ticketRanks = denseRanks(metrics.map(row => row.ticket), true);
+    const metricValue = (row: (typeof metrics)[number], metric: RankingMetric): number | null => {
+      if (metric === 'ROTATION') return row.rotation;
+      if (metric === 'NET') return row.net;
+      if (metric === 'TICKET') return row.ticket;
+      return row.saleM2;
+    };
+    const metricLabel: Record<RankingMetric, string> = {
+      ROTATION: 'Rotación', NET: 'Venta neta', TICKET: 'Ticket prom.', SALE_M2: 'Venta × m²'
+    };
+    const metricRanks = new Map<RankingMetric, Map<number, number>>(
+      selectedMetrics.map(metric => [metric, denseRanks(metrics.map(row => metricValue(row, metric)), true)])
+    );
     const scored = metrics.map(row => {
-      const saleRank = row.net == null ? null : saleRanks.get(row.net) ?? null;
-      const rotationRank = row.rotation == null ? null : rotationRanks.get(row.rotation) ?? null;
-      const ticketRank = row.ticket == null ? null : ticketRanks.get(row.ticket) ?? null;
-      const available = [saleRank, rotationRank, ticketRank].filter((rank): rank is number => rank != null);
-      const score = available.length ? (available.length === 3 ? available.reduce((total, rank) => total + rank, 0) : available.reduce((total, rank) => total + rank, 0) / available.length * 3) : null;
-      return { ...row, saleRank, rotationRank, ticketRank, variables: available.length, score };
+      const details = selectedMetrics.map(metric => {
+        const value = metricValue(row, metric);
+        const rankMap = metricRanks.get(metric)!;
+        const rank = value == null ? null : rankMap.get(value) ?? null;
+        // Los puntos son la posición conseguida en cada top. Si una tienda no
+        // tiene dato para una métrica, recibe la última posición disponible.
+        const points = rank ?? metrics.length;
+        return { metric, value, rank, points };
+      });
+      const score = details.reduce((total, detail) => total + detail.points, 0);
+      return { ...row, details, score };
     });
-    const overallRanks = denseRanks(scored.map(row => row.score), false);
-    const rows = scored.map(row => ({ ...row, overallRank: row.score == null ? null : overallRanks.get(row.score) ?? null }))
-      .filter(row => row.overallRank != null).sort((a, b) => a.overallRank! - b.overallRank!);
-    const totalNet = rows.reduce((total, row) => total + (row.net || 0), 0);
-    const visibleRows = Math.min(6, rows.length); const maxScore = Math.max(1, ...rows.map(row => row.score || 0));
+    const rows = scored.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label, 'es'));
+    const positionScaleMax = Math.max(1, rows.length);
+    const singleMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : null;
+    const totalNet = metrics.reduce((total, row) => total + Math.max(0, row.net), 0);
+    const formatMetric = (metric: RankingMetric, value: number | null): string => {
+      if (value == null) return 'N/A';
+      if (metric === 'ROTATION') return this.percent(value);
+      if (metric === 'NET') return totalNet > 0 ? this.percent(value / totalNet) : 'N/A';
+      return this.money(value);
+    };
+    if (!rows.length) return {
+      animation: false,
+      graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: 'N/A PARA LOS FILTROS SELECCIONADOS', fill: '#64748B', fontSize: 11, fontWeight: 800 } }]
+    } as EChartsOption;
     return {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, borderColor: C.gold, padding: [6, 8], textStyle: { fontSize: 10 }, position: this.tooltipToRight, extraCssText: 'max-width:205px;white-space:normal;', formatter: (params: any[]) => { const index = params[0]?.dataIndex ?? 0; const row = rows[index]; return this.tooltip(row.store.alias || row.store.store, [
-        { label: `Venta neta #${row.saleRank ?? '—'}`, value: row.net == null || !totalNet ? 'FALTA INFORMACIÓN' : this.percent(row.net / totalNet) },
-        { label: `Rotación #${row.rotationRank ?? '—'}`, value: row.rotation == null ? 'FALTA INFORMACIÓN' : this.percent(row.rotation) },
-        { label: `Ticket prom. #${row.ticketRank ?? '—'}`, value: this.money(row.ticket) }
-      ]); } },
-      grid: { left: 44, right: 28, top: 5, bottom: 5 },
-      dataZoom: rows.length > visibleRows ? [
-        { type: 'inside', yAxisIndex: 0, startValue: 0, endValue: visibleRows - 1, zoomLock: true, moveOnMouseWheel: true },
-        { type: 'slider', yAxisIndex: 0, orient: 'vertical', right: 1, top: 8, bottom: 8, width: 15, startValue: 0, endValue: visibleRows - 1, showDetail: false, brushSelect: false,
-          backgroundColor: '#D8E0EC', fillerColor: 'rgba(18,58,140,.38)', borderColor: '#9AABC2', handleSize: '115%', handleStyle: { color: '#123A8C', borderColor: '#0C2D70', borderWidth: 1 }, moveHandleStyle: { color: '#123A8C' } }
-      ] : [],
-      xAxis: { type: 'value', min: 0, max: maxScore * 1.04, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
-      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.store.alias || row.store.store), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { interval: 0, align: 'left', margin: 38, fontWeight: 800, color: '#475569', fontSize: 9, width: 36, overflow: 'truncate', lineHeight: 10 } },
-      series: [{ type: 'bar', data: rows.map(row => row.score), barMaxWidth: 15, barCategoryGap: '18%', itemStyle: { color: C.gold, borderRadius: [0, 4, 4, 0] },
-        label: { show: true, position: 'right', formatter: (params: any) => `#${rows[params.dataIndex]?.overallRank ?? ''}`, color: '#172033', fontSize: 10, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+      tooltip: { trigger: 'item', confine: true, borderColor: C.gold, padding: [6, 8], textStyle: { fontSize: 10 }, position: this.tooltipToRight, extraCssText: 'max-width:none;white-space:nowrap;', formatter: (params: any) => {
+        const row = rows[params.dataIndex ?? 0];
+        return `<div class="chart-tooltip" style="min-width:185px;max-width:none;white-space:nowrap"><strong>${safe(row.label)}</strong>${row.details.map(detail =>
+          `<div style="display:flex;justify-content:space-between;gap:16px;white-space:nowrap"><span>${safe(metricLabel[detail.metric])} #${detail.points}</span><b style="max-width:none;overflow-wrap:normal;white-space:nowrap">${safe(formatMetric(detail.metric, detail.value))}</b></div>`
+        ).join('')}</div>`;
+      } },
+      grid: { left: 48, right: 18, top: 25, bottom: 78 },
+      xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
+      yAxis: { type: 'value', min: 0, max: positionScaleMax + 1, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      series: [{ type: 'bar', data: rows.map((_, index) => positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'NET' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : C.gold, borderRadius: [4, 4, 0, 0] },
+        label: { show: true, position: 'top', formatter: (params: any) => String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+    } as EChartsOption;
+  });
+
+  readonly hourlyCommercialRows = computed<{ hour: number; transactions: number; net: number; ticket: number | null }[]>(() => {
+    const d = this.data(); if (!d) return [];
+    const ids = this.filteredStoreIds();
+    const selectedPeriods = new Set(this.selectedPeriods());
+    const rows = this.dateRangeActive()
+      ? this.dailyHourlySalesRows.filter(row => !!row.date && row.date >= this.fromDate() && row.date <= (this.toDate() || this.fromDate()) && ids.has(row.storeId))
+      : (d.monthlyHourlySales || []).filter(row => selectedPeriods.has(row.periodId) && ids.has(row.storeId));
+    const byHour = new Map<number, { transactions: number; net: number }>();
+    for (const row of rows) {
+      const current = byHour.get(row.hour) || { transactions: 0, net: 0 };
+      current.transactions += Number(row.transactions) || 0;
+      current.net += Number(row.net) || 0;
+      byHour.set(row.hour, current);
+    }
+    return Array.from({ length: 16 }, (_, index) => {
+      const hour = index + 8;
+      const values = byHour.get(hour) || { transactions: 0, net: 0 };
+      return { hour, ...values, ticket: values.transactions > 0 ? values.net / values.transactions : null };
+    });
+  });
+
+  readonly hourlyPerformanceOption = computed<EChartsOption>(() => {
+    const hours = this.hourlyCommercialRows();
+    const peakTickets = Math.max(0, ...hours.map(row => row.transactions));
+    const totalTickets = hours.reduce((total, row) => total + row.transactions, 0);
+    const totalNet = hours.reduce((total, row) => total + row.net, 0);
+    return {
+      animation: false,
+      color: [C.navy, C.teal],
+      legend: { top: 0, right: 18, selectedMode: false, itemGap: 16, itemWidth: 13, itemHeight: 7, textStyle: { color: '#475569', fontSize: 8, fontWeight: 700 }, data: ['Tickets', 'Venta neta'] },
+      tooltip: { trigger: 'item', confine: true, position: this.tooltipToRight, formatter: (params: any) => {
+        const row = hours[params.dataIndex ?? 0]; return this.tooltip(`${String(row?.hour ?? 0).padStart(2, '0')}:00`, [
+          { label: 'Tickets', value: this.number(row?.transactions ?? null) },
+          { label: 'Participación tickets', value: totalTickets ? this.percent((row?.transactions || 0) / totalTickets) : 'N/A' },
+          { label: 'Venta neta', value: this.money(row?.net ?? null, true) },
+          { label: 'Participación venta', value: totalNet ? this.percent((row?.net || 0) / totalNet) : 'N/A' },
+          { label: 'Ticket promedio', value: this.money(row?.ticket ?? null) }
+        ]);
+      } },
+      grid: { left: 50, right: 58, top: 30, bottom: 36 },
+      xAxis: { type: 'category', triggerEvent: false, axisPointer: { show: false }, data: hours.map(row => `${String(row.hour).padStart(2, '0')}:00`), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 8, interval: 0 } },
+      yAxis: [
+        { type: 'value', min: 0, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => this.short(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+        { type: 'value', min: 0, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { show: false } }
+      ],
+      series: [
+        { name: 'Tickets', type: 'bar', yAxisIndex: 0, data: hours.map(row => ({ value: row.transactions, itemStyle: { color: row.transactions === peakTickets && peakTickets > 0 ? C.gold : C.navy, borderRadius: [4, 4, 0, 0] } })), barMaxWidth: 24,
+          label: { show: true, position: 'top', color: '#334155', fontSize: 7, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } },
+        { name: 'Venta neta', type: 'line', silent: true, tooltip: { show: false }, emphasis: { disabled: true }, yAxisIndex: 1, data: hours.map(row => row.net), smooth: true, symbol: 'circle', symbolSize: 5, lineStyle: { color: C.teal, width: 2.5 }, itemStyle: { color: C.teal }, z: 6 }
+      ]
+    } as EChartsOption;
+  });
+
+  readonly inventoryAreaSummary = computed(() => {
+    const ids = this.filteredStoreIds();
+    const rows = (this.data()?.predictiveCategory || []).filter(row => ids.has(row.storeId) && this.categoryMatches(row.category));
+    const groups = grouped(rows, row => this.areaHead(row.category));
+    const totalValue = rows.reduce((total, row) => total + (Number(row.stockValue) || 0), 0);
+    const colors: Record<string, string> = { TEXTIL: C.navy, CALZADO: C.red, HOGAR: C.gold, ELECTRO: C.blue, TECNOLOGIA: C.teal, 'PERFUMERÍA Y JOYERÍA': C.purple, 'FERRETERÍA Y AUTOMOTRIZ': C.orange, 'PRODUCTOS VARIOS': C.slate };
+    return [...groups.entries()].map(([area, areaRows]) => {
+      const value = areaRows.reduce((total, row) => total + (Number(row.stockValue) || 0), 0);
+      return { area: area === 'TECNOLOGIA' ? 'TECNOLOGÍA' : area, value, units: areaRows.reduce((total, row) => total + (Number(row.stockUnits) || 0), 0), share: totalValue ? value / totalValue : 0, color: colors[area] || C.slate };
+    }).filter(row => row.value > 0).sort((a, b) => b.value - a.value);
+  });
+
+  readonly inventoryOverviewOption = computed<EChartsOption>(() => {
+    const rows = this.inventoryAreaSummary();
+    const totals = this.stockTotals();
+    const occupied = Math.min(totals.units, totals.capacity);
+    const free = Math.max(0, totals.capacity - totals.units);
+    const overflow = Math.max(0, totals.units - totals.capacity);
+    return {
+      animation: false,
+      color: rows.map(row => row.color),
+      tooltip: { trigger: 'item', confine: true, position: this.tooltipToRight, formatter: (params: any) => {
+        if (params.seriesIndex === 1) return this.tooltip('CAPACIDAD FÍSICA', [
+          { label: 'Capacidad total', value: this.number(totals.capacity, ' und') },
+          { label: 'Stock físico', value: this.number(totals.units, ' und') },
+          { label: 'Espacio disponible', value: this.number(free, ' und') },
+          { label: 'Sobrecapacidad', value: this.number(overflow, ' und') },
+          { label: 'Ocupación', value: this.percent(totals.capacity ? totals.units / totals.capacity : null) }
+        ]);
+        const row = rows[params.dataIndex ?? 0]; return this.tooltip(row?.area || '', [
+          { label: 'Valor de stock', value: this.money(row?.value ?? null, true) },
+          { label: 'Participación', value: this.percent(row?.share ?? null) },
+          { label: 'Unidades', value: this.number(row?.units ?? null, ' und') }
+        ]);
+      } },
+      legend: { show: false },
+      series: [{ name: 'Valor por área', type: 'pie', radius: ['54%', '82%'], center: ['50%', '52%'], avoidLabelOverlap: true,
+        labelLine: { show: false }, label: { show: false },
+        data: rows.map(row => ({ name: row.area, value: row.value, itemStyle: { color: row.color } })) },
+        { name: 'Capacidad física', type: 'pie', radius: ['30%', '46%'], center: ['50%', '52%'], startAngle: 90, label: { show: false }, labelLine: { show: false }, data: [
+          { name: 'Stock ocupado', value: occupied, itemStyle: { color: overflow > 0 ? C.red : C.teal } },
+          { name: 'Capacidad libre', value: free, itemStyle: { color: '#D8E0EC' } }
+        ] }]
     } as EChartsOption;
   });
   readonly categoryOption = computed<EChartsOption>(() => {
@@ -1995,10 +2156,7 @@ export class App implements OnInit {
     const values = this.brandSummary();
     const visible = Math.min(10, values.length);
     const endValue = Math.max(0, visible - 1);
-    const maxBrand = Math.max(0, ...values.map(v => v.net));
-    // Aproximadamente 4 divisiones y redondeadas a millones para no saturar el eje.
-    const axisStep = maxBrand > 0 ? Math.max(1_000_000, Math.ceil(maxBrand / 4 / 1_000_000) * 1_000_000) : 1_000_000;
-    const axisMax = maxBrand > 0 ? Math.ceil(maxBrand / axisStep) * axisStep : axisStep;
+    const axisScale = adaptiveValueScale(values.map(v => v.net));
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'max-width:180px;', formatter: (params: any[]) => {
@@ -2017,7 +2175,7 @@ export class App implements OnInit {
       ] : [],
       xAxis: { type: 'category', data: values.map(v => v.name), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } },
         axisLabel: { interval: 0, rotate: 90, align: 'center', verticalAlign: 'middle', margin: 42, hideOverlap: false, fontSize: 9, color: '#475569' } },
-      yAxis: { type: 'value', min: 0, max: axisMax, interval: axisStep, axisLabel: { color: '#64748B', formatter: (v: number) => v === 0 ? 'S/ 0' : `S/ ${this.short(v)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      yAxis: { type: 'value', min: 0, ...axisScale, axisLabel: { color: '#64748B', formatter: (v: number) => v === 0 ? 'S/ 0' : `S/ ${this.short(v)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [{ type: 'bar', data: values.map(v => ({ value: v.net, itemStyle: { color: C.purple, borderRadius: [5, 5, 0, 0] } })), barMaxWidth: 28, z: 5,
         label: { show: true, position: 'top', formatter: (params: any) => this.percent(values[params.dataIndex]?.share ?? null), color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 }, labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } }]
     } as EChartsOption;
@@ -2118,9 +2276,7 @@ export class App implements OnInit {
     const values = this.priceRangeSummary();
     const bands = values.map(value => value.label);
     const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
-    const maxNet = Math.max(0, ...values.map(value => value.net));
-    const priceAxisStep = maxNet > 0 ? Math.max(1_000_000, Math.ceil(maxNet / 3 / 1_000_000) * 1_000_000) : 1_000_000;
-    const priceAxisMax = priceAxisStep * 3;
+    const priceScale = adaptiveValueScale(values.map(value => value.net), 3);
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], textStyle: { fontSize: 10 }, formatter: (params: any[]) => {
@@ -2135,7 +2291,7 @@ export class App implements OnInit {
       grid: { left: 58, right: 54, top: 42, bottom: 82 },
       xAxis: { type: 'category', data: bands, axisTick: { show: false }, axisLabel: { interval: 0, rotate: 90, margin: 38, fontSize: 8, color: '#475569' }, axisLine: { lineStyle: { color: '#CBD5E1' } } },
       yAxis: [
-        { type: 'value', min: 0, max: priceAxisMax, interval: priceAxisStep, axisLabel: { formatter: (value: number) => `S/ ${this.short(value)}`, color: '#64748B', fontSize: 9 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+        { type: 'value', min: 0, ...priceScale, axisLabel: { formatter: (value: number) => `S/ ${this.short(value)}`, color: '#64748B', fontSize: 9 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
         { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: '#B4127A', fontSize: 9 }, splitLine: { show: false } }
       ],
       series: [
@@ -2144,23 +2300,6 @@ export class App implements OnInit {
         { name: 'UNIDADES', type: 'line', yAxisIndex: 1, data: values.map(row => row.units), symbol: 'circle', symbolSize: 7, z: 20,
           lineStyle: { width: 3, color: C.purple }, itemStyle: { color: C.purple, borderColor: '#FFFFFF', borderWidth: 1 } }
       ]
-    } as EChartsOption;
-  });
-  readonly capacityOption = computed<EChartsOption>(() => {
-    const t = this.stockTotals(); const occupied = Math.min(t.units, t.capacity); const free = Math.max(0, t.capacity - t.units); const overflow = Math.max(0, t.units - t.capacity);
-    const occupation = t.capacity ? t.units / t.capacity : null;
-    return {
-      animation: false,
-      tooltip: { trigger: 'item', confine: true, position: this.tooltipToRight, formatter: (params: any) => this.tooltip('CAPACIDAD Y STOCK', [
-        { label: 'Capacidad total', value: this.number(t.capacity, ' und') }, { label: 'Stock físico', value: this.number(t.units, ' und') },
-        { label: 'Espacio disponible', value: this.number(free, ' und') }, { label: 'Exceso', value: this.number(overflow, ' und') },
-        { label: 'Valor del stock', value: this.money(t.value, true) }, { label: 'Ocupación', value: this.percent(occupation) }
-      ]) },
-      graphic: [{ type: 'text', left: 'center', top: '38%', style: { text: `${this.percent(occupation)}\nOCUPACIÓN`, textAlign: 'center', fill: '#172033', fontSize: 12, fontWeight: 900, lineHeight: 18 } }],
-      series: [{ type: 'pie', radius: ['58%', '78%'], center: ['50%', '50%'], startAngle: 90, avoidLabelOverlap: true, label: { show: false }, labelLine: { show: false }, data: [
-        { name: 'Stock ocupado', value: occupied, itemStyle: { color: overflow > 0 ? C.red : C.teal } },
-        { name: 'Capacidad libre', value: free, itemStyle: { color: '#D8E0EC' } }
-      ] }]
     } as EChartsOption;
   });
   readonly antiquityOption = computed<EChartsOption>(() => {
@@ -2208,19 +2347,6 @@ export class App implements OnInit {
     }).sort((a, b) => b.share - a.share);
   });
   readonly rotationOption = computed<EChartsOption>(() => {
-    if (this.rotationView() === 'coverage') {
-      const rows = [...this.coverageRows()].sort((a, b) => (a.days ?? Number.MAX_SAFE_INTEGER) - (b.days ?? Number.MAX_SAFE_INTEGER));
-      const visible = Math.min(7, rows.length); const visualLimit = 365;
-      return {
-        animation: false,
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], formatter: (params: any[]) => { const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row.alias, [{ label: 'Cobertura efectiva', value: row.days == null ? 'SIN VENTA' : this.number(row.days, ' días') }, { label: 'Estado', value: row.status }, { label: 'Stock físico', value: this.number(row.stockUnits, ' und') }, { label: 'Venta 30D', value: this.number(row.units30, ' und') }]); } },
-        grid: { left: 58, right: 76, top: 8, bottom: 28 },
-        dataZoom: rows.length > visible ? [{ type: 'inside', yAxisIndex: 0, startValue: 0, endValue: visible - 1, zoomLock: true, moveOnMouseWheel: true }, { type: 'slider', yAxisIndex: 0, orient: 'vertical', right: 3, top: 8, bottom: 8, width: 18, startValue: 0, endValue: visible - 1, showDetail: false, brushSelect: false, backgroundColor: '#D8E0EC', fillerColor: 'rgba(18,58,140,.20)', borderColor: '#9AABC2', handleSize: '125%', handleStyle: { color: C.navy, borderColor: '#0C2D70' } }] : [],
-        xAxis: { type: 'value', min: 0, max: visualLimit, interval: 90, axisLabel: { formatter: (value: number) => `${Math.round(value)}d`, color: '#64748B', fontSize: 9, margin: 10 }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-        yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { interval: 0, align: 'left', margin: 48, width: 44, overflow: 'truncate', color: '#475569', fontSize: 9, fontWeight: 800 } },
-        series: [{ type: 'bar', data: rows.map(row => ({ value: Math.min(row.days ?? 0, visualLimit), itemStyle: { color: row.color, borderRadius: [0, 4, 4, 0] } })), barMaxWidth: 18, barCategoryGap: '28%', label: { show: true, position: 'right', distance: 4, formatter: (params: any) => { const days = rows[params.dataIndex]?.days; return days == null ? 'S/V' : days > visualLimit ? '365+' : `${Math.round(days)}d`; }, color: '#172033', fontSize: 9, fontWeight: 800, backgroundColor: 'rgba(255,255,255,.90)', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
-      } as EChartsOption;
-    }
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
     const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => row.storeId);
     const rows = [...storeMap.entries()].map(([storeId, label]) => {
@@ -2229,7 +2355,7 @@ export class App implements OnInit {
       const units = sum(products, 'stockUnits'); const sold = sum(products, 'units30');
       return { label, sales, value, units, sold, rotation: units > 0 ? sold / units : 0 };
     }).sort((a, b) => b.rotation - a.rotation);
-    const visible = Math.min(7, rows.length); const max = Math.max(.01, ...rows.map(row => row.rotation));
+    const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.rotation));
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], formatter: (params: any[]) => {
@@ -2248,7 +2374,7 @@ export class App implements OnInit {
         { type: 'slider', yAxisIndex: 0, orient: 'vertical', right: 3, top: 8, bottom: 8, width: 18, startValue: 0, endValue: visible - 1, showDetail: false, brushSelect: false,
           backgroundColor: '#D8E0EC', fillerColor: 'rgba(22,163,74,.25)', borderColor: '#9AABC2', handleSize: '125%', handleStyle: { color: C.green, borderColor: '#15803D' } }
       ] : [],
-      xAxis: { type: 'value', min: 0, max: max * 1.18, axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%`, color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      xAxis: { type: 'value', min: 0, ...rotationScale, axisLabel: { formatter: (value: number) => this.percent(value), color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { interval: 0, align: 'left', margin: 41, width: 38, overflow: 'truncate', color: '#475569', fontSize: 9, fontWeight: 800 } },
       series: [{ type: 'bar', data: rows.map(row => row.rotation), barMaxWidth: 18, barCategoryGap: '24%', itemStyle: { color: C.green, borderRadius: [0, 4, 4, 0] },
         label: { show: true, position: 'right', formatter: (params: any) => this.percent(Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 700, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
@@ -2264,7 +2390,7 @@ export class App implements OnInit {
   ));
   readonly storeValueCoverageOption = computed<EChartsOption>(() => {
     const rows = [...this.inventoryMatrixRows()].sort((a, b) => b.stockValue - a.stockValue);
-    const maxValue = Math.max(...rows.map(row => row.stockValue), 1);
+    const valueScale = adaptiveValueScale(rows.map(row => row.stockValue));
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
@@ -2276,7 +2402,7 @@ export class App implements OnInit {
         ]);
       } },
       grid: { left: 38, right: 112, top: 6, bottom: 30 },
-      xAxis: { type: 'value', min: 0, max: Math.ceil(maxValue * 1.12 / 500_000) * 500_000, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 24, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
+      xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 24, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#334155', fontSize: 9, fontWeight: 850 } },
       series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 13, barCategoryGap: '24%',
         data: rows.map(row => ({ value: row.stockValue, itemStyle: { color: row.color, borderRadius: [0, 4, 4, 0] } })),
@@ -2404,23 +2530,13 @@ export class App implements OnInit {
       this.data.set(loaded);
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
+      this.applyAccessScope();
       // Rango de precios vive ahora en la primera página; se carga en segundo plano para
       // no retrasar los KPIs iniciales, pero ya no depende de abrir Inventario.
       setTimeout(() => void this.ensurePriceRangeDetail(), 0);
-      this.startCloudRefreshMonitor();
       // NO cargar dashboard-brand.json (~35 MB) al abrir. Se carga solo si el usuario
       // entra a un nivel jerárquico que realmente necesita Marca por Rubro/Línea/SubLínea.
     } catch (error) { this.loadingError.set(`No se pudieron abrir los datos del dashboard: ${error instanceof Error ? error.message : error}`); }
-  }
-
-  private startCloudRefreshMonitor(): void {
-    if (!this.cloud.remoteEnabled() || this.cloudRefreshTimer) return;
-    this.cloudRefreshTimer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      void this.cloud.latestPublishedVersion().then(version => {
-        if (version && version !== this.cloud.dataVersion() && typeof window !== 'undefined') window.location.reload();
-      });
-    }, 120_000);
   }
 
   private multiLabel(values: string[], allLabel: string, plural: string): string {
@@ -2443,6 +2559,11 @@ export class App implements OnInit {
   }
   onFilterToggle(key: FilterKey, event: Event): void {
     const details = event.currentTarget as HTMLDetailsElement;
+    if ((key === 'store' && this.storeFilterLocked()) || (key === 'cluster' && this.clusterFilterLocked())) {
+      details.open = false;
+      this.openFilter.set(null);
+      return;
+    }
     if (details.open) this.openFilter.set(key);
     else if (this.openFilter() === key) this.openFilter.set(null);
   }
@@ -2489,14 +2610,23 @@ export class App implements OnInit {
   sectionAdviceFor(id: string): { text: string; loading: boolean; error: boolean } | null {
     return this.sectionAdvices()[id] ?? null;
   }
+  private formatSectionAdvice(text: string): string {
+    let skipReading = false;
+    return text.split(/\r?\n/).filter(line => {
+      const heading = line.replace(/^[\s#>*\d.)_\-•]+/, '').replace(/\*\*|__/g, '').toUpperCase();
+      if (/^LECTURA(?:\s|:|$)/.test(heading)) { skipReading = true; return false; }
+      if (/^(HALLAZGO|RECOMENDACI[ÓO]N|PR[ÓO]XIMO PASO)\b/.test(heading)) skipReading = false;
+      return !skipReading;
+    }).join('\n').trim();
+  }
   async requestSectionAdvice(id: string, section: string): Promise<void> {
     if (this.sectionAdviceFor(id)?.loading) return;
     this.sectionAdvices.update(items => ({ ...items, [id]: { text: '', loading: true, error: false } }));
     try {
       const text = await this.assistant.ask([
-        { role: 'user', content: `MODO CONSEJO POR BLOQUE. Sección: ${section}. Usa exclusivamente los datos entregados y no pidas aclaraciones. Responde con cuatro líneas breves: LECTURA (qué muestran las cifras), HALLAZGO (qué merece atención), RECOMENDACIÓN (qué hacer) y PRÓXIMO PASO (acción concreta). Si un dato no existe, simplemente omítelo.` },
+        { role: 'user', content: `MODO CONSEJO POR BLOQUE. Sección: ${section}. Usa exclusivamente los datos entregados y no pidas aclaraciones. Responde con tres líneas breves: HALLAZGO (qué merece atención), RECOMENDACIÓN (qué hacer) y PRÓXIMO PASO (acción concreta). No incluyas el apartado LECTURA. Si un dato no existe, simplemente omítelo.` },
       ], this.sectionAdviceContext(id, section));
-      this.sectionAdvices.update(items => ({ ...items, [id]: { text, loading: false, error: false } }));
+      this.sectionAdvices.update(items => ({ ...items, [id]: { text: this.formatSectionAdvice(text), loading: false, error: false } }));
     } catch {
       this.sectionAdvices.update(items => ({ ...items, [id]: { text: 'El consejo no está disponible en este momento. Los indicadores del bloque permanecen visibles.', loading: false, error: true } }));
     }
@@ -2525,8 +2655,12 @@ export class App implements OnInit {
     this.selectedMonths.set(this.toggleValue(this.selectedMonths(), month).sort((a, b) => a - b));
     this.clearDateRange();
   }
-  clearStores(): void { this.selectedStores.set([]); this.productId.set('AUTO'); }
+  clearStores(): void {
+    if (this.storeFilterLocked()) return;
+    this.selectedStores.set([]); this.productId.set('AUTO');
+  }
   toggleStore(value: string): void {
+    if (this.storeFilterLocked()) return;
     if (!this.storeOptions().some(store => store.storeId === value)) return;
     this.selectedStores.set(this.toggleValue(this.selectedStores(), value));
     this.productId.set('AUTO');
@@ -2589,6 +2723,11 @@ export class App implements OnInit {
     const next = this.toggleValue(this.genderRubros(), value);
     if (next.length) this.genderRubros.set(next);
   }
+  toggleRankingMetric(value: RankingMetric): void {
+    const next = this.toggleValue(this.rankingMetrics(), value) as RankingMetric[];
+    // El ranking necesita al menos una métrica activa para conservar su sentido.
+    if (next.length) this.rankingMetrics.set(next);
+  }
   setHealthyCoverage(value: number): void {
     const healthy = Math.max(1, Math.round(Number(value) || 30)); this.healthyCoverageDays.set(healthy);
     if (this.overstockDays() <= healthy) this.overstockDays.set(healthy + 30);
@@ -2607,12 +2746,14 @@ export class App implements OnInit {
   setSupplierLeadTime(value: number): void { if ([15, 30, 45, 60, 90].includes(Number(value))) this.supplierLeadTime.set(Number(value) as 15 | 30 | 45 | 60 | 90); }
   setSecurityDays(value: number): void { if ([7, 15, 30].includes(Number(value))) this.securityDays.set(Number(value) as 7 | 15 | 30); }
   clearClusters(): void {
+    if (this.clusterFilterLocked()) return;
     this.selectedClusters.set([]);
     const validStores = new Set(this.storeOptions().map(store => store.storeId));
     this.selectedStores.update(ids => ids.filter(id => validStores.has(id)));
     this.productId.set('AUTO');
   }
   toggleCluster(value: string): void {
+    if (this.clusterFilterLocked()) return;
     if (!this.clusters().includes(value)) return;
     this.selectedClusters.set(this.toggleValue(this.selectedClusters(), value));
     const validStores = new Set(this.storeOptions().map(store => store.storeId));
@@ -2663,16 +2804,39 @@ export class App implements OnInit {
     if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(start, { timeout: 1_500 });
     else setTimeout(start, 350);
   }
-  selectStore(id: string): void { this.toggleStore(id); }
+  selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
     const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
-    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.predictiveStore.set('TODAS'); this.healthyCoverageDays.set(30); this.overstockDays.set(90); this.noMovementMonths.set(3); this.predictiveMermaPct.set(2); this.rotationView.set('rotation');
+    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'NET', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.healthyCoverageDays.set(30); this.overstockDays.set(90); this.noMovementMonths.set(3); this.predictiveMermaPct.set(2); this.rotationView.set('rotation');
     this.demandWindowUnit.set('MONTHS'); this.healthyCoverageUnit.set('MONTHS'); this.overstockUnit.set('MONTHS'); this.noMovementUnit.set('MONTHS'); this.leadTimeUnit.set('DAYS');
     this.openFilter.set(null); this.filterSearch.set({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' }); this.stockHistoryBucketsSelected.set([]);
     this.calendarOpen.set(false);
+    this.applyAccessScope();
+  }
+
+  private applyAccessScope(): void {
+    const access = this.cloud.accessProfile();
+    const stores = this.data()?.stores ?? [];
+    if (!access || access.scopeType === 'all') return;
+    if (access.scopeType === 'store') {
+      const allowedStores = stores.filter(store => this.storeAllowedByAccess(store));
+      this.selectedStores.set(allowedStores.map(store => store.storeId));
+      this.selectedClusters.set([...new Set(allowedStores.map(store => store.cluster).filter(Boolean))]);
+      return;
+    }
+    if (access.scopeType === 'cluster') {
+      const allowed = new Set(access.clusters.map(value => this.normalized(value)));
+      this.selectedClusters.set([...new Set(stores
+        .map(store => store.cluster)
+        .filter(cluster => !!cluster && allowed.has(this.normalized(cluster))))]);
+      this.selectedStores.set([]);
+      return;
+    }
+    this.selectedClusters.set([]);
+    this.selectedStores.set([]);
   }
   formatDate(value?: string): string { return value ? value.split('T')[0].split('-').reverse().join('/') : 'N/A'; }
   periodLabel(period: number): string { return period ? `${MONTHS[(period % 100) - 1]} ${Math.floor(period / 100)}` : 'N/A'; }
@@ -2690,7 +2854,7 @@ export class App implements OnInit {
   trend(value: number | null): string { return value == null ? 'N/A' : `${value >= 0 ? '▲' : '▼'} ${this.percent(Math.abs(value))}`; }
 
   private async loadDetail<T>(file: string): Promise<T> {
-    const urls = await this.cloud.jsonUrls(file);
+    const source = await this.cloud.jsonSource(file);
     const fallbackUrls = [
       `assets/data/${file}`,
       `./assets/data/${file}`,
@@ -2699,23 +2863,37 @@ export class App implements OnInit {
     ];
 
     if (typeof Worker === 'undefined') {
-      const decoder = new TextDecoder('utf-8');
-      let source = '';
-      const attempted = new Set<string>();
-      for (const url of [...urls, ...fallbackUrls]) {
-        if (attempted.has(url)) continue;
-        attempted.add(url);
-        try {
-          const response = await fetch(url, { cache: 'no-store' });
-          if (!response.ok) continue;
-          source += decoder.decode(await response.arrayBuffer(), { stream: true });
-          source += decoder.decode();
-          return JSON.parse(source) as T;
-        } catch {
-          continue;
+      const loadUrls = async (urls: string[], encoding: 'identity' | 'gzip'): Promise<T> => {
+        const chunks: BlobPart[] = [];
+        for (const url of urls) {
+          const response = await fetch(url, { cache: 'default' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          chunks.push(await response.blob());
         }
+        let stream: ReadableStream<Uint8Array> = new Blob(chunks).stream();
+        if (encoding === 'gzip') {
+          if (typeof DecompressionStream === 'undefined') throw new Error('El navegador no admite archivos comprimidos.');
+          const decompressor = new DecompressionStream('gzip') as unknown as TransformStream<Uint8Array, Uint8Array>;
+          stream = stream.pipeThrough(decompressor);
+        }
+        return JSON.parse(await new Response(stream).text()) as T;
+      };
+      try {
+        return await loadUrls(source.urls, source.encoding);
+      } catch {
+        if (this.cloud.remoteEnabled()) throw new Error(`No se pudo cargar ${file} de la versión autorizada.`);
+        const attempted = new Set(source.urls);
+        for (const url of fallbackUrls) {
+          if (attempted.has(url)) continue;
+          attempted.add(url);
+          try {
+            return await loadUrls([url], 'identity');
+          } catch {
+            continue;
+          }
+        }
+        throw new Error(`El archivo ${file} no existe en la versión publicada.`);
       }
-      throw new Error(`El archivo ${file} no existe en la versión publicada.`);
     }
     return new Promise<T>((resolve, reject) => {
       const worker = new Worker(new URL('./json-loader.worker', import.meta.url), { type: 'module' });
@@ -2729,7 +2907,7 @@ export class App implements OnInit {
         finish();
         reject(new Error(`${event.message || 'No se pudo cargar el detalle'} en ${file}`));
       };
-      worker.postMessage({ urls });
+      worker.postMessage(source);
     });
   }
 
@@ -2916,7 +3094,12 @@ export class App implements OnInit {
     return this.predictiveDetailPromise;
   }
 
-  private short(v: number): string { return Math.abs(v) >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : Math.abs(v) >= 1_000 ? `${(v / 1_000).toFixed(0)}k` : `${Math.round(v)}`; }
+  private short(v: number): string {
+    const absolute = Math.abs(v);
+    if (absolute >= 1_000_000) return `${Number((v / 1_000_000).toFixed(1))}M`;
+    if (absolute >= 1_000) return `${Number((v / 1_000).toFixed(1))}k`;
+    return Number(v.toFixed(absolute > 0 && absolute < 1 ? 6 : 2)).toLocaleString('es-PE');
+  }
   private readonly tooltipToRight = (point: number[], _params: unknown, _element: HTMLElement, _rect: unknown, size: any): [number, number] => {
     const gap = 16; const content = size?.contentSize || [160, 80]; const view = size?.viewSize || [400, 300];
     const fitsRight = point[0] + gap + content[0] <= view[0] - 4;

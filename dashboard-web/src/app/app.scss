@@ -337,7 +337,17 @@
 .kpi-strip strong { display: block; min-width: 0; margin-top: 4px; overflow: hidden; font-size: clamp(.72rem,.9vw,.98rem); text-overflow: ellipsis; white-space: nowrap; }
 .kpi-strip strong.missing { font-size: .6rem; letter-spacing: -.01em; }
 .kpi-strip .collaborator-kpi strong { font-size: clamp(.72rem,.9vw,.98rem); }
-.charts-four { display: grid; grid-template-columns: 1.08fr .72fr .98fr 1.42fr; gap: 10px; margin-top: 12px; }
+.charts-four { display: grid; grid-template-columns: .92fr 1.05fr 1.35fr; gap: 10px; margin-top: 12px; }
+.hourly-insight-grid { display: grid; grid-template-columns: minmax(560px,1.35fr) minmax(430px,.9fr); gap: 10px; margin-top: 10px; }
+.hourly-insight-grid .chart-card { width: 100%; height: 302px; }
+.ranking-title { display: grid; gap: 7px; }
+.ranking-title h2 { padding-right: 0; }
+.ranking-store-count { color: #64748b; font-size: .55rem; font-weight: 850; text-align: left !important; }
+.ranking-metric-toggle { display: flex; flex-wrap: wrap; gap: 4px; }
+.ranking-metric-toggle button { min-width: 68px; height: 24px; padding: 0 8px; border: 1px solid #b7c2d3; border-radius: 5px; background: #fff; color: #475569; cursor: pointer; font-size: .54rem; font-weight: 850; letter-spacing: .02em; }
+.ranking-metric-toggle button:hover { border-color: #123a8c; color: #123a8c; }
+.ranking-metric-toggle button.active { border-color: #123a8c; background: #123a8c; color: #fff; box-shadow: 0 2px 5px rgba(18,58,140,.18); }
+.commercial-ranking-card dashboard-chart { min-height: 0; }
 .chart-card { position: relative; display: flex; flex-direction: column; min-width: 0; height: 315px; padding: 13px; }
 .chart-card > h2 { padding-right: 28px; }
 .chart-card dashboard-chart { flex: 1; min-height: 0; }
@@ -368,7 +378,7 @@
 .chart-expanded.growth dashboard-chart { height: auto !important; min-height: 0 !important; }
 :host ::ng-deep .chart-expanded.growth dashboard-chart .chart-host { height: 100% !important; min-height: 0 !important; }
 
-.inventory-grid { display: grid; grid-template-columns: minmax(250px,.78fr) minmax(300px,1fr) minmax(480px,1.7fr); gap: 12px; }
+.inventory-grid { display: grid; grid-template-columns: minmax(440px,1fr) minmax(480px,1.65fr); gap: 12px; }
 .inventory-grid .chart-card { height: 390px; }
 .rotation-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .rotation-title h2 { min-width: 0; }
@@ -593,7 +603,9 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .charts-four { grid-template-columns: repeat(2,1fr); }
   .kpi-strip { grid-template-columns: repeat(4,1fr); }
   .inventory-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .inventory-grid .antiquity-card { grid-column: 1 / -1; }
+}
+@media (max-width: 1050px) {
+  .inventory-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 900px) {
   .app-shell { padding: 11px; }
@@ -605,7 +617,7 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .executive-grid, .inventory-grid, .predictive-grid, .predictive-grid.two-col, .predictive-grid.target-layout, .predictive-controls, .predictive-right-stack, .static-charts { grid-template-columns: 1fr; }
   .predictive-grid .coverage { grid-column: auto; }
   .flow-growth-row { grid-template-columns: 1fr; }.flow-row { grid-template-columns: 1fr; }.operator { display: none; }
-  .charts-four { grid-template-columns: 1fr; }.kpi-strip { grid-template-columns: repeat(2,1fr); }
+  .charts-four, .hourly-insight-grid { grid-template-columns: 1fr; }.kpi-strip { grid-template-columns: repeat(2,1fr); }
   .inventory-grid .antiquity-card { grid-column: auto; }
   .chart-expanded .brand-chart-content { grid-template-columns: 1fr; overflow: auto; }
   .chart-expanded .brand-chart-content > dashboard-chart { min-height: 310px !important; }
@@ -656,7 +668,6 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .inventory-grid .chart-summary.old { min-height: 34px; gap: 10px; }
 .inventory-grid .chart-summary.old span { font-size: .58rem; line-height: 1.15; }
 
-/* V7 · estilo ejecutivo/formal para Analítica Predictiva */
 .predictive-grid.target-layout { grid-template-columns: minmax(0,1fr) minmax(0,2fr); }
 .predictive-grid.target-layout .coverage,
 .predictive-right-stack .predictive-card { width: 100%; }
@@ -690,7 +701,6 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .predictive-grid.target-layout { grid-template-columns: minmax(0,1fr) minmax(0,2fr); }
 }
 
-/* V8 · tres bloques predictivos exactamente iguales */
 .predictive-product-row,
 .predictive-warning-row {
   display: grid;
@@ -731,7 +741,6 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .predictive-grid.equal-layout .calc-card { height: auto; min-height: 520px; }
 }
 
-/* V9 · rendimiento + analítica predictiva compacta/corporativa */
 .predictive-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
@@ -823,7 +832,6 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   overflow-wrap: anywhere;
 }
 
-/* V11 · Analítica predictiva: cuatro diagnósticos complementarios. */
 .predictive-v2 { margin-top: 0; font-family: "Segoe UI", Arial, sans-serif; }
 .predictive-parameters { display: grid; grid-template-columns: 1.1fr 1.25fr repeat(4,1.18fr) .65fr; gap: 10px; align-items: end; padding: 11px 13px; border: 1px solid #dce3ed; border-radius: 10px; background: #fff; box-shadow: 0 3px 10px rgba(30,42,72,.05); }
 .predictive-parameters > div, .predictive-parameters > label { display: grid; min-width: 0; gap: 5px; color: #475569; font-size: .57rem; font-weight: 700; }
@@ -1178,7 +1186,14 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
    complementarios viven en dos celdas que nunca se desbordan. */
 .capacity-donut { position: relative; flex: 1; min-height: 0; }
 .capacity-donut > dashboard-chart { display: block; width: 100%; height: 100%; min-height: 0; }
-.capacity-center { position: absolute; inset: 50% auto auto 50%; display: grid; transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
+.capacity-center { position: absolute; inset: 52% auto auto 50%; display: grid; transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
+.inventory-overview-content { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); align-items: stretch; gap: 10px; flex: 1; min-height: 0; }
+.inventory-area-legend { display: grid; align-content: center; gap: 8px; min-width: 0; margin: 0; padding: 8px 0; list-style: none; }
+.inventory-area-legend li { display: grid; grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; gap: 6px; min-width: 0; color: #475569; font-size: .55rem; font-weight: 700; }
+.inventory-area-legend i { width: 8px; height: 8px; border-radius: 2px; }
+.inventory-area-legend span { overflow-wrap: anywhere; line-height: 1.3; }
+.inventory-area-legend strong { color: #172033; font-size: .56rem; white-space: nowrap; }
+.inventory-ring-guide { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px 14px; margin-bottom: 8px; color: #64748b; font-size: .48rem; font-weight: 800; }
 .capacity-center strong { color: #172033; font-size: 1.1rem; font-weight: 900; line-height: 1; }
 .capacity-center small { margin-top: 4px; color: #64748b; font-size: .5rem; font-weight: 900; letter-spacing: .06em; }
 .capacity-facts {

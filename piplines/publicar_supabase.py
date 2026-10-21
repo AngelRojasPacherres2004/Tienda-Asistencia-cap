@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import getpass
+import gzip
 import hashlib
 import json
 import os
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from runtime_config import finalizar_proceso
+from particionar_dashboard import scope_catalog, scope_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +42,7 @@ CORE_FILES = (
 )
 # La carga estándar de Storage es más estable por debajo de 6 MB.
 CHUNK_BYTES = 5 * 1024 * 1024
+DEFAULT_RELEASES_TO_KEEP = 2
 RUNTIME_CONFIG = ROOT / "dashboard-web" / "public" / "runtime-config.js"
 class PublishError(RuntimeError):
     pass
@@ -205,32 +208,191 @@ def upload_file_parts(
     access_token: str,
     version: str,
     source_path: Path,
+    *,
+    object_key: str | None = None,
+    source_bytes: bytes | None = None,
+    quiet: bool = False,
 ) -> list[dict[str, Any]]:
+    # Los JSON del dashboard repiten muchas claves y comprimen especialmente bien.
+    # mtime=0 hace el resultado determinista para una misma entrada.
+    compressed = gzip.compress(source_bytes if source_bytes is not None else source_path.read_bytes(), compresslevel=6, mtime=0)
     parts: list[dict[str, Any]] = []
-    with source_path.open("rb") as source:
-        part_number = 0
-        while chunk := source.read(CHUNK_BYTES):
-            part_number += 1
-            object_path = f"{version}/{source_path.name}/part-{part_number:04d}"
-            encoded_path = urllib.parse.quote(object_path, safe="/")
-            headers = api_headers(api_key, access_token, content_type="application/octet-stream")
-            headers["x-upsert"] = "true"
-            headers["cache-control"] = "31536000"
-            request(
-                "POST",
-                f"{base_url}/storage/v1/object/dashboard-data/{encoded_path}",
-                headers,
-                chunk,
-            )
-            parts.append(
-                {
-                    "path": object_path,
-                    "bytes": len(chunk),
-                    "sha256": hashlib.sha256(chunk).hexdigest(),
-                }
-            )
-            print(f"  {source_path.name}: parte {part_number} publicada")
+    for offset in range(0, len(compressed), CHUNK_BYTES):
+        chunk = compressed[offset:offset + CHUNK_BYTES]
+        part_number = offset // CHUNK_BYTES + 1
+        object_path = f"{version}/{object_key or source_path.name}.gz/part-{part_number:04d}"
+        encoded_path = urllib.parse.quote(object_path, safe="/")
+        # El bucket ya admite octet-stream; la codificación real queda registrada
+        # en el manifiesto y el cliente la descomprime de forma explícita.
+        headers = api_headers(api_key, access_token, content_type="application/octet-stream")
+        headers["x-upsert"] = "true"
+        headers["cache-control"] = "max-age=31536000, immutable"
+        request(
+            "POST",
+            f"{base_url}/storage/v1/object/dashboard-data/{encoded_path}",
+            headers,
+            chunk,
+        )
+        parts.append(
+            {
+                "path": object_path,
+                "bytes": len(chunk),
+                "sha256": hashlib.sha256(chunk).hexdigest(),
+                "encoding": "gzip",
+            }
+        )
+        if not quiet:
+            print(f"  {source_path.name}: parte comprimida {part_number} publicada")
     return parts
+
+
+def delete_postgrest(
+    base_url: str,
+    api_key: str,
+    access_token: str,
+    resource: str,
+) -> None:
+    headers = api_headers(api_key, access_token)
+    headers["Prefer"] = "return=minimal"
+    request("DELETE", f"{base_url}/rest/v1/{resource}", headers)
+
+
+def list_storage_objects(
+    base_url: str,
+    api_key: str,
+    access_token: str,
+    prefix: str = "",
+) -> list[str]:
+    objects: list[str] = []
+    offset = 0
+    while True:
+        payload = json.dumps(
+            {
+                "prefix": prefix,
+                "limit": 1_000,
+                "offset": offset,
+                "sortBy": {"column": "name", "order": "asc"},
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        raw = request(
+            "POST",
+            f"{base_url}/storage/v1/object/list/dashboard-data",
+            api_headers(api_key, access_token),
+            payload,
+        )
+        entries = json.loads(raw) if raw else []
+        for entry in entries:
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                continue
+            object_path = f"{prefix}/{name}" if prefix else name
+            if entry.get("id") or isinstance(entry.get("metadata"), dict):
+                objects.append(object_path)
+            else:
+                objects.extend(
+                    list_storage_objects(base_url, api_key, access_token, object_path)
+                )
+        if len(entries) < 1_000:
+            break
+        offset += len(entries)
+    return objects
+
+
+def remove_storage_objects(
+    base_url: str,
+    api_key: str,
+    access_token: str,
+    paths: list[str],
+) -> None:
+    for index in range(0, len(paths), 1_000):
+        batch = paths[index:index + 1_000]
+        request(
+            "DELETE",
+            f"{base_url}/storage/v1/object/dashboard-data",
+            api_headers(api_key, access_token),
+            json.dumps({"prefixes": batch}, separators=(",", ":")).encode("utf-8"),
+        )
+
+
+def cleanup_release_history(
+    base_url: str,
+    api_key: str,
+    access_token: str,
+    *,
+    keep: int,
+) -> dict[str, int]:
+    releases = get_postgrest(
+        base_url,
+        api_key,
+        access_token,
+        "dashboard_releases?select=id,version,status,published_at&order=published_at.desc.nullslast",
+    ) or []
+    published = [row for row in releases if row.get("status") == "published"]
+    retained_ids = {str(row["id"]) for row in published[:keep]}
+    if not retained_ids:
+        raise PublishError("No existe una publicación vigente para conservar.")
+
+    file_rows = get_postgrest(
+        base_url,
+        api_key,
+        access_token,
+        "dashboard_files?select=release_id,parts",
+    ) or []
+    retained_paths = {
+        str(part["path"])
+        for row in file_rows
+        if str(row.get("release_id")) in retained_ids
+        for part in (row.get("parts") or [])
+        if part.get("path")
+    }
+    for release_id in retained_ids:
+        scope_rows = get_postgrest(
+            base_url, api_key, access_token,
+            "dashboard_scope_files?select=parts"
+            f"&release_id=eq.{urllib.parse.quote(release_id)}&limit=1000",
+        ) or []
+        retained_paths.update(
+            str(part["path"])
+            for row in scope_rows
+            for part in (row.get("parts") or [])
+            if part.get("path")
+        )
+    removable_releases = [
+        row
+        for row in releases
+        if str(row.get("id")) not in retained_ids
+    ]
+    if not removable_releases:
+        return {
+            "releases_kept": len(retained_ids),
+            "releases_removed": 0,
+            "objects_removed": 0,
+        }
+    # El bucket también contiene reportes y cargas. Solo retirar objetos que
+    # pertenecen a versiones obsoletas del dashboard, nunca el resto.
+    obsolete_prefixes = tuple(
+        f"{row['version']}/" for row in removable_releases if row.get("version")
+    )
+    stored_paths = list_storage_objects(base_url, api_key, access_token)
+    removable_paths = sorted(
+        path for path in stored_paths
+        if path.startswith(obsolete_prefixes) and path not in retained_paths
+    )
+    remove_storage_objects(base_url, api_key, access_token, removable_paths)
+
+    for release in removable_releases:
+        delete_postgrest(
+            base_url,
+            api_key,
+            access_token,
+            f"dashboard_releases?id=eq.{urllib.parse.quote(str(release['id']))}",
+        )
+    return {
+        "releases_kept": len(retained_ids),
+        "releases_removed": len(removable_releases),
+        "objects_removed": len(removable_paths),
+    }
 
 
 def publish(env_path: Path, *, interactive: bool = False) -> None:
@@ -256,7 +418,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         publisher_username = os.environ.get("SUPABASE_PUBLISHER_USERNAME", "").strip()
         publisher_password = os.environ.get("SUPABASE_PUBLISHER_PASSWORD", "").strip()
         if interactive and not publisher_username:
-            publisher_username = input("Usuario publicador [Sistemas]: ").strip() or "Sistemas"
+            publisher_username = input("Usuario publicador [comercial1]: ").strip() or "comercial1"
         if interactive and not publisher_password:
             publisher_password = getpass.getpass("Contraseña: ")
         if not api_key or not publisher_username or not publisher_password:
@@ -266,7 +428,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         access_token = sign_in(base_url, api_key, publisher_username, publisher_password)
         if jwt_app_purpose(access_token) != "dashboard_publisher":
             raise PublishError(
-                "La cuenta ingresada no es el publicador dedicado. Usa el usuario Sistemas."
+                "La cuenta ingresada no es el publicador dedicado. Usa el usuario comercial1."
             )
         control_session(base_url, api_key, access_token, "claim")
         publisher_session = True
@@ -284,6 +446,8 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         raise PublishError(f"Faltan archivos del dashboard: {', '.join(missing)}")
 
     metadata = parse_metadata()
+    catalog_payload = json.loads((DATA_DIR / "dashboard.json").read_text(encoding="utf-8"))
+    scopes = scope_catalog(catalog_payload["stores"])
     checksums = {name: sha256_file(DATA_DIR / name) for name in required_files}
     total_bytes = sum((DATA_DIR / name).stat().st_size for name in required_files)
     combined = hashlib.sha256(
@@ -295,6 +459,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
     # Reutiliza las partes inmutables de la última versión cuando el checksum
     # coincide. Así una corrección pequeña no vuelve a subir cientos de MB.
     reusable: dict[str, dict[str, Any]] = {}
+    reusable_scopes: dict[tuple[str, str, str], dict[str, Any]] = {}
     try:
         previous = get_postgrest(
             base_url, api_key, access_token,
@@ -308,8 +473,25 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
                 f"&release_id=eq.{previous_id}",
             ) or []
             reusable = {str(row["logical_name"]): row for row in previous_files}
+            previous_scopes = get_postgrest(
+                base_url, api_key, access_token,
+                "dashboard_scope_files?select=scope_type,scope_value,logical_name,byte_size,checksum_sha256,content_type,parts"
+                f"&release_id=eq.{previous_id}&limit=1000",
+            ) or []
+            reusable_scopes = {
+                (str(row["scope_type"]), str(row["scope_value"]), str(row["logical_name"])): row
+                for row in previous_scopes
+            }
     except Exception:
         reusable = {}
+
+    try:
+        releases_to_keep = max(
+            1,
+            min(3, int(os.environ.get("DASHBOARD_RELEASES_TO_KEEP", DEFAULT_RELEASES_TO_KEEP))),
+        )
+    except ValueError:
+        releases_to_keep = DEFAULT_RELEASES_TO_KEEP
 
     release_payload = {
         "version": version,
@@ -337,7 +519,9 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
 
     try:
         file_rows = []
+        scope_rows = []
         manifest: dict[str, Any] = {}
+        stored_total_bytes = 0
         for name in required_files:
             path = DATA_DIR / name
             previous = reusable.get(name)
@@ -346,25 +530,67 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
                 and previous.get("checksum_sha256") == checksums[name]
                 and int(previous.get("byte_size") or 0) == path.stat().st_size
                 and previous.get("parts")
+                and previous.get("content_type") == "application/gzip"
+                and all(part.get("encoding") == "gzip" for part in previous["parts"])
             )
             if unchanged:
                 parts = previous["parts"]
-                print(f"  {name}: sin cambios, partes reutilizadas")
+                print(f"  {name}: sin cambios, partes comprimidas reutilizadas")
             else:
                 parts = upload_file_parts(base_url, api_key, access_token, version, path)
+            stored_bytes = sum(int(part.get("bytes") or 0) for part in parts)
+            stored_total_bytes += stored_bytes
             file_rows.append(
                 {
                     "release_id": release_id,
                     "logical_name": name,
                     "byte_size": path.stat().st_size,
                     "checksum_sha256": checksums[name],
-                    "content_type": "application/json",
+                    "content_type": "application/gzip",
                     "parts": parts,
                 }
             )
-            manifest[name] = {"bytes": path.stat().st_size, "parts": len(parts), "reused": unchanged}
+            manifest[name] = {
+                "bytes": path.stat().st_size,
+                "storedBytes": stored_bytes,
+                "encoding": "gzip",
+                "parts": len(parts),
+                "reused": unchanged,
+            }
+
+            # Cada rol restringido recibe un archivo físicamente limitado a
+            # su tienda o clúster. Ningún filtro del navegador es una frontera
+            # de autorización.
+            payload = catalog_payload if name == "dashboard.json" else json.loads(path.read_text(encoding="utf-8"))
+            for (scope_type, scope_value), allowed_ids in sorted(scopes.items()):
+                scoped = json.dumps(
+                    scope_payload(payload, allowed_ids), ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                checksum = hashlib.sha256(scoped).hexdigest()
+                previous_scope = reusable_scopes.get((scope_type, scope_value, name))
+                same = bool(
+                    previous_scope and previous_scope.get("checksum_sha256") == checksum
+                    and int(previous_scope.get("byte_size") or 0) == len(scoped)
+                    and previous_scope.get("content_type") == "application/gzip"
+                    and previous_scope.get("parts")
+                )
+                scoped_parts = previous_scope["parts"] if same else upload_file_parts(
+                    base_url, api_key, access_token, version, path,
+                    object_key=f"scoped/{scope_type}/{scope_value}/{name}",
+                    source_bytes=scoped, quiet=True,
+                )
+                scope_rows.append({
+                    "release_id": release_id, "scope_type": scope_type,
+                    "scope_value": scope_value, "logical_name": name,
+                    "byte_size": len(scoped), "checksum_sha256": checksum,
+                    "content_type": "application/gzip", "parts": scoped_parts,
+                })
+            print(f"  {name}: {len(scopes)} alcances privados preparados")
 
         postgrest(base_url, api_key, access_token, "POST", "dashboard_files", file_rows)
+        for start in range(0, len(scope_rows), 500):
+            postgrest(base_url, api_key, access_token, "POST", "dashboard_scope_files", scope_rows[start:start + 500])
         published_at = datetime.now(timezone.utc).isoformat()
         query = f"dashboard_releases?id=eq.{urllib.parse.quote(release_id)}"
         postgrest(
@@ -395,13 +621,36 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
                 pass
         raise
 
+    cleanup_error: Exception | None = None
+    try:
+        cleanup = cleanup_release_history(
+            base_url,
+            api_key,
+            access_token,
+            keep=releases_to_keep,
+        )
+        print(
+            "Historial optimizado: "
+            f"{cleanup['releases_kept']} versiones conservadas, "
+            f"{cleanup['releases_removed']} versiones y "
+            f"{cleanup['objects_removed']} objetos antiguos eliminados."
+        )
+    except Exception as exc:
+        cleanup_error = exc
+
     if publisher_session:
         try:
             control_session(base_url, api_key, access_token, "release")
         except Exception:
             pass
+    if cleanup_error:
+        raise PublishError(
+            "La versión se publicó, pero la limpieza automática del historial falló: "
+            f"{cleanup_error}"
+        ) from cleanup_error
     print(f"Versión publicada correctamente: {version}")
-    print(f"Datos enviados: {total_bytes / 1024 / 1024:.2f} MB")
+    print(f"Datos lógicos: {total_bytes / 1024 / 1024:.2f} MB")
+    print(f"Espacio comprimido de la versión: {stored_total_bytes / 1024 / 1024:.2f} MB")
 
 
 def main() -> int:

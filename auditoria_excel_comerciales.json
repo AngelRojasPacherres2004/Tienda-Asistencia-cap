@@ -2,9 +2,11 @@
   "estado": "ADVERTENCIA",
   "errores": [],
   "advertencias": [
+    "METAS: 12 claves convergen por homologación de tienda; el pipeline consolidará la meta total conservando el detalle por rubro.",
     "METAS: 54 filas con meta 0 se publicarán como SIN META.",
-    "TRAFICO: 23 conteos NULL sin estado informativo (se conservan como NULL).",
-    "TRAFICO: 259 conteos NULL se conservaran segun estado_registro.",
+    "PERSONAL: 3 filas sin fecha de ingreso se conservan en la fuente, pero se excluyen del histórico mensual hasta contar con una fecha real.",
+    "TRAFICO: 27 conteos NULL sin estado informativo (se conservan como NULL).",
+    "TRAFICO: 319 conteos NULL se conservaran segun estado_registro.",
     "MERMA: 25 filas sin código conservarán producto_id NULL.",
     "GUIAS: 540 filas anteriores a 2023 serán excluidas de Capa 2.",
     "GUIAS: 1 totales fuente difieren de cantidad × precio; se recalcularán."
@@ -40,22 +42,22 @@
     },
     "metas": {
       "archivo": "METAS_TIENDAS.xlsx",
-      "hoja": "METAS_TIENDAS",
-      "filas": 648,
-      "columnas": 7,
+      "hoja": "METAS",
+      "filas": 660,
+      "columnas": 8,
       "estado": "OK"
     },
     "personal": {
       "archivo": "PERSONAL_TIENDAS.xlsx",
       "hoja": "PERSONAL_TIENDAS",
-      "filas": 112,
+      "filas": 166,
       "columnas": 28,
       "estado": "OK"
     },
     "trafico": {
       "archivo": "TRAFICO_CLIENTES.xlsx",
       "hoja": "TRAFICO_CLIENTE",
-      "filas": 4248,
+      "filas": 5184,
       "columnas": 4,
       "estado": "OK"
     }

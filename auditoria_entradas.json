@@ -3,7 +3,7 @@
     "archivo": "Fact_Ventas.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 3845449,
+    "filas": 4008943,
     "columnas": 35,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -12,7 +12,7 @@
     "archivo": "Fact_Ingresos.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 493417,
+    "filas": 431742,
     "columnas": 26,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -21,7 +21,7 @@
     "archivo": "Fact_Transferencias.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 1255926,
+    "filas": 1304397,
     "columnas": 25,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -90,19 +90,19 @@
     "tipo": "excel",
     "hoja": "PERSONAL_TIENDAS",
     "estado": "OK",
-    "filas": 112,
+    "filas": 166,
     "columnas": 28,
     "faltantes": [],
-    "staging": ".etl_work\\xlsx_staging\\PERSONAL_TIENDAS__PERSONAL_TIENDAS__1788257135712681000_85373.csv"
+    "staging": ".etl_work\\xlsx_staging\\PERSONAL_TIENDAS__PERSONAL_TIENDAS__1791328466117683400_77326.csv"
   },
   {
     "archivo": "TRAFICO_CLIENTES.xlsx",
     "tipo": "excel",
     "hoja": "TRAFICO_CLIENTE",
     "estado": "OK",
-    "filas": 4248,
+    "filas": 5184,
     "columnas": 4,
     "faltantes": [],
-    "staging": ".etl_work\\xlsx_staging\\TRAFICO_CLIENTES__TRAFICO_CLIENTE__1787840906824673300_106016.csv"
+    "staging": ".etl_work\\xlsx_staging\\TRAFICO_CLIENTES__TRAFICO_CLIENTE__1792346106341945400_98617.csv"
   }
 ]

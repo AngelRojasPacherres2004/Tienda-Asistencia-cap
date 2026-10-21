@@ -4,6 +4,7 @@
 !.env.supabase.local.example
 CREDENCIALES_SUPABASE_LOCAL.txt
 credenciales.txt
+ACCESOS_DASHBOARD_POR_ROL.txt
 
 # Entornos, cachés y temporales
 .venv/
@@ -23,6 +24,9 @@ capa2/
 dashboard-web/public/assets/data/
 dashboard-web/dist/
 DashboardGeneral_Portable_v*.zip
+
+# Repositorio independiente de la interfaz operativa, organizado dentro de este proyecto
+/Tienda-Asistencia-cap/
 
 # Archivos locales del sistema
 .DS_Store

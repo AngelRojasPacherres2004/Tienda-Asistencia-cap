@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import sys
@@ -179,6 +180,7 @@ TIENDAS_EQUIVALENCIAS = {
     "ARGENTINA": "ARGENTINA",
     "AYA": "AYACUCHO",
     "AYACUCHO": "AYACUCHO",
+    "AYACUCHO 1021 --- CUARTO PISO": "AYACUCHO",
     "CALLAO": "CALLAO",
     "CD": "CD",
     "CHORRILLOS": "CHORRILLOS",
@@ -1010,7 +1012,22 @@ def buscar_excels_stock() -> list[Path]:
             f"{ARCHIVO_EXCEL_PREFERIDO}"
         )
 
-    return candidatos
+    # Un nombre de mes distinto no convierte una copia idéntica en una foto
+    # nueva. Conservar el primer corte auténtico y no adelantar stock ficticio.
+    unicos: list[Path] = []
+    contenido_visto: dict[str, Path] = {}
+    for archivo in sorted(candidatos, key=lambda p: (resolver_fecha_corte(p, None)[0], p.name)):
+        with archivo.open("rb") as entrada:
+            digest = hashlib.file_digest(entrada, "sha256").hexdigest()
+        if digest in contenido_visto:
+            print(
+                f"[ADVERTENCIA] {archivo.name} es idéntico a "
+                f"{contenido_visto[digest].name}; se omite como nuevo corte."
+            )
+            continue
+        contenido_visto[digest] = archivo
+        unicos.append(archivo)
+    return unicos
 
 
 def buscar_excel_stock() -> Path:

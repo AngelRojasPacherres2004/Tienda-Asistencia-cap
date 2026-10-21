@@ -3,6 +3,46 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
+rem La aplicacion unificada Asiste es la vista local actual. El Angular antiguo
+rem queda disponible con --legacy para paquetes portables previos.
+if /I "%~1"=="--legacy" goto :dashboard_legado
+if exist "Tienda-Asistencia-cap\package.json" (
+    if not exist "Tienda-Asistencia-cap\.env" (
+        echo ERROR: falta la configuracion privada de Asiste.
+        goto :error
+    )
+    where npm >nul 2>nul
+    if errorlevel 1 (
+        echo ERROR: instala Node.js para ejecutar Asiste localmente.
+        goto :error
+    )
+    curl.exe --silent --fail --max-time 2 "http://127.0.0.1:5180/" >nul 2>nul
+    if not errorlevel 1 (
+        echo Asiste ya esta activo en http://127.0.0.1:5180/
+        if /I not "%~1"=="--sin-navegador" start "" "http://127.0.0.1:5180/"
+        exit /b 0
+    )
+    pushd "Tienda-Asistencia-cap"
+    if not exist "node_modules\vite" (
+        echo Instalando dependencias de Asiste...
+        call npm ci
+        if errorlevel 1 (
+            popd
+            goto :error
+        )
+    )
+    echo Abriendo Asiste en http://127.0.0.1:5180/
+    if /I not "%~1"=="--sin-navegador" start "" "http://127.0.0.1:5180/"
+    call npm run dev
+    if errorlevel 1 (
+        popd
+        goto :error
+    )
+    popd
+    exit /b 0
+)
+
+:dashboard_legado
 set "WEBROOT=dashboard-web\dist\dashboard-web\browser"
 
 echo ============================================================

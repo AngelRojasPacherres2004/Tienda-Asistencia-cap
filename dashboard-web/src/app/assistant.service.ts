@@ -32,6 +32,19 @@ export class AssistantService {
   async transcribe(audio: Blob, fileName = 'consulta.webm'): Promise<string> {
     if (!this.config.groqAssistantEnabled) throw new Error('El asistente de IA está desactivado en esta instalación.');
 
+    if (this.cloud.portalEnabled) {
+      const data = new Uint8Array(await audio.arrayBuffer());
+      let binary = '';
+      for (let offset = 0; offset < data.length; offset += 0x8000) {
+        binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000));
+      }
+      const payload = await this.localRequest<{ text?: string; error?: string }>('/api/assistant/transcribe', {
+        audioBase64: btoa(binary), fileName, mimeType: audio.type,
+      });
+      if (payload.text == null) throw new Error(payload.error || 'La transcripción no devolvió texto.');
+      return payload.text;
+    }
+
     if (this.cloud.remoteEnabled() && this.cloud.hasAccess()) {
       try {
         const body = new FormData();

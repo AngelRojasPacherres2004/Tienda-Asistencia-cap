@@ -1,4 +1,4 @@
-export type DashboardDataMode = 'local' | 'supabase';
+export type DashboardDataMode = 'local' | 'supabase' | 'portal';
 
 export type DashboardRuntimeConfig = {
   dataMode: DashboardDataMode;
@@ -34,7 +34,7 @@ export function readRuntimeConfig(): DashboardRuntimeConfig {
   return {
     ...DEFAULT_CONFIG,
     ...supplied,
-    dataMode: remoteReady ? 'supabase' : 'local',
+    dataMode: supplied.dataMode === 'portal' ? 'portal' : remoteReady ? 'supabase' : 'local',
     supabaseUrl: supplied.supabaseUrl?.trim() ?? '',
     supabasePublishableKey: supplied.supabasePublishableKey?.trim() ?? '',
     groqAssistantEnabled: supplied.groqAssistantEnabled !== false,

@@ -91,7 +91,7 @@ if exist "%ZIP%" del /q "%ZIP%"
 echo Creando %ZIP% ...
 rem Una sola linea: evita que CMD interprete accidentalmente un BAT listado
 rem como si fuera el siguiente comando cuando una continuacion se corrompe.
-tar.exe -a -c -f "%ZIP%" --exclude="piplines/**pycache**" --exclude="dashboard-web/node_modules" --exclude="dashboard-web/.angular" --exclude="dashboard-web/.netlify" --exclude="dashboard-web/.vscode" --exclude="dashboard-web/public/assets/data" --exclude="dashboard-web/src.zip" "0_ABRIR_PANEL.bat" "1_INSTALAR_REQUISITOS.bat" "2_ACTUALIZAR_DATOS.bat" "3_CREAR_PAQUETE_PORTABLE.bat" "4_EJECUTAR_DASHBOARD_WEB.bat" "5_CREAR_USUARIO_WEB.bat" "6_ACTUALIZAR_DASHBOARD_WEB.bat" "README.md" "Manual_Actualizacion_Dashboard_Comercial.docx" "ARQUITECTURA_NUBE.md" "netlify.toml" "input" "capa1" "capa2" "piplines" "supabase" "dashboard-web"
+tar.exe -a -c -f "%ZIP%" --exclude="piplines/**pycache**" --exclude="dashboard-web/node_modules" --exclude="dashboard-web/.angular" --exclude="dashboard-web/.netlify" --exclude="dashboard-web/.vscode" --exclude="dashboard-web/public/assets/data" --exclude="dashboard-web/src.zip" "0_ABRIR_PANEL.bat" "1_INSTALAR_REQUISITOS.bat" "2_ACTUALIZAR_DATOS.bat" "3_CREAR_PAQUETE_PORTABLE.bat" "4_EJECUTAR_DASHBOARD_WEB.bat" "5_CREAR_USUARIO_WEB.bat" "6_ACTUALIZAR_DASHBOARD_WEB.bat" "7_ACTUALIZAR_TODO.bat" "README.md" "Manual_Actualizacion_Dashboard_Comercial.docx" "ARQUITECTURA_NUBE.md" "netlify.toml" "input" "capa1" "capa2" "piplines" "supabase" "dashboard-web"
 if errorlevel 1 goto :error
 
 for %%Z in ("%ZIP%") do set "ZIP_BYTES=%%~zZ"
@@ -107,8 +107,9 @@ echo disponibles de capa2, ademas del manual Word de actualizacion.
 echo En otra PC: extraer, ejecutar 1_INSTALAR_REQUISITOS.bat y luego
 echo 0_ABRIR_PANEL.bat. Para abrir la web, ejecutar
 echo 4_EJECUTAR_DASHBOARD_WEB.bat.
-echo Para publicar desde la otra PC ejecuta 6_ACTUALIZAR_DASHBOARD_WEB.bat.
-echo El BAT solicita la contrasena y nunca la guarda dentro del ZIP.
+echo Para publicar desde otra PC tambien necesitas el repositorio Asiste
+echo con su .env privado, fuera de este ZIP. Indica su ruta con --app-root.
+echo El ZIP nunca incluye claves de Supabase.
 echo ============================================================
 if /I not "%~1"=="--sin-pausa" pause
 exit /b 0

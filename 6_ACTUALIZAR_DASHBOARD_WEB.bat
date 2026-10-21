@@ -3,56 +3,72 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
+set "SIN_PAUSA=0"
+set "APP_ROOT=%~dp0Tienda-Asistencia-cap"
+
+:leer_argumentos
+if "%~1"=="" goto :argumentos_listos
+if /I "%~1"=="--sin-pausa" (
+    set "SIN_PAUSA=1"
+    shift
+    goto :leer_argumentos
+)
+if /I "%~1"=="--app-root" (
+    if "%~2"=="" goto :uso
+    set "APP_ROOT=%~2"
+    shift
+    shift
+    goto :leer_argumentos
+)
+goto :uso
+
+:argumentos_listos
 echo ============================================================
-echo PUBLICAR DATOS EN EL DASHBOARD WEB
+echo PUBLICACION COMPLETA - BD-APP
 echo ============================================================
-echo.
-echo Este proceso publica en Supabase los datos ya generados.
-echo No solicita la contrasena de Gmail, GitHub ni Netlify.
+echo Se publicaran dashboard y reportes del mismo corte.
+echo Nunca se usara la configuracion del proyecto Supabase antiguo.
 echo.
 
 if not exist ".venv\Scripts\python.exe" (
-    echo No existe el entorno local. Se ejecutara la instalacion.
-    call "%~dp01_INSTALAR_REQUISITOS.bat" --sin-pausa
-    if errorlevel 1 goto :error
-)
-
-if not exist "capa2\FactVentas.parquet" (
-    echo ERROR: no existe capa2\FactVentas.parquet.
-    echo Ejecuta primero 2_ACTUALIZAR_DATOS.bat.
+    echo ERROR: instala primero los requisitos con 1_INSTALAR_REQUISITOS.bat.
     goto :error
 )
-
-if not exist "capa2\FactStock.parquet" (
-    echo ERROR: no existe capa2\FactStock.parquet.
-    echo Ejecuta primero 2_ACTUALIZAR_DATOS.bat.
+if not exist "%APP_ROOT%\scripts\publish-annual-reports.mjs" (
+    echo ERROR: no se encontro el proyecto Asiste en %APP_ROOT%.
     goto :error
 )
+where node >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Node.js no esta instalado.
+    goto :error
+)
+if not exist "%APP_ROOT%\node_modules\@supabase\supabase-js" (
+    echo Instalando dependencias del proyecto Asiste...
+    pushd "%APP_ROOT%"
+    call npm ci
+    if errorlevel 1 (
+        popd
+        goto :error
+    )
+    popd
+)
 
-echo Preparando los archivos web desde los Parquet actuales...
-".venv\Scripts\python.exe" "piplines\generar_datos_web.py"
+".venv\Scripts\python.exe" "piplines\publicar_corte_completo.py" --app-root "%APP_ROOT%"
 if errorlevel 1 goto :error
 
 echo.
-echo Ingresa el usuario publicador y su contrasena.
-echo Usuario por defecto: Sistemas
-echo La contrasena se oculta y no se guarda en este equipo.
-echo.
-".venv\Scripts\python.exe" "piplines\publicar_supabase.py" --interactive
-if errorlevel 1 goto :error
-
-echo.
-echo ============================================================
-echo DASHBOARD WEB ACTUALIZADO CORRECTAMENTE
-echo Netlify detectara la nueva version sin volver a desplegar.
-echo ============================================================
-if /I not "%~1"=="--sin-pausa" pause
+echo Dashboard y reportes publicados y verificados.
+if "%SIN_PAUSA%"=="0" pause
 exit /b 0
+
+:uso
+echo Uso: 6_ACTUALIZAR_DASHBOARD_WEB.bat [--app-root RUTA] [--sin-pausa]
+goto :error
 
 :error
 echo.
-echo No se pudo actualizar el dashboard web. La version publicada
-echo anteriormente permanece disponible y no fue reemplazada.
-if /I not "%~1"=="--sin-pausa" pause
+echo La publicacion no termino. Revisa el mensaje anterior y vuelve a
+echo ejecutar este BAT; los archivos incompletos se retoman sin duplicar.
+if "%SIN_PAUSA%"=="0" pause
 exit /b 1
-

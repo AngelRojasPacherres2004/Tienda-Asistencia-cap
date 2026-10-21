@@ -27,8 +27,9 @@ SYSTEM_PROMPT = (
     "Eres el asistente ejecutivo del Dashboard Comercial de Almacén de Remates. "
     "Nunca hagas preguntas, nunca solicites datos adicionales y nunca digas que falta información: "
     "usa solamente los valores presentes y omite silenciosamente cualquier campo ausente. "
-    "Si la consulta comienza con ‘MODO CONSEJO POR BLOQUE’, responde con exactamente cuatro líneas: "
-    "LECTURA, HALLAZGO, RECOMENDACIÓN y PRÓXIMO PASO, todas breves y referidas al bloque solicitado. "
+    "Si la consulta comienza con ‘MODO CONSEJO POR BLOQUE’, responde con exactamente tres líneas: "
+    "HALLAZGO, RECOMENDACIÓN y PRÓXIMO PASO, todas breves y referidas al bloque solicitado. "
+    "No incluyas un apartado LECTURA en los consejos por bloque. "
     "En cualquier otro caso respeta la estructura pedida por el usuario; si no especifica una, usa "
     "RESUMEN EJECUTIVO, HALLAZGOS CLAVE y PLAN DE ACCIÓN. Cuando se pidan fórmulas, explica el nombre "
     "del KPI, la fórmula y sus variables. No inventes datos ni expongas información fuera del contexto recibido."
@@ -193,8 +194,34 @@ def daily_dashboard_rows(from_date: str, to_date: str) -> tuple[int, dict]:
         )
         columns = [item[0] for item in cursor.description]
         rows = [dict(zip(columns, values)) for values in cursor.fetchall()]
+        hourly_cursor = connection.execute(
+            f"""
+            WITH tickets AS (
+                SELECT
+                    fecha_venta, tienda_id, nro_venta,
+                    CAST(EXTRACT(HOUR FROM MIN(hora_venta)) AS INTEGER) AS hour,
+                    SUM(total_venta) AS net
+                FROM read_parquet('{ventas.resolve().as_posix()}')
+                WHERE fecha_venta BETWEEN DATE '{start.isoformat()}' AND DATE '{end.isoformat()}'
+                  AND hora_venta IS NOT NULL
+                GROUP BY 1,2,3
+            )
+            SELECT
+                CAST(fecha_venta AS VARCHAR) AS "date",
+                CAST(strftime(fecha_venta, '%Y%m') AS INTEGER) AS "periodId",
+                tienda_id AS "storeId",
+                hour,
+                CAST(COUNT(*) AS BIGINT) AS transactions,
+                CAST(SUM(net) AS DOUBLE) AS net
+            FROM tickets
+            GROUP BY 1,2,3,4
+            ORDER BY 1,3,4
+            """
+        )
+        hourly_columns = [item[0] for item in hourly_cursor.description]
+        hourly_rows = [dict(zip(hourly_columns, values)) for values in hourly_cursor.fetchall()]
         connection.close()
-        return 200, {"dailyStore": rows}
+        return 200, {"dailyStore": rows, "hourlySales": hourly_rows}
     except Exception:
         return 500, {"error": "No se pudo generar el detalle diario."}
 

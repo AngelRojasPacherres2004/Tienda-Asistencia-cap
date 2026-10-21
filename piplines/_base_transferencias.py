@@ -151,11 +151,14 @@ TIENDAS_EQUIVALENCIAS = {
     "TUMBES": "TUMBES",
     "ALFONSO UGARTE": "ALFONSO UGARTE",
     "ALIPIO": "ALIPIO",
+    "ALIPIO TECNOLOGIA": "ALIPIO",
+    "ALIPIO BELLEZA": "ALIPIO",
     "ANGAMOS": "ANGAMOS",
     "ARAMBURU": "ARAMBURU",
     "ARGENTINA": "ARGENTINA",
     "AYA": "AYACUCHO",
     "AYACUCHO": "AYACUCHO",
+    "AYACUCHO 1021 --- CUARTO PISO": "AYACUCHO",
     "CALLAO": "CALLAO",
     "CD": "CD",
     "CHORRILLOS": "CHORRILLOS",
@@ -727,6 +730,16 @@ def construir_select_hoja(
         alias_posicionales = [f"col_{i + 1}" for i in range(num_cols)]
         alias_columnas = ", ".join(sql_identificador(a) for a in alias_posicionales)
         mapa = _mapear_columnas_por_nombre(hoja.columnas_reales, COLUMNAS_TRANSFERENCIAS)
+        encabezados = [normalizar_encabezado(x) for x in hoja.columnas_reales]
+        # El exportador RMS 2024–2026 coloca los datos en el orden canónico,
+        # pero deja un encabezado antiguo desde la columna G: allí dice
+        # "PRECIO SUGERIDO" aunque el valor es el proveedor, y desplaza los
+        # demás rótulos hasta S. Solo para esa firma conocida se usa posición.
+        if (len(encabezados) == len(COLUMNAS_TRANSFERENCIAS)
+                and encabezados[:6] == COLUMNAS_TRANSFERENCIAS[:6]
+                and encabezados[6:9] == ["PRECIO SUGERIDO", "F.CREACION", "PROVEEDOR"]
+                and encabezados[15:] == ["DESCRIPCION", "CANT", "TOTAL", ""]):
+            mapa = {nombre: indice for indice, nombre in enumerate(COLUMNAS_TRANSFERENCIAS)}
         expresiones = []
         for nombre in COLUMNAS_TRANSFERENCIAS:
             pos = mapa.get(nombre)

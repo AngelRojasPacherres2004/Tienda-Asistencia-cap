@@ -230,6 +230,7 @@ def auditar() -> dict[str, Any]:
     # los otros rubros se estimarán en la interfaz desde el remanente y ventas.
     metas = datos["metas"]
     claves = []
+    claves_origen = []
     inconsistentes = negativas = ceros = 0
     for r in metas:
         y = numero(r["anio"]); m = numero(r["mes_numero"])
@@ -241,9 +242,18 @@ def auditar() -> dict[str, Any]:
         negativas += sum(valor is not None and valor < 0 for valor in valores)
         ceros += sum(valor == 0 for valor in valores)
         claves.append((y_int, m_int, tienda(r["tienda"]), "META VENTAS"))
+        claves_origen.append((y_int, m_int, clave_texto(r["tienda"]), "META VENTAS"))
+    rep_origen, grupos_origen = duplicados(claves_origen)
     rep, grupos = duplicados(claves)
-    if rep:
-        agregar(resultado, "errores", f"METAS: {grupos} claves mes/tienda duplicadas.")
+    if rep_origen:
+        agregar(resultado, "errores", f"METAS: {grupos_origen} claves mes/tienda duplicadas en la fuente.")
+    elif rep:
+        agregar(
+            resultado,
+            "advertencias",
+            f"METAS: {grupos} claves convergen por homologación de tienda; "
+            "el pipeline consolidará la meta total conservando el detalle por rubro.",
+        )
     if inconsistentes:
         agregar(resultado, "errores", f"METAS: {inconsistentes} años o meses inválidos.")
     if negativas:
@@ -260,12 +270,20 @@ def auditar() -> dict[str, Any]:
     rep, grupos = duplicados(claves)
     if rep:
         agregar(resultado, "errores", f"PERSONAL: {grupos} colaboradores duplicados por documento/nombre/fecha de ingreso.")
+    sin_fecha_ingreso = sum(fecha_excel(r["fecha_ingreso"]) is None for r in personal)
     invalidas = sum(
-        fecha_excel(r["fecha_ingreso"]) is None or vacio(r["tienda"]) or vacio(r["puesto"]) or vacio(r["area"])
+        vacio(r["tienda"]) or vacio(r["puesto"]) or vacio(r["area"])
         for r in personal
     )
+    if sin_fecha_ingreso:
+        agregar(
+            resultado,
+            "advertencias",
+            f"PERSONAL: {sin_fecha_ingreso} filas sin fecha de ingreso se conservan en la fuente, "
+            "pero se excluyen del histórico mensual hasta contar con una fecha real.",
+        )
     if invalidas:
-        agregar(resultado, "errores", f"PERSONAL: {invalidas} filas con fecha de ingreso, tienda, puesto o área inválidos.")
+        agregar(resultado, "errores", f"PERSONAL: {invalidas} filas sin tienda, puesto o área válidos.")
     retiros_invalidos = sum(
         fecha_excel(r["fecha_retiro"]) is not None and fecha_excel(r["fecha_ingreso"]) is not None
         and fecha_excel(r["fecha_retiro"]) < fecha_excel(r["fecha_ingreso"])

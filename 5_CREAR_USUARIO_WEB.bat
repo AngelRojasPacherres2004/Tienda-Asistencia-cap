@@ -4,36 +4,15 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ============================================================
-echo CREAR USUARIO PRIVADO DEL DASHBOARD WEB
+echo USUARIOS Y ROLES - ASISTE
 echo ============================================================
 echo.
-
-if not exist ".venv\Scripts\python.exe" (
-    echo ERROR: primero ejecuta 1_INSTALAR_REQUISITOS.bat
-    goto :error
-)
-
-if not exist ".env.supabase.local" (
-    echo ERROR: falta .env.supabase.local con las credenciales de Supabase.
-    echo Copia .env.supabase.local.example, renombralo a .env.supabase.local
-    echo y completa SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
-    echo Consulta CONFIGURAR_CREDENCIALES_SUPABASE.txt.
-    goto :error
-)
-
-".venv\Scripts\python.exe" "piplines\crear_usuario_dashboard.py" --check-config
-if errorlevel 1 goto :error
-
-".venv\Scripts\python.exe" "piplines\crear_usuario_dashboard.py"
-if errorlevel 1 goto :error
-
+echo Los usuarios ahora se administran desde el modulo Usuarios de Asiste,
+echo sujeto a los permisos de cada rol y tienda.
 echo.
-echo Acceso creado correctamente.
-pause
-exit /b 0
-
-:error
+echo Este BAT anterior creaba cuentas en la base antigua del dashboard.
+echo Se desactivo para evitar escribir en el proyecto Supabase equivocado.
+echo No se creo ni modifico ningun usuario.
 echo.
-echo No se pudo crear el acceso.
-pause
+if /I not "%~1"=="--sin-pausa" pause
 exit /b 1

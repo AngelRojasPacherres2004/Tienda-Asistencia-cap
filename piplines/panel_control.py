@@ -9,7 +9,6 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from project_paths import PROJECT_ROOT
-from reglas_corte import ultimo_lunes
 from runtime_config import finalizar_proceso
 
 
@@ -23,7 +22,7 @@ class PanelDashboard(tk.Tk):
         self.geometry("650x520")
         self.minsize(620, 500)
         self.configure(background="#f3f6fb")
-        self.fecha = tk.StringVar(value=ultimo_lunes().isoformat())
+        self.fecha = tk.StringVar(value="")
         self.estado = tk.StringVar(value="Listo para ejecutar una tarea.")
         self._crear_interfaz()
 
@@ -39,8 +38,8 @@ class PanelDashboard(tk.Tk):
         ttk.Label(
             marco,
             text=(
-                "El corte automático es el último lunes. Puedes escribir otra fecha; "
-                "el sistema la respetará y mostrará una advertencia si no es lunes."
+                "Sin fecha, se usa el último día con tráfico suficiente y ventas disponibles. "
+                "Puedes indicar un corte manual si ya completaste los archivos."
             ),
             style="Hint.TLabel",
             wraplength=570,
@@ -50,7 +49,7 @@ class PanelDashboard(tk.Tk):
         fecha_marco.pack(fill="x")
         ttk.Entry(fecha_marco, textvariable=self.fecha, width=18, font=("Segoe UI", 12)).pack(side="left")
         ttk.Label(fecha_marco, text="  Formato: AAAA-MM-DD", style="Hint.TLabel").pack(side="left")
-        ttk.Button(fecha_marco, text="Usar último lunes", command=self._restablecer_lunes).pack(side="right")
+        ttk.Button(fecha_marco, text="Corte automático", command=self._restablecer_automatico).pack(side="right")
 
         botones = ttk.Frame(marco)
         botones.pack(fill="x", pady=18)
@@ -74,10 +73,9 @@ class PanelDashboard(tk.Tk):
         ttk.Label(
             reglas,
             text=(
-                "• Ventas, ingresos, transferencias y tráfico: actualización semanal.\n"
-                "• Stock, personal y merma: actualización mensual.\n"
-                "• Metas e históricos: solo cuando cambie el archivo.\n"
-                "• Si una fuente no llega al corte, el dashboard completa el resumen con 0 y avisa."
+                "• El corte exige ventas y tráfico del día seleccionado.\n"
+                "• Stock conserva su fecha de fotografía; no se inventa un corte nuevo.\n"
+                "• La publicación incluye dashboard y reportes anuales privados."
             ),
             style="Hint.TLabel",
             justify="left",
@@ -86,24 +84,24 @@ class PanelDashboard(tk.Tk):
             anchor="w", pady=(16, 0)
         )
 
-    def _restablecer_lunes(self) -> None:
-        self.fecha.set(ultimo_lunes().isoformat())
+    def _restablecer_automatico(self) -> None:
+        self.fecha.set("")
 
     def _fecha_valida(self) -> str | None:
         texto = self.fecha.get().strip()
+        if not texto:
+            return ""
         try:
             elegida = date.fromisoformat(texto)
         except ValueError:
             messagebox.showerror("Fecha inválida", "Escribe la fecha como AAAA-MM-DD.")
             return None
-        if elegida < date(2024, 1, 1):
-            messagebox.showerror("Fecha fuera del modelo", "El modelo comercial comienza el 2024-01-01.")
+        if elegida < date(2023, 1, 1):
+            messagebox.showerror("Fecha fuera del modelo", "El modelo comercial comienza el 2023-01-01.")
             return None
         avisos: list[str] = []
         if elegida > date.today():
             avisos.append("La fecha está en el futuro.")
-        if elegida.weekday() != 0:
-            avisos.append("La fecha no es lunes.")
         if avisos and not messagebox.askyesno(
             "Confirmar fecha manual",
             "\n".join(avisos) + "\n\n¿Deseas usarla de todas formas?",
@@ -129,29 +127,16 @@ class PanelDashboard(tk.Tk):
 
     def _actualizar(self) -> None:
         corte = self._fecha_valida()
-        if corte:
-            self._ejecutar_bat("2_ACTUALIZAR_DATOS.bat", "--fecha-corte", corte)
+        if corte is not None:
+            argumentos = ("--fecha-corte", corte) if corte else ()
+            self._ejecutar_bat("2_ACTUALIZAR_DATOS.bat", *argumentos)
 
     def _actualizar_y_publicar(self) -> None:
         corte = self._fecha_valida()
-        if not corte:
+        if corte is None:
             return
-        actualizar = PROJECT_ROOT / "2_ACTUALIZAR_DATOS.bat"
-        publicar = PROJECT_ROOT / "6_ACTUALIZAR_DASHBOARD_WEB.bat"
-        # --sin-pausa en BAT2 suprime la pausa al EXITO para que se encadene con BAT6.
-        # El bloque || al final captura cualquier fallo (BAT2 o BAT6) y mantiene la
-        # ventana abierta con el mensaje de error visible para el usuario.
-        comando = (
-            f'call "{actualizar}" --fecha-corte "{corte}" --sin-pausa'
-            f' && call "{publicar}"'
-            f' || (echo. & echo ======================================================'
-            f' & echo PROCESO FALLIDO - Revisa los mensajes anteriores.'
-            f' & echo ====================================================== & pause)'
-        )
-        self._lanzar(
-            comando,
-            "actualizacion y publicacion (el BAT 6 solicitara usuario y contrasena)",
-        )
+        argumentos = ("--fecha-corte", corte) if corte else ()
+        self._ejecutar_bat("7_ACTUALIZAR_TODO.bat", *argumentos)
 
 
 

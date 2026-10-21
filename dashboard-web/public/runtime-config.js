@@ -1,7 +1,7 @@
 window.__DASHBOARD_CONFIG__ = {
   "dataMode": "supabase",
-  "supabaseUrl": "https://nxykusedctriathfxovf.supabase.co",
-  "supabasePublishableKey": "sb_publishable_W9w-DGR5OY6tzM25rVnnXg_Fk3H-XZ0",
+  "supabaseUrl": "https://imiuwbhuiqvktcqeyowq.supabase.co",
+  "supabasePublishableKey": "sb_publishable_xkdx6ncVnE88v3eZdn4MmA_JONwxEef",
   "groqAssistantEnabled": true,
   "groqChatModel": "openai/gpt-oss-120b",
   "groqFallbackModels": [

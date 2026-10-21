@@ -212,26 +212,34 @@ def resumen_mensual_dimension(
 
 
 def generar() -> dict:
-    ventas = literal_parquet("FactVentas")
-    stock_historico = literal_parquet("FactStock")
-    ingresos = literal_parquet("FactIngresos")
+    ventas_fuente = literal_parquet("FactVentas")
+    stock_fuente = literal_parquet("FactStock")
+    ingresos_fuente = literal_parquet("FactIngresos")
     metas = literal_parquet("FactMetasTienda")
     personal = literal_parquet("FactPersonalTienda")
-    trafico = literal_parquet("FactTraficoClientes")
+    trafico_fuente = literal_parquet("FactTraficoClientes")
     rubro_dashboard = rubro_homologado_sql("rubro")
     tiendas = literal_parquet("DimTiendas")
     merma = literal_parquet("FactMerma")
 
     reporte_cobertura = cargar_reporte_cobertura()
     conexion = duckdb.connect()
-    fecha_ultima_venta = conexion.execute(f"SELECT MAX(fecha_venta) FROM {ventas}").fetchone()[0]
+    fecha_ultima_venta = conexion.execute(f"SELECT MAX(fecha_venta) FROM {ventas_fuente}").fetchone()[0]
+    fecha_ultima_stock = conexion.execute(f"SELECT MAX(fecha_corte) FROM {stock_fuente}").fetchone()[0]
+    fecha_corte = date.fromisoformat(
+        reporte_cobertura.get("selectedCutoff")
+        or (fecha_ultima_venta or fecha_ultima_stock or date.today()).isoformat()
+    )
+    corte_sql = f"DATE '{fecha_corte.isoformat()}'"
+    # El Parquet conserva el día posterior para el siguiente corte. Ninguna
+    # agregación del dashboard actual puede leerlo antes de su publicación.
+    ventas = f"(SELECT * FROM {ventas_fuente} WHERE fecha_venta <= {corte_sql})"
+    ingresos = f"(SELECT * FROM {ingresos_fuente} WHERE fecha_ingreso <= {corte_sql})"
+    trafico = f"(SELECT * FROM {trafico_fuente} WHERE fecha <= {corte_sql})"
+    stock_historico = f"(SELECT * FROM {stock_fuente} WHERE fecha_corte <= {corte_sql})"
     fecha_stock = conexion.execute(
         f"SELECT MAX(fecha_corte) FROM {stock_historico}"
     ).fetchone()[0]
-    fecha_corte = date.fromisoformat(
-        reporte_cobertura.get("selectedCutoff")
-        or (fecha_ultima_venta or fecha_stock or date.today()).isoformat()
-    )
     fecha_ancla_stock = fecha_stock or fecha_corte
     periodos_stock = [
         int(fila[0])
@@ -401,6 +409,55 @@ def generar() -> dict:
         FROM {ventas}
         GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
         ORDER BY 1, 5, 6, 7, 8, 9
+        """,
+    )
+    # Afluencia comercial real por hora. Los tickets se deduplican por
+    # fecha/tienda/número de venta para no contar una vez por cada producto.
+    ventas_hora_mensual = filas(
+        conexion,
+        f"""
+        WITH tickets AS (
+            SELECT
+                periodo_id, fecha_venta, tienda_id, nro_venta,
+                CAST(EXTRACT(HOUR FROM MIN(hora_venta)) AS INTEGER) AS hour,
+                SUM(total_venta) AS net
+            FROM {ventas}
+            WHERE hora_venta IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        )
+        SELECT
+            periodo_id AS "periodId",
+            tienda_id AS "storeId",
+            hour,
+            CAST(COUNT(*) AS BIGINT) AS transactions,
+            CAST(SUM(net) AS DOUBLE) AS net
+        FROM tickets
+        GROUP BY 1, 2, 3
+        ORDER BY 1, 2, 3
+        """,
+    )
+    ventas_hora_diaria = filas(
+        conexion,
+        f"""
+        WITH tickets AS (
+            SELECT
+                fecha_venta, periodo_id, tienda_id, nro_venta,
+                CAST(EXTRACT(HOUR FROM MIN(hora_venta)) AS INTEGER) AS hour,
+                SUM(total_venta) AS net
+            FROM {ventas}
+            WHERE hora_venta IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        )
+        SELECT
+            CAST(fecha_venta AS DATE) AS "date",
+            periodo_id AS "periodId",
+            tienda_id AS "storeId",
+            hour,
+            CAST(COUNT(*) AS BIGINT) AS transactions,
+            CAST(SUM(net) AS DOUBLE) AS net
+        FROM tickets
+        GROUP BY 1, 2, 3, 4
+        ORDER BY 1, 3, 4
         """,
     )
     diario_trafico = filas(
@@ -856,7 +913,9 @@ def generar() -> dict:
         },
         "stores": dimensiones_tienda,
         "monthlyStore": base_mensual,
+        "monthlyHourlySales": ventas_hora_mensual,
         "dailyStore": diario_tienda,
+        "dailyHourlySales": ventas_hora_diaria,
         "dailyTraffic": diario_trafico,
         "dailyReceived": diario_ingresos,
         "inferredReceivedDaily": ingresos_conciliados,
@@ -920,9 +979,17 @@ def escribir(resultado: dict) -> None:
         periodo = int(registro["periodId"])
         nombre = f"dashboard-daily-{periodo // 100:04d}-{periodo % 100:02d}.json"
         diario_por_mes.setdefault(nombre, []).append(registro)
+    horas_por_mes: dict[str, list[dict]] = {}
+    for registro in resultado["dailyHourlySales"]:
+        periodo = int(registro["periodId"])
+        nombre = f"dashboard-daily-{periodo // 100:04d}-{periodo % 100:02d}.json"
+        horas_por_mes.setdefault(nombre, []).append(registro)
 
     archivos = {
-        **{nombre: {"dailyStore": filas_mes} for nombre, filas_mes in sorted(diario_por_mes.items())},
+        **{
+            nombre: {"dailyStore": filas_mes, "hourlySales": horas_por_mes.get(nombre, [])}
+            for nombre, filas_mes in sorted(diario_por_mes.items())
+        },
         # El detalle por vendedor se descarga únicamente al abrir Talento.
         "dashboard-sellers.json": {"sellerPerformance": resultado["sellerPerformance"]},
         "dashboard-brand.json": {"monthlyBrand": resultado["monthlyBrand"]},
@@ -947,7 +1014,7 @@ def escribir(resultado: dict) -> None:
         **{
             clave: valor for clave, valor in resultado.items()
             if clave not in {
-                "predictiveRows", "monthlyPriceRange", "dailyStore",
+                "predictiveRows", "monthlyPriceRange", "dailyStore", "dailyHourlySales",
                 "sellerPerformance", "clientPerformance",
             }
         },

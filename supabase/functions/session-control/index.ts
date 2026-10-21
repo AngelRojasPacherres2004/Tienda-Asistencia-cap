@@ -5,6 +5,8 @@ import { jsonResponse, requestCorsHeaders } from '../_shared/http.ts';
 type SessionAction = 'claim' | 'ensure' | 'verify' | 'release';
 
 function secretKey(): string {
+  const configured = Deno.env.get('DASHBOARD_SERVICE_ROLE_KEY') ?? '';
+  if (configured) return configured;
   const legacy = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   if (legacy) return legacy;
   try {
