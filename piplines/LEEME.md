@@ -28,6 +28,15 @@ La construcción de las dos páginas en Power BI está documentada en `../README
 
 Los Excel comerciales son escalables. Las nuevas tiendas agregadas a `TIENDAS.xlsx` reciben una clave estable y se relacionan con los hechos que utilicen el mismo nombre homologado.
 
+## Catálogo de productos en Supabase
+
+`CODIGO NISSEI` se conserva desde los Excel RMS hasta `DimProducto.parquet` y los detalles comerciales publicados. Para actualizar también la tabla relacional `public.productos` sin cambiar los IDs existentes:
+
+1. Ejecutar `python piplines/sincronizar_productos_supabase.py` para validar el origen y ver la cantidad esperada.
+2. Ejecutar `python piplines/sincronizar_productos_supabase.py --apply` para hacer el *upsert* por `codigo_nissei` en el proyecto `bd-app`.
+
+El comando se detiene si las credenciales apuntan a otro proyecto. Nunca elimina productos ni altera las relaciones existentes de `productos_tienda`.
+
 ## Contenido del paquete portable
 
 El ZIP incluye:
