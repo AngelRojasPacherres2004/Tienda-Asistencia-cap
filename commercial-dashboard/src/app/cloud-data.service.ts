@@ -268,6 +268,20 @@ export class CloudDataService {
     return this.portalRequest<OperationalSummary>('/commercial/operational-summary');
   }
 
+  async productCodes(productIds: string[], signal?: AbortSignal): Promise<Record<string, string>> {
+    if (!this.portalMode) return {};
+    const codes: Record<string, string> = {};
+    for (let offset = 0; offset < productIds.length; offset += 5000) {
+      const result = await this.portalRequest<{ codes: Record<string, string> }>('/commercial/product-codes', {
+        method: 'POST', signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds: productIds.slice(offset, offset + 5000) }),
+      });
+      Object.assign(codes, result.codes);
+    }
+    return codes;
+  }
+
   async companyRanking(): Promise<CompanyRankingData | null> {
     if (!this.portalMode) return null;
     return this.portalRequest<CompanyRankingData>('/commercial/company-ranking');

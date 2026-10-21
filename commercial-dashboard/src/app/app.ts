@@ -32,7 +32,7 @@ type PriceRangeRow = { periodId: number; storeId: string; category: string; line
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };
 type ProductRow = {
-  storeId: string; productId: string; product: string; category: string; line: string; subline: string; brand: string;
+  storeId: string; productId: string; productCode?: string; product: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits?: number; mermaStockUnits?: number; desmedroStockUnits?: number;
   units30: number; sales30: number; units12: number; sales12: number;
 };
@@ -1828,6 +1828,7 @@ export class App implements OnInit {
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
   readonly transferPage = signal(0);
+  readonly transferCodeError = signal(false);
   readonly transferPageSize = 10;
   readonly transferProducts = computed(() => {
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
@@ -1845,7 +1846,7 @@ export class App implements OnInit {
     return this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine())
       && (!this.transferBrand() || row.brand === this.transferBrand())
-      && (!query || this.normalized(`${row.productId} ${row.product} ${row.brand}`).includes(query)));
+      && (!query || this.normalized(`${row.productCode || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
   });
   readonly transferAllRecommendations = computed(() => {
     const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
@@ -1868,7 +1869,8 @@ export class App implements OnInit {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.product || '', [
-          { label: 'Código', value: row?.productId || '' },
+          { label: row?.category === 'CALZADO' || row?.productCode ? 'Código Nissei' : 'Código',
+            value: row?.productCode || (row?.category === 'CALZADO' ? 'No disponible' : row?.productId || '') },
           { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
           { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
           { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
@@ -1897,10 +1899,12 @@ export class App implements OnInit {
           const product = lines.slice(0, 2).join('\n') + (lines.length > 2 ? '…' : '');
           // Escape ECharts rich-text delimiters in product/store names.
           const safe = (text: string) => text.replace(/[{}|]/g, ' ');
-          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
+          const codeLine = row.productCode ? `\n{code|Código: ${safe(row.productCode)}}` : '';
+          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}${codeLine}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
         }, rich: {
           route: { fontSize: 12, fontWeight: 800, lineHeight: 22 },
           product: { fontSize: 11, lineHeight: 17, width: 270, overflow: 'truncate' },
+          code: { fontSize: 11, fontWeight: 700, lineHeight: 18, width: 270, overflow: 'break' },
           critical: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
           alert: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
         } } },
@@ -3492,6 +3496,20 @@ export class App implements OnInit {
           payload = await this.loadLegacyStock(signal);
         }
         const products = payload.stockProducts || [];
+        this.transferCodeError.set(false);
+        const missingCodes = [...new Set(products.filter(row => row.category === 'CALZADO' && !row.productCode).map(row => row.productId))];
+        if (missingCodes.length && this.cloud.portalEnabled) {
+          try {
+            const codes = await this.cloud.productCodes(missingCodes, signal);
+            signal.throwIfAborted();
+            for (const row of products) {
+              if (row.category === 'CALZADO' && !row.productCode) row.productCode = codes[row.productId];
+            }
+          } catch {
+            signal.throwIfAborted();
+            this.transferCodeError.set(true);
+          }
+        }
         signal.throwIfAborted();
         const byStore = new Map<string, ProductRow[]>();
         const byCategory = new Map<string, ProductRow[]>();

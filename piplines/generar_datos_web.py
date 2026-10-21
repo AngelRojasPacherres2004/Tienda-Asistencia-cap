@@ -770,6 +770,7 @@ def generar() -> dict:
                 COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
                 COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
                 COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
+                MAX(NULLIF(TRIM(CAST(codigo_nissei AS VARCHAR)), '')) AS product_code,
                 SUM(cantidad) AS stock_units,
                 SUM(valor_stock) AS stock_value,
                 SUM(CASE WHEN estado_grupo = 'BUENO' THEN cantidad ELSE 0 END) AS good_units,
@@ -795,7 +796,7 @@ def generar() -> dict:
             FROM {ventas}
             GROUP BY 1, 2
         )
-        SELECT st.tienda_id AS "storeId", st.producto_id AS "productId", st.product,
+        SELECT st.tienda_id AS "storeId", st.producto_id AS "productId", st.product_code AS "productCode", st.product,
             st.category, st.line, st.subline, st.brand,
             CAST(st.stock_units AS DOUBLE) AS "stockUnits",
             CAST(st.stock_value AS DOUBLE) AS "stockValue",

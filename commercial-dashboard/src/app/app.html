@@ -58,6 +58,7 @@
           <button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button>
         </div>
         <div class="transfer-context">
+          @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei de Calzado. Recarga la página para volver a intentarlo.</p> }
           <p>Stock: {{ formatDate(data()!.metadata.stockCutoff) }} · Ventas 30D: {{ formatDate(data()!.metadata.salesCutoff) }}</p>
           <div class="transfer-rules"><span>Exceso: &gt;90 días o sin ventas</span><span>Falta: &lt;30 días</span><span>Crítico: ≤15 días</span></div>
           <p class="transfer-totals-note">Totales de las oportunidades filtradas, sin repetir productos por tienda.@if (transferStore()) { Solo se suman las unidades de la tienda seleccionada. }</p>

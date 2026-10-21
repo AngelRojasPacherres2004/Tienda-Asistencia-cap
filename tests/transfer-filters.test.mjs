@@ -77,3 +77,21 @@ test('the three original bar series follow the filtered opportunities', () => {
   subject.transferPriority.set('CRITICAL');
   assert.deepEqual(Array.from(subject.transferChartOption().series[0].data), [100]);
 });
+
+test('footwear displays and searches its Nissei code with leading zeros, without mixing identical names', () => {
+  const subject = fixture();
+  const shoe = (store, stock, sales, id, code) => ({ ...product(store, stock, sales, id, 'SKECHERS', 'CALZADO'), product: 'CROCS NIÑO SKECHERS - 402020L-BLLM', productCode: code });
+  subject.staticPredictiveProducts = () => [
+    shoe('A', 20, 0, 'P_7F5B21313D48A558', '00023C7003'), shoe('B', 0, 15, 'P_7F5B21313D48A558', '00023C7003'),
+    shoe('A', 30, 0, 'P_1111111111111111', '00023C7004'), shoe('B', 0, 15, 'P_1111111111111111', '00023C7004'),
+  ];
+  subject.transferSearch.set('00023c7003');
+  assert.equal(subject.transferRecommendations().length, 1);
+  assert.equal(subject.transferRecommendations()[0].productCode, '00023C7003');
+  const chart = subject.transferChartOption();
+  assert.match(chart.yAxis.axisLabel.formatter('0'), /Código: 00023C7003/);
+  subject.tooltip = (title, rows) => ({ title, rows });
+  const tooltip = chart.tooltip.formatter([{ dataIndex: 0 }]);
+  assert.equal(tooltip.rows.find(row => row.label === 'Código Nissei').value, '00023C7003');
+  assert.ok(!tooltip.rows.some(row => row.value === 'P_7F5B21313D48A558'));
+});

@@ -11,6 +11,7 @@ import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
+import { createProductCodeLookup } from "../lib/commercial-product-codes.js";
 import { normalizeLaborArea } from "../../src/lib/laborAreas.js";
 import { normalizeDepartureReason, validDepartureReason } from "../../src/lib/personnelCatalogs.js";
 import { normalizedPersonnelFields } from "../../shared/personnelNormalization.js";
@@ -30,6 +31,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SEC
   auth: { autoRefreshToken: false, persistSession: false },
   global: { fetch: retrySupabaseRead },
 });
+const commercialProductCodes = createProductCodeLookup(supabase);
 
 const headers = {
   "Content-Type": "application/json; charset=utf-8",
@@ -4519,6 +4521,10 @@ export async function handler(event) {
 
     if (path === "/commercial/access" && method === "GET") {
       return json(200, { access: await currentCommercialAccess(user) });
+    }
+    if (path === "/commercial/product-codes" && method === "POST") {
+      await currentCommercialAccess(user);
+      return json(200, { codes: await commercialProductCodes(bodyOf(event).productIds) });
     }
     if (path === "/seguridad-central" && method === "GET") {
       ensureAuth(event, "administrador_seguridad");
