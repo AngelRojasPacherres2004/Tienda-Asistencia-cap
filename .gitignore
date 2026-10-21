@@ -29,12 +29,12 @@ supabase/.temp/
 input/
 capa1/
 capa2/
-dashboard-web/public/assets/data/
 commercial-dashboard/public/assets/data/
 DashboardGeneral_Portable_v*.zip
 
 # Copia de respaldo del antiguo repositorio anidado; no forma parte del proyecto unificado
 /Tienda-Asistencia-cap/
+/dashboard-web/
 
 # Archivos locales del sistema
 .DS_Store

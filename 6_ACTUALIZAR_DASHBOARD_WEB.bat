@@ -4,7 +4,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 set "SIN_PAUSA=0"
-set "APP_ROOT=%~dp0Tienda-Asistencia-cap"
+set "APP_ROOT=%~dp0"
 
 :leer_argumentos
 if "%~1"=="" goto :argumentos_listos

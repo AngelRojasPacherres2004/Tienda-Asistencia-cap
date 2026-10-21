@@ -92,7 +92,7 @@ def same_instant(first: str | None, second: str | None) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app-root", type=Path, default=PROJECT_ROOT / "Tienda-Asistencia-cap")
+    parser.add_argument("--app-root", type=Path, default=PROJECT_ROOT)
     args = parser.parse_args()
     app_root = args.app_root.resolve()
     values = app_environment(app_root)

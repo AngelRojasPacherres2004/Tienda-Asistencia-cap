@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
-set "WEBROOT=dashboard-web\dist\dashboard-web\browser"
+set "WEBROOT=commercial-dashboard\dist\dashboard-web\browser"
 set "FECHA_CORTE="
 set "SIN_PAUSA=0"
 set "FORZAR_CAPA1="
@@ -83,7 +83,7 @@ echo Ejecutando validacion estricta final...
 ".venv\Scripts\python.exe" "piplines\validar_modelo.py" --estricto
 if errorlevel 1 goto :error
 
-if exist "dashboard-web\public" (
+if exist "commercial-dashboard\public" (
     echo Actualizando datos compactos del dashboard web...
     ".venv\Scripts\python.exe" "piplines\generar_datos_web.py"
     if errorlevel 1 goto :error
@@ -97,14 +97,14 @@ if exist "dashboard-web\public" (
     rem Si todavia no existe una compilacion, crearla una sola vez.
     if not exist "%WEBROOT%\index.html" (
         echo.
-        echo No existe dashboard-web\dist. Compilando Angular...
+        echo No existe commercial-dashboard\dist. Compilando Angular...
         where npm >nul 2>nul
         if errorlevel 1 (
             echo ERROR: No se encontro npm. Instala Node.js o compila la web en la PC de desarrollo.
             goto :error
         )
 
-        pushd "dashboard-web"
+        pushd "commercial-dashboard"
         if not exist "node_modules" (
             echo Instalando dependencias Angular...
             call npm ci
@@ -123,14 +123,14 @@ if exist "dashboard-web\public" (
     )
 
     rem El generador actualiza public; copiar los JSON a la compilacion ya creada.
-    if exist "dashboard-web\public\assets\data" if exist "%WEBROOT%\assets" (
+    if exist "commercial-dashboard\public\assets\data" if exist "%WEBROOT%\assets" (
         if not exist "%WEBROOT%\assets\data" mkdir "%WEBROOT%\assets\data"
-        xcopy /E /I /Y /Q "dashboard-web\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
+        xcopy /E /I /Y /Q "commercial-dashboard\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
         if errorlevel 1 goto :error
     )
 )
 
-if exist "dashboard-web\public" (
+if exist "commercial-dashboard\public" (
     if not exist "%WEBROOT%\index.html" (
         echo.
         echo AVISO: Los datos se actualizaron correctamente, pero la version

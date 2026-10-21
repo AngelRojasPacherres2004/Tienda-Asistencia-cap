@@ -5,7 +5,22 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import react from "eslint-plugin-react";
 
 export default [
-  { ignores: ["**/dist/**", "**/node_modules/**", "venv", "**/__pycache__/**"] },
+  {
+    ignores: [
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/.angular/**",
+      ".etl_work/**",
+      ".venv/**",
+      "venv/**",
+      "dashboard-web/**",
+      "Tienda-Asistencia-cap/**",
+      "capa1/**",
+      "capa2/**",
+      "input/**",
+      "**/__pycache__/**",
+    ],
+  },
   {
     files: ["**/*.{js,jsx}"],
     languageOptions: {

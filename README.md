@@ -92,16 +92,17 @@ La pantalla **Reportes** reúne **Cifras comerciales** y **Personas y operación
 Los archivos se generan desde la Capa 2 sin modificar la base:
 
 ```powershell
-& '..\.venv\Scripts\python.exe' scripts/generate-annual-reports.py --source-root .. --output ..\.etl_work\annual-reports --years 2024,2025,2026
+& '.\.venv\Scripts\python.exe' scripts/generate-annual-reports.py --source-root . --output .\.etl_work\annual-reports --years 2024,2025,2026
 ```
 
 La API local usa automáticamente ese directorio si sus cortes de ventas y stock coinciden con la publicación vigente. Para validar tamaño, mapeo y cortes antes de cualquier publicación, ejecuta (sin `--apply`):
 
 ```powershell
-node --env-file=.env scripts/publish-annual-reports.mjs --directory=..\.etl_work\annual-reports
+node --env-file=.env scripts/publish-annual-reports.mjs --directory=.\.etl_work\annual-reports
 ```
 
 Solo `--apply` sube los objetos comprimidos al bucket privado `dashboard-data`. El catálogo se publica al final y se verifica el alcance de tienda/rol al descargar. No subas `.etl_work` ni las credenciales al repositorio.
+
 ## Motor de datos del Dashboard General Comercial
 
 Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz está construida en Angular, los datos privados se publican de forma versionada en Supabase y la web se sirve desde Netlify.
@@ -112,7 +113,7 @@ Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz
 2. **Actualizar datos locales** reconstruye y valida Capa 1, Capa 2 y el dashboard. **Actualizar y publicar en la web** hace eso y publica el dashboard y los reportes privados en `bd-app`.
 3. La web detecta la versión publicada sin volver a desplegar Netlify.
 
-`4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste en `http://127.0.0.1:5180/` cuando el repositorio `Tienda-Asistencia-cap` está presente. `--legacy` conserva la apertura del dashboard Angular antiguo para paquetes previos.
+`4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste desde esta misma raíz en `http://127.0.0.1:5180/`. `--legacy` conserva la apertura directa del dashboard Angular para paquetes portables previos.
 
 Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y `6_ACTUALIZAR_DASHBOARD_WEB.bat` publica el corte preparado. `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --sin-pausa` ejecuta ambos pasos. Si llega un Excel diario nuevo de tráfico, usa `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --trafico-excel "RUTA_DEL_ARCHIVO.xlsx"`; primero valida e importa los conteos diarios a `bd-app` y Capa 1, reparte cada total en horas manteniendo la suma y después reconstruye y publica. `--trafico-desde AAAA-MM-DD` permite acotar el intervalo. Añade `--solo-verificar` para revisar el Excel, la base y el modelo sin escribir ni publicar. No reimportes un Excel si solo quieres reconstruir el corte.
 
@@ -124,17 +125,18 @@ Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.
 
-En una PC nueva ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` incluye la web compilada, datos operativos y los BAT. Para publicar, también debe existir el proyecto Asiste en `Tienda-Asistencia-cap` (o indicarse con `--app-root`) con su `.env` privado configurado para `bd-app`; ese archivo no se incluye en el ZIP ni en GitHub. `5_CREAR_USUARIO_WEB.bat` ya no crea usuarios: las cuentas se administran desde Asiste.
+En una PC nueva clona este repositorio, cambia a `test` y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El archivo privado `.env` de Asiste debe quedar en la raíz y apuntar a `bd-app`; nunca se incluye en GitHub. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` incluye la web Angular compilada, datos operativos y los BAT. `5_CREAR_USUARIO_WEB.bat` ya no crea usuarios: las cuentas se administran desde Asiste.
 
 ## Desarrollo web
 
 Requisitos: Node.js 22 y npm.
 
-```text
-cd dashboard-web
+```powershell
 npm ci
 npm run build
 ```
+
+El build raíz compila React y `commercial-dashboard/` y después integra ambos en `dist/`.
 
 La configuración pública de Supabase se genera durante el build de Netlify. `GROQ_API_KEY` permanece exclusivamente en Supabase Edge Function Secrets.
 
@@ -151,10 +153,25 @@ La configuración pública de Supabase se genera durante el build de Netlify. `G
 - Si Groq no responde, el dashboard continúa funcionando sin depender de la IA.
 - Los datos de inventario se cargan por niveles: resumen primero y detalle por producto en segundo plano.
 
-El flujo actual de los BAT 6 y 7 publica en `bd-app` (`xtnihjzqnxozbotymoma`), que utiliza la aplicación Asiste dentro de `Tienda-Asistencia-cap`. El proyecto Supabase anterior `dashboard-comercial-produccion` y esta carpeta `dashboard-web` permanecen como legado local; los BAT de publicación no deben escribir allí.
+El flujo actual de los BAT 6 y 7 publica en `bd-app` (`xtnihjzqnxozbotymoma`) desde este repositorio unificado. El proyecto Supabase anterior `dashboard-comercial-produccion` queda fuera del flujo y los BAT de publicación no deben escribir allí.
 
 Consulta [ARQUITECTURA_NUBE.md](ARQUITECTURA_NUBE.md) para el flujo completo.
 
 ## Contenido excluido de GitHub
 
 El repositorio no incluye Excel comerciales, Parquet, JSON generados, archivos `.env`, entornos virtuales, `node_modules`, compilaciones ni paquetes portables. Estos elementos se regeneran o se trasladan por el canal privado correspondiente.
+
+## Flujo Git del equipo
+
+La única raíz de trabajo es la carpeta `DashBoardGeneral`; no clones otro repositorio dentro de ella. La rama compartida es `test`:
+
+```powershell
+git switch test
+git pull --ff-only origin test
+# realizar y verificar cambios
+git add -A
+git commit -m "descripcion del cambio"
+git push origin test
+```
+
+Antes de empezar una tarea ejecuta siempre el `pull`. Antes de subir, confirma con `git status --short --branch` que estás en `test` y que `origin` apunta a `AngelRojasPacherres2004/Tienda-Asistencia-cap`.

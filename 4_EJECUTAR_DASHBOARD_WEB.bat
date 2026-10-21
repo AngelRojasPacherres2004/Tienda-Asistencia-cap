@@ -6,8 +6,8 @@ cd /d "%~dp0"
 rem La aplicacion unificada Asiste es la vista local actual. El Angular antiguo
 rem queda disponible con --legacy para paquetes portables previos.
 if /I "%~1"=="--legacy" goto :dashboard_legado
-if exist "Tienda-Asistencia-cap\package.json" (
-    if not exist "Tienda-Asistencia-cap\.env" (
+if exist "package.json" (
+    if not exist ".env" (
         echo ERROR: falta la configuracion privada de Asiste.
         goto :error
     )
@@ -22,12 +22,10 @@ if exist "Tienda-Asistencia-cap\package.json" (
         if /I not "%~1"=="--sin-navegador" start "" "http://127.0.0.1:5180/"
         exit /b 0
     )
-    pushd "Tienda-Asistencia-cap"
     if not exist "node_modules\vite" (
         echo Instalando dependencias de Asiste...
         call npm ci
         if errorlevel 1 (
-            popd
             goto :error
         )
     )
@@ -35,15 +33,13 @@ if exist "Tienda-Asistencia-cap\package.json" (
     if /I not "%~1"=="--sin-navegador" start "" "http://127.0.0.1:5180/"
     call npm run dev
     if errorlevel 1 (
-        popd
         goto :error
     )
-    popd
     exit /b 0
 )
 
 :dashboard_legado
-set "WEBROOT=dashboard-web\dist\dashboard-web\browser"
+set "WEBROOT=commercial-dashboard\dist\dashboard-web\browser"
 
 echo ============================================================
 echo DASHBOARD WEB LOCAL - ALMACEN DE REMATES
@@ -59,19 +55,19 @@ if not exist ".venv\Scripts\python.exe" (
 rem Si falta dist, intentar recuperarlo automaticamente en la PC de desarrollo.
 if not exist "%WEBROOT%\index.html" (
     echo No se encontro la version compilada del dashboard.
-    echo Intentando compilar dashboard-web automaticamente...
+    echo Intentando compilar commercial-dashboard automaticamente...
 
     where npm >nul 2>nul
     if errorlevel 1 (
         echo.
         echo ERROR: No existe %WEBROOT%\index.html y tampoco se encontro npm.
-        echo Este paquete fue creado sin dashboard-web\dist.
+        echo Este paquete fue creado sin commercial-dashboard\dist.
         echo Vuelve a la PC de desarrollo, ejecuta 3_CREAR_PAQUETE_PORTABLE.bat
         echo corregido y vuelve a copiar el ZIP generado.
         goto :error
     )
 
-    pushd "dashboard-web"
+    pushd "commercial-dashboard"
     if not exist "node_modules" (
         echo Instalando dependencias Angular...
         call npm ci
@@ -95,11 +91,11 @@ if not exist "%WEBROOT%\index.html" (
 )
 
 rem Localhost debe leer los JSON generados en este equipo, no la version de Supabase.
-if not exist "dashboard-web\public\runtime-config.local.js" (
-    echo ERROR: Falta dashboard-web\public\runtime-config.local.js.
+if not exist "commercial-dashboard\public\runtime-config.local.js" (
+    echo ERROR: Falta commercial-dashboard\public\runtime-config.local.js.
     goto :error
 )
-copy /Y "dashboard-web\public\runtime-config.local.js" "%WEBROOT%\runtime-config.js" >nul
+copy /Y "commercial-dashboard\public\runtime-config.local.js" "%WEBROOT%\runtime-config.js" >nul
 if errorlevel 1 (
     echo ERROR: No se pudo activar la configuracion local del dashboard.
     goto :error
@@ -112,9 +108,9 @@ if exist "capa2\FactVentas.parquet" if exist "capa2\FactStock.parquet" (
 
     rem El generador escribe en public. Sin recompilar Angular, sincronizamos
     rem solamente los datos JSON con la carpeta dist que se sirve localmente.
-    if exist "dashboard-web\public\assets\data" (
+    if exist "commercial-dashboard\public\assets\data" (
         if not exist "%WEBROOT%\assets\data" mkdir "%WEBROOT%\assets\data"
-        xcopy /E /I /Y /Q "dashboard-web\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
+        xcopy /E /I /Y /Q "commercial-dashboard\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
         if errorlevel 1 goto :error
     )
 ) else (

@@ -46,7 +46,7 @@
 ## Archivos de configuración
 
 - Migraciones SQL versionadas en `supabase/migrations`.
-- Configuración Netlify: `netlify.toml` y `dashboard-web/netlify.toml`.
+- Configuración Netlify: `netlify.toml`; el dashboard Angular integrado vive en `commercial-dashboard/`.
 - Publicación interactiva: `6_ACTUALIZAR_DASHBOARD_WEB.bat`; solicita las credenciales sin guardarlas. `.env.supabase.local` queda disponible solo como alternativa administrada.
 - Alta segura de accesos adicionales: `5_CREAR_USUARIO_WEB.bat` cuando se dispone de una clave administrativa local.
 - Variables públicas del build: `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.

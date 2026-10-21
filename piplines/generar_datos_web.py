@@ -15,7 +15,7 @@ from maestros import homologar_tienda_python, tienda_id_python
 from xlsx_staging import origen_xlsx_csv
 
 
-WEB_DIR = PROJECT_ROOT / "dashboard-web"
+WEB_DIR = PROJECT_ROOT / "commercial-dashboard"
 SALIDA_PUBLICA = WEB_DIR / "public" / "assets" / "data" / "dashboard.json"
 SALIDA_COMPILADA = WEB_DIR / "dist" / "dashboard-web" / "browser" / "assets" / "data" / "dashboard.json"
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"

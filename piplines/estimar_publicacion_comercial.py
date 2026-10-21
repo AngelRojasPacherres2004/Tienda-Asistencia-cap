@@ -10,7 +10,7 @@ from particionar_dashboard import scope_catalog, scope_payload
 
 
 def main() -> None:
-    data_dir = Path(__file__).resolve().parents[1] / "dashboard-web/public/assets/data"
+    data_dir = Path(__file__).resolve().parents[1] / "commercial-dashboard/public/assets/data"
     catalog = json.loads((data_dir / "dashboard.json").read_text(encoding="utf-8"))
     scopes = scope_catalog(catalog["stores"])
     originals = scoped = 0

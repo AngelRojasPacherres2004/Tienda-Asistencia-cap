@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
-set "WEBROOT=dashboard-web\dist\dashboard-web\browser"
+set "WEBROOT=commercial-dashboard\dist\dashboard-web\browser"
 set "PARQUET_C1_OK=1"
 
 echo ============================================================
@@ -35,7 +35,7 @@ if not exist "%WEBROOT%\index.html" (
         goto :error
     )
 
-    pushd "dashboard-web"
+    pushd "commercial-dashboard"
     if not exist "node_modules" (
         echo Instalando dependencias Angular...
         call npm ci
@@ -77,9 +77,9 @@ if "%PARQUET_C1_OK%"=="0" (
 )
 
 rem Asegurar que los datos actuales de public tambien esten dentro de dist.
-if exist "dashboard-web\public\assets\data" (
+if exist "commercial-dashboard\public\assets\data" (
     if not exist "%WEBROOT%\assets\data" mkdir "%WEBROOT%\assets\data"
-    xcopy /E /I /Y /Q "dashboard-web\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
+    xcopy /E /I /Y /Q "commercial-dashboard\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
     if errorlevel 1 goto :error
 )
 
@@ -91,7 +91,7 @@ if exist "%ZIP%" del /q "%ZIP%"
 echo Creando %ZIP% ...
 rem Una sola linea: evita que CMD interprete accidentalmente un BAT listado
 rem como si fuera el siguiente comando cuando una continuacion se corrompe.
-tar.exe -a -c -f "%ZIP%" --exclude="piplines/**pycache**" --exclude="dashboard-web/node_modules" --exclude="dashboard-web/.angular" --exclude="dashboard-web/.netlify" --exclude="dashboard-web/.vscode" --exclude="dashboard-web/public/assets/data" --exclude="dashboard-web/src.zip" "0_ABRIR_PANEL.bat" "1_INSTALAR_REQUISITOS.bat" "2_ACTUALIZAR_DATOS.bat" "3_CREAR_PAQUETE_PORTABLE.bat" "4_EJECUTAR_DASHBOARD_WEB.bat" "5_CREAR_USUARIO_WEB.bat" "6_ACTUALIZAR_DASHBOARD_WEB.bat" "7_ACTUALIZAR_TODO.bat" "README.md" "Manual_Actualizacion_Dashboard_Comercial.docx" "ARQUITECTURA_NUBE.md" "netlify.toml" "input" "capa1" "capa2" "piplines" "supabase" "dashboard-web"
+tar.exe -a -c -f "%ZIP%" --exclude="piplines/**pycache**" --exclude="commercial-dashboard/node_modules" --exclude="commercial-dashboard/.angular" --exclude="commercial-dashboard/.netlify" --exclude="commercial-dashboard/.vscode" --exclude="commercial-dashboard/public/assets/data" --exclude="commercial-dashboard/src.zip" "0_ABRIR_PANEL.bat" "1_INSTALAR_REQUISITOS.bat" "2_ACTUALIZAR_DATOS.bat" "3_CREAR_PAQUETE_PORTABLE.bat" "4_EJECUTAR_DASHBOARD_WEB.bat" "5_CREAR_USUARIO_WEB.bat" "6_ACTUALIZAR_DASHBOARD_WEB.bat" "7_ACTUALIZAR_TODO.bat" "README.md" "Manual_Actualizacion_Dashboard_Comercial.docx" "ARQUITECTURA_NUBE.md" "netlify.toml" "input" "capa1" "capa2" "piplines" "supabase" "commercial-dashboard"
 if errorlevel 1 goto :error
 
 for %%Z in ("%ZIP%") do set "ZIP_BYTES=%%~zZ"
@@ -101,14 +101,14 @@ echo PAQUETE CREADO
 echo Archivo: %ZIP%
 echo Tamano en bytes: %ZIP_BYTES%
 echo.
-echo IMPORTANTE: el ZIP ya contiene dashboard-web\dist compilado.
+echo IMPORTANTE: el ZIP ya contiene commercial-dashboard\dist compilado.
 echo Tambien contiene los Parquet operativos de capa1 y los resultados
 echo disponibles de capa2, ademas del manual Word de actualizacion.
 echo En otra PC: extraer, ejecutar 1_INSTALAR_REQUISITOS.bat y luego
 echo 0_ABRIR_PANEL.bat. Para abrir la web, ejecutar
 echo 4_EJECUTAR_DASHBOARD_WEB.bat.
-echo Para publicar desde otra PC tambien necesitas el repositorio Asiste
-echo con su .env privado, fuera de este ZIP. Indica su ruta con --app-root.
+echo Para publicar desde otra PC tambien necesitas el archivo .env privado
+echo de Asiste en la raiz del proyecto unificado.
 echo El ZIP nunca incluye claves de Supabase.
 echo ============================================================
 if /I not "%~1"=="--sin-pausa" pause

@@ -5,7 +5,7 @@ cd /d "%~dp0"
 
 set "SIN_PAUSA=0"
 set "FECHA_CORTE="
-set "APP_ROOT=%~dp0Tienda-Asistencia-cap"
+set "APP_ROOT=%~dp0"
 set "TRAFICO_EXCEL="
 set "TRAFICO_DESDE="
 set "SOLO_VERIFICAR=0"

@@ -1,4 +1,0 @@
-CAMBIOS V7
-- Crecimiento anual: se eliminan todos los porcentajes rojos visibles; la línea queda limpia y el crecimiento sigue disponible en tooltip.
-- Analítica predictiva: tres tarjetas con ancho equivalente (1/3 cada una), tipografía Segoe UI y pesos más sobrios.
-- Stock: el pipeline corregido se entrega por separado porque el parquet actual conserva anio_origen antiguo pero fecha_origen/periodo_origen solo desde 2024.
