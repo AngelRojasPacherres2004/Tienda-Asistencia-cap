@@ -1,0 +1,108 @@
+[
+  {
+    "archivo": "Fact_Ventas.parquet",
+    "tipo": "parquet",
+    "estado": "OK",
+    "filas": 4008943,
+    "columnas": 35,
+    "faltantes": [],
+    "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
+  },
+  {
+    "archivo": "Fact_Ingresos.parquet",
+    "tipo": "parquet",
+    "estado": "OK",
+    "filas": 431742,
+    "columnas": 26,
+    "faltantes": [],
+    "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
+  },
+  {
+    "archivo": "Fact_Transferencias.parquet",
+    "tipo": "parquet",
+    "estado": "OK",
+    "filas": 1304397,
+    "columnas": 25,
+    "faltantes": [],
+    "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
+  },
+  {
+    "archivo": "Fact_Stock.parquet",
+    "tipo": "parquet",
+    "estado": "OK",
+    "filas": 874844,
+    "columnas": 20,
+    "faltantes": [],
+    "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
+  },
+  {
+    "archivo": "TIENDAS.xlsx",
+    "tipo": "excel",
+    "hoja": "TIENDAS",
+    "estado": "OK",
+    "filas": 20,
+    "columnas": 16,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\TIENDAS__TIENDAS__1788257504420605800_12461.csv"
+  },
+  {
+    "archivo": "CATALOGO_TIENDAS.xlsx",
+    "tipo": "excel",
+    "hoja": "CATALOGO",
+    "estado": "OK",
+    "filas": 1033,
+    "columnas": 6,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\CATALOGO_TIENDAS__CATALOGO__1785898712000000000_605806.csv"
+  },
+  {
+    "archivo": "GUIAS_EN_TRANSITO.xlsx",
+    "tipo": "excel",
+    "hoja": "GUIAS_EN_TRANSITO_C1",
+    "estado": "OK",
+    "filas": 35175,
+    "columnas": 20,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\GUIAS_EN_TRANSITO__GUIAS_EN_TRANSITO_C1__1785874674000000000_5102539.csv"
+  },
+  {
+    "archivo": "MERMA.xlsx",
+    "tipo": "excel",
+    "hoja": "MERMA",
+    "estado": "OK",
+    "filas": 51,
+    "columnas": 14,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\MERMA__MERMA__1785895986000000000_14268.csv"
+  },
+  {
+    "archivo": "METAS_TIENDAS.xlsx",
+    "tipo": "excel",
+    "hoja": "METAS",
+    "estado": "OK",
+    "filas": 660,
+    "columnas": 8,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\METAS_TIENDAS__METAS__1788259349505092700_44113.csv"
+  },
+  {
+    "archivo": "PERSONAL_TIENDAS.xlsx",
+    "tipo": "excel",
+    "hoja": "PERSONAL_TIENDAS",
+    "estado": "OK",
+    "filas": 166,
+    "columnas": 28,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\PERSONAL_TIENDAS__PERSONAL_TIENDAS__1791328466117683400_77326.csv"
+  },
+  {
+    "archivo": "TRAFICO_CLIENTES.xlsx",
+    "tipo": "excel",
+    "hoja": "TRAFICO_CLIENTE",
+    "estado": "OK",
+    "filas": 5184,
+    "columnas": 4,
+    "faltantes": [],
+    "staging": ".etl_work\\xlsx_staging\\TRAFICO_CLIENTES__TRAFICO_CLIENTE__1792346106341945400_98617.csv"
+  }
+]

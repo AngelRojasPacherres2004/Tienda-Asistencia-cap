@@ -24,3 +24,13 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+[[headers]]
+  for = "/comercial/runtime-config.js"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/comercial/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

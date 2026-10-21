@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+html { min-width: 320px; background: #eef1f5; font-family: "Segoe UI", Arial, sans-serif; }
+body { margin: 0; min-height: 100vh; background: #eef1f5; }
+button, select { font: inherit; }
+button:focus-visible, select:focus-visible { outline: 3px solid rgba(40,100,215,.38); outline-offset: 2px; }
