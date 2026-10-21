@@ -25,7 +25,7 @@ function blackChartText<T>(value: T): T {
   selector: 'dashboard-chart',
   standalone: true,
   template: '<div #host class="chart-host" role="img" [attr.aria-label]="label"></div>',
-  styles: [':host,.chart-host{display:block;width:100%;height:100%;min-height:180px}'],
+  styles: [':host,.chart-host{box-sizing:border-box;display:block;width:100%;max-width:100%;min-width:0;height:100%;min-height:180px;overflow:hidden}'],
 })
 export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) option!: EChartsOption;

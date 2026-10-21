@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { Building2 } from "lucide-react";
 import { Loading, Notice } from "../components/UI";
 
-export default function CommercialPortal({ storeContextId = null }) {
+export default function CommercialPortal({ user, storeContextId = null, onStoreChange, switchingStore = false }) {
   const host = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -33,6 +34,11 @@ export default function CommercialPortal({ storeContextId = null }) {
 
   return (
     <section className="commercial-portal" aria-label="Dashboard ejecutivo comercial">
+      {user?.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="portal-store-context">
+        <div><Building2 size={17} /><span>Vista comercial de</span></div>
+        <label><span className="visually-hidden">Cambiar tienda activa</span><select aria-label="Cambiar tienda activa" value={String(user.tienda_id || "")} disabled={switchingStore} onChange={event => onStoreChange?.(event.target.value)}>{user.tiendas_disponibles.map(store => <option key={store.id} value={String(store.id)}>{store.nombre}{store.principal ? " · Principal" : " · Apoyo"}</option>)}</select></label>
+        <strong>{user.tienda_id === user.tienda_principal_id ? "Tienda principal" : "Acceso de apoyo"}</strong>
+      </div>}
       {loading && <Loading />}
       {error && <Notice type="error">{error}</Notice>}
       <div ref={host} className="commercial-portal-host" />

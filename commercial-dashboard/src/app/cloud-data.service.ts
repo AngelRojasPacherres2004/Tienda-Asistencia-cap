@@ -43,6 +43,7 @@ export type CompanyRankingData = {
   monthlyStore: { periodId: number; storeId: string; net: number; transactions: number }[];
   predictiveStore: { storeId: string; rotation: number | null; stockValue: number; sales30: number }[];
 };
+export type StoreGoal = { storeId: string; periodId: number; target: number; updatedAt?: string };
 
 const LOCAL_ACCESS: DashboardAccessProfile = {
   roleCode: 'jefe_comercial',
@@ -270,6 +271,12 @@ export class CloudDataService {
   async companyRanking(): Promise<CompanyRankingData | null> {
     if (!this.portalMode) return null;
     return this.portalRequest<CompanyRankingData>('/commercial/company-ranking');
+  }
+
+  async storeGoals(): Promise<StoreGoal[]> {
+    if (!this.portalMode) return [];
+    const data = await this.portalRequest<{ goals: StoreGoal[] }>('/commercial/store-goals');
+    return data.goals || [];
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {

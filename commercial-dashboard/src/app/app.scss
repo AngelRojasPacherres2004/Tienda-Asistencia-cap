@@ -355,7 +355,7 @@
 .static-charts .growth { width: auto; height: 305px !important; }
 .static-charts .growth dashboard-chart { height: auto !important; min-height: 0 !important; }
 .static-charts .growth dashboard-chart .chart-host { height: 100%; min-height: 0; }
-.static-charts .price-range-card { height: 305px; }
+.static-charts .price-range-card { grid-column: 1 / -1; height: 370px; }
 .gender-chart-content,.gender-donut-pane { display:flex; flex:1; min-height:0 }
 .gender-donut-pane { min-width:0; flex-direction:column }
 .gender-donut-pane dashboard-chart { flex:1; min-height:0 }
@@ -430,8 +430,15 @@
 .brand-detail-body strong { overflow: hidden; color: #172033; text-overflow: ellipsis; white-space: nowrap; }
 .brand-detail-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brand-detail-body p { padding: 16px; color: #64748b; font-size: .7rem; font-weight: 800; text-align: center; }
-.price-range-chart-content { display: contents; }
-.price-range-detail-table { display: none; }
+.price-range-header { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:38px; padding-right:28px; }
+.price-range-header h2 { margin:0; }
+.price-range-years { display:flex; align-items:flex-end; justify-content:flex-end; gap:10px; color:#64748b; font-size:.58rem; font-weight:800; }
+.price-range-years > span,.price-range-years label { display:grid; gap:3px; }
+.price-range-years strong { color:#172033; font-size:.72rem; }
+.price-range-years select { min-width:105px; height:30px; padding:0 24px 0 8px; border:1px solid #b8c5d9; border-radius:6px; color:#172033; background:#fff; font-size:.65rem; font-weight:800; }
+.price-range-chart-content { display:grid; grid-template-columns:minmax(440px,1.35fr) minmax(420px,.85fr); flex:1; min-height:0; gap:14px; }
+.price-range-chart-content > dashboard-chart { width:100%; height:100%!important; min-height:0!important; }
+.price-range-detail-table { display:grid; min-width:0; min-height:0; grid-template-rows:auto 1fr; overflow:hidden; border:1px solid #d5deea; border-radius:10px; background:#fff; }
 .chart-expanded .price-range-chart-content { display: grid; grid-template-columns: minmax(420px, 1.08fr) minmax(560px, .92fr); flex: 1; min-height: 0; gap: 20px; }
 .chart-expanded .price-range-chart-content > dashboard-chart { height: 100% !important; min-height: 0 !important; }
 .chart-expanded .price-range-detail-table { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto 1fr; overflow: hidden; border: 1px solid #d5deea; border-radius: 10px; background: #fff; }
@@ -441,9 +448,11 @@
 .price-range-detail-body { overflow: auto; overscroll-behavior: contain; }
 .price-range-detail-body > div { min-height: 40px; padding: 7px 12px; border-bottom: 1px solid #e7edf4; color: #475569; font-size: .69rem; }
 .price-range-detail-body > div:nth-child(even) { background: #fbfdff; }
+.price-range-detail-body > div.base-year { border-left:3px solid #9465e8; background:#faf7ff; }
 .price-range-detail-body strong,
 .price-range-detail-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .price-range-detail-body strong { color: #172033; }
+.price-range-detail-body strong small { display:block; margin-top:2px; color:#64748b; font-size:.52rem; }
 .price-range-detail-body p { padding: 16px; color: #64748b; font-size: .7rem; font-weight: 800; text-align: center; }
 .category-view-toggle { display:flex; gap:4px; margin-top:8px; }
 .category-view-toggle button { height:25px; padding:0 10px; border:1px solid #b7c2d3; border-radius:5px; background:#fff; color:#475569; cursor:pointer; font-size:.6rem; font-weight:800; letter-spacing:.02em; }
@@ -1364,4 +1373,18 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .portal-embed .brand-header h1 { font-size:clamp(1.2rem,1.8vw,1.85rem); }
   .static-charts { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .static-charts .price-range-card { grid-column:1 / -1; }
+}
+
+@media (max-width: 1100px) {
+  .static-charts .price-range-card { height:auto; min-height:680px; }
+  .price-range-chart-content { grid-template-columns:1fr; grid-template-rows:minmax(320px,1fr) minmax(260px,.8fr); }
+  .price-range-detail-table { max-height:300px; }
+}
+
+@media (max-width: 620px) {
+  .price-range-header { align-items:flex-start; flex-direction:column; padding-right:30px; }
+  .price-range-years { width:100%; justify-content:flex-start; }
+  .static-charts .price-range-card { min-height:720px; }
+  .price-range-detail-head,.price-range-detail-body > div { min-width:520px; }
+  .price-range-detail-table { overflow:auto; }
 }

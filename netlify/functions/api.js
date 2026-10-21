@@ -178,7 +178,7 @@ async function withStoreName(user) {
 
 function sessionClaims(user) {
   return {
-    id: user.id, nombres: user.nombres, apellidos: user.apellidos, usuario: user.usuario,
+    id: user.id, nombres: user.nombres, apellidos: user.apellidos, dni: user.dni || null, usuario: user.usuario,
     rol: user.rol, tienda_id: user.tienda_principal_id ?? user.tienda_id,
     cambio_credenciales_pendiente: Boolean(user.cambio_credenciales_pendiente),
     credenciales_actualizadas_en: user.credenciales_actualizadas_en || null,
@@ -264,6 +264,24 @@ async function commercialOperationalSummary(sessionUser) {
       })),
     ],
   };
+}
+
+async function commercialStoreGoals(sessionUser) {
+  const access = await currentCommercialAccess(sessionUser);
+  const { data: mappings, error: mappingError } = await supabase.from("commercial_store_map")
+    .select("dashboard_store_id,tienda_id").in("dashboard_store_id", access.storeIds);
+  if (mappingError) throw dbError(mappingError);
+  const stores = (mappings || []).filter(row => row.tienda_id != null);
+  if (!stores.length) return { goals: [] };
+  const dashboardByStore = new Map(stores.map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+  const { data, error } = await supabase.from("metas_comerciales_tienda")
+    .select("tienda_id,anio,mes,meta_venta,actualizado_en")
+    .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes");
+  if (error) throw dbError(error);
+  return { goals: (data || []).map(row => ({
+    storeId: dashboardByStore.get(Number(row.tienda_id)), periodId: Number(row.anio) * 100 + Number(row.mes),
+    target: Number(row.meta_venta), updatedAt: row.actualizado_en,
+  })).filter(row => row.storeId) };
 }
 
 async function publishedCommercialRelease() {
@@ -955,12 +973,12 @@ function validateTiendaPayload(data) {
     throw httpError("La fecha de cierre no puede ser anterior a la fecha de apertura.", 400);
   }
   if (data.estado === "inactivo" && !data.fecha_cierre) throw httpError("Indica la fecha de cierre de la tienda inactiva.", 400);
-  for (const field of ["metraje_m2", "capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp", "alquiler_mensual"]) {
+  for (const field of ["metraje_m2", "capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid", "cant_colaboradores_normal", "colaboradores_camp", "alquiler_mensual"]) {
     if (data[field] !== "" && data[field] != null && (!Number.isFinite(Number(data[field])) || Number(data[field]) < 0)) {
       throw httpError("Los valores operativos de la tienda deben ser números positivos.", 400);
     }
   }
-  for (const field of ["capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp"]) {
+  for (const field of ["capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid", "cant_colaboradores_normal", "colaboradores_camp"]) {
     if (data[field] !== "" && data[field] != null && !Number.isInteger(Number(data[field]))) {
       throw httpError("El stock y la cantidad de colaboradores deben ser números enteros.", 400);
     }
@@ -989,11 +1007,11 @@ function validIds(list) {
 // ---------- Autenticación ----------
 
 async function authAccount(query) {
-  const fields = "id,nombres,apellidos,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en";
+  const fields = "id,nombres,apellidos,dni,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en";
   let result = await query(fields);
   if (["42703", "PGRST204"].includes(result.error?.code)) {
     // Mantiene el ingreso disponible mientras la migración se aplica en bd-app.
-    result = await query("id,nombres,apellidos,usuario,password,rol,estado,tienda_id");
+    result = await query("id,nombres,apellidos,dni,usuario,password,rol,estado,tienda_id");
     if (result.data) {
       result.data.cambio_credenciales_pendiente = false;
       result.data.credenciales_actualizadas_en = null;
@@ -1020,7 +1038,7 @@ async function login(event) {
   if (!valid) return fail();
 
   const sessionUser = {
-    id: account.id, nombres: account.nombres, apellidos: account.apellidos,
+    id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
     usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
     cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
     credenciales_actualizadas_en: account.credenciales_actualizadas_en,
@@ -1104,7 +1122,7 @@ async function loginApoyoSeguridad(event) {
   if (!/^\d{8}$/.test(dni)) throw httpError("Ingresa un DNI válido de 8 dígitos.", 400);
   if (!["image/jpeg", "image/png", "image/webp"].includes(body.foto_mime)) throw httpError("La foto debe ser JPG, PNG o WEBP.", 400);
   const { data: support, error } = await supabase.from("apoyos_seguridad")
-    .select("id,usuario_id,tienda_id,fecha_inicio,fecha_fin,activo,usuarios!apoyos_seguridad_usuario_id_fkey(id,nombres,apellidos,usuario,estado)")
+    .select("id,usuario_id,tienda_id,fecha_inicio,fecha_fin,activo,usuarios!apoyos_seguridad_usuario_id_fkey(id,nombres,apellidos,dni,usuario,estado)")
     .eq("dni", dni).maybeSingle();
   if (error) throw dbError(error);
   const today = todayISO(); const account = support?.usuarios;
@@ -1118,7 +1136,7 @@ async function loginApoyoSeguridad(event) {
   const clientIp = event.headers["x-nf-client-connection-ip"] || event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "local";
   const access = await supabase.from("apoyo_seguridad_accesos").insert({ apoyo_id: support.id, foto_rostro_path: photoPath, ip: clientIp });
   if (access.error) throw dbError(access.error);
-  const sessionUser = { id: account.id, nombres: account.nombres, apellidos: account.apellidos, usuario: account.usuario, rol: "seguridad", tienda_id: support.tienda_id, apoyo_temporal: true };
+  const sessionUser = { id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni, usuario: account.usuario, rol: "seguridad", tienda_id: support.tienda_id, apoyo_temporal: true };
   const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
   return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
 }
@@ -1670,7 +1688,7 @@ async function deleteCluster(id) {
 async function listTiendas(actor) {
   let request = supabase
     .from("tiendas")
-    .select("id,nombre,codigo,direccion,distrito,provincia,departamento,zona,formato,fecha_apertura,fecha_cierre,metraje_m2,capacidad_stock_unid,cant_colaboradores_normal,colaboradores_camp,alquiler_mensual,estado,fecha_creacion,jefe_id,cluster_id,zonal_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos,estado),cluster:clusters(id,nombre,codigo)")
+    .select("id,nombre,codigo,direccion,distrito,provincia,departamento,zona,formato,fecha_apertura,fecha_cierre,metraje_m2,capacidad_stock_unid,capacidad_stock_calzado_unid,capacidad_stock_textil_unid,cant_colaboradores_normal,colaboradores_camp,alquiler_mensual,estado,fecha_creacion,jefe_id,cluster_id,zonal_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos,estado),cluster:clusters(id,nombre,codigo)")
     .order("nombre");
   if (actor?.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(actor.id);
@@ -1750,6 +1768,8 @@ function tiendaPayload(data) {
     fecha_apertura: data.fecha_apertura || null,
     fecha_cierre: data.fecha_cierre || null, metraje_m2: number(data.metraje_m2),
     capacidad_stock_unid: number(data.capacidad_stock_unid),
+    capacidad_stock_calzado_unid: number(data.capacidad_stock_calzado_unid),
+    capacidad_stock_textil_unid: number(data.capacidad_stock_textil_unid),
     cant_colaboradores_normal: number(data.cant_colaboradores_normal),
     colaboradores_camp: number(data.colaboradores_camp), alquiler_mensual: number(data.alquiler_mensual),
     estado: data.estado, cluster_id: data.cluster_id ? Number(data.cluster_id) : null,
@@ -3949,7 +3969,7 @@ const miTiendaTables = {
 async function getMiTienda(user) {
   const storeId = user.tienda_id;
   const [store, documentos, reclamaciones, acciones, requerimientos, seguimientos, visitas, observaciones, apoyos] = await Promise.all([
-    supabase.from("tiendas").select("id,nombre,formato,distrito,direccion,metraje_m2,capacidad_stock_unid").eq("id", storeId).single(),
+    supabase.from("tiendas").select("id,nombre,formato,distrito,direccion,metraje_m2,capacidad_stock_unid,capacidad_stock_calzado_unid,capacidad_stock_textil_unid").eq("id", storeId).single(),
     supabase.from("documentos_municipales").select("*").eq("tienda_id", storeId).order("fecha_vencimiento"),
     supabase.from("reclamaciones_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("acciones_tienda").select("*").eq("tienda_id", storeId).order("fecha"),
@@ -3977,7 +3997,7 @@ async function getMiTienda(user) {
 
 async function updateMiTiendaData(event, user) {
   const data = bodyOf(event);
-  const editable = ["nombre", "formato", "distrito", "direccion", "metraje_m2", "capacidad_stock_unid"];
+  const editable = ["nombre", "formato", "distrito", "direccion", "metraje_m2", "capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid"];
   if (Object.keys(data).some(key => !editable.includes(key))) throw httpError("Ese campo de tienda no se puede editar desde este módulo.", 403);
   const payload = {};
   for (const [key, max] of [["nombre", 120], ["distrito", 80], ["direccion", 180]]) {
@@ -3990,16 +4010,51 @@ async function updateMiTiendaData(event, user) {
     if (!["PROPIA", "METRO"].includes(data.formato)) throw httpError("El formato no es válido.", 400);
     payload.formato = data.formato;
   }
-  for (const key of ["metraje_m2", "capacidad_stock_unid"]) {
+  for (const key of ["metraje_m2", "capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid"]) {
     if (data[key] === undefined) continue;
     const value = Number(data[key]);
     if (data[key] === "" || data[key] == null || !Number.isFinite(value) || value < 0
-      || (key === "capacidad_stock_unid" && !Number.isInteger(value))) throw httpError(`El valor de ${key === "metraje_m2" ? "metros cuadrados" : "capacidad"} no es válido.`, 400);
+      || (key !== "metraje_m2" && !Number.isInteger(value))) throw httpError(`El valor de ${key === "metraje_m2" ? "metros cuadrados" : "capacidad"} no es válido.`, 400);
     payload[key] = value;
   }
   if (!Object.keys(payload).length) throw httpError("No hay datos para actualizar.", 400);
   const { error } = await supabase.from("tiendas").update(payload).eq("id", user.tienda_id);
   if (error) throw dbError(error);
+}
+
+async function getMiTiendaGoals(event, user) {
+  const requestedYear = Number(event.queryStringParameters?.anio || new Date().getFullYear());
+  if (!Number.isInteger(requestedYear) || requestedYear < 2024 || requestedYear > 2100) throw httpError("El año de metas no es válido.", 400);
+  const { data, error } = await supabase.from("metas_comerciales_tienda")
+    .select("anio,mes,meta_venta,actualizado_en")
+    .eq("tienda_id", user.tienda_id).eq("anio", requestedYear).order("mes");
+  if (error) throw dbError(error);
+  return { anio: requestedYear, metas: data || [] };
+}
+
+async function saveMiTiendaGoals(event, user) {
+  const data = bodyOf(event); const year = Number(data.anio);
+  if (!Number.isInteger(year) || year < 2024 || year > 2100) throw httpError("El año de metas no es válido.", 400);
+  if (!Array.isArray(data.metas) || data.metas.length !== 12) throw httpError("Registra los doce meses del año.", 400);
+  const months = new Set(); const upserts = []; const cleared = [];
+  for (const row of data.metas) {
+    const month = Number(row.mes); const raw = row.meta_venta;
+    if (!Number.isInteger(month) || month < 1 || month > 12 || months.has(month)) throw httpError("Los meses de la meta no son válidos.", 400);
+    months.add(month);
+    if (raw === "" || raw == null) { cleared.push(month); continue; }
+    const target = Number(raw);
+    if (!Number.isFinite(target) || target < 0 || target > 999999999999.99) throw httpError(`La meta del mes ${month} no es válida.`, 400);
+    upserts.push({ tienda_id: user.tienda_id, anio: year, mes: month, meta_venta: Math.round(target * 100) / 100, actualizado_por: user.id, actualizado_en: new Date().toISOString() });
+  }
+  if (upserts.length) {
+    const { error } = await supabase.from("metas_comerciales_tienda").upsert(upserts, { onConflict: "tienda_id,anio,mes" });
+    if (error) throw dbError(error);
+  }
+  if (cleared.length) {
+    const { error } = await supabase.from("metas_comerciales_tienda").delete().eq("tienda_id", user.tienda_id).eq("anio", year).in("mes", cleared);
+    if (error) throw dbError(error);
+  }
+  return getMiTiendaGoals({ queryStringParameters: { anio: String(year) } }, user);
 }
 
 async function saveMiTiendaRecord(event, user, kind, id = null) {
@@ -4391,7 +4446,7 @@ export async function handler(event) {
       if ((session.credenciales_actualizadas_en || null) !== (account.credenciales_actualizadas_en || null))
         throw httpError("Tus credenciales cambiaron. Inicia sesión nuevamente.", 401);
       const sessionUser = {
-        id: account.id, nombres: account.nombres, apellidos: account.apellidos,
+        id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
         usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
         cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
         credenciales_actualizadas_en: account.credenciales_actualizadas_en,
@@ -4487,6 +4542,9 @@ export async function handler(event) {
     }
     if (path === "/commercial/operational-summary" && method === "GET") {
       return json(200, await commercialOperationalSummary(user));
+    }
+    if (path === "/commercial/store-goals" && method === "GET") {
+      return json(200, await commercialStoreGoals(user));
     }
     if (path === "/commercial/company-ranking" && method === "GET") {
       return json(200, await commercialCompanyRanking(user));
@@ -4911,6 +4969,12 @@ export async function handler(event) {
     }
     if (path === "/mi-tienda-gestion/datos" && method === "PUT") {
       ensureAuth(event, "jefe_tienda"); await updateMiTiendaData(event, user); return json(200, { ok: true });
+    }
+    if (path === "/mi-tienda-gestion/metas" && method === "GET") {
+      ensureAuth(event, "jefe_tienda"); return json(200, await getMiTiendaGoals(event, user));
+    }
+    if (path === "/mi-tienda-gestion/metas" && method === "PUT") {
+      ensureAuth(event, "jefe_tienda"); return json(200, await saveMiTiendaGoals(event, user));
     }
     if (path === "/mi-tienda-gestion/archivo" && method === "POST") {
       ensureAuth(event, "jefe_tienda"); return json(201, await uploadMiTiendaFile(event, user));

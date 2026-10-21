@@ -6,7 +6,7 @@ import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
-import { CloudDataService, type CompanyRankingData, type OperationalSummary } from './cloud-data.service';
+import { CloudDataService, type CompanyRankingData, type OperationalSummary, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
@@ -143,6 +143,7 @@ export class App implements OnInit {
   readonly Math = Math;
   readonly monthNamesFull = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
   readonly data = signal<DashboardData | null>(null);
+  readonly storeGoalOverrides = signal<StoreGoal[]>([]);
   readonly dataWarnings = computed(() => this.data()?.metadata.dataWarnings ?? []);
   readonly salesCutoffYear = computed(() => Number(this.data()?.metadata.salesCutoff?.slice(0, 4)) || new Date().getFullYear());
   readonly loadingError = signal('');
@@ -163,6 +164,7 @@ export class App implements OnInit {
   readonly sellerPerformanceData = signal<SellerPerformanceRow[]>([]);
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
+  readonly priceRangeComparisonYear = signal(2025);
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -979,11 +981,17 @@ export class App implements OnInit {
   // una aproximación explícita, nunca una meta oficial inventada.
   private targetForPeriods(periods: number[]): number {
     const storeIds = this.filteredStoreIds();
-    const official = sum(this.indexedRows(this.monthlyStoreIndex, periods, storeIds), 'target');
+    const overrides = new Map(this.storeGoalOverrides().map(row => [`${row.periodId}|${row.storeId}`, row.target]));
+    const hasOverrides = periods.some(period => [...storeIds].some(storeId => overrides.has(`${period}|${storeId}`)));
+    const officialFor = (period: number, storeId: string) => {
+      const key = `${period}|${storeId}`;
+      return overrides.has(key) ? overrides.get(key)! : sum(this.monthlyStoreIndex.get(key) || [], 'target');
+    };
+    const official = periods.reduce((total, period) => total + [...storeIds].reduce((subtotal, storeId) => subtotal + officialFor(period, storeId), 0), 0);
     const hierarchyActive = this.selectedCategories().length || this.selectedGenders().length || this.selectedLines().length || this.selectedSublines().length;
     if (!hierarchyActive) {
       const corporateTarget = this.corporateAnnualTargets[this.year()];
-      return corporateTarget && this.isFullCompanyScope() && this.isFullYear(periods)
+      return !hasOverrides && corporateTarget && this.isFullCompanyScope() && this.isFullYear(periods)
         ? corporateTarget
         : official;
     }
@@ -996,7 +1004,7 @@ export class App implements OnInit {
     let total = 0;
     for (const period of periods) for (const storeId of storeIds) {
       const key = `${period}|${storeId}`;
-      const officialTarget = sum((this.monthlyStoreIndex.get(key) || []), 'target');
+      const officialTarget = officialFor(period, storeId);
       const targets = byKey.get(key) || [];
       const textil = targets.filter(row => this.normalized(row.category) === 'TEXTIL').reduce((v, row) => v + row.target, 0);
       const calzado = targets.filter(row => this.normalized(row.category) === 'CALZADO').reduce((v, row) => v + row.target, 0);
@@ -1315,7 +1323,7 @@ export class App implements OnInit {
       female: male == null ? null : averageTotal - male,
       averageAge: ages.length ? ages.reduce((total, value) => total + value, 0) / ages.length : null,
       salesStaff: personnelAverage == null ? null : salesStaff,
-      administrativeStaff: personnelAverage == null ? null : averageTotal - salesStaff,
+      administrativeStaff: profiles.filter(row => ['ADMINISTRADOR', 'ADMINISTRADOR DE TIENDA', 'ADMINISTRADOR TIENDA', 'JEFE DE TIENDA', 'JEFE TIENDA', 'JEFE_TIENDA', 'ASISTENTE ADMINISTRATIVO', 'ASISTENTE DE TIENDA', 'ASISTENTE TIENDA', 'ASISTENTE_TIENDA'].includes(this.normalized(row.role))).length,
       birthdayLabel: birthday?.person.name || 'N/A',
       birthdayDate: birthday ? birthday.date.split('-').reverse().join('/') : '',
     };
@@ -2619,10 +2627,14 @@ export class App implements OnInit {
         label: { show: true, position: 'right', color: '#172033', fontSize: 10, fontWeight: 800, formatter: (params: any) => this.percent(rows[params.dataIndex]?.share ?? null) } }]
     } as EChartsOption;
   });
-  readonly priceRangeSummary = computed(() => {
+  readonly priceRangeComparisonYears = computed(() => (this.data()?.metadata.years || [])
+    .filter(year => year >= 2024 && year !== this.year()).sort((a, b) => b - a));
+  readonly effectivePriceRangeComparisonYear = computed(() => this.priceRangeComparisonYears().includes(this.priceRangeComparisonYear())
+    ? this.priceRangeComparisonYear() : this.priceRangeComparisonYears()[0] || this.year() - 1);
+  private priceRangeSummaryFor(year: number, base = false) {
     this.priceRangeData();
-    const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
-    const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
+    const ids = this.filteredStoreIds(); const periods = this.activeMonths().map(month => year * 100 + month);
+    const rows = (base && this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
       Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
     const groups = grouped(rows, row => String(row.bandOrder));
     const bands = [
@@ -2634,35 +2646,48 @@ export class App implements OnInit {
       return { label, net: sum(groupedRows, 'net'), units: sum(groupedRows, 'units') };
     });
     const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
-    return values.map(value => ({ ...value, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
-  });
+    return values.map(value => ({ ...value, year, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
+  }
+  readonly priceRangeSummary = computed(() => [
+    ...this.priceRangeSummaryFor(this.year(), true),
+    ...this.priceRangeSummaryFor(this.effectivePriceRangeComparisonYear()),
+  ]);
+  readonly priceRangeSeries = computed(() => ({
+    base: this.priceRangeSummaryFor(this.year(), true),
+    comparison: this.priceRangeSummaryFor(this.effectivePriceRangeComparisonYear()),
+  }));
+  setPriceRangeComparisonYear(value: number | string): void {
+    const year = Number(value);
+    if (this.priceRangeComparisonYears().includes(year)) this.priceRangeComparisonYear.set(year);
+  }
   readonly priceRangeOption = computed<EChartsOption>(() => {
-    const values = this.priceRangeSummary();
-    const bands = values.map(value => value.label);
-    const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
-    const priceScale = adaptiveValueScale(values.map(value => value.net), 3);
+    const { base, comparison } = this.priceRangeSeries();
+    const bands = base.map(value => value.label); const baseYear = this.year(); const comparisonYear = this.effectivePriceRangeComparisonYear();
+    const totals = { base: base.reduce((value, row) => value + row.net, 0), comparison: comparison.reduce((value, row) => value + row.net, 0) };
+    const priceScale = adaptiveValueScale([...base, ...comparison].map(value => value.net), 3);
+    const valueName = (year: number) => `VENTA ${year}`; const unitsName = (year: number) => `UNIDADES ${year}`;
+    const shareLabel = (total: number) => ({ show: true, position: 'top' as const, formatter: (params: any) => this.percent(total ? Number(params.value) / total : null), color: '#172033', fontSize: 9, fontWeight: 700, distance: 4, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [1, 3], borderRadius: 3 });
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], textStyle: { fontSize: 10 }, formatter: (params: any[]) => {
-        const index = params[0]?.dataIndex ?? 0; const row = values[index];
-        return this.tooltip(row.label, [
-          { label: 'Venta', value: this.money(row.net, true) },
-          { label: 'Unidades vendidas', value: this.number(row.units, ' und') },
-          { label: 'Precio unitario', value: row.label }
+        const index = params[0]?.dataIndex ?? 0; const current = base[index]; const previous = comparison[index];
+        return this.tooltip(current?.label || previous?.label || '', [
+          { label: valueName(baseYear), value: this.money(current?.net ?? null, true) }, { label: unitsName(baseYear), value: this.number(current?.units ?? null, ' und') },
+          { label: valueName(comparisonYear), value: this.money(previous?.net ?? null, true) }, { label: unitsName(comparisonYear), value: this.number(previous?.units ?? null, ' und') },
         ]);
       } },
-      legend: { data: ['VALOR', 'UNIDADES'], top: 0, right: 3, textStyle: { fontSize: 9, fontWeight: 800 } },
-      grid: { left: 58, right: 54, top: 42, bottom: 82 },
-      xAxis: { type: 'category', data: bands, axisTick: { show: false }, axisLabel: { interval: 0, rotate: 90, margin: 38, fontSize: 8, color: '#475569' }, axisLine: { lineStyle: { color: '#CBD5E1' } } },
+      legend: { data: [valueName(baseYear), valueName(comparisonYear), unitsName(baseYear), unitsName(comparisonYear)], top: 0, left: 'center', itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 9, fontWeight: 800 } },
+      grid: { left: 58, right: 58, top: 46, bottom: 68 },
+      xAxis: { type: 'category', data: bands, axisTick: { show: false }, axisLabel: { interval: 0, rotate: 42, margin: 16, fontSize: 8, color: '#475569' }, axisLine: { lineStyle: { color: '#CBD5E1' } } },
       yAxis: [
         { type: 'value', min: 0, ...priceScale, axisLabel: { formatter: (value: number) => `S/ ${this.short(value)}`, color: '#64748B', fontSize: 9 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-        { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: '#B4127A', fontSize: 9 }, splitLine: { show: false } }
+        { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: '#6D28D9', fontSize: 9 }, splitLine: { show: false } }
       ],
       series: [
-        { name: 'VALOR', type: 'bar', data: values.map(row => row.net), barMaxWidth: 28, z: 5, itemStyle: { color: '#DCCAF3', borderColor: '#B99ADF', borderWidth: 1, borderRadius: [3, 3, 0, 0] },
-          label: { show: true, position: 'top', formatter: (params: any) => this.percent(total ? Number(params.value) / total : null), color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 }, labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
-        { name: 'UNIDADES', type: 'line', yAxisIndex: 1, data: values.map(row => row.units), symbol: 'circle', symbolSize: 7, z: 20,
-          lineStyle: { width: 3, color: C.purple }, itemStyle: { color: C.purple, borderColor: '#FFFFFF', borderWidth: 1 } }
+        { name: valueName(baseYear), type: 'bar', data: base.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#DCCAF3', borderColor: '#9465E8', borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.base), labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
+        { name: valueName(comparisonYear), type: 'bar', data: comparison.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#BBD7FA', borderColor: '#2878D0', borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.comparison), labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
+        { name: unitsName(baseYear), type: 'line', yAxisIndex: 1, data: base.map(row => row.units), symbol: 'circle', symbolSize: 6, z: 20, lineStyle: { width: 3, color: '#6D3BC2' }, itemStyle: { color: '#6D3BC2', borderColor: '#FFFFFF', borderWidth: 1 } },
+        { name: unitsName(comparisonYear), type: 'line', yAxisIndex: 1, data: comparison.map(row => row.units), symbol: 'diamond', symbolSize: 7, z: 20, lineStyle: { width: 3, type: 'dashed', color: '#2878D0' }, itemStyle: { color: '#2878D0', borderColor: '#FFFFFF', borderWidth: 1 } },
       ]
     } as EChartsOption;
   });
@@ -2864,6 +2889,7 @@ export class App implements OnInit {
     this.data.set(null);
     this.operationalSummary.set(null);
     this.companyRankingData.set(null);
+    this.storeGoalOverrides.set([]);
     this.sellerPerformanceData.set([]);
     this.sellerDetailLoaded.set(false);
     this.loadingError.set('');
@@ -2896,6 +2922,7 @@ export class App implements OnInit {
       this.data.set(loaded);
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
       this.cloud.companyRanking().then(ranking => this.companyRankingData.set(ranking)).catch(() => this.companyRankingData.set(null));
+      this.cloud.storeGoals().then(goals => this.storeGoalOverrides.set(goals)).catch(() => this.storeGoalOverrides.set([]));
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();
