@@ -1,5 +1,32 @@
 import { createHash } from 'node:crypto';
-import { readRows } from './read-rows.js';
+
+async function readCatalogCodes(db) {
+  const pageSize = 1000;
+  const page = async index => {
+    const { data, error } = await db.from('productos').select('codigo_nissei')
+      .order('codigo_nissei').range(index * pageSize, (index + 1) * pageSize - 1);
+    if (error) throw error;
+    return data || [];
+  };
+  const rows = await page(0);
+  if (rows.length < pageSize) return rows;
+  let nextPage = 1, finished = false;
+  // Read the complete catalog without making every category wait on serial requests.
+  await Promise.all(Array.from({ length: 6 }, async () => {
+    while (!finished) {
+      const index = nextPage++;
+      try {
+        const batch = await page(index);
+        rows.push(...batch);
+        if (batch.length < pageSize) finished = true;
+      } catch (error) {
+        finished = true;
+        throw error;
+      }
+    }
+  }));
+  return rows;
+}
 
 export function catalogProductId(code) {
   const normalized = String(code).trim().replace(/\s+/g, ' ').toUpperCase().replace(/\.0+$/, '');
@@ -19,7 +46,7 @@ export function createProductCodeLookup(db) {
     if (!productIds.length) return {};
     if (!cached || Date.now() >= expires) {
       expires = Date.now() + 15 * 60 * 1000;
-      cached = readRows(db.from('productos').select('codigo_nissei').eq('rubro', 'CALZADO').order('codigo_nissei'))
+      cached = readCatalogCodes(db)
         .then(rows => new Map(rows.filter(row => row.codigo_nissei).map(row => [catalogProductId(row.codigo_nissei), row.codigo_nissei])))
         .catch(error => { cached = undefined; throw error; });
     }

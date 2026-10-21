@@ -5,7 +5,7 @@ import { catalogProductId, createProductCodeLookup } from '../netlify/lib/commer
 function fixture(failFirst = false) {
   let calls = 0;
   const query = {
-    select() { return this; }, eq() { return this; }, order() { return this; },
+    select() { return this; }, order() { return this; },
     async range() {
       calls++;
       if (failFirst && calls === 1) return { error: new Error('offline') };
@@ -38,4 +38,15 @@ test('a failed catalog read can be retried', async () => {
   const id = catalogProductId('00023C7003');
   await assert.rejects(lookup([id]), /offline/);
   assert.deepEqual(await lookup([id]), { [id]: '00023C7003' });
+});
+
+test('looks up codes from every category across all catalog pages', async () => {
+  const rows = Array.from({ length: 3501 }, (_, index) => ({ codigo_nissei: `000${index}ABC`, rubro: index > 999 ? 'FERRETERÍA' : 'CALZADO' }));
+  const query = {
+    select() { return this; }, order() { return this; },
+    async range(from, to) { return { data: rows.slice(from, to + 1) }; },
+  };
+  const lookup = createProductCodeLookup({ from: () => query });
+  const codes = [rows[0].codigo_nissei, rows[1000].codigo_nissei, rows[3500].codigo_nissei];
+  assert.deepEqual(await lookup(codes.map(catalogProductId)), Object.fromEntries(codes.map(code => [catalogProductId(code), code])));
 });

@@ -4,6 +4,7 @@ import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, T
 import { init, use } from 'echarts/core';
 import type { ECharts, EChartsOption } from 'echarts';
 import { CanvasRenderer } from 'echarts/renderers';
+import { viewportTooltipPosition } from './tooltip-position';
 
 use([BarChart, LineChart, PieChart, DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, CanvasRenderer]);
 
@@ -30,15 +31,28 @@ function blackChartText<T>(value: T): T {
 export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) option!: EChartsOption;
   @Input() label = 'Gráfico del dashboard';
+  @Input() viewportTooltip = false;
   @Output() itemClick = new EventEmitter<{ data: unknown }>();
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
   private chart?: ECharts;
   private observer?: ResizeObserver;
   private renderFrame = 0;
   private resizeFrame = 0;
+  private tooltipScrollRoot?: Node;
+  private readonly hideTooltipOnScroll = (event: Event) => {
+    const target = event.target;
+    if (target === document || (target instanceof Element && target.contains(this.host.nativeElement))) {
+      this.chart?.dispatchAction({ type: 'hideTip' });
+    }
+  };
 
   ngAfterViewInit(): void {
     this.chart = init(this.host.nativeElement, undefined, { renderer: 'canvas' });
+    if (this.viewportTooltip) {
+      this.tooltipScrollRoot = this.host.nativeElement.getRootNode();
+      this.tooltipScrollRoot.addEventListener('scroll', this.hideTooltipOnScroll, true);
+      if (this.tooltipScrollRoot !== document) document.addEventListener('scroll', this.hideTooltipOnScroll, true);
+    }
     this.chart.on('click', params => this.itemClick.emit({ data: params.data }));
     this.scheduleRender();
     this.observer = new ResizeObserver(() => {
@@ -56,6 +70,8 @@ export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDest
   }
 
   ngOnDestroy(): void {
+    this.tooltipScrollRoot?.removeEventListener('scroll', this.hideTooltipOnScroll, true);
+    document.removeEventListener('scroll', this.hideTooltipOnScroll, true);
     this.observer?.disconnect();
     if (this.renderFrame) cancelAnimationFrame(this.renderFrame);
     if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);
@@ -70,7 +86,19 @@ export class DashboardChartComponent implements AfterViewInit, OnChanges, OnDest
       if (!this.chart || !this.option) return;
       // Un solo render por frame y reemplazo atómico. Evita que ECharts mezcle
       // ejes nuevos con series anteriores durante cambios rápidos de filtros/página.
-      this.chart.setOption(blackChartText(this.option), {
+      const option = blackChartText(this.option);
+      if (this.viewportTooltip && option.tooltip && !Array.isArray(option.tooltip)) {
+        option.tooltip = {
+          ...option.tooltip, appendTo: document.body, confine: false, enterable: true,
+          transitionDuration: 0, padding: [12, 14],
+          extraCssText: 'z-index:10000;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;white-space:normal;',
+          position: (point, _params, _element, _rect, size) => viewportTooltipPosition(
+            point, size.contentSize, this.host.nativeElement.getBoundingClientRect(),
+            [document.documentElement.clientWidth, document.documentElement.clientHeight],
+          ),
+        };
+      }
+      this.chart.setOption(option, {
         notMerge: true,
         lazyUpdate: true,
       });

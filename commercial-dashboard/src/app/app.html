@@ -49,7 +49,7 @@
           </div>
         </div>
         <div class="transfer-filters">
-          <label>Rubro <select [ngModel]="transferRubro()" (ngModelChange)="transferRubro.set($event); transferLine.set(''); transferBrand.set(''); transferPage.set(0)"><option value="">Textil y Calzado</option><option value="TEXTIL">Textil</option><option value="CALZADO">Calzado</option></select></label>
+          <label>Rubro <select [ngModel]="transferRubro()" (ngModelChange)="transferRubro.set($event); transferLine.set(''); transferBrand.set(''); transferPage.set(0)"><option value="">Todos los rubros</option>@for (rubro of transferRubros(); track rubro) { <option [value]="rubro">{{ rubro }}</option> }</select></label>
           <label>Línea <select [ngModel]="transferLine()" (ngModelChange)="transferLine.set($event); transferBrand.set(''); transferPage.set(0)"><option value="">Todas las líneas</option>@for (line of transferLines(); track line) { <option [value]="line">{{ line }}</option> }</select></label>
           <label>Marca <select [ngModel]="transferBrand()" (ngModelChange)="transferBrand.set($event); transferPage.set(0)"><option value="">Todas las marcas</option>@for (brand of transferBrands(); track brand) { <option [value]="brand">{{ brand }}</option> }</select></label>
           <label>Tienda · origen o destino <select [ngModel]="transferStore()" (ngModelChange)="transferStore.set($event); transferPage.set(0)"><option value="">Todas las tiendas</option>@for (store of transferStores(); track store.storeId) { <option [value]="store.storeId">{{ store.alias || store.store }} · {{ store.store }}</option> }</select></label>
@@ -58,7 +58,7 @@
           <button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button>
         </div>
         <div class="transfer-context">
-          @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei de Calzado. Recarga la página para volver a intentarlo.</p> }
+          @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei. Recarga la página para volver a intentarlo.</p> }
           <p>Stock: {{ formatDate(data()!.metadata.stockCutoff) }} · Ventas 30D: {{ formatDate(data()!.metadata.salesCutoff) }}</p>
           <div class="transfer-rules"><span>Exceso: &gt;90 días o sin ventas</span><span>Falta: &lt;30 días</span><span>Crítico: ≤15 días</span></div>
           <p class="transfer-totals-note">Totales de las oportunidades filtradas, sin repetir productos por tienda.@if (transferStore()) { Solo se suman las unidades de la tienda seleccionada. }</p>
@@ -74,7 +74,7 @@
           </div>
           <div class="transfer-chart-legend" aria-label="Colores del gráfico"><span><i class="origin"></i>Stock origen</span><span><i class="destination"></i>Stock destino</span><span><i class="suggestion"></i>Traslado sugerido</span></div>
           <div class="transfer-list" tabindex="0" role="region" aria-label="Listado de barras de oportunidades de traslado">
-            <dashboard-chart class="transfer-bars" [style.height.px]="transferPageRows().length * 110 + 70" [option]="transferChartOption()" label="Barras de stock origen, stock destino y traslado sugerido por producto y ruta" />
+            <dashboard-chart class="transfer-bars" [viewportTooltip]="true" [style.height.px]="transferPageRows().length * 110 + 70" [option]="transferChartOption()" label="Barras de stock origen, stock destino y traslado sugerido por producto y ruta" />
           </div>
         }
         <p class="transfer-footnote">Pasa el cursor por las barras para ver ventas y cobertura. Valida tallas y existencias antes de trasladar.@if (transferHasEstimates()) { En productos sin desglose de estado, el stock vendible se estima al 82%. }</p>

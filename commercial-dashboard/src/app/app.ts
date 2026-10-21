@@ -1832,8 +1832,10 @@ export class App implements OnInit {
   readonly transferPageSize = 10;
   readonly transferProducts = computed(() => {
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
-    return this.staticPredictiveProducts().filter(row => ids.has(row.storeId) && ['TEXTIL', 'CALZADO'].includes(row.category));
+    return this.stockProductsData().filter(row => ids.has(row.storeId));
   });
+  readonly transferRubros = computed(() => [...new Set(this.transferProducts()
+    .map(row => row.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')));
   readonly transferLines = computed(() => [...new Set(this.transferProducts()
     .filter(row => !this.transferRubro() || row.category === this.transferRubro()).map(row => row.line).filter(Boolean))].sort());
   readonly transferBrands = computed(() => [...new Set(this.transferProducts()
@@ -1869,8 +1871,7 @@ export class App implements OnInit {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.product || '', [
-          { label: row?.category === 'CALZADO' || row?.productCode ? 'Código Nissei' : 'Código',
-            value: row?.productCode || (row?.category === 'CALZADO' ? 'No disponible' : row?.productId || '') },
+          { label: 'Código Nissei', value: row?.productCode || 'No disponible' },
           { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
           { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
           { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
@@ -1881,7 +1882,7 @@ export class App implements OnInit {
           { label: 'Traslado sugerido', value: this.number(row?.suggested ?? null, ' und') },
           { label: 'Prioridad', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
           { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' },
-        ]);
+        ], true);
       } },
       xAxis: { type: 'value', position: 'top', name: 'Unidades', nameLocation: 'middle', nameGap: 26,
         minInterval: 1, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#e4eaf3', type: 'dashed' } } },
@@ -3497,13 +3498,13 @@ export class App implements OnInit {
         }
         const products = payload.stockProducts || [];
         this.transferCodeError.set(false);
-        const missingCodes = [...new Set(products.filter(row => row.category === 'CALZADO' && !row.productCode).map(row => row.productId))];
+        const missingCodes = [...new Set(products.filter(row => !row.productCode).map(row => row.productId))];
         if (missingCodes.length && this.cloud.portalEnabled) {
           try {
             const codes = await this.cloud.productCodes(missingCodes, signal);
             signal.throwIfAborted();
             for (const row of products) {
-              if (row.category === 'CALZADO' && !row.productCode) row.productCode = codes[row.productId];
+              if (!row.productCode) row.productCode = codes[row.productId];
             }
           } catch {
             signal.throwIfAborted();
@@ -3625,7 +3626,11 @@ export class App implements OnInit {
     const y = Math.max(4, Math.min(point[1] - content[1] / 2, view[1] - content[1] - 4));
     return [x, y];
   };
-  private tooltip(title: string, rows: Detail[]): string {
+  private tooltip(title: string, rows: Detail[], floating = false): string {
+    if (floating) {
+      // This tooltip lives outside the shadow root and carries its own styles.
+      return `<div class="transfer-chart-tooltip" style="width:min(360px,calc(100vw - 56px));font:12px/1.4 Arial,sans-serif;white-space:normal;color:#172033"><strong style="display:block;margin-bottom:10px;font-size:13px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:5px 0"><span style="color:#64748b">${safe(r.label)}</span><b style="text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
+    }
     return `<div class="chart-tooltip"><strong>${safe(title)}</strong>${rows.map(r => `<div><span>${safe(r.label)}</span><b>${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private barOption(labels: string[], values: number[], horizontal: boolean, color: string, details: Detail[][], unit: string, colors?: string[], verticalLabels = false): EChartsOption {
