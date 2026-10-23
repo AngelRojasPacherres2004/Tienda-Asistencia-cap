@@ -30,15 +30,17 @@ from particionar_dashboard import scope_catalog, scope_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "commercial-dashboard" / "public" / "assets" / "data"
-CORE_FILES = (
+STATIC_CORE_FILES = (
     "dashboard.json",
-    "dashboard-sellers.json",
-    "dashboard-brand.json",
     "dashboard-predictive.json",
-    "dashboard-price-range.json",
     "dashboard-stock-origin.json",
     "dashboard-stock-products.json",
-    "dashboard-subline.json",
+)
+YEARLY_DATASETS = (
+    "dashboard-sellers",
+    "dashboard-brand",
+    "dashboard-price-range",
+    "dashboard-subline",
 )
 # La carga estándar de Storage es más estable por debajo de 6 MB.
 CHUNK_BYTES = 5 * 1024 * 1024
@@ -46,6 +48,29 @@ DEFAULT_RELEASES_TO_KEEP = 2
 RUNTIME_CONFIG = ROOT / "commercial-dashboard" / "public" / "runtime-config.js"
 class PublishError(RuntimeError):
     pass
+
+
+def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]]:
+    """Prefiere particiones anuales y acepta monolitos de una versión antigua."""
+
+    files = list(STATIC_CORE_FILES)
+    missing = [name for name in STATIC_CORE_FILES if not (data_dir / name).is_file()]
+    for dataset in YEARLY_DATASETS:
+        partitions = tuple(sorted(path.name for path in data_dir.glob(f"{dataset}-????.json")))
+        legacy = f"{dataset}.json"
+        if partitions:
+            files.extend(partitions)
+        elif (data_dir / legacy).is_file():
+            files.append(legacy)
+        else:
+            missing.append(f"{dataset}-AAAA.json")
+    daily_files = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-????-??.json")))
+    if not daily_files and (data_dir / "dashboard-daily.json").is_file():
+        daily_files = ("dashboard-daily.json",)
+    if not daily_files:
+        missing.append("dashboard-daily-AAAA-MM.json")
+    files.extend(daily_files)
+    return tuple(files), missing
 
 
 def load_env_file(path: Path) -> None:
@@ -433,15 +458,7 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         control_session(base_url, api_key, access_token, "claim")
         publisher_session = True
 
-    daily_files = tuple(sorted(path.name for path in DATA_DIR.glob("dashboard-daily-????-??.json")))
-    # Compatibilidad de publicación con una salida antigua mientras se regenera
-    # por primera vez. Las nuevas versiones siempre prefieren las particiones.
-    if not daily_files and (DATA_DIR / "dashboard-daily.json").is_file():
-        daily_files = ("dashboard-daily.json",)
-    required_files = (*CORE_FILES, *daily_files)
-    missing = [name for name in CORE_FILES if not (DATA_DIR / name).is_file()]
-    if not daily_files:
-        missing.append("dashboard-daily-AAAA-MM.json")
+    required_files, missing = discover_dashboard_files(DATA_DIR)
     if missing:
         raise PublishError(f"Faltan archivos del dashboard: {', '.join(missing)}")
 

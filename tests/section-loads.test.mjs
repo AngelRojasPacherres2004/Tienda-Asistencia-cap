@@ -10,7 +10,7 @@ const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const methods = ['ensureSellerDetail', 'loadDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
+const methods = ['ensureSellerDetail', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
 vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), { exports, URL, Worker: undefined, AbortController, DOMException });
@@ -22,7 +22,7 @@ const signal = initial => {
   return read;
 };
 const sellerSubject = () => Object.assign(new exports.Subject(), {
-  sectionLoads: new SectionLoads(), sellerDetailLoaded: signal(false), sellerDetailLoading: signal(false), sellerPerformanceData: signal([])
+  sectionLoads: new SectionLoads(), year: signal(2026), sellerDetailLoaded: signal(false), sellerDetailLoading: signal(false), sellerPerformanceData: signal([])
 });
 test('leaving a section cancels its generation and permits a fresh load', () => {
   const scope = new SectionLoads(), old = scope.signal;
@@ -86,4 +86,30 @@ test('el inventario queda disponible antes de enriquecer códigos Nissei', () =>
   const method = source.slice(start, end);
   assert.ok(method.indexOf('this.stockDetailLoaded.set(true)') < method.indexOf('void this.enrichProductCodes'));
   assert.equal(method.includes('await this.cloud.productCodes'), false);
+});
+
+test('los detalles anuales descargan solo los años solicitados', async () => {
+  const subject = new exports.Subject();
+  const requested = [];
+  subject.loadDetail = async file => {
+    requested.push(file);
+    const year = Number(file.match(/(\d{4})\.json$/)?.[1]);
+    return { rows: [{ periodId: year * 100 + 1, storeId: 'T001' }] };
+  };
+  const rows = await subject.loadYearDetail('dashboard-detail.json', 'rows', [2026, 2025, 2026]);
+  assert.deepEqual(requested.sort(), ['dashboard-detail-2025.json', 'dashboard-detail-2026.json']);
+  assert.deepEqual(Array.from(rows, row => row.periodId).sort(), [202501, 202601]);
+});
+
+test('una publicación antigua usa el monolito y filtra los años requeridos', async () => {
+  const subject = new exports.Subject();
+  const requested = [];
+  subject.loadDetail = async file => {
+    requested.push(file);
+    if (file !== 'dashboard-detail.json') throw new Error('no existe partición');
+    return { rows: [{ periodId: 202401 }, { periodId: 202501 }, { periodId: 202601 }] };
+  };
+  const rows = await subject.loadYearDetail('dashboard-detail.json', 'rows', [2025]);
+  assert.deepEqual(requested, ['dashboard-detail-2025.json', 'dashboard-detail.json']);
+  assert.deepEqual(Array.from(rows, row => row.periodId), [202501]);
 });

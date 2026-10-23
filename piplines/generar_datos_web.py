@@ -30,6 +30,21 @@ def normalizar(valor):
     return valor
 
 
+def particionar_registros_anuales(registros: list[dict], nombre: str, clave: str) -> dict[str, dict]:
+    """Divide detalles temporales sin alterar filas ni dimensiones."""
+
+    filas_por_anio: dict[int, list[dict]] = {}
+    for registro in registros:
+        periodo = int(registro.get("periodId") or 0)
+        if periodo <= 0:
+            raise ValueError(f"{clave} contiene una fila sin periodId válido")
+        filas_por_anio.setdefault(periodo // 100, []).append(registro)
+    return {
+        f"{nombre}-{anio:04d}.json": {clave: filas}
+        for anio, filas in sorted(filas_por_anio.items())
+    }
+
+
 def filas(conexion: duckdb.DuckDBPyConnection, consulta: str) -> list[dict]:
     cursor = conexion.execute(consulta)
     columnas = [item[0] for item in cursor.description]
@@ -950,8 +965,24 @@ def escribir(resultado: dict) -> None:
         SALIDA_COMPILADA.parent / "dashboard-stock.json",
         SALIDA_PUBLICA.parent / "dashboard-daily.json",
         SALIDA_COMPILADA.parent / "dashboard-daily.json",
+        SALIDA_PUBLICA.parent / "dashboard-sellers.json",
+        SALIDA_COMPILADA.parent / "dashboard-sellers.json",
+        SALIDA_PUBLICA.parent / "dashboard-brand.json",
+        SALIDA_COMPILADA.parent / "dashboard-brand.json",
+        SALIDA_PUBLICA.parent / "dashboard-subline.json",
+        SALIDA_COMPILADA.parent / "dashboard-subline.json",
+        SALIDA_PUBLICA.parent / "dashboard-price-range.json",
+        SALIDA_COMPILADA.parent / "dashboard-price-range.json",
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-brand-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-brand-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-subline-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-subline-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????.json"),
     ]
     for obsoleto in obsoletos:
         obsoleto.unlink(missing_ok=True)
@@ -991,11 +1022,12 @@ def escribir(resultado: dict) -> None:
             nombre: {"dailyStore": filas_mes, "hourlySales": horas_por_mes.get(nombre, [])}
             for nombre, filas_mes in sorted(diario_por_mes.items())
         },
-        # El detalle por vendedor se descarga únicamente al abrir Talento.
-        "dashboard-sellers.json": {"sellerPerformance": resultado["sellerPerformance"]},
-        "dashboard-brand.json": {"monthlyBrand": resultado["monthlyBrand"]},
-        "dashboard-subline.json": {"monthlySubline": resultado["monthlySubline"]},
-        "dashboard-price-range.json": {"monthlyPriceRange": resultado["monthlyPriceRange"]},
+        # Los detalles temporales se descargan por año. La interfaz conserva un
+        # fallback a los monolitos antiguos para abrir publicaciones previas.
+        **particionar_registros_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
+        **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
+        **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
         # Separar el resumen de antigüedad del detalle por producto evita que la
         # pestaña de Inventario tenga que descargar ~60 MB antes de poder pintar.
         "dashboard-stock-origin.json": {"stockOrigin": resultado["stockOrigin"]},

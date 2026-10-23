@@ -2794,7 +2794,14 @@ export class App implements OnInit {
   }));
   setPriceRangeComparisonYear(value: number | string): void {
     const year = Number(value);
-    if (this.priceRangeComparisonYears().includes(year)) this.priceRangeComparisonYear.set(year);
+    if (!this.priceRangeComparisonYears().includes(year) || year === this.priceRangeComparisonYear()) return;
+    this.cancelPendingSectionLoads();
+    this.priceRangeComparisonYear.set(year);
+    this.priceRangeData.set([]);
+    this.monthlyPriceRangeIndex.clear();
+    this.priceRangeDetailLoaded.set(false);
+    void this.ensurePriceRangeDetail();
+    if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
   }
   readonly priceRangeOption = computed<EChartsOption>(() => {
     const { base, comparison } = this.priceRangeSeries();
@@ -3248,6 +3255,7 @@ export class App implements OnInit {
     this.clearDateRange();
     const available = new Set(this.availableMonths());
     this.selectedMonths.set(months.filter(month => available.has(month)));
+    this.resetYearScopedDetails();
   }
   setDemandWindow(value: number): void { this.demandWindow.set(Math.max(1, Math.round(Number(value) || 30))); }
   setDemandWindowValue(value: number): void { this.setDemandWindow((Number(value) || 1) * (this.demandWindowUnit() === 'YEARS' ? 365 : 30)); }
@@ -3360,6 +3368,23 @@ export class App implements OnInit {
     this.brandDetailPromise = undefined; this.sublineDetailPromise = undefined; this.priceRangeDetailPromise = undefined;
     this.detailLoading.set(false); this.stockDetailLoading.set(false); this.stockDetailProgress.set(0); this.productCodeLoading.set(false);
     this.predictiveDetailLoading.set(false); this.sellerDetailLoading.set(false);
+  }
+  private resetYearScopedDetails(): void {
+    this.cancelPendingSectionLoads();
+    this.sellerPerformanceData.set([]); this.sellerDetailLoaded.set(false);
+    this.priceRangeData.set([]); this.monthlyPriceRangeIndex.clear(); this.priceRangeDetailLoaded.set(false);
+    this.monthlyBrandIndex = this.indexPeriodStore(this.data()?.monthlyBrand || []);
+    this.monthlySublineIndex = this.indexPeriodStore(this.data()?.monthlySubline || []);
+    this.brandDetailLoaded.set(false); this.sublineDetailLoaded.set(false);
+    this.data.update(data => data ? { ...data } : data);
+
+    if (this.page() === 1) void this.ensurePriceRangeDetail();
+    if (this.page() === 3) void this.ensureSellerDetail();
+    if (this.page() === 2) {
+      if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
+      this.scheduleInventoryProductDetail();
+    }
+    if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
   }
   private releaseSectionDetails(): void {
     this.cancelPendingSectionLoads();
@@ -3526,6 +3551,34 @@ export class App implements OnInit {
     });
   }
 
+  private async loadYearDetail<T extends { periodId: number }>(
+    legacyFile: string,
+    key: string,
+    years: number[],
+    signal?: AbortSignal,
+    onProgress?: (progress: number) => void,
+  ): Promise<T[]> {
+    const selectedYears = [...new Set(years.filter(year => Number.isInteger(year) && year > 0))].sort((a, b) => a - b);
+    if (!selectedYears.length) return [];
+    const partitionName = (year: number) => legacyFile.replace(/\.json$/i, `-${year}.json`);
+    try {
+      const payloads = await Promise.all(selectedYears.map((year, index) => this.loadDetail<Record<string, T[]>>(
+        partitionName(year),
+        signal,
+        progress => onProgress?.(Math.round(((index + progress / 100) / selectedYears.length) * 100)),
+      )));
+      signal?.throwIfAborted();
+      return payloads.flatMap(payload => Array.isArray(payload[key]) ? payload[key] : []);
+    } catch (error) {
+      signal?.throwIfAborted();
+      // Las publicaciones anteriores a la partición anual siguen siendo válidas.
+      const payload = await this.loadDetail<Record<string, T[]>>(legacyFile, signal, onProgress);
+      const allowed = new Set(selectedYears);
+      return (Array.isArray(payload[key]) ? payload[key] : [])
+        .filter(row => allowed.has(Math.floor(Number(row.periodId) / 100)));
+    }
+  }
+
   private loadLegacyStock(signal = this.sectionLoads.signal): Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }> {
     signal.throwIfAborted();
     if (!this.legacyStockPromise) {
@@ -3539,9 +3592,9 @@ export class App implements OnInit {
     const signal = this.sectionLoads.signal;
     this.brandDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlyBrand: BrandRow[] }>('dashboard-brand.json', signal);
+        const rows = await this.loadYearDetail<BrandRow>('dashboard-brand.json', 'monthlyBrand', [this.year()], signal);
         signal.throwIfAborted();
-        this.monthlyBrandIndex = await this.indexPeriodStoreAsync(payload.monthlyBrand || [], signal);
+        this.monthlyBrandIndex = await this.indexPeriodStoreAsync(rows, signal);
         this.brandDetailLoaded.set(true);
       } catch (error) {
         if (signal.aborted) return;
@@ -3559,9 +3612,9 @@ export class App implements OnInit {
     const signal = this.sectionLoads.signal;
     this.sublineDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlySubline: Monthly[] }>('dashboard-subline.json', signal);
+        const rows = await this.loadYearDetail<Monthly>('dashboard-subline.json', 'monthlySubline', [this.year()], signal);
         signal.throwIfAborted();
-        this.monthlySublineIndex = await this.indexPeriodStoreAsync(payload.monthlySubline || [], signal);
+        this.monthlySublineIndex = await this.indexPeriodStoreAsync(rows, signal);
         this.sublineDetailLoaded.set(true);
       } catch (error) {
         if (signal.aborted) return;
@@ -3579,9 +3632,12 @@ export class App implements OnInit {
     const signal = this.sectionLoads.signal;
     this.priceRangeDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>('dashboard-price-range.json', signal);
-        signal.throwIfAborted();
-        const rows = payload.monthlyPriceRange || [];
+        const rows = await this.loadYearDetail<PriceRangeRow>(
+          'dashboard-price-range.json',
+          'monthlyPriceRange',
+          [this.year(), this.effectivePriceRangeComparisonYear()],
+          signal,
+        );
         signal.throwIfAborted();
         this.monthlyPriceRangeIndex = await this.indexPeriodStoreAsync(rows, signal);
         signal.throwIfAborted();
@@ -3604,9 +3660,9 @@ export class App implements OnInit {
     this.sellerDetailLoading.set(true);
     this.sellerDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>('dashboard-sellers.json', signal);
+        const rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
         signal.throwIfAborted();
-        this.sellerPerformanceData.set(payload.sellerPerformance || []);
+        this.sellerPerformanceData.set(rows);
         this.sellerDetailLoaded.set(true);
       } catch {
         if (signal.aborted) return;
