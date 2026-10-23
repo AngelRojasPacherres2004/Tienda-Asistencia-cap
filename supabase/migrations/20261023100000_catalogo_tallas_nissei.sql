@@ -15,8 +15,12 @@ alter table public.productos
     end
   ) stored;
 
-create index if not exists productos_codigo_base_idx on public.productos (codigo_base);
-create index if not exists productos_codigo_talla_idx on public.productos (codigo_talla);
+create index if not exists productos_codigo_base_idx
+  on public.productos (codigo_base)
+  where codigo_base is not null;
+create index if not exists productos_codigo_talla_idx
+  on public.productos (rubro, codigo_talla)
+  where codigo_talla is not null;
 
 comment on column public.productos.codigo_base is
   'Codigo Nissei sin los tres caracteres finales reservados para talla.';

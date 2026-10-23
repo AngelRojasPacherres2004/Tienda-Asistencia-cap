@@ -4,6 +4,7 @@ import { MAX_PRODUCT_CODE_IDS, PRODUCT_CODE_QUERY_BATCH, catalogProductId, creat
 
 function fixture(failFirst = false) {
   let calls = 0;
+  const tables = [];
   const codes = ['00023C7003', '00023C7004'];
   const query = {
     select() { return this; },
@@ -14,16 +15,17 @@ function fixture(failFirst = false) {
         .filter(row => ids.includes(row.codigo_portal_id)) };
     },
   };
-  return { lookup: createProductCodeLookup({ from: () => query }), calls: () => calls };
+  return { lookup: createProductCodeLookup({ from: table => { tables.push(table); return query; } }), calls: () => calls, tables };
 }
 
 test('resolves only requested exact product IDs and preserves leading zeros', async () => {
-  const { lookup, calls } = fixture();
+  const { lookup, calls, tables } = fixture();
   const first = catalogProductId('00023C7003');
   const second = catalogProductId('00023C7004');
   assert.deepEqual(await lookup([first, first, 'P_FFFFFFFFFFFFFFFF']), { [first]: '00023C7003' });
   assert.deepEqual(await lookup([second]), { [second]: '00023C7004' });
   assert.equal(calls(), 2);
+  assert.deepEqual(tables, ['productos_codigos_portal', 'productos_codigos_portal']);
   assert.equal(catalogProductId(' 00023c7003.0 '), first);
 });
 
@@ -55,10 +57,12 @@ test('queries only the requested hashes in bounded batches', async () => {
       return { data: rows.filter(row => ids.includes(row.codigo_portal_id)) };
     },
   };
-  const lookup = createProductCodeLookup({ from: () => query });
+  const tables = [];
+  const lookup = createProductCodeLookup({ from: table => { tables.push(table); return query; } });
   const ids = rows.map(row => row.codigo_portal_id);
   const result = await lookup(ids);
   assert.equal(Object.keys(result).length, rows.length);
   assert.equal(batches.length, 2);
+  assert.ok(tables.every(table => table === 'productos_codigos_portal'));
   assert.ok(batches.every(batch => batch.column === 'codigo_portal_id' && batch.ids.length <= PRODUCT_CODE_QUERY_BATCH));
 });

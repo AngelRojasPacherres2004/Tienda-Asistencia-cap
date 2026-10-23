@@ -23,16 +23,27 @@ $$;
 revoke all on function public.codigo_portal_producto(text) from public, anon, authenticated;
 grant execute on function public.codigo_portal_producto(text) to service_role;
 
+-- La clave es derivada: se indexa la expresión y se expone mediante una vista
+-- para no repetirla físicamente en las 265 mil filas del catálogo.
 alter table public.productos
-  add column if not exists codigo_portal_id text generated always as (
-    public.codigo_portal_producto(codigo_nissei)
-  ) stored;
+  drop column if exists codigo_portal_id;
 
 create unique index if not exists productos_codigo_portal_id_ux
-  on public.productos (codigo_portal_id);
+  on public.productos (public.codigo_portal_producto(codigo_nissei));
 
-comment on column public.productos.codigo_portal_id is
-  'Identificador SHA-256 abreviado usado por los artefactos comerciales para resolver un codigo sin escanear el catalogo.';
+create or replace view public.productos_codigos_portal
+with (security_invoker = true)
+as
+select
+  public.codigo_portal_producto(codigo_nissei) as codigo_portal_id,
+  codigo_nissei
+from public.productos;
+
+revoke all on table public.productos_codigos_portal from public, anon, authenticated;
+grant select on table public.productos_codigos_portal to service_role;
+
+comment on view public.productos_codigos_portal is
+  'Resuelve identificadores comerciales anonimizados mediante un indice funcional, sin duplicarlos en public.productos.';
 
 -- Migra las credenciales operativas heredadas sin imprimirlas ni exponerlas.
 -- !SIN_ACCESO! es un marcador deliberado y no representa una contrasena.

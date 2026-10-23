@@ -27,7 +27,7 @@ export function createProductCodeLookup(db) {
     await Promise.all(Array.from({ length: Math.min(4, batches.length) }, async () => {
       while (nextBatch < batches.length) {
         const batch = batches[nextBatch++];
-        const { data, error } = await db.from('productos')
+        const { data, error } = await db.from('productos_codigos_portal')
           .select('codigo_portal_id,codigo_nissei')
           .in('codigo_portal_id', batch);
         if (error) throw error;
