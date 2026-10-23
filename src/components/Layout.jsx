@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
+  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import "../role-themes.css";
@@ -25,6 +25,7 @@ const navByRole = {
   gerente_comercial: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
     { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
+    { id: "metas-comerciales", label: "Metas comerciales", icon: Target },
     { id: "tiendas", label: "Tiendas y clústeres", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
@@ -107,6 +108,20 @@ const roleLabels = {
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
 
+const compactRoleLabels = {
+  gerencia_general: "Ger. general", gerente_comercial: "Ger. comercial", administrador_seguridad: "Ad. seguridad",
+  sistemas: "Sistemas", marketing: "Marketing", coach: "Coach", jefe_zonal: "Jef. zonal",
+  jefe_tienda: "Ad. tienda", asistente_tienda: "Asist. tienda", trabajador: "Trabajador",
+  vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacén",
+  jefe_area: "Jef. área", seguridad: "Seguridad", jefe_seguridad: "Jef. seguridad",
+};
+
+const conciseUserName = (user) => {
+  const names = String(user.nombres || "").trim().split(/\s+/).filter(Boolean);
+  const surnames = String(user.apellidos || "").trim().split(/\s+/).filter(Boolean);
+  return [names[0], surnames[0]].filter(Boolean).join(" ") || user.usuario || "Usuario";
+};
+
 export default function Layout({ user, page, onNavigate, onLogout, onStoreChange, switchingStore, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
@@ -129,7 +144,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell app-theme app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""}`}>
+    <div className={`app-shell app-theme app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
@@ -146,7 +161,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
           {["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
           <div className="user-chip" role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
             <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>
-            <div><strong>{user.nombres} {user.apellidos}</strong><small>{roleLabels[user.rol] || user.rol}</small></div>
+            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.dni ? ` · DNI ${user.dni}` : ""}</small></div>
           </div>
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>
@@ -158,7 +173,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
           <strong>Menú</strong>
         </div>
         <div className={`workspace__content ${isCommercialDashboard ? "workspace__content--commercial" : ""}`}>
-          {user.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="store-context-toolbar">
+          {page !== "dashboard" && user.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="store-context-toolbar">
             <label><Building2 size={17} />Tienda activa<select aria-label="Cambiar tienda activa" value={String(user.tienda_id || "")} disabled={switchingStore} onChange={event => onStoreChange(event.target.value)}>{user.tiendas_disponibles.map(store => <option key={store.id} value={String(store.id)}>{store.nombre}{store.principal ? " · Principal" : " · Apoyo"}</option>)}</select></label>
             <span className="store-context-label">{user.tienda_id === user.tienda_principal_id ? "Tienda principal" : "Acceso de apoyo habilitado"}</span>
           </div>}

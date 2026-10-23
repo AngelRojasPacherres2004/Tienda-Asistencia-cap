@@ -1,5 +1,5 @@
 export type TransferProduct = {
-  productId: string; product: string; storeId: string; category: string; line: string; brand?: string;
+  productId: string; productCode?: string; product: string; storeId: string; category: string; line: string; brand?: string;
   stockUnits: number; goodUnits?: number; units30: number;
 };
 export function stockTransfers(rows: TransferProduct[], healthyDays = 30, excessDays = 90) {
@@ -15,7 +15,7 @@ export function stockTransfers(rows: TransferProduct[], healthyDays = 30, excess
     products.set(row.productId, stores);
   }
   const result: Array<{
-    productId: string; product: string; category: string; line: string; brand: string;
+    productId: string; productCode?: string; product: string; category: string; line: string; brand: string;
     source: string; destination: string; sourceStock: number; destinationStock: number;
     sourceSales: number; destinationSales: number; sourceDays: number | null; destinationDays: number;
     suggested: number; critical: boolean; estimated: boolean;
@@ -37,7 +37,8 @@ export function stockTransfers(rows: TransferProduct[], healthyDays = 30, excess
         if (donor.row.storeId === receiver.row.storeId || donor.available <= 0 || receiver.need <= 0) continue;
         const suggested = Math.min(donor.available, receiver.need);
         donor.available -= suggested; receiver.need -= suggested;
-        result.push({ productId, product: donor.row.product, category: donor.row.category, line: donor.row.line, brand: donor.row.brand || '',
+        result.push({ productId, productCode: donor.row.productCode || receiver.row.productCode,
+          product: donor.row.product, category: donor.row.category, line: donor.row.line, brand: donor.row.brand || '',
           source: donor.row.storeId, destination: receiver.row.storeId, sourceStock: donor.stock, destinationStock: receiver.stock,
           sourceSales: donor.sales, destinationSales: receiver.sales, sourceDays: donor.days, destinationDays: receiver.days!,
           suggested, critical: receiver.days! <= healthyDays / 2,

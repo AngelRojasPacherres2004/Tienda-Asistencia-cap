@@ -43,6 +43,8 @@ export type CompanyRankingData = {
   monthlyStore: { periodId: number; storeId: string; net: number; transactions: number }[];
   predictiveStore: { storeId: string; rotation: number | null; stockValue: number; sales30: number }[];
 };
+export type StoreGoal = { storeId: string; periodId: number; category?: string; target: number; updatedAt?: string };
+export type AnnualGoal = { year: number; target: number; updatedAt?: string };
 
 const LOCAL_ACCESS: DashboardAccessProfile = {
   roleCode: 'jefe_comercial',
@@ -65,6 +67,7 @@ export class CloudDataService {
     : null;
   private initializePromise?: Promise<void>;
   private fileManifest = new Map<string, DashboardFileRow>();
+  private readonly portalGetRequests = new Map<string, Promise<unknown>>();
 
   readonly authReady = signal(false);
   readonly session = signal<Session | null>(null);
@@ -97,7 +100,9 @@ export class CloudDataService {
     if (this.portalMode) {
       try {
         const [account, scope] = await Promise.all([
-          this.portalRequest<{ user: { nombres?: string; apellidos?: string } }>('/auth/me'),
+          this.config.portalUser
+            ? Promise.resolve({ user: this.config.portalUser })
+            : this.portalRequest<{ user: { nombres?: string; apellidos?: string } }>('/auth/me'),
           this.portalRequest<{ access: { role: string; scopeType: AccessScopeType; scopeValue: string | null; storeIds: string[] } }>('/commercial/access'),
         ]);
         const access = scope.access;
@@ -267,9 +272,36 @@ export class CloudDataService {
     return this.portalRequest<OperationalSummary>('/commercial/operational-summary');
   }
 
+  async productCodes(productIds: string[], signal?: AbortSignal): Promise<Record<string, string>> {
+    if (!this.portalMode) return {};
+    const codes: Record<string, string> = {};
+    const batches: string[][] = [];
+    for (let offset = 0; offset < productIds.length; offset += 20_000) batches.push(productIds.slice(offset, offset + 20_000));
+    let nextBatch = 0;
+    await Promise.all(Array.from({ length: Math.min(3, batches.length) }, async () => {
+      while (nextBatch < batches.length) {
+        signal?.throwIfAborted();
+        const batch = batches[nextBatch++];
+        const result = await this.portalRequest<{ codes: Record<string, string> }>('/commercial/product-codes', {
+          method: 'POST', signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productIds: batch }),
+        });
+        Object.assign(codes, result.codes);
+      }
+    }));
+    return codes;
+  }
+
   async companyRanking(): Promise<CompanyRankingData | null> {
     if (!this.portalMode) return null;
     return this.portalRequest<CompanyRankingData>('/commercial/company-ranking');
+  }
+
+  async storeGoals(): Promise<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }> {
+    if (!this.portalMode) return { goals: [], annualTargets: [] };
+    const data = await this.portalRequest<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }>('/commercial/store-goals');
+    return { goals: data.goals || [], annualTargets: data.annualTargets || [] };
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {
@@ -428,14 +460,45 @@ export class CloudDataService {
   }
 
   private async portalRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const requestHeaders = new Headers(options.headers);
-    if (this.config.storeContextId) requestHeaders.set('X-Store-Context', String(this.config.storeContextId));
-    const response = await fetch(`/api${path}`, { credentials: 'same-origin', cache: 'no-store', ...options, headers: requestHeaders });
-    const payload = await response.json().catch(() => ({})) as T & { error?: string; code?: string };
-    if (payload.code === 'STORE_ACCESS_REVOKED' || payload.code === 'STORE_CONTEXT_CHANGED') {
-      window.dispatchEvent(new CustomEvent('store-access-changed', { detail: payload.error }));
+    const method = (options.method || 'GET').toUpperCase();
+    const requestKey = `${this.config.storeContextId || ''}:${method}:${path}`;
+    if (method === 'GET' && !options.signal) {
+      const pending = this.portalGetRequests.get(requestKey);
+      if (pending) return pending as Promise<T>;
     }
-    if (!response.ok) throw new Error(payload.error || `No se pudo consultar Asiste (HTTP ${response.status}).`);
-    return payload;
+    const execute = async (): Promise<T> => {
+      const controller = new AbortController();
+      const sourceSignal = options.signal;
+      const abortFromSource = (): void => controller.abort(sourceSignal?.reason);
+      if (sourceSignal?.aborted) sourceSignal.throwIfAborted();
+      sourceSignal?.addEventListener('abort', abortFromSource, { once: true });
+      const timeout = setTimeout(() => controller.abort(new DOMException('Tiempo de espera agotado', 'TimeoutError')), 45_000);
+      try {
+        const requestHeaders = new Headers(options.headers);
+        if (this.config.storeContextId) requestHeaders.set('X-Store-Context', String(this.config.storeContextId));
+        const response = await fetch(`/api${path}`, { credentials: 'same-origin', cache: 'no-store', ...options, signal: controller.signal, headers: requestHeaders });
+        const payload = await response.json().catch(() => ({})) as T & { error?: string; code?: string };
+        if (payload.code === 'STORE_ACCESS_REVOKED' || payload.code === 'STORE_CONTEXT_CHANGED') {
+          window.dispatchEvent(new CustomEvent('store-access-changed', { detail: payload.error }));
+        }
+        if (!response.ok) throw new Error(payload.error || `No se pudo consultar Asiste (HTTP ${response.status}).`);
+        return payload;
+      } catch (error) {
+        if (controller.signal.aborted && !sourceSignal?.aborted) throw new Error('La consulta tardó demasiado. Intenta nuevamente.');
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+        sourceSignal?.removeEventListener('abort', abortFromSource);
+      }
+    };
+    const request = execute();
+    if (method === 'GET' && !options.signal) {
+      this.portalGetRequests.set(requestKey, request);
+      void request.then(
+        () => this.portalGetRequests.delete(requestKey),
+        () => this.portalGetRequests.delete(requestKey),
+      );
+    }
+    return request;
   }
 }

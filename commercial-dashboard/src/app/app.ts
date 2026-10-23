@@ -6,10 +6,11 @@ import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
-import { CloudDataService, type CompanyRankingData, type OperationalSummary } from './cloud-data.service';
+import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
+import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -32,7 +33,7 @@ type PriceRangeRow = { periodId: number; storeId: string; category: string; line
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };
 type ProductRow = {
-  storeId: string; productId: string; product: string; category: string; line: string; subline: string; brand: string;
+  storeId: string; productId: string; productCode?: string; product: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits?: number; mermaStockUnits?: number; desmedroStockUnits?: number;
   units30: number; sales30: number; units12: number; sales12: number;
 };
@@ -92,6 +93,11 @@ type StockHistoryBucket = 'ALL' | '2026' | '2025' | '2024' | '2023' | '2022' | '
 type RotationView = 'rotation' | 'inventory';
 type PredictiveTimeUnit = 'MONTHS' | 'YEARS';
 type LeadTimeUnit = 'DAYS' | 'MONTHS';
+type SizeMetric = 'SALES' | 'STOCK' | 'TRANSFERS';
+type SizeChartRow = {
+  label: string; sort: number; codes: Set<string>; productIds: Set<string>;
+  sales: number; stock: number; transfers: number;
+};
 type InventoryMatrixRow = {
   storeId: string; alias: string; capacity: number; stockUnits: number; stockValue: number; units30: number; dailySales: number;
   receivedDaily: number;
@@ -143,6 +149,8 @@ export class App implements OnInit {
   readonly Math = Math;
   readonly monthNamesFull = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
   readonly data = signal<DashboardData | null>(null);
+  readonly storeGoalOverrides = signal<StoreGoal[]>([]);
+  readonly annualGoalOverrides = signal<AnnualGoal[]>([]);
   readonly dataWarnings = computed(() => this.data()?.metadata.dataWarnings ?? []);
   readonly salesCutoffYear = computed(() => Number(this.data()?.metadata.salesCutoff?.slice(0, 4)) || new Date().getFullYear());
   readonly loadingError = signal('');
@@ -150,6 +158,9 @@ export class App implements OnInit {
   readonly loginPassword = signal('');
   readonly loginBusy = signal(false);
   readonly detailLoading = signal(false);
+  readonly stockDetailLoading = signal(false);
+  readonly stockDetailProgress = signal(0);
+  readonly productCodeLoading = signal(false);
   readonly predictiveDetailLoading = signal(false);
   readonly brandDetailLoaded = signal(false); readonly sublineDetailLoaded = signal(false); readonly stockOriginLoaded = signal(false); readonly stockDetailLoaded = signal(false); readonly priceRangeDetailLoaded = signal(false);
   readonly stockDetailFailed = signal(false);
@@ -163,6 +174,7 @@ export class App implements OnInit {
   readonly sellerPerformanceData = signal<SellerPerformanceRow[]>([]);
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
+  readonly priceRangeComparisonYear = signal(2025);
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -262,6 +274,7 @@ export class App implements OnInit {
   readonly expandedChart = signal<string | null>(null);
   readonly ticketChartYear = signal(new Date().getFullYear());
   readonly ticketChartSelectedStores = signal<string[]>([]);
+  readonly trafficChartType = signal<'METRO' | 'OTHER'>('METRO');
   readonly ticketChartYears = computed(() => [2026, 2025, 2024].filter(year => (this.data()?.metadata.years ?? []).includes(year)));
   readonly ticketChartStores = computed(() => {
     const d = this.data();
@@ -270,6 +283,46 @@ export class App implements OnInit {
       this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store)
       && this.formatMatches(store) && this.storeOverlapsPeriod(store, year * 100 + 1, year * 100 + 12)
     ).sort((a, b) => (a.alias || a.store).localeCompare(b.alias || b.store));
+  });
+  readonly trafficChartLabel = computed(() => this.trafficChartType() === 'METRO' ? 'TRÁFICO METRO' : 'TRÁFICO OTRAS TIENDAS');
+  readonly trafficChartStores = computed(() => this.ticketChartStores().filter(store => {
+    const isMetro = store.format?.trim().toUpperCase() === 'METRO';
+    return this.trafficChartType() === 'METRO' ? isMetro : !isMetro;
+  }));
+  readonly trafficMonthlyRows = computed(() => {
+    this.data();
+    const year = this.ticketChartYear();
+    const selectedStores = new Set(this.ticketChartSelectedStores());
+    const ids = new Set(this.trafficChartStores()
+      .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
+      .map(store => store.storeId));
+    return MONTHS.map((label, index) => {
+      const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
+      const traffic = sum(rows, 'traffic');
+      const transactions = sum(rows, 'transactions');
+      return { label, traffic, transactions, conversion: traffic > 0 ? transactions / traffic : null };
+    });
+  });
+  readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic > 0));
+  readonly trafficMonthlyOption = computed<EChartsOption>(() => {
+    const rows = this.trafficMonthlyRows();
+    return {
+      animation: false,
+      grid: { left: 24, right: 24, top: 35, bottom: 30, containLabel: true },
+      tooltip: { trigger: 'axis', confine: true, formatter: (params: any) => {
+        const row = rows[params[0]?.dataIndex ?? 0];
+        return this.tooltip(`${row.label} ${this.ticketChartYear()}`, [
+          { label: this.trafficChartLabel(), value: this.number(row.traffic) },
+          { label: 'Transacciones', value: this.number(row.transactions) },
+          { label: 'Conversión', value: this.percent(row.conversion) },
+        ]);
+      } },
+      xAxis: { type: 'category', data: MONTHS, axisLabel: { color: C.slate } },
+      yAxis: { type: 'value', axisLabel: { formatter: (value: number) => this.short(value), color: C.slate }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      series: [{ name: this.trafficChartLabel(), type: 'line', data: rows.map(row => row.traffic),
+        connectNulls: false, symbolSize: 8, itemStyle: { color: C.navy },
+        lineStyle: { width: 3 }, areaStyle: { color: C.pale, opacity: .5 } }],
+    };
   });
   readonly ticketMonthlyRows = computed(() => {
     this.data();
@@ -371,6 +424,13 @@ export class App implements OnInit {
     this.ticketChartYear.set(this.ticketChartYears()[0] || 2026);
     this.ticketChartSelectedStores.set([]);
     this.toggleChartExpansion('conversion-average');
+  }
+  openTrafficChart(type: 'METRO' | 'OTHER'): void {
+    this.trafficChartType.set(type);
+    this.ticketChartYear.set(this.ticketChartYears()[0] || 2026);
+    this.ticketChartSelectedStores.set([]);
+    this.toggleChartExpansion('traffic-average');
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
   }
   setTicketChartYear(year: number): void {
     this.ticketChartYear.set(year);
@@ -960,10 +1020,6 @@ export class App implements OnInit {
     return this.personnelCategories().map(category => this.normalized(category));
   }
 
-  // Meta corporativa aprobada. Solo aplica al total anual sin segmentar; al
-  // filtrar tienda, formato, clúster o rubro se conserva el cálculo propio.
-  private readonly corporateAnnualTargets: Record<number, number> = { 2026: 70_560_000 };
-
   private isFullCompanyScope(): boolean {
     return !this.selectedClusters().length && !this.selectedFormats().length && !this.selectedStores().length;
   }
@@ -979,15 +1035,25 @@ export class App implements OnInit {
   // una aproximación explícita, nunca una meta oficial inventada.
   private targetForPeriods(periods: number[]): number {
     const storeIds = this.filteredStoreIds();
-    const official = sum(this.indexedRows(this.monthlyStoreIndex, periods, storeIds), 'target');
+    const configuredGoals = this.storeGoalOverrides();
+    const overrides = new Map(configuredGoals.filter(row => !row.category).map(row => [`${row.periodId}|${row.storeId}`, row.target]));
+    const officialFor = (period: number, storeId: string) => {
+      const key = `${period}|${storeId}`;
+      return overrides.has(key) ? overrides.get(key)! : sum(this.monthlyStoreIndex.get(key) || [], 'target');
+    };
+    const official = periods.reduce((total, period) => total + [...storeIds].reduce((subtotal, storeId) => subtotal + officialFor(period, storeId), 0), 0);
     const hierarchyActive = this.selectedCategories().length || this.selectedGenders().length || this.selectedLines().length || this.selectedSublines().length;
     if (!hierarchyActive) {
-      const corporateTarget = this.corporateAnnualTargets[this.year()];
-      return corporateTarget && this.isFullCompanyScope() && this.isFullYear(periods)
+      const corporateTarget = this.annualGoalOverrides().find(row => row.year === this.year())?.target;
+      return corporateTarget != null && this.isFullCompanyScope() && this.isFullYear(periods)
         ? corporateTarget
         : official;
     }
-    const direct = this.indexedRows(this.monthlyCategoryTargetIndex, periods, storeIds);
+    const configuredCategoryGoals = configuredGoals.filter(row => row.category && periods.includes(row.periodId) && storeIds.has(row.storeId));
+    const configuredKeys = new Set(configuredCategoryGoals.map(row => `${row.periodId}|${row.storeId}|${this.normalized(row.category)}`));
+    const direct = this.indexedRows(this.monthlyCategoryTargetIndex, periods, storeIds)
+      .filter(row => !configuredKeys.has(`${row.periodId}|${row.storeId}|${this.normalized(row.category)}`))
+      .concat(configuredCategoryGoals.map(row => ({ periodId: row.periodId, storeId: row.storeId, category: row.category!, target: row.target, source: 'DEFINIDA' as const })));
     const categorySales = this.indexedRows(this.monthlyCategoryIndex, periods, storeIds);
     const selectedSales = this.currentDimensionFilter(this.indexedRows(this.currentDimensionIndex(), periods, storeIds));
     const byKey = grouped(direct, row => `${row.periodId}|${row.storeId}`);
@@ -996,7 +1062,7 @@ export class App implements OnInit {
     let total = 0;
     for (const period of periods) for (const storeId of storeIds) {
       const key = `${period}|${storeId}`;
-      const officialTarget = sum((this.monthlyStoreIndex.get(key) || []), 'target');
+      const officialTarget = officialFor(period, storeId);
       const targets = byKey.get(key) || [];
       const textil = targets.filter(row => this.normalized(row.category) === 'TEXTIL').reduce((v, row) => v + row.target, 0);
       const calzado = targets.filter(row => this.normalized(row.category) === 'CALZADO').reduce((v, row) => v + row.target, 0);
@@ -1315,7 +1381,7 @@ export class App implements OnInit {
       female: male == null ? null : averageTotal - male,
       averageAge: ages.length ? ages.reduce((total, value) => total + value, 0) / ages.length : null,
       salesStaff: personnelAverage == null ? null : salesStaff,
-      administrativeStaff: personnelAverage == null ? null : averageTotal - salesStaff,
+      administrativeStaff: profiles.filter(row => ['ADMINISTRADOR', 'ADMINISTRADOR DE TIENDA', 'ADMINISTRADOR TIENDA', 'JEFE DE TIENDA', 'JEFE TIENDA', 'JEFE_TIENDA', 'ASISTENTE ADMINISTRATIVO', 'ASISTENTE DE TIENDA', 'ASISTENTE TIENDA', 'ASISTENTE_TIENDA'].includes(this.normalized(row.role))).length,
       birthdayLabel: birthday?.person.name || 'N/A',
       birthdayDate: birthday ? birthday.date.split('-').reverse().join('/') : '',
     };
@@ -1820,11 +1886,17 @@ export class App implements OnInit {
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
   readonly transferPage = signal(0);
+  readonly transferCodeError = signal(false);
+  readonly sizeRubro = signal<SizeRubro>('CALZADO');
+  readonly shoeSizeSystem = signal<ShoeSizeSystem>('USA');
+  readonly sizeMetric = signal<SizeMetric>('SALES');
   readonly transferPageSize = 10;
   readonly transferProducts = computed(() => {
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
-    return this.staticPredictiveProducts().filter(row => ids.has(row.storeId) && ['TEXTIL', 'CALZADO'].includes(row.category));
+    return this.stockProductsData().filter(row => ids.has(row.storeId));
   });
+  readonly transferRubros = computed(() => [...new Set(this.transferProducts()
+    .map(row => row.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')));
   readonly transferLines = computed(() => [...new Set(this.transferProducts()
     .filter(row => !this.transferRubro() || row.category === this.transferRubro()).map(row => row.line).filter(Boolean))].sort());
   readonly transferBrands = computed(() => [...new Set(this.transferProducts()
@@ -1837,7 +1909,7 @@ export class App implements OnInit {
     return this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine())
       && (!this.transferBrand() || row.brand === this.transferBrand())
-      && (!query || this.normalized(`${row.productId} ${row.product} ${row.brand}`).includes(query)));
+      && (!query || this.normalized(`${row.productCode || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
   });
   readonly transferAllRecommendations = computed(() => {
     const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
@@ -1852,6 +1924,66 @@ export class App implements OnInit {
   readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / this.transferPageSize)));
   readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
   readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
+
+  readonly sizeChartRows = computed(() => {
+    const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
+    const products = this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const rows = new Map<string, SizeChartRow>();
+    const add = (row: { productId: string; productCode?: string; category?: string; line?: string; product?: string }, field: 'sales' | 'stock' | 'transfers', value: number) => {
+      const size = resolveProductSize(row, rubro, system); if (!size) return;
+      const key = `${size.sort}|${size.label}`;
+      const current = rows.get(key) || { label: size.label, sort: size.sort, codes: new Set<string>(), productIds: new Set<string>(), sales: 0, stock: 0, transfers: 0 };
+      current.codes.add(size.code); current.productIds.add(row.productId); current[field] += Number(value) || 0;
+      rows.set(key, current);
+    };
+    for (const row of products) {
+      add(row, 'sales', row.units30);
+      add(row, 'stock', row.stockUnits);
+    }
+    for (const transfer of stockTransfers(products)) add(transfer, 'transfers', transfer.suggested);
+    return [...rows.values()].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label, 'es'));
+  });
+
+  readonly sizeChartCoverage = computed(() => {
+    const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
+    const products = this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const unique = new Map<string, ProductRow>();
+    for (const row of products) if (!unique.has(row.productId)) unique.set(row.productId, row);
+    const coded = [...unique.values()].filter(row => !!row.productCode);
+    const mapped = coded.filter(row => !!resolveProductSize(row, rubro, system));
+    return { total: unique.size, coded: coded.length, mapped: mapped.length, pending: Math.max(0, unique.size - mapped.length) };
+  });
+
+  readonly sizeMetricLabel = computed(() => ({ SALES: 'VENTA 30D', STOCK: 'STOCK', TRANSFERS: 'TRASLADO SUGERIDO' })[this.sizeMetric()]);
+  readonly sizeDistributionOption = computed<EChartsOption>(() => {
+    const rows = this.sizeChartRows(); const metric = this.sizeMetric(); const rubro = this.sizeRubro();
+    const field: Record<SizeMetric, keyof Pick<SizeChartRow, 'sales' | 'stock' | 'transfers'>> = { SALES: 'sales', STOCK: 'stock', TRANSFERS: 'transfers' };
+    const color = metric === 'SALES' ? C.navy : metric === 'STOCK' ? C.teal : C.gold;
+    const values = rows.map(row => Number(row[field[metric]]) || 0);
+    if (!rows.length) return {
+      animation: false,
+      graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: this.stockDetailLoaded() ? 'SIN CÓDIGOS DE TALLA MAPEADOS' : 'PREPARANDO CÓDIGOS NISSEI…', fill: '#64748B', fontSize: 11, fontWeight: 800 } }]
+    } as EChartsOption;
+    return {
+      animation: false,
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
+        const row = rows[params[0]?.dataIndex ?? 0];
+        return this.tooltip(`${rubro === 'CALZADO' ? this.shoeSizeSystem() : 'TALLA'} ${row?.label || ''}`, [
+          { label: 'Venta 30D', value: this.number(row?.sales ?? null, ' und') },
+          { label: 'Stock actual', value: this.number(row?.stock ?? null, ' und') },
+          { label: 'Traslado sugerido', value: this.number(row?.transfers ?? null, ' und') },
+          { label: 'SKU', value: this.number(row?.productIds.size ?? null) },
+          { label: 'Sufijo Nissei', value: [...(row?.codes || [])].sort().join(', ') || 'N/A' }
+        ]);
+      } },
+      grid: { left: 48, right: 20, top: 16, bottom: 72 },
+      xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 32, color: '#475569', fontSize: 9, fontWeight: 800 } },
+      yAxis: { type: 'value', min: 0, minInterval: 1, name: 'UNIDADES', nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => this.short(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      series: [{ name: this.sizeMetricLabel(), type: 'bar', barMaxWidth: 26, data: values.map(value => ({ value, itemStyle: { color, borderRadius: [4, 4, 0, 0] } })),
+        label: { show: rows.length <= 14, position: 'top', color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } }]
+    } as EChartsOption;
+  });
+
   readonly transferChartOption = computed<EChartsOption>(() => {
     const rows = this.transferPageRows();
     return {
@@ -1860,7 +1992,7 @@ export class App implements OnInit {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.product || '', [
-          { label: 'Código', value: row?.productId || '' },
+          { label: 'Código Nissei', value: row?.productCode || 'No disponible' },
           { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
           { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
           { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
@@ -1871,7 +2003,7 @@ export class App implements OnInit {
           { label: 'Traslado sugerido', value: this.number(row?.suggested ?? null, ' und') },
           { label: 'Prioridad', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
           { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' },
-        ]);
+        ], true);
       } },
       xAxis: { type: 'value', position: 'top', name: 'Unidades', nameLocation: 'middle', nameGap: 26,
         minInterval: 1, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#e4eaf3', type: 'dashed' } } },
@@ -1889,10 +2021,12 @@ export class App implements OnInit {
           const product = lines.slice(0, 2).join('\n') + (lines.length > 2 ? '…' : '');
           // Escape ECharts rich-text delimiters in product/store names.
           const safe = (text: string) => text.replace(/[{}|]/g, ' ');
-          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
+          const codeLine = row.productCode ? `\n{code|Código: ${safe(row.productCode)}}` : '';
+          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}${codeLine}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
         }, rich: {
           route: { fontSize: 12, fontWeight: 800, lineHeight: 22 },
           product: { fontSize: 11, lineHeight: 17, width: 270, overflow: 'truncate' },
+          code: { fontSize: 11, fontWeight: 700, lineHeight: 18, width: 270, overflow: 'break' },
           critical: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
           alert: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
         } } },
@@ -2163,14 +2297,21 @@ export class App implements OnInit {
   readonly coverageRows = computed<CoverageRow[]>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store]));
     const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => row.storeId);
+    const predictiveByStore = new Map((this.data()?.predictiveStore || []).map(row => [row.storeId, row]));
+    const stockByStore = new Map((this.data()?.stockStore || []).map(row => [row.storeId, row]));
     return [...storeMap.keys()].map(storeId => {
       const rows = groups.get(storeId) || [];
-      const stockUnits = sum(rows, 'stockUnits'); const stockValue = sum(rows, 'stockValue');
-      const units30 = sum(rows, 'units30'); const sales30 = sum(rows, 'sales30');
+      const predictive = predictiveByStore.get(storeId); const stock = stockByStore.get(storeId);
+      const stockUnits = rows.length ? sum(rows, 'stockUnits') : Number(predictive?.stockUnits ?? stock?.units) || 0;
+      const stockValue = rows.length ? sum(rows, 'stockValue') : Number(predictive?.stockValue ?? stock?.value) || 0;
+      const units30 = rows.length ? sum(rows, 'units30') : Number(predictive?.units30) || 0;
+      const sales30 = rows.length ? sum(rows, 'sales30') : Number(predictive?.sales30) || 0;
       const goodUnits = rows.reduce((total, row) => total + (row.goodUnits || 0), 0);
       const hasStateBreakdown = rows.some(row => row.goodUnits != null || row.mermaStockUnits != null || row.desmedroStockUnits != null);
       const effectiveUnits = hasStateBreakdown ? goodUnits : stockUnits * (1 - (this.data()?.metadata.nonSellableRate ?? .18));
-      const days = units30 > 0 ? effectiveUnits * 30 / units30 : null; const status = this.coverageStatus(days);
+      const calculatedDays = units30 > 0 ? effectiveUnits * 30 / units30 : null;
+      const days = rows.length ? calculatedDays : (predictive?.coverageDays ?? calculatedDays);
+      const status = this.coverageStatus(days);
       return { storeId, alias: storeMap.get(storeId)?.alias || storeId, stockUnits, effectiveUnits, stockValue, units30, sales30, days, status: status.label, color: status.color };
     }).sort((a, b) => (b.days ?? -1) - (a.days ?? -1));
   });
@@ -2245,8 +2386,8 @@ export class App implements OnInit {
         ]);
       } },
       legend: { data: [String(selectedYear), String(previousYear)], top: 0, right: 4, itemWidth: 17, itemHeight: 7, textStyle: { color: '#475569', fontSize: 9, fontWeight: 700 } },
-      grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },
-      xAxis: { type: 'category', boundaryGap: false, data: months.map(month => MONTHS[month - 1]), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 9, hideOverlap: true } },
+      grid: { left: 8, right: 14, top: 30, bottom: 52, containLabel: true },
+      xAxis: { type: 'category', boundaryGap: false, data: months.map(month => MONTHS[month - 1]), axisTick: { show: false }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 30, color: '#64748B', fontSize: 8, hideOverlap: false } },
       yAxis: { type: 'value', axisLabel: { color: '#64748B', fontSize: 9, formatter: (value: number) => this.short(value) }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB', type: 'dotted' } } },
       series: [
         { name: String(selectedYear), type: 'line', data: current, smooth: true, symbol: 'circle', symbolSize: 6,
@@ -2332,11 +2473,12 @@ export class App implements OnInit {
     } as EChartsOption;
     return {
       animation: false,
-      tooltip: { trigger: 'item', confine: true, borderColor: C.gold, padding: [6, 8], textStyle: { fontSize: 10 }, position: this.tooltipToRight, extraCssText: 'max-width:none;white-space:nowrap;', formatter: (params: any) => {
+      tooltip: { trigger: 'item', confine: true, borderColor: C.gold, position: this.tooltipToRight, formatter: (params: any) => {
         const row = rows[params.dataIndex ?? 0];
-        return `<div class="chart-tooltip" style="min-width:185px;max-width:none;white-space:nowrap"><strong>${safe(row.label)}</strong>${row.details.map(detail =>
-          `<div style="display:flex;justify-content:space-between;gap:16px;white-space:nowrap"><span>${safe(metricLabel[detail.metric])} #${detail.points}</span><b style="max-width:none;overflow-wrap:normal;white-space:nowrap">${safe(formatMetric(detail.metric, detail.value))}</b></div>`
-        ).join('')}</div>`;
+        return this.tooltip(row.label, row.details.map(detail => ({
+          label: `${metricLabel[detail.metric]} #${detail.points}`,
+          value: formatMetric(detail.metric, detail.value)
+        })));
       } },
       grid: { left: 48, right: 18, top: 25, bottom: 78 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
@@ -2369,6 +2511,7 @@ export class App implements OnInit {
 
   readonly hourlyPerformanceOption = computed<EChartsOption>(() => {
     const hours = this.hourlyCommercialRows();
+    const hourRange = (hour: number) => `${hour}-${hour + 1}`;
     const peakTickets = Math.max(0, ...hours.map(row => row.transactions));
     const totalTickets = hours.reduce((total, row) => total + row.transactions, 0);
     const totalNet = hours.reduce((total, row) => total + row.net, 0);
@@ -2377,7 +2520,7 @@ export class App implements OnInit {
       color: [C.navy, C.teal],
       legend: { top: 0, right: 18, selectedMode: false, itemGap: 16, itemWidth: 13, itemHeight: 7, textStyle: { color: '#475569', fontSize: 8, fontWeight: 700 }, data: ['Tickets', 'Venta neta'] },
       tooltip: { trigger: 'item', confine: true, position: this.tooltipToRight, formatter: (params: any) => {
-        const row = hours[params.dataIndex ?? 0]; return this.tooltip(`${String(row?.hour ?? 0).padStart(2, '0')}:00`, [
+        const row = hours[params.dataIndex ?? 0]; return this.tooltip(hourRange(row?.hour ?? 0), [
           { label: 'Tickets', value: this.number(row?.transactions ?? null) },
           { label: 'Participación tickets', value: totalTickets ? this.percent((row?.transactions || 0) / totalTickets) : 'N/A' },
           { label: 'Venta neta', value: this.money(row?.net ?? null, true) },
@@ -2385,8 +2528,8 @@ export class App implements OnInit {
           { label: 'Ticket promedio', value: this.money(row?.ticket ?? null) }
         ]);
       } },
-      grid: { left: 50, right: 58, top: 30, bottom: 36 },
-      xAxis: { type: 'category', triggerEvent: false, axisPointer: { show: false }, data: hours.map(row => `${String(row.hour).padStart(2, '0')}:00`), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 8, interval: 0 } },
+      grid: { left: 50, right: 58, top: 30, bottom: 66 },
+      xAxis: { type: 'category', triggerEvent: false, axisPointer: { show: false }, data: hours.map(row => hourRange(row.hour)), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 8, interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 32 } },
       yAxis: [
         { type: 'value', min: 0, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => this.short(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
         { type: 'value', min: 0, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { show: false } }
@@ -2619,10 +2762,14 @@ export class App implements OnInit {
         label: { show: true, position: 'right', color: '#172033', fontSize: 10, fontWeight: 800, formatter: (params: any) => this.percent(rows[params.dataIndex]?.share ?? null) } }]
     } as EChartsOption;
   });
-  readonly priceRangeSummary = computed(() => {
+  readonly priceRangeComparisonYears = computed(() => (this.data()?.metadata.years || [])
+    .filter(year => year >= 2024 && year !== this.year()).sort((a, b) => b - a));
+  readonly effectivePriceRangeComparisonYear = computed(() => this.priceRangeComparisonYears().includes(this.priceRangeComparisonYear())
+    ? this.priceRangeComparisonYear() : this.priceRangeComparisonYears()[0] || this.year() - 1);
+  private priceRangeSummaryFor(year: number, base = false) {
     this.priceRangeData();
-    const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
-    const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
+    const ids = this.filteredStoreIds(); const periods = this.activeMonths().map(month => year * 100 + month);
+    const rows = (base && this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
       Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
     const groups = grouped(rows, row => String(row.bandOrder));
     const bands = [
@@ -2634,35 +2781,51 @@ export class App implements OnInit {
       return { label, net: sum(groupedRows, 'net'), units: sum(groupedRows, 'units') };
     });
     const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
-    return values.map(value => ({ ...value, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
-  });
+    return values.map(value => ({ ...value, year, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
+  }
+  readonly priceRangeSummary = computed(() => [
+    ...this.priceRangeSummaryFor(this.year(), true),
+    ...this.priceRangeSummaryFor(this.effectivePriceRangeComparisonYear()),
+  ]);
+  readonly priceRangeSeries = computed(() => ({
+    base: this.priceRangeSummaryFor(this.year(), true),
+    comparison: this.priceRangeSummaryFor(this.effectivePriceRangeComparisonYear()),
+  }));
+  setPriceRangeComparisonYear(value: number | string): void {
+    const year = Number(value);
+    if (this.priceRangeComparisonYears().includes(year)) this.priceRangeComparisonYear.set(year);
+  }
   readonly priceRangeOption = computed<EChartsOption>(() => {
-    const values = this.priceRangeSummary();
-    const bands = values.map(value => value.label);
-    const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
-    const priceScale = adaptiveValueScale(values.map(value => value.net), 3);
+    const { base, comparison } = this.priceRangeSeries();
+    const bands = base.map(value => value.label); const baseYear = this.year(); const comparisonYear = this.effectivePriceRangeComparisonYear();
+    const totals = { base: base.reduce((value, row) => value + row.net, 0), comparison: comparison.reduce((value, row) => value + row.net, 0) };
+    const priceScale = adaptiveValueScale([...base, ...comparison].map(value => value.net), 3);
+    const valueName = (year: number) => `VENTA ${year}`; const unitsName = (year: number) => `UNIDADES ${year}`;
+    const shareLabel = (total: number) => ({ show: true, position: 'top' as const, formatter: (params: any) => {
+      const share = total ? Number(params.value) / total : 0;
+      return share >= .02 ? this.percent(share) : '';
+    }, color: '#172033', fontSize: 8, fontWeight: 700, distance: 3, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [1, 3], borderRadius: 3 });
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], textStyle: { fontSize: 10 }, formatter: (params: any[]) => {
-        const index = params[0]?.dataIndex ?? 0; const row = values[index];
-        return this.tooltip(row.label, [
-          { label: 'Venta', value: this.money(row.net, true) },
-          { label: 'Unidades vendidas', value: this.number(row.units, ' und') },
-          { label: 'Precio unitario', value: row.label }
+        const index = params[0]?.dataIndex ?? 0; const current = base[index]; const previous = comparison[index];
+        return this.tooltip(current?.label || previous?.label || '', [
+          { label: valueName(baseYear), value: this.money(current?.net ?? null, true) }, { label: unitsName(baseYear), value: this.number(current?.units ?? null, ' und') },
+          { label: valueName(comparisonYear), value: this.money(previous?.net ?? null, true) }, { label: unitsName(comparisonYear), value: this.number(previous?.units ?? null, ' und') },
         ]);
       } },
-      legend: { data: ['VALOR', 'UNIDADES'], top: 0, right: 3, textStyle: { fontSize: 9, fontWeight: 800 } },
-      grid: { left: 58, right: 54, top: 42, bottom: 82 },
-      xAxis: { type: 'category', data: bands, axisTick: { show: false }, axisLabel: { interval: 0, rotate: 90, margin: 38, fontSize: 8, color: '#475569' }, axisLine: { lineStyle: { color: '#CBD5E1' } } },
+      legend: { data: [valueName(baseYear), valueName(comparisonYear), unitsName(baseYear), unitsName(comparisonYear)], top: 0, left: 'center', itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 9, fontWeight: 800 } },
+      grid: { left: 58, right: 58, top: 46, bottom: 78 },
+      xAxis: { type: 'category', data: bands, axisTick: { show: false }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 34, fontSize: 8, color: '#475569' }, axisLine: { lineStyle: { color: '#CBD5E1' } } },
       yAxis: [
         { type: 'value', min: 0, ...priceScale, axisLabel: { formatter: (value: number) => `S/ ${this.short(value)}`, color: '#64748B', fontSize: 9 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-        { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: '#B4127A', fontSize: 9 }, splitLine: { show: false } }
+        { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: C.slate, fontSize: 9 }, splitLine: { show: false } }
       ],
       series: [
-        { name: 'VALOR', type: 'bar', data: values.map(row => row.net), barMaxWidth: 28, z: 5, itemStyle: { color: '#DCCAF3', borderColor: '#B99ADF', borderWidth: 1, borderRadius: [3, 3, 0, 0] },
-          label: { show: true, position: 'top', formatter: (params: any) => this.percent(total ? Number(params.value) / total : null), color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 }, labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
-        { name: 'UNIDADES', type: 'line', yAxisIndex: 1, data: values.map(row => row.units), symbol: 'circle', symbolSize: 7, z: 20,
-          lineStyle: { width: 3, color: C.purple }, itemStyle: { color: C.purple, borderColor: '#FFFFFF', borderWidth: 1 } }
+        { name: valueName(baseYear), type: 'bar', data: base.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#BFD4F3', borderColor: C.navy, borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.base), labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
+        { name: valueName(comparisonYear), type: 'bar', data: comparison.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#E2E8F0', borderColor: C.slate, borderWidth: 1, borderRadius: [3, 3, 0, 0] } },
+        { name: unitsName(baseYear), type: 'line', yAxisIndex: 1, data: base.map(row => row.units), symbol: 'circle', symbolSize: 6, z: 20, lineStyle: { width: 3, color: C.navy }, itemStyle: { color: C.navy, borderColor: '#FFFFFF', borderWidth: 1 } },
+        { name: unitsName(comparisonYear), type: 'line', yAxisIndex: 1, data: comparison.map(row => row.units), symbol: 'diamond', symbolSize: 7, z: 20, lineStyle: { width: 3, type: 'dashed', color: C.slate }, itemStyle: { color: C.slate, borderColor: '#FFFFFF', borderWidth: 1 } },
       ]
     } as EChartsOption;
   });
@@ -2765,7 +2928,7 @@ export class App implements OnInit {
           { label: 'Estado', value: row?.status || 'SIN INFORMACIÓN' }
         ]);
       } },
-      grid: { left: 38, right: 112, top: 6, bottom: 30 },
+      grid: { left: 38, right: this.expandedChart() === 'store-value-coverage' ? 112 : 76, top: 6, bottom: 30 },
       xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 24, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#334155', fontSize: 9, fontWeight: 850 } },
       series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 13, barCategoryGap: '24%',
@@ -2861,9 +3024,12 @@ export class App implements OnInit {
 
   async signOut(): Promise<void> {
     await this.cloud.signOut();
+    this.releaseSectionDetails();
     this.data.set(null);
     this.operationalSummary.set(null);
     this.companyRankingData.set(null);
+    this.storeGoalOverrides.set([]);
+    this.annualGoalOverrides.set([]);
     this.sellerPerformanceData.set([]);
     this.sellerDetailLoaded.set(false);
     this.loadingError.set('');
@@ -2896,6 +3062,9 @@ export class App implements OnInit {
       this.data.set(loaded);
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
       this.cloud.companyRanking().then(ranking => this.companyRankingData.set(ranking)).catch(() => this.companyRankingData.set(null));
+      this.cloud.storeGoals().then(result => {
+        this.storeGoalOverrides.set(result.goals); this.annualGoalOverrides.set(result.annualTargets);
+      }).catch(() => { this.storeGoalOverrides.set([]); this.annualGoalOverrides.set([]); });
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();
@@ -2996,9 +3165,11 @@ export class App implements OnInit {
   closeExpandedChart(): void {
     const wasTicket = this.expandedChart() === 'ticket-average';
     const wasConversion = this.expandedChart() === 'conversion-average';
+    const wasTraffic = this.expandedChart() === 'traffic-average';
     this.expandedChart.set(null); this.setPageScrollLocked(false);
     if (wasTicket) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.ticket-kpi')?.focus();
     if (wasConversion) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.conversion-kpi')?.focus();
+    if (wasTraffic) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.traffic-kpi')?.focus();
   }
   private setPageScrollLocked(locked: boolean): void {
     if (typeof document === 'undefined') return;
@@ -3144,7 +3315,7 @@ export class App implements OnInit {
   async goPage(value: 1 | 2 | 3): Promise<void> {
     if (this.page() === value) return;
     this.closeExpandedChart();
-    this.releaseSectionDetails();
+    this.cancelPendingSectionLoads();
     this.sectionAdvices.set({});
     this.page.set(value);
     if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
@@ -3175,22 +3346,29 @@ export class App implements OnInit {
     const idleWindow = typeof window === 'undefined' ? undefined : window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
     };
-    if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(start, { timeout: 1_500 });
-    else setTimeout(start, 350);
+    // La descarga y el parseo se ejecutan en un Worker, por lo que pueden comenzar
+    // apenas pinta la sección sin bloquear la interacción del dashboard.
+    if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(start, { timeout: 250 });
+    else setTimeout(start, 0);
   }
-  private releaseSectionDetails(): void {
+  private cancelPendingSectionLoads(): void {
     this.sectionLoads.release();
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
     this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.legacyStockPromise = undefined;
     this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
     this.brandDetailPromise = undefined; this.sublineDetailPromise = undefined; this.priceRangeDetailPromise = undefined;
+    this.detailLoading.set(false); this.stockDetailLoading.set(false); this.stockDetailProgress.set(0); this.productCodeLoading.set(false);
+    this.predictiveDetailLoading.set(false); this.sellerDetailLoading.set(false);
+  }
+  private releaseSectionDetails(): void {
+    this.cancelPendingSectionLoads();
     this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
     this.stockAggregateByStore.set(new Map()); this.predictiveAggregateByStore.set(new Map());
     this.predictiveAggregateByProduct.set(new Map()); this.predictiveIndex.set(new Map());
     this.stockDetailLoaded.set(false); this.stockOriginLoaded.set(false); this.stockDetailFailed.set(false);
     this.predictiveDetailLoaded.set(false); this.predictiveDetailFailed.set(false); this.predictiveDetailLoading.set(false);
-    this.detailLoading.set(false); this.predictiveNote.set('');
+    this.detailLoading.set(false); this.stockDetailLoading.set(false); this.stockDetailProgress.set(0); this.productCodeLoading.set(false); this.predictiveNote.set('');
     this.sellerPerformanceData.set([]); this.sellerDetailLoaded.set(false); this.sellerDetailLoading.set(false);
     this.priceRangeData.set([]); this.monthlyPriceRangeIndex.clear(); this.priceRangeDetailLoaded.set(false);
     this.monthlyBrandIndex = this.indexPeriodStore(this.data()?.monthlyBrand || []);
@@ -3208,6 +3386,19 @@ export class App implements OnInit {
     this.inventoryProductsIgnoringStoreFilter(); this.stockOriginDetailRows(); this.stockOrigins(); this.selectedStockOrigins();
     this.talentSellerRows(); this.sellerPerformanceOption();
     this.yearRows(); this.monthRows(); this.previousYearRows(); this.previousMonthRows();
+  }
+  retryStockDetail(): void {
+    this.stockDetailFailed.set(false);
+    this.predictiveNote.set('');
+    this.scheduleInventoryProductDetail();
+  }
+  retryProductCodes(): void {
+    if (this.productCodeLoading()) return;
+    const products = this.stockProductsData();
+    const missingCodes = [...new Set(products.filter(row => !row.productCode).map(row => row.productId))];
+    if (!missingCodes.length || !this.cloud.portalEnabled) return;
+    this.transferCodeError.set(false);
+    void this.enrichProductCodes(products, missingCodes, this.sectionLoads.signal);
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
@@ -3258,8 +3449,9 @@ export class App implements OnInit {
   percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : new Intl.NumberFormat('es-PE', { style: 'percent', maximumFractionDigits: 2 }).format(value); }
   trend(value: number | null): string { return value == null ? 'N/A' : `${value >= 0 ? '▲' : '▼'} ${this.percent(Math.abs(value))}`; }
 
-  private async loadDetail<T>(file: string, signal?: AbortSignal): Promise<T> {
+  private async loadDetail<T>(file: string, signal?: AbortSignal, onProgress?: (progress: number) => void): Promise<T> {
     signal?.throwIfAborted();
+    onProgress?.(1);
     const source = await this.cloud.jsonSource(file);
     signal?.throwIfAborted();
     const fallbackUrls = [
@@ -3272,10 +3464,12 @@ export class App implements OnInit {
     if (typeof Worker === 'undefined') {
       const loadUrls = async (urls: string[], encoding: 'identity' | 'gzip'): Promise<T> => {
         const chunks: BlobPart[] = [];
-        for (const url of urls) {
+        for (let index = 0; index < urls.length; index += 1) {
+          const url = urls[index];
           const response = await fetch(url, { cache: 'default', signal });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           chunks.push(await response.blob());
+          onProgress?.(Math.round(((index + 1) / urls.length) * 82));
         }
         let stream: ReadableStream<Uint8Array> = new Blob(chunks).stream();
         if (encoding === 'gzip') {
@@ -3283,7 +3477,10 @@ export class App implements OnInit {
           const decompressor = new DecompressionStream('gzip') as unknown as TransformStream<Uint8Array, Uint8Array>;
           stream = stream.pipeThrough(decompressor);
         }
-        return JSON.parse(await new Response(stream).text()) as T;
+        onProgress?.(90);
+        const result = JSON.parse(await new Response(stream).text()) as T;
+        onProgress?.(100);
+        return result;
       };
       try {
         return await loadUrls(source.urls, source.encoding);
@@ -3309,10 +3506,16 @@ export class App implements OnInit {
       const finish = (): void => { worker.terminate(); signal?.removeEventListener('abort', abort); };
       const abort = (): void => { finish(); reject(signal?.reason ?? new DOMException('Carga cancelada', 'AbortError')); };
       signal?.addEventListener('abort', abort, { once: true });
-      worker.onmessage = ({ data }: MessageEvent<{ ok: boolean; data?: T; error?: string }>) => {
+      worker.onmessage = ({ data }: MessageEvent<{ progress: number } | { ok: boolean; data?: T; error?: string }>) => {
+        if ('progress' in data) {
+          onProgress?.(Math.max(1, Math.min(99, data.progress)));
+          return;
+        }
         finish();
-        if (data.ok) resolve(data.data as T);
-        else reject(new Error(`${data.error || 'Error desconocido'} en ${file}`));
+        if (data.ok) {
+          onProgress?.(100);
+          resolve(data.data as T);
+        } else reject(new Error(`${data.error || 'Error desconocido'} en ${file}`));
       };
       worker.onerror = event => {
         finish();
@@ -3455,16 +3658,20 @@ export class App implements OnInit {
     if (this.stockDetailLoaded()) return;
     if (this.stockDetailPromise) return this.stockDetailPromise;
     const signal = this.sectionLoads.signal;
+    this.stockDetailLoading.set(true);
+    this.stockDetailProgress.set(1);
     this.stockDetailPromise = (async () => {
       try {
         let payload: { stockProducts: ProductRow[] };
         try {
-          payload = await this.loadDetail<{ stockProducts: ProductRow[] }>('dashboard-stock-products.json', signal);
+          payload = await this.loadDetail<{ stockProducts: ProductRow[] }>('dashboard-stock-products.json', signal, progress => this.stockDetailProgress.set(progress));
         } catch {
           if (signal.aborted) return;
           payload = await this.loadLegacyStock(signal);
         }
         const products = payload.stockProducts || [];
+        this.transferCodeError.set(false);
+        const missingCodes = [...new Set(products.filter(row => !row.productCode).map(row => row.productId))];
         signal.throwIfAborted();
         const byStore = new Map<string, ProductRow[]>();
         const byCategory = new Map<string, ProductRow[]>();
@@ -3517,16 +3724,37 @@ export class App implements OnInit {
         this.staticPredictiveProductsData.set(predictiveProducts);
         this.stockProductsData.set(products);
         this.stockDetailLoaded.set(true);
+        this.stockDetailProgress.set(100);
+        if (missingCodes.length && this.cloud.portalEnabled) void this.enrichProductCodes(products, missingCodes, signal);
       } catch (error) {
         if (signal.aborted) return;
         this.stockDetailFailed.set(true);
         this.predictiveNote.set(`El detalle por producto no está disponible: ${error instanceof Error ? error.message : error}`);
       } finally {
         if (signal.aborted) return;
+        this.stockDetailLoading.set(false);
         this.stockDetailPromise = undefined;
       }
     })();
     return this.stockDetailPromise;
+  }
+
+  private async enrichProductCodes(products: ProductRow[], missingCodes: string[], signal: AbortSignal): Promise<void> {
+    this.productCodeLoading.set(true);
+    try {
+      const codes = await this.cloud.productCodes(missingCodes, signal);
+      signal.throwIfAborted();
+      let changed = false;
+      for (const row of products) {
+        const code = !row.productCode ? codes[row.productId] : undefined;
+        if (code) { row.productCode = code; changed = true; }
+      }
+      if (changed) this.stockProductsData.set([...products]);
+    } catch {
+      if (!signal.aborted) this.transferCodeError.set(true);
+    } finally {
+      if (!signal.aborted) this.productCodeLoading.set(false);
+    }
   }
   private async ensurePredictiveDetail(): Promise<void> {
     if (this.predictiveDetailLoaded() || this.predictiveDetailFailed()) return;
@@ -3580,8 +3808,12 @@ export class App implements OnInit {
     const y = Math.max(4, Math.min(point[1] - content[1] / 2, view[1] - content[1] - 4));
     return [x, y];
   };
-  private tooltip(title: string, rows: Detail[]): string {
-    return `<div class="chart-tooltip"><strong>${safe(title)}</strong>${rows.map(r => `<div><span>${safe(r.label)}</span><b>${safe(r.value)}</b></div>`).join('')}</div>`;
+  private tooltip(title: string, rows: Detail[], floating = false): string {
+    if (floating) {
+      // This tooltip lives outside the shadow root and carries its own styles.
+      return `<div class="transfer-chart-tooltip" style="width:min(360px,calc(100vw - 56px));font:12px/1.4 Arial,sans-serif;white-space:normal;color:#172033"><strong style="display:block;margin-bottom:10px;font-size:13px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:5px 0"><span style="color:#64748b">${safe(r.label)}</span><b style="text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
+    }
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:205px;max-width:205px;font:10px/1.22 Arial,sans-serif;white-space:normal;color:#172033"><strong>${safe(title)}</strong>${rows.map(r => `<div><span>${safe(r.label)}</span><b>${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private barOption(labels: string[], values: number[], horizontal: boolean, color: string, details: Detail[][], unit: string, colors?: string[], verticalLabels = false): EChartsOption {
     const visibleRows = horizontal ? Math.min(7, labels.length) : labels.length;

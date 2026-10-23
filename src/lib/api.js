@@ -1,8 +1,20 @@
 import { businessDate } from "../../shared/metrics.js";
 let activeStoreContext = null;
 let storeContextLocked = false;
+const pendingGets = new Map();
+const recentGets = new Map();
+let cacheGeneration = 0;
+const DEFAULT_CACHE_TTL = 8000;
+
+export function clearApiCache() {
+  cacheGeneration += 1;
+  pendingGets.clear();
+  recentGets.clear();
+}
 export function setStoreContext(user) {
-  activeStoreContext = user?.rol === "jefe_tienda" ? user.tienda_id : null;
+  const nextStoreContext = user?.rol === "jefe_tienda" ? user.tienda_id : null;
+  if (String(nextStoreContext || "") !== String(activeStoreContext || "")) clearApiCache();
+  activeStoreContext = nextStoreContext;
   storeContextLocked = false;
 }
 export function lockStoreContext() { storeContextLocked = true; }
@@ -16,34 +28,72 @@ function checkContextError(payload) {
 }
 export async function api(path, options = {}) {
   if (!path.startsWith("/auth/")) assertStoreContextOpen();
-  let response;
-  const timeoutSignal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(45000) : undefined;
-  const signal = options.signal && timeoutSignal && typeof AbortSignal.any === "function"
-    ? AbortSignal.any([options.signal, timeoutSignal]) : options.signal || timeoutSignal;
-  try { response = await fetch(`/api${path}`, {
-    credentials: "include",
-    ...options,
-    signal,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(activeStoreContext ? { "X-Store-Context": String(activeStoreContext) } : {}),
-      ...options.headers,
-    },
-    body: options.body && typeof options.body !== "string"
-      ? JSON.stringify(options.body)
-      : options.body,
-  }); } catch (error) {
-    if (["TimeoutError", "AbortError"].includes(error?.name)) throw new Error("La consulta tardó demasiado. Intenta nuevamente.");
-    throw error;
+  const { cacheTtlMs = DEFAULT_CACHE_TTL, retry = true, ...fetchOptions } = options;
+  const method = String(fetchOptions.method || "GET").toUpperCase();
+  const cacheable = method === "GET" && !path.startsWith("/auth/") && !fetchOptions.signal && !fetchOptions.body;
+  const key = `${activeStoreContext || ""}:${path}`;
+  if (cacheable) {
+    const cached = recentGets.get(key);
+    if (cached && cached.expires > Date.now()) return cached.payload;
+    const pending = pendingGets.get(key);
+    if (pending) return pending;
   }
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    checkContextError(payload);
-    const error = new Error(payload.error || "No se pudo completar la operación.");
-    error.status = response.status;
-    throw error;
+
+  const generation = cacheGeneration;
+  const request = (async () => {
+    const body = fetchOptions.body && typeof fetchOptions.body !== "string"
+      ? JSON.stringify(fetchOptions.body)
+      : fetchOptions.body;
+    const requestOnce = async allowRetry => {
+      let response;
+      const timeoutSignal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(30000) : undefined;
+      const signal = fetchOptions.signal && timeoutSignal && typeof AbortSignal.any === "function"
+        ? AbortSignal.any([fetchOptions.signal, timeoutSignal]) : fetchOptions.signal || timeoutSignal;
+      try {
+        response = await fetch(`/api${path}`, {
+          credentials: "include",
+          ...fetchOptions,
+          signal,
+          headers: {
+            ...(body ? { "Content-Type": "application/json" } : {}),
+            ...(activeStoreContext ? { "X-Store-Context": String(activeStoreContext) } : {}),
+            ...fetchOptions.headers,
+          },
+          body,
+        });
+      } catch (error) {
+        if (["TimeoutError", "AbortError"].includes(error?.name)) throw new Error("La consulta tardó demasiado. Intenta nuevamente.");
+        if (allowRetry && retry && method === "GET") {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          return requestOnce(false);
+        }
+        throw error;
+      }
+      if (allowRetry && retry && method === "GET" && [429, 502, 503, 504].includes(response.status)) {
+        await response.text().catch(() => undefined);
+        await new Promise(resolve => setTimeout(resolve, 250));
+        return requestOnce(false);
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        checkContextError(payload);
+        const error = new Error(payload.error || "No se pudo completar la operación.");
+        error.status = response.status;
+        throw error;
+      }
+      return payload;
+    };
+    const payload = await requestOnce(true);
+    if (method !== "GET") clearApiCache();
+    else if (cacheable && generation === cacheGeneration && cacheTtlMs > 0) recentGets.set(key, { payload, expires: Date.now() + cacheTtlMs });
+    return payload;
+  })();
+
+  if (cacheable) {
+    pendingGets.set(key, request);
+    void request.then(() => pendingGets.delete(key), () => pendingGets.delete(key));
   }
-  return payload;
+  return request;
 }
 
 export const formatDate = (value, options = {}) => {

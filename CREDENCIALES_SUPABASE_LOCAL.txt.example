@@ -1,0 +1,17 @@
+CREDENCIALES LOCALES — NO SUBIR A GITHUB
+=========================================
+
+Cuenta administradora: dashboardcomercialn@gmail.com
+Proyecto / referencia: ______________________________
+URL del proyecto: https://________________.supabase.co
+Clave publicable: ___________________________________
+Clave service_role (secreta): ________________________
+
+Cuenta publicadora de Supabase Auth: dashboardcomercialn@gmail.com
+Contraseña de la cuenta publicadora: _________________
+
+Uso:
+- Copia estos valores a .env.supabase.local.
+- La clave service_role solo va en la PC administradora.
+- No subas el archivo final CREDENCIALES_SUPABASE_LOCAL.txt a GitHub.
+- No guardes contraseñas de las personas que acceden al dashboard.

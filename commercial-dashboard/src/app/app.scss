@@ -350,12 +350,12 @@
 .chart-card > h2 { padding-right: 28px; }
 .chart-card dashboard-chart { flex: 1; min-height: 0; }
 .chart-card small { color: #111; font-size: .63rem; text-align: center; }
-.static-charts { display: grid; grid-template-columns: minmax(0,.82fr) minmax(0,1.25fr) minmax(0,1.5fr); gap: 10px; margin-top: 12px; }
-.static-charts > .chart-card { height: 305px; }
-.static-charts .growth { width: auto; height: 305px !important; }
+.static-charts { display: grid; grid-template-columns: minmax(0,.86fr) minmax(0,.94fr) minmax(0,1.5fr); align-items: stretch; gap: 10px; margin-top: 12px; }
+.static-charts > .chart-card { height: 325px; }
+.static-charts .growth { width: auto; height: 325px !important; }
 .static-charts .growth dashboard-chart { height: auto !important; min-height: 0 !important; }
 .static-charts .growth dashboard-chart .chart-host { height: 100%; min-height: 0; }
-.static-charts .price-range-card { height: 305px; }
+.static-charts .price-range-card { height: 325px; }
 .gender-chart-content,.gender-donut-pane { display:flex; flex:1; min-height:0 }
 .gender-donut-pane { min-width:0; flex-direction:column }
 .gender-donut-pane dashboard-chart { flex:1; min-height:0 }
@@ -430,8 +430,15 @@
 .brand-detail-body strong { overflow: hidden; color: #172033; text-overflow: ellipsis; white-space: nowrap; }
 .brand-detail-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brand-detail-body p { padding: 16px; color: #64748b; font-size: .7rem; font-weight: 800; text-align: center; }
-.price-range-chart-content { display: contents; }
-.price-range-detail-table { display: none; }
+.price-range-header { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:38px; padding-right:28px; }
+.price-range-header h2 { margin:0; }
+.price-range-years { display:flex; align-items:flex-end; justify-content:flex-end; gap:10px; color:#64748b; font-size:.58rem; font-weight:800; }
+.price-range-years > span,.price-range-years label { display:grid; gap:3px; }
+.price-range-years strong { color:#172033; font-size:.72rem; }
+.price-range-years select { min-width:105px; height:30px; padding:0 24px 0 8px; border:1px solid #b8c5d9; border-radius:6px; color:#172033; background:#fff; font-size:.65rem; font-weight:800; }
+.price-range-chart-content { display:block; flex:1; min-height:0; }
+.price-range-chart-content > dashboard-chart { width:100%; height:100%!important; min-height:0!important; }
+.price-range-detail-table { display:none; }
 .chart-expanded .price-range-chart-content { display: grid; grid-template-columns: minmax(420px, 1.08fr) minmax(560px, .92fr); flex: 1; min-height: 0; gap: 20px; }
 .chart-expanded .price-range-chart-content > dashboard-chart { height: 100% !important; min-height: 0 !important; }
 .chart-expanded .price-range-detail-table { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto 1fr; overflow: hidden; border: 1px solid #d5deea; border-radius: 10px; background: #fff; }
@@ -441,9 +448,11 @@
 .price-range-detail-body { overflow: auto; overscroll-behavior: contain; }
 .price-range-detail-body > div { min-height: 40px; padding: 7px 12px; border-bottom: 1px solid #e7edf4; color: #475569; font-size: .69rem; }
 .price-range-detail-body > div:nth-child(even) { background: #fbfdff; }
+.price-range-detail-body > div.base-year { border-left:3px solid #123a8c; background:#f3f7fd; }
 .price-range-detail-body strong,
 .price-range-detail-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .price-range-detail-body strong { color: #172033; }
+.price-range-detail-body strong small { display:block; margin-top:2px; color:#64748b; font-size:.52rem; }
 .price-range-detail-body p { padding: 16px; color: #64748b; font-size: .7rem; font-weight: 800; text-align: center; }
 .category-view-toggle { display:flex; gap:4px; margin-top:8px; }
 .category-view-toggle button { height:25px; padding:0 10px; border:1px solid #b7c2d3; border-radius:5px; background:#fff; color:#475569; cursor:pointer; font-size:.6rem; font-weight:800; letter-spacing:.02em; }
@@ -470,8 +479,14 @@
 .stock-history-summary > div { min-width: 0; text-align: right; }
 .stock-history-summary small { display: block; font-size: .5rem; font-weight: 800; }
 .stock-history-summary strong { display: block; overflow: hidden; color: #172033; font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
-.inventory-analysis-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; margin-top: 12px; }
+.inventory-analysis-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 12px; }
 .store-value-coverage-card { box-sizing: border-box; height: 420px; }
+.store-value-coverage-card:not(.chart-expanded) > .chart-expand { right:64px; }
+.store-value-coverage-content { display:flex; flex:1; min-height:0; }
+.store-value-chart-pane { display:flex; width:100%; max-width:1100px; min-width:0; min-height:0; flex-direction:column; margin:0 auto; }
+.store-value-chart-pane dashboard-chart { flex:1; min-height:0; }
+.chart-expanded .store-value-coverage-content { display:grid; grid-template-columns:minmax(360px,.95fr) minmax(620px,1.35fr); gap:20px; }
+.chart-expanded .store-value-chart-pane { max-width:none; margin:0; }
 .inventory-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-right: 30px; }
 .inventory-chart-heading h2 { min-width: 0; }
 .inventory-chart-heading > span, .inventory-matrix-heading > span { flex: 0 0 auto; padding: 4px 8px; border: 1px solid #d8e2f1; border-radius: 999px; background: #eef3fb; color: #123a8c; font-size: .54rem; font-weight: 900; }
@@ -482,7 +497,20 @@
 .inventory-health-strip .deficit i { background: #e11d2e; }
 .inventory-health-strip .optimal i { background: #0f9d8a; }
 .inventory-health-strip .excess i { background: #123a8c; }
+.size-distribution-card { box-sizing: border-box; height: 420px; }
+.size-chart-controls { display:flex; flex-wrap:wrap; gap:5px; margin:7px 30px 2px 0; }
+.size-chart-controls > div { display:flex; min-width:0; gap:2px; padding:2px; border:1px solid #d8e0ec; border-radius:7px; background:#f6f8fb; }
+.size-chart-controls button { height:23px; padding:0 7px; border:0; border-radius:5px; background:transparent; color:#64748b; cursor:pointer; font-size:.52rem; font-weight:900; }
+.size-chart-controls button.active { background:#123a8c; color:#fff; box-shadow:0 1px 3px rgba(18,58,140,.22); }
+.size-distribution-card dashboard-chart { flex:1; min-height:0; }
+.size-chart-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:3px; }
+.size-chart-summary span { min-width:0; padding:4px 6px; border:1px solid #e2e8f0; border-radius:5px; background:#f8fafc; text-align:right; }
+.size-chart-summary small { display:block; overflow:hidden; color:#64748b; font-size:.48rem; font-weight:850; text-overflow:ellipsis; white-space:nowrap; }
+.size-chart-summary strong { display:block; color:#172033; font-size:.65rem; }
+.size-chart-summary .pending { border-color:#f1c96b; background:#fff9e8; }
+.size-chart-summary .pending strong { color:#9a5b00; }
 .inventory-matrix-card { box-sizing: border-box; display: flex; height: 420px; flex-direction: column; padding: 13px; overflow: hidden; }
+.inventory-matrix-card--embedded { height:100%; min-height:0; padding:0; border:0; background:transparent; box-shadow:none; }
 .inventory-matrix-heading { display: grid; gap: 2px; margin-bottom: 7px; }
 .inventory-matrix-heading h2 { font-size: .84rem; }
 .inventory-matrix-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid #d7dfeb; border-radius: 9px; }
@@ -621,7 +649,7 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .login-card .login-error { padding: 8px 10px; border-radius: 7px; background: #fff1f2; color: #b91c1c; font-weight: 800; }
 .loader { width: 36px; height: 36px; margin: auto; border: 4px solid #dbe4f3; border-top-color: #123a8c; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-:host ::ng-deep .chart-tooltip { box-sizing: border-box; min-width: 136px; max-width: 205px; font-family: Arial,sans-serif; white-space: normal; }
+:host ::ng-deep .chart-tooltip { box-sizing: border-box; width: 205px; min-width: 205px; max-width: 205px; font-family: Arial,sans-serif; white-space: normal; }
 :host ::ng-deep .chart-tooltip > strong { display: block; margin-bottom: 5px; color: #172033; font-size: 10px; }
 :host ::ng-deep .chart-tooltip div { display: grid; grid-template-columns: minmax(72px,1fr) minmax(60px,auto); align-items: start; gap: 5px; margin: 2px 0; font-size: 10px; line-height: 1.22; }
 :host ::ng-deep .chart-tooltip span { color: #64748b; }
@@ -1362,6 +1390,24 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 @media (min-width: 901px) and (max-width: 1450px) {
   :host { --dashboard-kpi-columns:4; }
   .portal-embed .brand-header h1 { font-size:clamp(1.2rem,1.8vw,1.85rem); }
-  .static-charts { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .static-charts .price-range-card { grid-column:1 / -1; }
+  .static-charts { grid-template-columns:minmax(0,.82fr) minmax(0,.94fr) minmax(0,1.42fr); }
+}
+
+@media (max-width: 1100px) {
+  .static-charts { grid-template-columns:1fr; }
+  .static-charts > .chart-card,
+  .static-charts .growth,
+  .static-charts .price-range-card { height:350px!important; min-height:0; }
+  .chart-expanded .price-range-chart-content { grid-template-columns:1fr; grid-template-rows:minmax(300px,1fr) minmax(250px,.8fr); overflow:auto; }
+  .chart-expanded .price-range-detail-table { max-height:300px; }
+  .chart-expanded .store-value-coverage-content { grid-template-columns:1fr; overflow:auto; }
+  .chart-expanded .store-value-chart-pane,
+  .chart-expanded .inventory-matrix-card--embedded { min-height:360px; }
+}
+
+@media (max-width: 620px) {
+  .price-range-header { align-items:flex-start; flex-direction:column; padding-right:30px; }
+  .price-range-years { width:100%; justify-content:flex-start; }
+  .chart-expanded .price-range-detail-head,.chart-expanded .price-range-detail-body > div { min-width:520px; }
+  .chart-expanded .price-range-detail-table { overflow:auto; }
 }

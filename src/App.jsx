@@ -9,6 +9,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const CommercialDashboard = lazy(() => import("./pages/CommercialDashboard"));
 const CommercialPersonnel = lazy(() => import("./pages/CommercialPersonnel"));
+const MetasComerciales = lazy(() => import("./pages/MetasComerciales"));
 const CommercialPortal = lazy(() => import("./pages/CommercialPortal"));
 const Usuarios = lazy(() => import("./pages/Usuarios"));
 const Tiendas = lazy(() => import("./pages/Tiendas"));
@@ -150,8 +151,9 @@ export default function App() {
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
     dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+      ? <CommercialPortal user={user} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
+    "metas-comerciales": user.rol === "gerente_comercial" ? <MetasComerciales /> : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: user.rol === "gerente_comercial" ? <CommercialPersonnel user={user} /> : isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
     tiendas: <Tiendas user={user} />,

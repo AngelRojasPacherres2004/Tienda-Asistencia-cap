@@ -1,13 +1,41 @@
-venv/
-node_modules/
-dist/
-.angular/
-.netlify/
+# Credenciales y configuración privada
 .env
-.etl_work/
 .env.*
 !.env.example
+!.env.supabase.local.example
+CREDENCIALES_SUPABASE_LOCAL.txt
+credenciales.txt
+ACCESOS_DASHBOARD_POR_ROL.txt
+
+# Dependencias, entornos, cachés y temporales
+venv/
+.venv/
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.angular/
+**/.angular/
+.netlify/
+**/.netlify/
+.etl_work/
+**/__pycache__/
+*.py[cod]
 *.log
-__pycache__/
-*.pyc
 .edge-capture-profile/
+supabase/.temp/
+
+# Datos comerciales y artefactos regenerables
+input/
+capa1/
+capa2/
+commercial-dashboard/public/assets/data/
+DashboardGeneral_Portable_v*.zip
+
+# Copia de respaldo del antiguo repositorio anidado; no forma parte del proyecto unificado
+/Tienda-Asistencia-cap/
+/dashboard-web/
+
+# Archivos locales del sistema
+.DS_Store
+Thumbs.db

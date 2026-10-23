@@ -24,7 +24,7 @@ const product = (storeId, stockUnits, units30, productId = 'P1', brand = 'ADIDAS
 function fixture() {
   const subject = new exports.Subject();
   subject.predictiveStoreOptions = () => ['A', 'B', 'C'].map(storeId => ({ storeId, alias: storeId, isStore: true }));
-  subject.staticPredictiveProducts = () => [product('A', 100, 10), product('B', 0, 10), product('C', 12, 20), product('A', 80, 0, 'P2', 'NIKE', 'CALZADO'), product('B', 0, 20, 'P2', 'NIKE', 'CALZADO'), product('OUTSIDE', 1000, 1000)];
+  subject.stockProductsData = () => [product('A', 100, 10), product('B', 0, 10), product('C', 12, 20), product('A', 80, 0, 'P2', 'NIKE', 'CALZADO'), product('B', 0, 20, 'P2', 'NIKE', 'CALZADO'), product('OUTSIDE', 1000, 1000)];
   return subject;
 }
 const totals = subject => ({ ...subject.transferSummary() });
@@ -57,7 +57,7 @@ test('choosing a destination preserves available donors and sums only that store
 
 test('summary covers all filtered pages and page is clamped when filters reduce the list', () => {
   const subject = fixture();
-  subject.staticPredictiveProducts = () => Array.from({ length: 12 }, (_, i) => [product('A', 100, 0, `P${i}`), product('B', 0, 20, `P${i}`)]).flat();
+  subject.stockProductsData = () => Array.from({ length: 12 }, (_, i) => [product('A', 100, 0, `P${i}`), product('B', 0, 20, `P${i}`)]).flat();
   subject.transferPage.set(1);
   assert.equal(subject.transferPageRows().length, 2);
   assert.deepEqual(totals(subject), { stockUnits: 1200, salesUnits: 240 });
@@ -76,4 +76,57 @@ test('the three original bar series follow the filtered opportunities', () => {
   assert.deepEqual(Array.from(options.series[1].data), [0, 12]);
   subject.transferPriority.set('CRITICAL');
   assert.deepEqual(Array.from(subject.transferChartOption().series[0].data), [100]);
+});
+
+test('footwear displays and searches its Nissei code with leading zeros, without mixing identical names', () => {
+  const subject = fixture();
+  const shoe = (store, stock, sales, id, code) => ({ ...product(store, stock, sales, id, 'SKECHERS', 'CALZADO'), product: 'CROCS NIÑO SKECHERS - 402020L-BLLM', productCode: code });
+  subject.stockProductsData = () => [
+    shoe('A', 20, 0, 'P_7F5B21313D48A558', '00023C7003'), shoe('B', 0, 15, 'P_7F5B21313D48A558', '00023C7003'),
+    shoe('A', 30, 0, 'P_1111111111111111', '00023C7004'), shoe('B', 0, 15, 'P_1111111111111111', '00023C7004'),
+  ];
+  subject.transferSearch.set('00023c7003');
+  assert.equal(subject.transferRecommendations().length, 1);
+  assert.equal(subject.transferRecommendations()[0].productCode, '00023C7003');
+  const chart = subject.transferChartOption();
+  assert.match(chart.yAxis.axisLabel.formatter('0'), /Código: 00023C7003/);
+  subject.tooltip = (title, rows) => ({ title, rows });
+  const tooltip = chart.tooltip.formatter([{ dataIndex: 0 }]);
+  assert.equal(tooltip.rows.find(row => row.label === 'Código Nissei').value, '00023C7003');
+  assert.ok(!tooltip.rows.some(row => row.value === 'P_7F5B21313D48A558'));
+});
+
+test('all inventory categories can be selected with their own lines, brands and transfer totals', () => {
+  const subject = fixture();
+  const rows = subject.stockProductsData();
+  for (const category of ['HOGAR', 'TECNOLOGÍA', 'FERRETERÍA']) {
+    rows.push(...[product('A', 50, 0, category, `Marca ${category}`, category), product('B', 0, 10, category, `Marca ${category}`, category)]
+      .map(row => ({ ...row, line: `Línea ${category}` })));
+  }
+  rows.push(product('OUTSIDE', 100, 0, 'OUT', 'Externa', 'SOLO FUERA DEL ALCANCE'));
+  subject.stockProductsData = () => rows;
+  assert.deepEqual(Array.from(subject.transferRubros()), ['CALZADO', 'FERRETERÍA', 'HOGAR', 'TECNOLOGÍA', 'TEXTIL']);
+  for (const category of ['HOGAR', 'TECNOLOGÍA', 'FERRETERÍA']) {
+    subject.transferRubro.set(category);
+    assert.deepEqual(Array.from(subject.transferLines()), [`Línea ${category}`]);
+    assert.deepEqual(Array.from(subject.transferBrands()), [`Marca ${category}`]);
+    assert.equal(subject.transferRecommendations().length, 1);
+    assert.equal(subject.transferRecommendations()[0].category, category);
+    assert.deepEqual(totals(subject), { stockUnits: 50, salesUnits: 10 });
+  }
+  subject.resetTransferFilters();
+  assert.equal(subject.transferRecommendations().length, 6);
+});
+
+test('hardware shows its real Nissei code and never falls back to an internal ID', () => {
+  const subject = fixture();
+  const rows = [product('A', 50, 0, 'P_7D1CA146F7466B31', 'Marca', 'FERRETERÍA'), product('B', 0, 10, 'P_7D1CA146F7466B31', 'Marca', 'FERRETERÍA')];
+  subject.stockProductsData = () => rows;
+  subject.tooltip = (_title, details) => details;
+  assert.equal(subject.transferChartOption().tooltip.formatter([{ dataIndex: 0 }])[0].value, 'No disponible');
+  assert.doesNotMatch(subject.transferChartOption().yAxis.axisLabel.formatter('0'), /P_7D1CA146F7466B31/);
+  for (const row of rows) row.productCode = '0001234567';
+  const chart = subject.transferChartOption();
+  assert.equal(chart.tooltip.formatter([{ dataIndex: 0 }])[0].value, '0001234567');
+  assert.match(chart.yAxis.axisLabel.formatter('0'), /Código: 0001234567/);
 });

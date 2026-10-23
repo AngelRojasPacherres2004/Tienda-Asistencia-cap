@@ -11,6 +11,7 @@ import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
+import { createProductCodeLookup } from "../lib/commercial-product-codes.js";
 import { normalizeLaborArea } from "../../src/lib/laborAreas.js";
 import { normalizeDepartureReason, validDepartureReason } from "../../src/lib/personnelCatalogs.js";
 import { normalizedPersonnelFields } from "../../shared/personnelNormalization.js";
@@ -30,6 +31,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SEC
   auth: { autoRefreshToken: false, persistSession: false },
   global: { fetch: retrySupabaseRead },
 });
+const commercialProductCodes = createProductCodeLookup(supabase);
 
 const headers = {
   "Content-Type": "application/json; charset=utf-8",
@@ -178,7 +180,7 @@ async function withStoreName(user) {
 
 function sessionClaims(user) {
   return {
-    id: user.id, nombres: user.nombres, apellidos: user.apellidos, usuario: user.usuario,
+    id: user.id, nombres: user.nombres, apellidos: user.apellidos, dni: user.dni || null, usuario: user.usuario,
     rol: user.rol, tienda_id: user.tienda_principal_id ?? user.tienda_id,
     cambio_credenciales_pendiente: Boolean(user.cambio_credenciales_pendiente),
     credenciales_actualizadas_en: user.credenciales_actualizadas_en || null,
@@ -266,7 +268,175 @@ async function commercialOperationalSummary(sessionUser) {
   };
 }
 
+async function commercialStoreGoals(sessionUser) {
+  const access = await currentCommercialAccess(sessionUser);
+  const { data: mappings, error: mappingError } = await supabase.from("commercial_store_map")
+    .select("dashboard_store_id,tienda_id").in("dashboard_store_id", access.storeIds);
+  if (mappingError) throw dbError(mappingError);
+  const stores = (mappings || []).filter(row => row.tienda_id != null);
+  if (!stores.length) return { goals: [] };
+  const dashboardByStore = new Map(stores.map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+  const [goalsResult, annualResult] = await Promise.all([
+    supabase.from("metas_comerciales_tienda")
+      .select("tienda_id,anio,mes,rubro,meta_venta,actualizado_en")
+      .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
+    supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").order("anio"),
+  ]);
+  let goalRows = goalsResult.data || []; let annualRows = annualResult.data || [];
+  if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annualResult.error)) {
+    const [legacyResult, document] = await Promise.all([
+      supabase.from("metas_comerciales_tienda").select("tienda_id,anio,mes,meta_venta,actualizado_en")
+        .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
+      readCommercialGoalsDocument(),
+    ]);
+    if (legacyResult.error) throw dbError(legacyResult.error);
+    const merged = new Map((legacyResult.data || []).map(row => [`${row.tienda_id}|${row.anio}|${row.mes}|`, { ...row, rubro: "" }]));
+    for (const row of document.goals || []) merged.set(`${row.tienda_id}|${row.anio}|${row.mes}|${row.rubro || ""}`, row);
+    goalRows = [...merged.values()]; annualRows = document.annualTargets || [];
+  } else if (goalsResult.error || annualResult.error) throw dbError(goalsResult.error || annualResult.error);
+  return { goals: goalRows.map(row => ({
+    storeId: dashboardByStore.get(Number(row.tienda_id)), periodId: Number(row.anio) * 100 + Number(row.mes),
+    category: cleanText(row.rubro) || undefined, target: Number(row.meta_venta), updatedAt: row.actualizado_en,
+  })).filter(row => row.storeId), annualTargets: annualRows.map(row => ({
+    year: Number(row.anio), target: Number(row.meta_venta), updatedAt: row.actualizado_en,
+  })) };
+}
+
+const commercialGoalsDocumentPath = "configuracion/metas-comerciales.json";
+const missingCentralGoalsSchema = (error) => !!error && ["42703", "PGRST204", "PGRST205"].includes(error.code);
+
+async function readCommercialGoalsDocument() {
+  const { data, error } = await supabase.storage.from("dashboard-data").download(commercialGoalsDocumentPath);
+  if (error) {
+    if (String(error.message || "").toLowerCase().includes("not found") || Number(error.statusCode) === 404) return { goals: [], annualTargets: [] };
+    throw httpError("No se pudo leer la configuración de metas comerciales.", 500);
+  }
+  try {
+    const parsed = JSON.parse(await data.text());
+    return { goals: Array.isArray(parsed.goals) ? parsed.goals : [], annualTargets: Array.isArray(parsed.annualTargets) ? parsed.annualTargets : [] };
+  } catch { throw httpError("La configuración de metas comerciales no es válida.", 500); }
+}
+
+async function writeCommercialGoalsDocument(document) {
+  const payload = Buffer.from(JSON.stringify({ version: 1, ...document }), "utf8");
+  const { error } = await supabase.storage.from("dashboard-data").upload(commercialGoalsDocumentPath, payload, { contentType: "application/json", upsert: true });
+  if (error) throw httpError("No se pudo guardar la configuración de metas comerciales.", 500);
+}
+
+function commercialGoalsYear(event, body = null) {
+  const value = body?.anio ?? event.queryStringParameters?.anio ?? new Date().getFullYear();
+  const year = Number(value);
+  if (!Number.isInteger(year) || year < 2024 || year > 2100) throw httpError("El año de metas no es válido.", 400);
+  return year;
+}
+
+async function commercialGoalStores() {
+  const mappings = await fetchAllReportPages(supabase.from("commercial_store_map").select("tienda_id,dashboard_store_id").not("tienda_id", "is", null).order("tienda_id"));
+  const storeIds = [...new Set(mappings.map(row => Number(row.tienda_id)).filter(Number.isInteger))];
+  if (!storeIds.length) return [];
+  const stores = await fetchAllReportPages(supabase.from("tiendas")
+    .select("id,nombre,codigo,estado,cluster_id,cluster:clusters(nombre,codigo)").in("id", storeIds).order("nombre"));
+  const dashboardIds = new Map(mappings.map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+  return stores.map(({ cluster, ...store }) => ({
+    ...store, dashboard_store_id: dashboardIds.get(Number(store.id)), cluster: cluster?.codigo || cluster?.nombre || "",
+  }));
+}
+
+async function commercialGoalRubros() {
+  const { data, error } = await supabase.from("productos").select("rubro").not("rubro", "is", null).order("id").limit(5000);
+  if (error) throw dbError(error);
+  return [...new Set((data || []).map(row => cleanText(row.rubro)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+async function listCommercialGoals(event) {
+  const year = commercialGoalsYear(event);
+  const [stores, rubros, goalsResult, annual] = await Promise.all([
+    commercialGoalStores(), commercialGoalRubros(), supabase.from("metas_comerciales_tienda")
+      .select("tienda_id,anio,mes,rubro,meta_venta,actualizado_en").eq("anio", year).order("tienda_id").order("mes"),
+    supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").eq("anio", year).maybeSingle(),
+  ]);
+  let goals = goalsResult.data || []; let annualTarget = annual.data?.meta_venta ?? "";
+  if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annual.error)) {
+    const [legacy, document] = await Promise.all([
+      supabase.from("metas_comerciales_tienda").select("tienda_id,anio,mes,meta_venta,actualizado_en").eq("anio", year).order("tienda_id").order("mes"),
+      readCommercialGoalsDocument(),
+    ]);
+    if (legacy.error) throw dbError(legacy.error);
+    const merged = new Map((legacy.data || []).map(row => [`${row.tienda_id}|${row.mes}|`, { ...row, rubro: "" }]));
+    for (const row of (document.goals || []).filter(row => Number(row.anio) === year)) merged.set(`${row.tienda_id}|${row.mes}|${row.rubro || ""}`, row);
+    goals = [...merged.values()]; annualTarget = (document.annualTargets || []).find(row => Number(row.anio) === year)?.meta_venta ?? "";
+  } else if (goalsResult.error || annual.error) throw dbError(goalsResult.error || annual.error);
+  const allowed = new Set(stores.map(store => Number(store.id)));
+  return {
+    anio: year, stores, rubros, meta_anual: annualTarget,
+    metas: goals.filter(row => allowed.has(Number(row.tienda_id))),
+  };
+}
+
+async function saveCommercialGoals(event, user) {
+  const data = bodyOf(event); const year = commercialGoalsYear(event, data);
+  const rubro = cleanText(data.rubro);
+  if (rubro.length > 120) throw httpError("El rubro seleccionado no es válido.", 400);
+  if (!Array.isArray(data.metas)) throw httpError("Las metas mensuales no son válidas.", 400);
+  const stores = await commercialGoalStores(); const allowedStores = new Set(stores.map(store => Number(store.id)));
+  const seen = new Set(); const rows = [];
+  for (const row of data.metas) {
+    const storeId = Number(row.tienda_id); const month = Number(row.mes); const key = `${storeId}|${month}`;
+    if (!allowedStores.has(storeId)) throw httpError("Una de las tiendas no pertenece al dashboard comercial.", 400);
+    if (!Number.isInteger(month) || month < 1 || month > 12 || seen.has(key)) throw httpError("Los meses enviados no son válidos.", 400);
+    seen.add(key);
+    if (row.meta_venta === "" || row.meta_venta == null) continue;
+    const target = Number(row.meta_venta);
+    if (!Number.isFinite(target) || target < 0 || target > 999999999999.99) throw httpError(`La meta del mes ${month} no es válida.`, 400);
+    rows.push({ tienda_id: storeId, anio: year, mes: month, rubro, meta_venta: Math.round(target * 100) / 100,
+      actualizado_por: user.id, actualizado_en: new Date().toISOString() });
+  }
+  let annualTarget = null;
+  if (!rubro && data.meta_anual !== "" && data.meta_anual != null) {
+    annualTarget = Number(data.meta_anual);
+    if (!Number.isFinite(annualTarget) || annualTarget < 0 || annualTarget > 999999999999.99) throw httpError("La meta anual no es válida.", 400);
+    annualTarget = Math.round(annualTarget * 100) / 100;
+  }
+  const schemaCheck = await supabase.from("metas_comerciales_tienda").select("rubro").limit(1);
+  if (missingCentralGoalsSchema(schemaCheck.error)) {
+    const document = await readCommercialGoalsDocument(); const now = new Date().toISOString();
+    document.goals = (document.goals || []).filter(row => Number(row.anio) !== year || cleanText(row.rubro) !== rubro)
+      .concat(rows.map(row => ({ ...row, actualizado_en: now })));
+    if (!rubro) {
+      document.annualTargets = (document.annualTargets || []).filter(row => Number(row.anio) !== year);
+      if (annualTarget != null) document.annualTargets.push({ anio: year, meta_venta: annualTarget, actualizado_por: user.id, actualizado_en: now });
+    }
+    await writeCommercialGoalsDocument(document);
+    return listCommercialGoals({ queryStringParameters: { anio: String(year) } });
+  }
+  if (schemaCheck.error) throw dbError(schemaCheck.error);
+  const removed = await supabase.from("metas_comerciales_tienda").delete().eq("anio", year).eq("rubro", rubro);
+  if (removed.error) throw dbError(removed.error);
+  for (let index = 0; index < rows.length; index += 500) {
+    const { error } = await supabase.from("metas_comerciales_tienda").insert(rows.slice(index, index + 500));
+    if (error) throw dbError(error);
+  }
+  if (!rubro) {
+    if (annualTarget == null) {
+      const { error } = await supabase.from("metas_comerciales_anuales").delete().eq("anio", year);
+      if (error) throw dbError(error);
+    } else {
+      const { error } = await supabase.from("metas_comerciales_anuales").upsert({ anio: year, meta_venta: annualTarget,
+        actualizado_por: user.id, actualizado_en: new Date().toISOString() }, { onConflict: "anio" });
+      if (error) throw dbError(error);
+    }
+  }
+  return listCommercialGoals({ queryStringParameters: { anio: String(year) } });
+}
+
+let publishedReleaseCache = null;
+let publishedReleasePromise = null;
+const commercialFileMetadataCache = new Map();
+
 async function publishedCommercialRelease() {
+  if (publishedReleaseCache?.expires > Date.now()) return publishedReleaseCache.value;
+  if (publishedReleasePromise) return publishedReleasePromise;
+  publishedReleasePromise = (async () => {
   const { data, error } = await supabase.from("dashboard_releases")
     .select("id,version,sales_cutoff,stock_cutoff,published_at")
     .eq("status", "published")
@@ -275,20 +445,41 @@ async function publishedCommercialRelease() {
     .maybeSingle();
   if (error) throw dbError(error);
   if (!data) throw httpError("Todavía no hay una publicación comercial disponible.", 404);
+  publishedReleaseCache = { value: data, expires: Date.now() + 15_000 };
   return data;
+  })();
+  try { return await publishedReleasePromise; }
+  finally { publishedReleasePromise = null; }
 }
 
 async function commercialFileRows(releaseId, access, logicalName = null) {
+  const cacheKey = `${releaseId}:${access.scopeType}:${access.scopeValue || "all"}:${logicalName || "*"}`;
+  const cached = commercialFileMetadataCache.get(cacheKey);
+  if (cached?.expires > Date.now()) return cached.value || cached.promise;
   const table = access.scopeType === "all" ? "dashboard_files" : "dashboard_scope_files";
-  let query = supabase.from(table).select("logical_name,checksum_sha256,parts")
-    .eq("release_id", releaseId);
-  if (access.scopeType !== "all") {
-    query = query.eq("scope_type", access.scopeType).eq("scope_value", access.scopeValue);
+  const promise = (async () => {
+    let query = supabase.from(table).select("logical_name,checksum_sha256,parts")
+      .eq("release_id", releaseId);
+    if (access.scopeType !== "all") {
+      query = query.eq("scope_type", access.scopeType).eq("scope_value", access.scopeValue);
+    }
+    if (logicalName) query = query.eq("logical_name", logicalName);
+    const { data, error } = await query;
+    if (error) throw dbError(error);
+    return data || [];
+  })();
+  commercialFileMetadataCache.set(cacheKey, { promise, expires: Date.now() + 60_000 });
+  try {
+    const value = await promise;
+    commercialFileMetadataCache.set(cacheKey, { value, expires: Date.now() + 60_000 });
+    if (commercialFileMetadataCache.size > 200) {
+      for (const [key, entry] of commercialFileMetadataCache) if (entry.expires <= Date.now()) commercialFileMetadataCache.delete(key);
+    }
+    return value;
+  } catch (error) {
+    commercialFileMetadataCache.delete(cacheKey);
+    throw error;
   }
-  if (logicalName) query = query.eq("logical_name", logicalName);
-  const { data, error } = await query;
-  if (error) throw dbError(error);
-  return data || [];
 }
 
 async function commercialManifest(sessionUser) {
@@ -955,12 +1146,12 @@ function validateTiendaPayload(data) {
     throw httpError("La fecha de cierre no puede ser anterior a la fecha de apertura.", 400);
   }
   if (data.estado === "inactivo" && !data.fecha_cierre) throw httpError("Indica la fecha de cierre de la tienda inactiva.", 400);
-  for (const field of ["metraje_m2", "capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp", "alquiler_mensual"]) {
+  for (const field of ["metraje_m2", "capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid", "cant_colaboradores_normal", "colaboradores_camp", "alquiler_mensual"]) {
     if (data[field] !== "" && data[field] != null && (!Number.isFinite(Number(data[field])) || Number(data[field]) < 0)) {
       throw httpError("Los valores operativos de la tienda deben ser números positivos.", 400);
     }
   }
-  for (const field of ["capacidad_stock_unid", "cant_colaboradores_normal", "colaboradores_camp"]) {
+  for (const field of ["capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid", "cant_colaboradores_normal", "colaboradores_camp"]) {
     if (data[field] !== "" && data[field] != null && !Number.isInteger(Number(data[field]))) {
       throw httpError("El stock y la cantidad de colaboradores deben ser números enteros.", 400);
     }
@@ -989,11 +1180,11 @@ function validIds(list) {
 // ---------- Autenticación ----------
 
 async function authAccount(query) {
-  const fields = "id,nombres,apellidos,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en";
+  const fields = "id,nombres,apellidos,dni,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en";
   let result = await query(fields);
   if (["42703", "PGRST204"].includes(result.error?.code)) {
     // Mantiene el ingreso disponible mientras la migración se aplica en bd-app.
-    result = await query("id,nombres,apellidos,usuario,password,rol,estado,tienda_id");
+    result = await query("id,nombres,apellidos,dni,usuario,password,rol,estado,tienda_id");
     if (result.data) {
       result.data.cambio_credenciales_pendiente = false;
       result.data.credenciales_actualizadas_en = null;
@@ -1020,7 +1211,7 @@ async function login(event) {
   if (!valid) return fail();
 
   const sessionUser = {
-    id: account.id, nombres: account.nombres, apellidos: account.apellidos,
+    id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
     usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
     cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
     credenciales_actualizadas_en: account.credenciales_actualizadas_en,
@@ -1104,7 +1295,7 @@ async function loginApoyoSeguridad(event) {
   if (!/^\d{8}$/.test(dni)) throw httpError("Ingresa un DNI válido de 8 dígitos.", 400);
   if (!["image/jpeg", "image/png", "image/webp"].includes(body.foto_mime)) throw httpError("La foto debe ser JPG, PNG o WEBP.", 400);
   const { data: support, error } = await supabase.from("apoyos_seguridad")
-    .select("id,usuario_id,tienda_id,fecha_inicio,fecha_fin,activo,usuarios!apoyos_seguridad_usuario_id_fkey(id,nombres,apellidos,usuario,estado)")
+    .select("id,usuario_id,tienda_id,fecha_inicio,fecha_fin,activo,usuarios!apoyos_seguridad_usuario_id_fkey(id,nombres,apellidos,dni,usuario,estado)")
     .eq("dni", dni).maybeSingle();
   if (error) throw dbError(error);
   const today = todayISO(); const account = support?.usuarios;
@@ -1118,7 +1309,7 @@ async function loginApoyoSeguridad(event) {
   const clientIp = event.headers["x-nf-client-connection-ip"] || event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "local";
   const access = await supabase.from("apoyo_seguridad_accesos").insert({ apoyo_id: support.id, foto_rostro_path: photoPath, ip: clientIp });
   if (access.error) throw dbError(access.error);
-  const sessionUser = { id: account.id, nombres: account.nombres, apellidos: account.apellidos, usuario: account.usuario, rol: "seguridad", tienda_id: support.tienda_id, apoyo_temporal: true };
+  const sessionUser = { id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni, usuario: account.usuario, rol: "seguridad", tienda_id: support.tienda_id, apoyo_temporal: true };
   const token = jwt.sign(sessionUser, jwtSecret(), { expiresIn: "10h" });
   return json(200, { user: await withStoreName(sessionUser) }, { "Set-Cookie": sessionCookie(token, event) });
 }
@@ -1670,7 +1861,7 @@ async function deleteCluster(id) {
 async function listTiendas(actor) {
   let request = supabase
     .from("tiendas")
-    .select("id,nombre,codigo,direccion,distrito,provincia,departamento,zona,formato,fecha_apertura,fecha_cierre,metraje_m2,capacidad_stock_unid,cant_colaboradores_normal,colaboradores_camp,alquiler_mensual,estado,fecha_creacion,jefe_id,cluster_id,zonal_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos,estado),cluster:clusters(id,nombre,codigo)")
+    .select("id,nombre,codigo,direccion,distrito,provincia,departamento,zona,formato,fecha_apertura,fecha_cierre,metraje_m2,capacidad_stock_unid,capacidad_stock_calzado_unid,capacidad_stock_textil_unid,cant_colaboradores_normal,colaboradores_camp,alquiler_mensual,estado,fecha_creacion,jefe_id,cluster_id,zonal_id,jefe:usuarios!tiendas_jefe_fk(id,nombres,apellidos,estado),cluster:clusters(id,nombre,codigo)")
     .order("nombre");
   if (actor?.rol === "jefe_zonal") {
     const ids = await zonalStoreIds(actor.id);
@@ -1750,6 +1941,8 @@ function tiendaPayload(data) {
     fecha_apertura: data.fecha_apertura || null,
     fecha_cierre: data.fecha_cierre || null, metraje_m2: number(data.metraje_m2),
     capacidad_stock_unid: number(data.capacidad_stock_unid),
+    capacidad_stock_calzado_unid: number(data.capacidad_stock_calzado_unid),
+    capacidad_stock_textil_unid: number(data.capacidad_stock_textil_unid),
     cant_colaboradores_normal: number(data.cant_colaboradores_normal),
     colaboradores_camp: number(data.colaboradores_camp), alquiler_mensual: number(data.alquiler_mensual),
     estado: data.estado, cluster_id: data.cluster_id ? Number(data.cluster_id) : null,
@@ -3949,7 +4142,7 @@ const miTiendaTables = {
 async function getMiTienda(user) {
   const storeId = user.tienda_id;
   const [store, documentos, reclamaciones, acciones, requerimientos, seguimientos, visitas, observaciones, apoyos] = await Promise.all([
-    supabase.from("tiendas").select("id,nombre,formato,distrito,direccion,metraje_m2,capacidad_stock_unid").eq("id", storeId).single(),
+    supabase.from("tiendas").select("id,nombre,formato,distrito,direccion,metraje_m2,capacidad_stock_unid,capacidad_stock_calzado_unid,capacidad_stock_textil_unid").eq("id", storeId).single(),
     supabase.from("documentos_municipales").select("*").eq("tienda_id", storeId).order("fecha_vencimiento"),
     supabase.from("reclamaciones_tienda").select("*").eq("tienda_id", storeId).order("fecha", { ascending: false }),
     supabase.from("acciones_tienda").select("*").eq("tienda_id", storeId).order("fecha"),
@@ -3977,7 +4170,7 @@ async function getMiTienda(user) {
 
 async function updateMiTiendaData(event, user) {
   const data = bodyOf(event);
-  const editable = ["nombre", "formato", "distrito", "direccion", "metraje_m2", "capacidad_stock_unid"];
+  const editable = ["nombre", "formato", "distrito", "direccion", "metraje_m2", "capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid"];
   if (Object.keys(data).some(key => !editable.includes(key))) throw httpError("Ese campo de tienda no se puede editar desde este módulo.", 403);
   const payload = {};
   for (const [key, max] of [["nombre", 120], ["distrito", 80], ["direccion", 180]]) {
@@ -3990,11 +4183,11 @@ async function updateMiTiendaData(event, user) {
     if (!["PROPIA", "METRO"].includes(data.formato)) throw httpError("El formato no es válido.", 400);
     payload.formato = data.formato;
   }
-  for (const key of ["metraje_m2", "capacidad_stock_unid"]) {
+  for (const key of ["metraje_m2", "capacidad_stock_unid", "capacidad_stock_calzado_unid", "capacidad_stock_textil_unid"]) {
     if (data[key] === undefined) continue;
     const value = Number(data[key]);
     if (data[key] === "" || data[key] == null || !Number.isFinite(value) || value < 0
-      || (key === "capacidad_stock_unid" && !Number.isInteger(value))) throw httpError(`El valor de ${key === "metraje_m2" ? "metros cuadrados" : "capacidad"} no es válido.`, 400);
+      || (key !== "metraje_m2" && !Number.isInteger(value))) throw httpError(`El valor de ${key === "metraje_m2" ? "metros cuadrados" : "capacidad"} no es válido.`, 400);
     payload[key] = value;
   }
   if (!Object.keys(payload).length) throw httpError("No hay datos para actualizar.", 400);
@@ -4391,7 +4584,7 @@ export async function handler(event) {
       if ((session.credenciales_actualizadas_en || null) !== (account.credenciales_actualizadas_en || null))
         throw httpError("Tus credenciales cambiaron. Inicia sesión nuevamente.", 401);
       const sessionUser = {
-        id: account.id, nombres: account.nombres, apellidos: account.apellidos,
+        id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
         usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
         cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
         credenciales_actualizadas_en: account.credenciales_actualizadas_en,
@@ -4465,6 +4658,18 @@ export async function handler(event) {
     if (path === "/commercial/access" && method === "GET") {
       return json(200, { access: await currentCommercialAccess(user) });
     }
+    if (path === "/commercial-goals" && method === "GET") {
+      ensureAuth(event, "gerente_comercial");
+      return json(200, await listCommercialGoals(event));
+    }
+    if (path === "/commercial-goals" && method === "PUT") {
+      ensureAuth(event, "gerente_comercial");
+      return json(200, await saveCommercialGoals(event, user));
+    }
+    if (path === "/commercial/product-codes" && method === "POST") {
+      await currentCommercialAccess(user);
+      return json(200, { codes: await commercialProductCodes(bodyOf(event).productIds) });
+    }
     if (path === "/seguridad-central" && method === "GET") {
       ensureAuth(event, "administrador_seguridad");
       const result = await securityAdminReport(event);
@@ -4487,6 +4692,9 @@ export async function handler(event) {
     }
     if (path === "/commercial/operational-summary" && method === "GET") {
       return json(200, await commercialOperationalSummary(user));
+    }
+    if (path === "/commercial/store-goals" && method === "GET") {
+      return json(200, await commercialStoreGoals(user));
     }
     if (path === "/commercial/company-ranking" && method === "GET") {
       return json(200, await commercialCompanyRanking(user));
