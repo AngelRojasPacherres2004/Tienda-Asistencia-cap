@@ -14,6 +14,7 @@ export default function MiTienda({ user, onNavigate }) {
   const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? "all" : user.tienda_id || "");
   const [zonalAlerts, setZonalAlerts] = useState(null);
   const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [notice, setNotice] = useState(null);
+  const [salesForecast, setSalesForecast] = useState(null); const [salesForecastError, setSalesForecastError] = useState("");
   const [dashboardKey, setDashboardKey] = useState(0); const dashboardRequestId = useRef(0);
   const currentPeriodDate = todayISO();
   const [matrixPeriod, setMatrixPeriod] = useState({ year: currentPeriodDate.slice(0, 4), monthNumber: currentPeriodDate.slice(5, 7), week: "", day: "" });
@@ -23,19 +24,20 @@ export default function MiTienda({ user, onNavigate }) {
     const requestId = ++dashboardRequestId.current;
     const suffix = isZonal ? `?tienda_id=${storeId}` : "";
     const selectedStore = stores.find((store) => String(store.id) === String(storeId));
+    setSalesForecast(null); setSalesForecastError("");
     const profileRequest = isZonal ? Promise.resolve({ tienda_nombre: selectedStore?.nombre, tienda_direccion: selectedStore?.direccion, tienda_alquiler_mensual: selectedStore?.alquiler_mensual }) : api("/perfil");
     const peopleRequest = api(`/personal/resumen${suffix}`);
     const essential = Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest])
       .then(([p, s, team]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(isOperationalDemo() ? { ...s, trafico_hoy: demoTrafficTotal({ id: storeId || user.tienda_id }, [todayISO()]) } : s); setPeople(team); setNotice(null); })
       .catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); });
-    Promise.allSettled([api(`/documentos-alertas${suffix}`), api(`/errores-personal${suffix}`)])
-      .then(([docs, errorRows]) => { if (requestId !== dashboardRequestId.current) return; setDocuments(docs.status === "fulfilled" ? docs.value : []); setErrors(errorRows.status === "fulfilled" ? errorRows.value : []); });
+    Promise.allSettled([api(`/documentos-alertas${suffix}`), api(`/errores-personal${suffix}`), api(`/operaciones/pronostico-ventas${suffix}`)])
+      .then(([docs, errorRows, forecast]) => { if (requestId !== dashboardRequestId.current) return; setDocuments(docs.status === "fulfilled" ? docs.value : []); setErrors(errorRows.status === "fulfilled" ? errorRows.value : []); if (forecast.status === "fulfilled") setSalesForecast(forecast.value); else setSalesForecastError(forecast.reason?.message || "No se pudo calcular el pronóstico de ventas."); });
     return essential;
   }, [isZonal, storeId, stores, user.tienda_id]);
   useEffect(() => { if (!isZonal) return; api("/tiendas").then((rows) => { setStores(rows); setStoreId((current) => current || rows[0]?.id || ""); }).catch((e) => setNotice({ type: "error", text: e.message })); }, [isZonal]);
   useEffect(() => { if (!isZonal) return; api("/zonal/asistencia").then((attendance) => setZonalAlerts({ attendance })).catch(() => setZonalAlerts(null)); }, [isZonal]);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
-  const changeStore = (value) => { dashboardRequestId.current += 1; setProfile(null); setSummary(null); setNotice(null); setStoreId(value); };
+  const changeStore = (value) => { dashboardRequestId.current += 1; setProfile(null); setSummary(null); setSalesForecast(null); setSalesForecastError(""); setNotice(null); setStoreId(value); };
   if (isZonal && storeId === "all") return <section className="store-dashboard-shell is-light">
     {notice && <Notice type={notice.type}>{notice.text}</Notice>}
     <ZonalStoreComparison user={user} stores={stores} refreshKey={dashboardKey} onSelectStore={changeStore} />
@@ -64,6 +66,7 @@ export default function MiTienda({ user, onNavigate }) {
       <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del personal" first={{ value: administrativeIncidents, label: "Incidencias internas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Alertas operativas" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Movimiento y seguridad" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: securityIncidents, label: "Incidencias de seguridad" }} /></section>
       {expiring.length > 0 && <section className="store-dashboard-paired-kpis store-dashboard-document-alerts"><DashboardUpcomingDocumentsKpi documents={expiring} total={summary.documentos_por_vencer} /></section>}
       {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /></section>}
+      <SalesForecastMatrix forecast={salesForecast} error={salesForecastError} storeName={storeName} />
       <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button><button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button><button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>
       <DashboardSection kicker="Afluencia de clientes" title={`Tráfico de ${storeName} por hora`} />
       <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
@@ -81,6 +84,20 @@ function DashboardUpcomingDocumentsKpi({ documents, total }) {
   return <article className={`store-dashboard-paired-kpi store-dashboard-documents-kpi ${expanded ? "is-expanded" : ""}`}><header><h3>Documentos próximos a vencer</h3><div><span>{total || 0} alerta{total === 1 ? "" : "s"}</span><button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{expanded ? "Contraer" : "Ver todos"}</button></div></header><section className="store-dashboard-document-list">{documents.length ? documents.map((document) => { const remainingDays = daysUntil(document.fecha_vencimiento); return <div key={document.id}><strong>{document.nombre || document.tipo_documento || "Documento"}</strong><small>Vence {formatDate(document.fecha_vencimiento)} · {remainingDays === 0 ? "vence hoy" : `en ${remainingDays} días`}</small></div>; }) : <small>No hay documentos dentro del plazo configurado</small>}</section></article>;
 }
 function DashboardSection({ kicker, title }) { return <header className="store-dashboard-section"><div><span>{kicker}</span><h2>{title}</h2></div></header>; }
+
+const forecastMoney = (value) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", maximumFractionDigits: 0 }).format(Number(value) || 0);
+function SalesForecastMatrix({ forecast, error, storeName }) {
+  if (error) return <section className="sales-forecast-panel panel"><header><div><span>Proyección comercial</span><h2>Venta esperada de la próxima semana</h2></div></header><Notice type="error">{error}</Notice></section>;
+  if (!forecast) return <section className="sales-forecast-panel panel"><div className="sales-forecast-loading"><span className="loader" />Calculando pronóstico de venta…</div></section>;
+  const direction = (factor) => factor > 1.005 ? "alza" : factor < .995 ? "baja" : "estable";
+  return <section className="sales-forecast-panel panel" aria-label={`Pronóstico de ventas de ${storeName}`}>
+    <header><div><span>Proyección comercial · corte {formatDate(forecast.salesCutoff)}</span><h2>Venta esperada · {formatDate(forecast.weekStart)} al {formatDate(forecast.weekEnd)}</h2><p>{forecast.method}</p></div><strong className="sales-forecast-confidence">Confianza {forecast.confidence}%</strong></header>
+    <div className="sales-forecast-kpis"><article><small>Venta esperada</small><strong>{forecastMoney(forecast.expected)}</strong></article><article><small>Rango probable</small><strong>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</strong></article><article><small>Meta de la semana</small><strong>{forecast.target ? forecastMoney(forecast.target) : "Sin meta"}</strong></article></div>
+    <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Demanda</th><th>Venta esperada</th><th>Rango probable</th><th>Meta diaria</th></tr></thead><tbody>{forecast.days.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td><span className="sales-demand-bar"><i style={{ width: `${Math.min(100, day.demandIndex * .72)}%` }} /></span><b>{day.demandIndex}</b></td><td>{forecastMoney(day.expected)}</td><td>{forecastMoney(day.lower)} – {forecastMoney(day.upper)}</td><td>{day.target ? forecastMoney(day.target) : "—"}</td></tr>)}</tbody><tfoot><tr><th colSpan="2">Total semana</th><td>{forecastMoney(forecast.expected)}</td><td>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</td><td>{forecast.target ? forecastMoney(forecast.target) : "—"}</td></tr></tfoot></table></div>
+    <div className="sales-forecast-drivers" aria-label="Variables usadas en el pronóstico">{forecast.drivers.map((driver) => <span key={driver.label} className={!driver.available && driver.available !== undefined ? "is-missing" : direction(driver.factor)}><small>{driver.label}</small><strong>{driver.available === false ? "Sin datos" : `${driver.factor >= 1 ? "+" : ""}${((driver.factor - 1) * 100).toFixed(1)}%`}</strong></span>)}</div>
+    <p className="sales-forecast-note">Es una estimación operativa, no una garantía. El rango se amplía automáticamente cuando hay menos historial o mayor variación.</p>
+  </section>;
+}
 
 function StoreWorkerInsights({ isZonal, storeId }) {
   const [insights, setInsights] = useState(null);
