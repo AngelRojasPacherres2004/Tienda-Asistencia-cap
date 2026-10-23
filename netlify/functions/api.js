@@ -3,7 +3,6 @@ import { retrySupabaseRead } from "../lib/retry-supabase-fetch.js";
 import { fetchFacebookInsights } from "../lib/facebook-insights.js";
 import { businessDate, addDays, attendanceCounts, courseProgress, rotationCounts, employmentPeriods, pendingAttendance } from "../../shared/metrics.js";
 import { createClient } from "@supabase/supabase-js";
-import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import ExcelJS from "exceljs";
 import { mailConfigured } from "../lib/attendance-mail.js";
@@ -12,6 +11,7 @@ import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
 import { createProductCodeLookup } from "../lib/commercial-product-codes.js";
+import { hashOperationalPassword, verifyOperationalPassword } from "../lib/operational-passwords.js";
 import { aggregateCommercialGoalTotals, normalizeGoalRubro } from "../lib/commercial-goals.js";
 import { buildStoreSalesForecast } from "../lib/store-sales-forecast.js";
 import { normalizeLaborArea } from "../../src/lib/laborAreas.js";
@@ -320,6 +320,21 @@ async function commercialStoreGoals(sessionUser) {
     annualTargets.set(year, (typeof current === "number" ? current : current?.target || 0) + goal.target);
   }
   for (const row of annualRows) annualTargets.set(Number(row.anio), { year: Number(row.anio), target: Number(row.meta_venta), updatedAt: row.actualizado_en });
+  const categoryYears = [...new Set([...mergedGoals.values()].filter(goal => goal.category).map(goal => Math.floor(goal.periodId / 100)))];
+  for (const year of categoryYears) {
+    const aggregate = aggregateCommercialGoalTotals([...mergedGoals.values()].filter(goal => goal.category).map(goal => ({
+      tienda_id: stores.find(store => store.dashboard_store_id === goal.storeId)?.tienda_id,
+      anio: Math.floor(goal.periodId / 100), mes: goal.periodId % 100,
+      rubro: goal.category, meta_venta: goal.target,
+    })), year, null);
+    for (const total of aggregate.totalRows) {
+      const storeId = dashboardByStore.get(Number(total.tienda_id));
+      if (storeId) mergedGoals.set(`${storeId}|${year * 100 + total.mes}|`, {
+        storeId, periodId: year * 100 + total.mes, target: total.meta_venta, source: "CALCULADO",
+      });
+    }
+    if (aggregate.totalRows.length) annualTargets.set(year, { year, target: aggregate.annualTarget });
+  }
   for (const [year, value] of annualTargets) if (typeof value === "number") annualTargets.set(year, { year, target: value });
   return { goals: [...mergedGoals.values()], annualTargets: [...annualTargets.values()].sort((a, b) => a.year - b.year) };
 }
@@ -365,9 +380,7 @@ async function commercialGoalStores() {
 }
 
 async function commercialGoalRubros() {
-  const { data, error } = await supabase.from("productos").select("rubro").not("rubro", "is", null).order("id").limit(5000);
-  if (error) throw dbError(error);
-  return [...new Set((data || []).map(row => cleanText(row.rubro)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  return ["TEXTIL", "CALZADO"];
 }
 
 async function listCommercialGoals(event, sessionUser) {
@@ -402,7 +415,13 @@ async function listCommercialGoals(event, sessionUser) {
     merged.set(`${storeId}|${periodId % 100}|${category}`, { tienda_id: storeId, anio: year, mes: periodId % 100, rubro: category, meta_venta: Number(row.target), fuente: row.source || "PUBLICACION" });
   }
   for (const row of goals.filter(row => allowed.has(Number(row.tienda_id)))) merged.set(`${row.tienda_id}|${row.mes}|${cleanText(row.rubro)}`, row);
-  if (annualTarget === "" || annualTarget == null) annualTarget = [...merged.values()].filter(row => !cleanText(row.rubro)).reduce((sum, row) => sum + Number(row.meta_venta || 0), 0);
+  const aggregate = aggregateCommercialGoalTotals([...merged.values()], year, null);
+  if (aggregate.totalRows.length) {
+    for (const row of aggregate.totalRows) merged.set(`${row.tienda_id}|${row.mes}|`, { ...row, fuente: "CALCULADO" });
+    annualTarget = aggregate.annualTarget;
+  } else if (annualTarget === "" || annualTarget == null) {
+    annualTarget = [...merged.values()].filter(row => !cleanText(row.rubro)).reduce((sum, row) => sum + Number(row.meta_venta || 0), 0);
+  }
   return {
     anio: year, stores, rubros, meta_anual: annualTarget,
     metas: [...merged.values()],
@@ -461,19 +480,6 @@ async function saveCommercialGoals(event, user) {
     const { error } = await supabase.from("metas_comerciales_tienda").insert(rows.slice(index, index + 500));
     if (error) throw dbError(error);
   }
-  const categoryResult = await supabase.from("metas_comerciales_tienda")
-    .select("tienda_id,anio,mes,rubro,meta_venta").eq("anio", year).in("rubro", ["TEXTIL", "CALZADO"]);
-  if (categoryResult.error) throw dbError(categoryResult.error);
-  const now = new Date().toISOString(); const aggregate = aggregateCommercialGoalTotals(categoryRowsWithPublishedBase(categoryResult.data), year, user.id, now);
-  const removedTotals = await supabase.from("metas_comerciales_tienda").delete().eq("anio", year).eq("rubro", "");
-  if (removedTotals.error) throw dbError(removedTotals.error);
-  for (let index = 0; index < aggregate.totalRows.length; index += 500) {
-    const { error } = await supabase.from("metas_comerciales_tienda").insert(aggregate.totalRows.slice(index, index + 500));
-    if (error) throw dbError(error);
-  }
-  const annualResult = await supabase.from("metas_comerciales_anuales").upsert({ anio: year, meta_venta: aggregate.annualTarget,
-    actualizado_por: user.id, actualizado_en: now }, { onConflict: "anio" });
-  if (annualResult.error) throw dbError(annualResult.error);
   return listCommercialGoals({ queryStringParameters: { anio: String(year) } }, user);
 }
 
@@ -1258,12 +1264,14 @@ async function login(event) {
   const fail = () => json(401, { error: "Usuario o contrase?a incorrectos." });
   if (!account || account.estado !== "activo") return fail();
   if (!account.password || account.password === disabledPassword) return fail();
-  // Las cuentas comerciales nuevas guardan el valor literal solicitado. Los
-  // usuarios operativos anteriores conservan temporalmente su acceso bcrypt
-  // hasta que sus contraseñas se reemplacen; no se puede recuperar su texto.
-  const valid = account.password === String(password)
-    || (account.password.startsWith("$2") && await bcrypt.compare(String(password), account.password));
-  if (!valid) return fail();
+  const verification = await verifyOperationalPassword(account.password, password);
+  if (!verification.valid) return fail();
+  if (verification.needsUpgrade) {
+    const upgraded = await hashOperationalPassword(password);
+    const { error: upgradeError } = await supabase.from("usuarios")
+      .update({ password: upgraded }).eq("id", account.id).eq("password", account.password);
+    if (upgradeError) throw dbError(upgradeError);
+  }
 
   const sessionUser = {
     id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
@@ -1329,7 +1337,7 @@ async function changeCredentials(event, user) {
     .select("id").eq("usuario", usuario).neq("id", user.id).limit(1);
   if (duplicateError) throw dbError(duplicateError);
   if (duplicate?.length) throw httpError("Ese nombre de usuario ya está en uso.", 409);
-  const hash = await bcrypt.hash(password, 12);
+  const hash = await hashOperationalPassword(password);
   const { data: updated, error } = await supabase.from("usuarios")
     .update({ usuario, password: hash, cambio_credenciales_pendiente: false, credenciales_actualizadas_en: new Date().toISOString() })
     .eq("id", user.id).eq("cambio_credenciales_pendiente", true)
@@ -1572,7 +1580,7 @@ async function createUser(event, actor) {
   await ensureUniqueUser(usuario, dni);
   if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
   if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id));
-  const password = data.password ? String(data.password) : null;
+  const password = await hashOperationalPassword(data.password);
   const personnel = normalizedPersonnelFields(data);
   const { data: created, error } = await supabase.from("usuarios").insert({
     nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
@@ -1654,7 +1662,7 @@ async function importStoreUsers(event, actor) {
   });
 
   const rows = await Promise.all(nuevos.map(async (row) => ({
-    ...row, password: row.password ? String(row.password) : null,
+    ...row, password: await hashOperationalPassword(row.password),
   })));
   if (rows.length) {
     const { error } = await supabase.from("usuarios").insert(rows);
@@ -1708,7 +1716,7 @@ async function updateUser(event, id, actor) {
     telefono_emergencia: data.telefono_emergencia ? cleanText(data.telefono_emergencia) : null,
     alergia: data.alergia ? cleanText(data.alergia) : null,
   };
-  if (data.password) payload.password = String(data.password);
+  if (data.password) payload.password = await hashOperationalPassword(data.password);
   const { error } = await supabase.from("usuarios").update(payload).eq("id", id);
   if (error) throw dbError(error);
   await saveOptionalPersonnelFields(id, data);
@@ -1814,7 +1822,7 @@ async function importUsersAdmin(event, actor) {
       const dni = cleanText(data.dni);
       await ensureUniqueUser(usuario, dni);
       if (!centralRoles.has(data.rol)) await ensureTiendaActiva(data.tienda_id);
-      const password = data.password ? String(data.password) : null;
+      const password = await hashOperationalPassword(data.password);
       const { error } = await supabase.from("usuarios").insert({
         nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni, tipo_documento: data.tipo_documento || "dni", usuario, password,
         telefono: data.telefono ? cleanText(data.telefono) : null, rol: data.rol,

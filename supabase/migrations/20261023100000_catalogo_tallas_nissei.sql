@@ -3,10 +3,16 @@
 
 alter table public.productos
   add column if not exists codigo_base text generated always as (
-    left(btrim(codigo_nissei), greatest(length(btrim(codigo_nissei)) - 3, 0))
+    case
+      when length(btrim(codigo_nissei)) = 14 then left(btrim(codigo_nissei), 11)
+      else null
+    end
   ) stored,
   add column if not exists codigo_talla varchar(3) generated always as (
-    upper(right(btrim(codigo_nissei), 3))
+    case
+      when length(btrim(codigo_nissei)) = 14 then upper(right(btrim(codigo_nissei), 3))
+      else null
+    end
   ) stored;
 
 create index if not exists productos_codigo_base_idx on public.productos (codigo_base);
@@ -151,7 +157,7 @@ select
 from clasificados c
 left join public.tallas_nissei t
   on t.rubro = c.rubro_normalizado
- and t.codigo_talla = c.codigo_talla;
+ and t.codigo_talla = c.codigo_talla
  and (
    t.genero = c.genero_talla
    or (t.rubro = 'TEXTIL' and t.genero = 'ADULT' and c.genero_talla in ('DAMA', 'CABALLERO', 'ADULT'))

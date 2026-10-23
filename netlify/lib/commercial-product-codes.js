@@ -1,34 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export const MAX_PRODUCT_CODE_IDS = 20_000;
-
-async function readCatalogCodes(db) {
-  const pageSize = 1000;
-  const page = async index => {
-    const { data, error } = await db.from('productos').select('codigo_nissei')
-      .order('codigo_nissei').range(index * pageSize, (index + 1) * pageSize - 1);
-    if (error) throw error;
-    return data || [];
-  };
-  const rows = await page(0);
-  if (rows.length < pageSize) return rows;
-  let nextPage = 1, finished = false;
-  // Read the complete catalog without making every category wait on serial requests.
-  await Promise.all(Array.from({ length: 6 }, async () => {
-    while (!finished) {
-      const index = nextPage++;
-      try {
-        const batch = await page(index);
-        rows.push(...batch);
-        if (batch.length < pageSize) finished = true;
-      } catch (error) {
-        finished = true;
-        throw error;
-      }
-    }
-  }));
-  return rows;
-}
+export const PRODUCT_CODE_QUERY_BATCH = 250;
 
 export function catalogProductId(code) {
   const normalized = String(code).trim().replace(/\s+/g, ' ').toUpperCase().replace(/\.0+$/, '');
@@ -36,8 +9,6 @@ export function catalogProductId(code) {
 }
 
 export function createProductCodeLookup(db) {
-  let cached;
-  let expires = 0;
   return async function productCodes(productIds) {
     if (!Array.isArray(productIds) || productIds.length > MAX_PRODUCT_CODE_IDS ||
         productIds.some(id => typeof id !== 'string' || !/^P_[A-F0-9]{16}$/.test(id))) {
@@ -46,13 +17,25 @@ export function createProductCodeLookup(db) {
       throw error;
     }
     if (!productIds.length) return {};
-    if (!cached || Date.now() >= expires) {
-      expires = Date.now() + 15 * 60 * 1000;
-      cached = readCatalogCodes(db)
-        .then(rows => new Map(rows.filter(row => row.codigo_nissei).map(row => [catalogProductId(row.codigo_nissei), row.codigo_nissei])))
-        .catch(error => { cached = undefined; throw error; });
+    const uniqueIds = [...new Set(productIds)];
+    const batches = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += PRODUCT_CODE_QUERY_BATCH) {
+      batches.push(uniqueIds.slice(offset, offset + PRODUCT_CODE_QUERY_BATCH));
     }
-    const index = await cached;
-    return Object.fromEntries([...new Set(productIds)].filter(id => index.has(id)).map(id => [id, index.get(id)]));
+    const rows = [];
+    let nextBatch = 0;
+    await Promise.all(Array.from({ length: Math.min(4, batches.length) }, async () => {
+      while (nextBatch < batches.length) {
+        const batch = batches[nextBatch++];
+        const { data, error } = await db.from('productos')
+          .select('codigo_portal_id,codigo_nissei')
+          .in('codigo_portal_id', batch);
+        if (error) throw error;
+        rows.push(...(data || []));
+      }
+    }));
+    return Object.fromEntries(rows
+      .filter(row => row.codigo_portal_id && row.codigo_nissei)
+      .map(row => [row.codigo_portal_id, row.codigo_nissei]));
   };
 }

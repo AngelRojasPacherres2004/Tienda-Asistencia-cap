@@ -5,6 +5,7 @@
  */
 import process from "node:process";
 import { portalStores } from "./portal-store-catalog.mjs";
+import { hashOperationalPassword } from "../netlify/lib/operational-passwords.js";
 
 const URL_BASE = process.env.SUPABASE_URL?.replace(/\/$/, "");
 const KEY = process.env.SUPABASE_SECRET_KEY;
@@ -101,13 +102,15 @@ if (new Set(plan.map(row => row.id).filter(Boolean)).size !== plan.filter(row =>
 console.log(JSON.stringify({ mode: APPLY ? "apply" : "dry-run", accountCount: plan.length, updates: plan.filter(row => row.id).length, creates: plan.filter(row => row.create).length, accounts: plan.map(({ username, role, scopeType, scopeValue, storeId }) => ({ username, role, scopeType, scopeValue, storeId })) }, null, 2));
 if (!APPLY) process.exit(0);
 
+const passwordHash = await hashOperationalPassword(PASSWORD);
+
 for (const row of plan) {
   let userId = row.id;
   if (row.create) {
     const created = await rest("usuarios", "POST", {
       nombres: row.role === "sistemas" ? "Sistemas" : row.role === "seguridad" ? "Seguridad" : "Comercial",
       apellidos: row.role === "seguridad" ? row.username.slice("seguridad".length).toUpperCase() : row.username.replace(/\D/g, "") || "Portal",
-      dni: null, usuario: row.username, password: PASSWORD,
+      dni: null, usuario: row.username, password: passwordHash,
       rol: row.role, tienda_id: row.storeId, estado: "activo", portal_only: true,
       fecha_ingreso: new Date().toISOString().slice(0, 10),
     });
@@ -115,7 +118,7 @@ for (const row of plan) {
     if (!userId) throw new Error(`No se pudo crear ${row.username}.`);
   } else {
     await rest(`usuarios?id=eq.${userId}`, "PATCH", {
-      usuario: row.username, password: PASSWORD, estado: "activo",
+      usuario: row.username, password: passwordHash, estado: "activo",
       ...(row.role === "seguridad" ? { tienda_id: row.storeId } : {}),
     });
   }
