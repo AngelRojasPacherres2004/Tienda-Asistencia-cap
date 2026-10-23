@@ -83,6 +83,7 @@ export default function CommercialDashboard({ onNavigate }) {
     <div className="store-dashboard-body">
       <section className="store-dashboard-personnel-kpis"><CommercialKpi icon={Building2} label="Tiendas activas" value={activeStores.length} detail="Clústeres A y B"/><CommercialKpi icon={Users} label="Equipo activo" value={personnel===null?"—":scopedPersonnel.reduce((total,store)=>total+store.active,0)} detail={personnel===null?"Cargando dotación":"Colaboradores de tienda"}/><CommercialKpi icon={AlertTriangle} label="Tiendas por reforzar" value={personnel===null?"—":storesBelowTarget} detail={personnel===null?"Cargando dotación":campaignMonth?"Según meta de campaña":"Según dotación base"}/></section>
       <section className="store-dashboard-paired-kpis commercial-priority-kpis"><CommercialPair label="Alertas operativas" first={{value:alerts.critical.length,label:"Incidencias importantes"}} second={{value:alerts.affected.size,label:"Tiendas que requieren atención"}}/><CommercialPair label="Control documental" first={{value:alerts.expired.length,label:"Documentos vencidos"}} second={{value:alerts.expiring.length,label:"Próximos a vencer"}}/></section>
+      {!filters.tienda_id && <CommercialDocuments expired={alerts.expired} expiring={alerts.expiring} stores={data.stores}/>}
       <header className="store-dashboard-section"><div><span>Dotación · clústeres A y B</span><h2>Personal por tienda</h2></div></header>
       {personnelError && <Notice type="error">No se pudo cargar la dotación: {personnelError}</Notice>}
       {personnel===null ? !personnelError && <p className="commercial-inline-loading" role="status">Cargando dotación por tienda…</p> : <div className="commercial-store-personnel"><div className="commercial-store-personnel__head"><span>Tienda</span><span>Equipo</span><span>Meta</span><span>Brecha</span><span>Cobertura</span></div>{storePersonnel.map(store=><div key={store.id}><strong>{store.nombre}<small>{clusterLabel(store.cluster_nombre)}{store.campaign&&store.base&&store.campaign>store.base?` · +${store.campaign-store.base} en campaña`:""}</small></strong><b>{store.active}</b><span>{store.target??"—"}</span><span className={store.gap<0?"is-short":""}>{store.gap===null?"Sin meta":store.gap<0?`Faltan ${-store.gap}`:store.gap?`+${store.gap}`:"Completa"}</span><span className="commercial-personnel-coverage">{store.coverage===null?"—":<><i><em style={{width:`${Math.min(store.coverage,100)}%`}}/></i><strong>{store.coverage}%</strong></>}</span></div>)}</div>}
@@ -101,5 +102,22 @@ export default function CommercialDashboard({ onNavigate }) {
 }
 
 function CommercialKpi({icon:Icon,label,value,detail}){return <article className="store-dashboard-personnel-kpi"><span className="commercial-kpi-icon"><Icon size={20}/></span><div><strong>{label}</strong><small>{detail}</small></div><b>{value}</b></article>}
+function CommercialDocuments({ expired, expiring, stores }) {
+  const rows = [...expired.map(row => ({ ...row, expired: true })), ...expiring.map(row => ({ ...row, expired: false }))]
+    .sort((a, b) => Number(b.expired) - Number(a.expired) || a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+  const storeNames = new Map(stores.map(store => [String(store.id), store.nombre]));
+  return <article className="commercial-alert-panel commercial-documents">
+    <header><span><FileClock size={18}/></span><h3>Documentos vencidos y por vencer</h3></header>
+    {rows.length ? <div className="commercial-documents__scroll"><table>
+      <thead><tr><th scope="col">Tienda</th><th scope="col">Documento</th><th scope="col">Vencimiento</th><th scope="col">Estado</th></tr></thead>
+      <tbody>{rows.map(row => <tr key={row.id}>
+        <td>{storeNames.get(String(row.tienda_id)) || row.tiendas?.nombre || "Tienda sin identificar"}</td>
+        <td>{row.tipo_documento || "Documento"}</td>
+        <td>{formatDate(row.fecha_vencimiento)}</td>
+        <td><span className={row.expired ? "commercial-alert-danger" : "commercial-document-warning"}>{row.expired ? "Vencido" : "Por vencer"}</span></td>
+      </tr>)}</tbody>
+    </table></div> : <p className="commercial-empty">No hay documentos vencidos ni por vencer.</p>}
+  </article>;
+}
 function CommercialPair({label,first,second}){return <article className="store-dashboard-paired-kpi"><h3>{label}</h3><div><span><strong>{first.value}</strong><small>{first.label}</small></span><span><strong>{second.value}</strong><small>{second.label}</small></span></div></article>}
 function CommercialList({title,icon:Icon,rows,empty,render}){return <article className="commercial-alert-panel"><header><span><Icon size={18}/></span><h3>{title}</h3></header>{rows.length?<div>{rows.map((row)=><div className="commercial-alert-row" key={row.id}>{render(row)}</div>)}</div>:<p className="commercial-empty">{empty}</p>}</article>}
