@@ -40,8 +40,9 @@ export type OperationalSummary = {
 export type CompanyRankingData = {
   stores: { storeId: string; store: string; alias: string; format: string; cluster: string; isStore: boolean;
     areaM2: number; capacity: number; status: string; openingDate?: string; closingDate?: string }[];
-  monthlyStore: { periodId: number; storeId: string; net: number; transactions: number }[];
+  monthlyStore: { periodId: number; storeId: string; gross: number; positiveReal: number; net: number; transactions: number }[];
   predictiveStore: { storeId: string; rotation: number | null; stockValue: number; sales30: number }[];
+  salesCutoff?: string;
 };
 export type StoreGoal = { storeId: string; periodId: number; category?: string; target: number; updatedAt?: string };
 export type AnnualGoal = { year: number; target: number; updatedAt?: string };

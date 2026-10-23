@@ -44,7 +44,7 @@ type HourlySalesRow = { periodId: number; date?: string; storeId: string; hour: 
 type BrandSummary = { name: string; net: number; units: number; share: number; category: string };
 type CategorySummary = { name: string; net: number; units: number; share: number; topLine: string; color: string };
 type CategoryView = 'RUBRO' | 'LINEA';
-type RankingMetric = 'ROTATION' | 'NET' | 'TICKET' | 'SALE_M2';
+type RankingMetric = 'ROTATION' | 'MARKUP' | 'TICKET' | 'SALE_M2';
 type GenderSummary = { name: string; net: number; units: number; share: number; averagePrice: number | null; topLine: string; color: string };
 // Fila cruda del archivo dashboard-predictive.json: ventanas 30/60/90 de venta y merma
 // ancladas al corte de stock/ventas (FactStock solo tiene una foto = el último corte,
@@ -455,7 +455,7 @@ export class App implements OnInit {
   readonly fromDate = signal('');
   readonly toDate = signal('');
   readonly categoryView = signal<CategoryView>('RUBRO');
-  readonly rankingMetrics = signal<RankingMetric[]>(['ROTATION', 'NET', 'TICKET', 'SALE_M2']);
+  readonly rankingMetrics = signal<RankingMetric[]>(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']);
   readonly selectedStores = signal<string[]>([]);
   readonly selectedCategories = signal<string[]>([]);
   readonly selectedGenders = signal<string[]>([]);
@@ -1962,7 +1962,7 @@ export class App implements OnInit {
     const values = rows.map(row => Number(row[field[metric]]) || 0);
     if (!rows.length) return {
       animation: false,
-      graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: this.stockDetailLoaded() ? 'SIN CÓDIGOS DE TALLA MAPEADOS' : 'PREPARANDO CÓDIGOS NISSEI…', fill: '#64748B', fontSize: 11, fontWeight: 800 } }]
+      graphic: this.productCodeLoading() ? [] : [{ type: 'text', left: 'center', top: 'middle', style: { text: 'SIN CÓDIGOS DE TALLA MAPEADOS', fill: '#64748B', fontSize: 11, fontWeight: 800 } }]
     } as EChartsOption;
     return {
       animation: false,
@@ -2420,6 +2420,8 @@ export class App implements OnInit {
     const stockYear = Number(d.metadata.stockCutoff.slice(0, 4));
     const metrics = candidates.map(store => {
       const rows = groups.get(store.storeId) || [];
+      const gross = sum(rows, 'gross');
+      const positiveReal = sum(rows, 'positiveReal');
       const net = sum(rows, 'net');
       const transactions = sum(rows, 'transactions');
       const ticket = transactions > 0 ? net / transactions : 0;
@@ -2429,17 +2431,18 @@ export class App implements OnInit {
         : null;
       const sellingAreaM2 = Math.max(0, Number(store.areaM2) || 0) * .8;
       const saleM2 = sellingAreaM2 > 0 ? net / sellingAreaM2 : 0;
+      const markup = gross > 0 ? (positiveReal - gross) / gross : null;
       const label = `${store.alias || store.store}${store.closingDate?.startsWith(`${selectedYear}-`) ? ' · CERRADA' : ''}`;
-      return { store, label, net, saleM2, ticket, rotation };
+      return { store, label, net, saleM2, ticket, rotation, markup };
     });
     const metricValue = (row: (typeof metrics)[number], metric: RankingMetric): number | null => {
       if (metric === 'ROTATION') return row.rotation;
-      if (metric === 'NET') return row.net;
+      if (metric === 'MARKUP') return row.markup;
       if (metric === 'TICKET') return row.ticket;
       return row.saleM2;
     };
     const metricLabel: Record<RankingMetric, string> = {
-      ROTATION: 'Rotación', NET: 'Venta neta', TICKET: 'Ticket prom.', SALE_M2: 'Venta × m²'
+      ROTATION: 'Rotación', MARKUP: 'Markup', TICKET: 'Ticket prom.', SALE_M2: 'Venta × m²'
     };
     const metricRanks = new Map<RankingMetric, Map<number, number>>(
       selectedMetrics.map(metric => [metric, denseRanks(metrics.map(row => metricValue(row, metric)), true)])
@@ -2460,11 +2463,9 @@ export class App implements OnInit {
     const rows = scored.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label, 'es'));
     const positionScaleMax = Math.max(1, rows.length);
     const singleMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : null;
-    const totalNet = metrics.reduce((total, row) => total + Math.max(0, row.net), 0);
     const formatMetric = (metric: RankingMetric, value: number | null): string => {
       if (value == null) return 'N/A';
-      if (metric === 'ROTATION') return this.percent(value);
-      if (metric === 'NET') return totalNet > 0 ? this.percent(value / totalNet) : 'N/A';
+      if (metric === 'ROTATION' || metric === 'MARKUP') return this.percent(value);
       return this.money(value);
     };
     if (!rows.length) return {
@@ -2483,7 +2484,7 @@ export class App implements OnInit {
       grid: { left: 48, right: 18, top: 25, bottom: 78 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
       yAxis: { type: 'value', min: 0, max: positionScaleMax + 1, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      series: [{ type: 'bar', data: rows.map((_, index) => positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'NET' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : C.gold, borderRadius: [4, 4, 0, 0] },
+      series: [{ type: 'bar', data: rows.map((_, index) => positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'MARKUP' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : C.gold, borderRadius: [4, 4, 0, 0] },
         label: { show: true, position: 'top', formatter: (params: any) => String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
     } as EChartsOption;
   });
@@ -2928,7 +2929,7 @@ export class App implements OnInit {
           { label: 'Estado', value: row?.status || 'SIN INFORMACIÓN' }
         ]);
       } },
-      grid: { left: 38, right: this.expandedChart() === 'store-value-coverage' ? 112 : 76, top: 6, bottom: 30 },
+      grid: { left: 38, right: this.expandedChart() === 'store-value-coverage' ? 150 : 132, top: 6, bottom: 30 },
       xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 24, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#334155', fontSize: 9, fontWeight: 850 } },
       series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 13, barCategoryGap: '24%',
@@ -3406,7 +3407,7 @@ export class App implements OnInit {
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
-    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'NET', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.healthyCoverageDays.set(30); this.overstockDays.set(90); this.noMovementMonths.set(3); this.predictiveMermaPct.set(2); this.rotationView.set('rotation');
+    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.healthyCoverageDays.set(30); this.overstockDays.set(90); this.noMovementMonths.set(3); this.predictiveMermaPct.set(2); this.rotationView.set('rotation');
     this.demandWindowUnit.set('MONTHS'); this.healthyCoverageUnit.set('MONTHS'); this.overstockUnit.set('MONTHS'); this.noMovementUnit.set('MONTHS'); this.leadTimeUnit.set('DAYS');
     this.openFilter.set(null); this.filterSearch.set({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' }); this.stockHistoryBucketsSelected.set([]);
     this.calendarOpen.set(false);
