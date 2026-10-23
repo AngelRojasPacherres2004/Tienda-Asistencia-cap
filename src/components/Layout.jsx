@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, UserCircle2, Users, X,
+  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import "../role-themes.css";
@@ -25,6 +25,7 @@ const navByRole = {
   gerente_comercial: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
     { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
+    { id: "metas-comerciales", label: "Metas comerciales", icon: Target },
     { id: "tiendas", label: "Tiendas y clústeres", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },

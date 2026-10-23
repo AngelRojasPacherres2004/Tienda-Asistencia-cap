@@ -9,6 +9,7 @@ type LoadRequest = {
   cacheEnabled: boolean;
 };
 type LoadResponse = { ok: true; data: unknown } | { ok: false; error: string };
+type ProgressResponse = { progress: number; phase: 'download' | 'cache' | 'decode' };
 
 const CACHE_NAME = 'dashboard-data-v2';
 const MAX_CACHED_FILES = 120;
@@ -24,15 +25,17 @@ function joinBuffers(chunks: Uint8Array[]): ArrayBuffer {
   return joined.buffer;
 }
 
-async function downloadParts(urls: string[]): Promise<ArrayBuffer> {
-  const chunks: Uint8Array[] = [];
-  for (const url of urls) {
+function reportProgress(progress: number, phase: ProgressResponse['phase']): void {
+  postMessage({ progress, phase } satisfies ProgressResponse);
+}
+
+async function downloadPart(url: string): Promise<Uint8Array> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
       const response = await fetch(url, { cache: 'default', signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      chunks.push(new Uint8Array(await response.arrayBuffer()));
+      return new Uint8Array(await response.arrayBuffer());
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         throw new Error('La descarga tardó demasiado. Intenta nuevamente.');
@@ -41,7 +44,29 @@ async function downloadParts(urls: string[]): Promise<ArrayBuffer> {
     } finally {
       clearTimeout(timeout);
     }
-  }
+}
+
+async function downloadParts(urls: string[]): Promise<ArrayBuffer> {
+  const chunks = new Array<Uint8Array>(urls.length);
+  let next = 0;
+  let completed = 0;
+  let failed = false;
+  const runner = async (): Promise<void> => {
+    while (next < urls.length && !failed) {
+      const index = next++;
+      try {
+        chunks[index] = await downloadPart(urls[index]);
+        completed += 1;
+        reportProgress(Math.round((completed / urls.length) * 82), 'download');
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, urls.length) }, () => runner()));
+  if (chunks.some(chunk => !chunk)) throw new Error('La descarga del detalle quedó incompleta.');
+  reportProgress(85, 'download');
   return joinBuffers(chunks);
 }
 
@@ -53,7 +78,10 @@ async function loadCachedBinary(data: LoadRequest): Promise<ArrayBuffer> {
   try {
     cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(cacheUrl);
-    if (cached) return cached.arrayBuffer();
+    if (cached) {
+      reportProgress(85, 'cache');
+      return cached.arrayBuffer();
+    }
   } catch {
     // La caché es una optimización: una restricción del navegador no debe
     // impedir que el dashboard descargue y abra los datos.
@@ -99,7 +127,9 @@ addEventListener('message', async ({ data }: MessageEvent<LoadRequest>) => {
   try {
     if (!data.urls.length) throw new Error('No se recibieron partes para descargar.');
     const binary = await loadCachedBinary(data);
+    reportProgress(90, 'decode');
     const payload = await decodeJson(binary, data.encoding);
+    reportProgress(98, 'decode');
     postMessage({ ok: true, data: payload } satisfies LoadResponse);
   } catch (error) {
     postMessage({

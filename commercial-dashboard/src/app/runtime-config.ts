@@ -6,6 +6,7 @@ export type DashboardRuntimeConfig = {
   supabasePublishableKey: string;
   groqAssistantEnabled: boolean;
   storeContextId?: number | null;
+  portalUser?: { nombres?: string; apellidos?: string } | null;
   groqChatModel?: string;
   groqFallbackModels?: string[];
 };

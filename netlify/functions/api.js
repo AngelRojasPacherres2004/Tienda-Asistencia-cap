@@ -276,17 +276,167 @@ async function commercialStoreGoals(sessionUser) {
   const stores = (mappings || []).filter(row => row.tienda_id != null);
   if (!stores.length) return { goals: [] };
   const dashboardByStore = new Map(stores.map(row => [Number(row.tienda_id), row.dashboard_store_id]));
-  const { data, error } = await supabase.from("metas_comerciales_tienda")
-    .select("tienda_id,anio,mes,meta_venta,actualizado_en")
-    .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes");
-  if (error) throw dbError(error);
-  return { goals: (data || []).map(row => ({
+  const [goalsResult, annualResult] = await Promise.all([
+    supabase.from("metas_comerciales_tienda")
+      .select("tienda_id,anio,mes,rubro,meta_venta,actualizado_en")
+      .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
+    supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").order("anio"),
+  ]);
+  let goalRows = goalsResult.data || []; let annualRows = annualResult.data || [];
+  if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annualResult.error)) {
+    const [legacyResult, document] = await Promise.all([
+      supabase.from("metas_comerciales_tienda").select("tienda_id,anio,mes,meta_venta,actualizado_en")
+        .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
+      readCommercialGoalsDocument(),
+    ]);
+    if (legacyResult.error) throw dbError(legacyResult.error);
+    const merged = new Map((legacyResult.data || []).map(row => [`${row.tienda_id}|${row.anio}|${row.mes}|`, { ...row, rubro: "" }]));
+    for (const row of document.goals || []) merged.set(`${row.tienda_id}|${row.anio}|${row.mes}|${row.rubro || ""}`, row);
+    goalRows = [...merged.values()]; annualRows = document.annualTargets || [];
+  } else if (goalsResult.error || annualResult.error) throw dbError(goalsResult.error || annualResult.error);
+  return { goals: goalRows.map(row => ({
     storeId: dashboardByStore.get(Number(row.tienda_id)), periodId: Number(row.anio) * 100 + Number(row.mes),
-    target: Number(row.meta_venta), updatedAt: row.actualizado_en,
-  })).filter(row => row.storeId) };
+    category: cleanText(row.rubro) || undefined, target: Number(row.meta_venta), updatedAt: row.actualizado_en,
+  })).filter(row => row.storeId), annualTargets: annualRows.map(row => ({
+    year: Number(row.anio), target: Number(row.meta_venta), updatedAt: row.actualizado_en,
+  })) };
 }
 
+const commercialGoalsDocumentPath = "configuracion/metas-comerciales.json";
+const missingCentralGoalsSchema = (error) => !!error && ["42703", "PGRST204", "PGRST205"].includes(error.code);
+
+async function readCommercialGoalsDocument() {
+  const { data, error } = await supabase.storage.from("dashboard-data").download(commercialGoalsDocumentPath);
+  if (error) {
+    if (String(error.message || "").toLowerCase().includes("not found") || Number(error.statusCode) === 404) return { goals: [], annualTargets: [] };
+    throw httpError("No se pudo leer la configuración de metas comerciales.", 500);
+  }
+  try {
+    const parsed = JSON.parse(await data.text());
+    return { goals: Array.isArray(parsed.goals) ? parsed.goals : [], annualTargets: Array.isArray(parsed.annualTargets) ? parsed.annualTargets : [] };
+  } catch { throw httpError("La configuración de metas comerciales no es válida.", 500); }
+}
+
+async function writeCommercialGoalsDocument(document) {
+  const payload = Buffer.from(JSON.stringify({ version: 1, ...document }), "utf8");
+  const { error } = await supabase.storage.from("dashboard-data").upload(commercialGoalsDocumentPath, payload, { contentType: "application/json", upsert: true });
+  if (error) throw httpError("No se pudo guardar la configuración de metas comerciales.", 500);
+}
+
+function commercialGoalsYear(event, body = null) {
+  const value = body?.anio ?? event.queryStringParameters?.anio ?? new Date().getFullYear();
+  const year = Number(value);
+  if (!Number.isInteger(year) || year < 2024 || year > 2100) throw httpError("El año de metas no es válido.", 400);
+  return year;
+}
+
+async function commercialGoalStores() {
+  const mappings = await fetchAllReportPages(supabase.from("commercial_store_map").select("tienda_id,dashboard_store_id").not("tienda_id", "is", null).order("tienda_id"));
+  const storeIds = [...new Set(mappings.map(row => Number(row.tienda_id)).filter(Number.isInteger))];
+  if (!storeIds.length) return [];
+  const stores = await fetchAllReportPages(supabase.from("tiendas")
+    .select("id,nombre,codigo,estado,cluster_id,cluster:clusters(nombre,codigo)").in("id", storeIds).order("nombre"));
+  const dashboardIds = new Map(mappings.map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+  return stores.map(({ cluster, ...store }) => ({
+    ...store, dashboard_store_id: dashboardIds.get(Number(store.id)), cluster: cluster?.codigo || cluster?.nombre || "",
+  }));
+}
+
+async function commercialGoalRubros() {
+  const { data, error } = await supabase.from("productos").select("rubro").not("rubro", "is", null).order("id").limit(5000);
+  if (error) throw dbError(error);
+  return [...new Set((data || []).map(row => cleanText(row.rubro)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+async function listCommercialGoals(event) {
+  const year = commercialGoalsYear(event);
+  const [stores, rubros, goalsResult, annual] = await Promise.all([
+    commercialGoalStores(), commercialGoalRubros(), supabase.from("metas_comerciales_tienda")
+      .select("tienda_id,anio,mes,rubro,meta_venta,actualizado_en").eq("anio", year).order("tienda_id").order("mes"),
+    supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").eq("anio", year).maybeSingle(),
+  ]);
+  let goals = goalsResult.data || []; let annualTarget = annual.data?.meta_venta ?? "";
+  if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annual.error)) {
+    const [legacy, document] = await Promise.all([
+      supabase.from("metas_comerciales_tienda").select("tienda_id,anio,mes,meta_venta,actualizado_en").eq("anio", year).order("tienda_id").order("mes"),
+      readCommercialGoalsDocument(),
+    ]);
+    if (legacy.error) throw dbError(legacy.error);
+    const merged = new Map((legacy.data || []).map(row => [`${row.tienda_id}|${row.mes}|`, { ...row, rubro: "" }]));
+    for (const row of (document.goals || []).filter(row => Number(row.anio) === year)) merged.set(`${row.tienda_id}|${row.mes}|${row.rubro || ""}`, row);
+    goals = [...merged.values()]; annualTarget = (document.annualTargets || []).find(row => Number(row.anio) === year)?.meta_venta ?? "";
+  } else if (goalsResult.error || annual.error) throw dbError(goalsResult.error || annual.error);
+  const allowed = new Set(stores.map(store => Number(store.id)));
+  return {
+    anio: year, stores, rubros, meta_anual: annualTarget,
+    metas: goals.filter(row => allowed.has(Number(row.tienda_id))),
+  };
+}
+
+async function saveCommercialGoals(event, user) {
+  const data = bodyOf(event); const year = commercialGoalsYear(event, data);
+  const rubro = cleanText(data.rubro);
+  if (rubro.length > 120) throw httpError("El rubro seleccionado no es válido.", 400);
+  if (!Array.isArray(data.metas)) throw httpError("Las metas mensuales no son válidas.", 400);
+  const stores = await commercialGoalStores(); const allowedStores = new Set(stores.map(store => Number(store.id)));
+  const seen = new Set(); const rows = [];
+  for (const row of data.metas) {
+    const storeId = Number(row.tienda_id); const month = Number(row.mes); const key = `${storeId}|${month}`;
+    if (!allowedStores.has(storeId)) throw httpError("Una de las tiendas no pertenece al dashboard comercial.", 400);
+    if (!Number.isInteger(month) || month < 1 || month > 12 || seen.has(key)) throw httpError("Los meses enviados no son válidos.", 400);
+    seen.add(key);
+    if (row.meta_venta === "" || row.meta_venta == null) continue;
+    const target = Number(row.meta_venta);
+    if (!Number.isFinite(target) || target < 0 || target > 999999999999.99) throw httpError(`La meta del mes ${month} no es válida.`, 400);
+    rows.push({ tienda_id: storeId, anio: year, mes: month, rubro, meta_venta: Math.round(target * 100) / 100,
+      actualizado_por: user.id, actualizado_en: new Date().toISOString() });
+  }
+  let annualTarget = null;
+  if (!rubro && data.meta_anual !== "" && data.meta_anual != null) {
+    annualTarget = Number(data.meta_anual);
+    if (!Number.isFinite(annualTarget) || annualTarget < 0 || annualTarget > 999999999999.99) throw httpError("La meta anual no es válida.", 400);
+    annualTarget = Math.round(annualTarget * 100) / 100;
+  }
+  const schemaCheck = await supabase.from("metas_comerciales_tienda").select("rubro").limit(1);
+  if (missingCentralGoalsSchema(schemaCheck.error)) {
+    const document = await readCommercialGoalsDocument(); const now = new Date().toISOString();
+    document.goals = (document.goals || []).filter(row => Number(row.anio) !== year || cleanText(row.rubro) !== rubro)
+      .concat(rows.map(row => ({ ...row, actualizado_en: now })));
+    if (!rubro) {
+      document.annualTargets = (document.annualTargets || []).filter(row => Number(row.anio) !== year);
+      if (annualTarget != null) document.annualTargets.push({ anio: year, meta_venta: annualTarget, actualizado_por: user.id, actualizado_en: now });
+    }
+    await writeCommercialGoalsDocument(document);
+    return listCommercialGoals({ queryStringParameters: { anio: String(year) } });
+  }
+  if (schemaCheck.error) throw dbError(schemaCheck.error);
+  const removed = await supabase.from("metas_comerciales_tienda").delete().eq("anio", year).eq("rubro", rubro);
+  if (removed.error) throw dbError(removed.error);
+  for (let index = 0; index < rows.length; index += 500) {
+    const { error } = await supabase.from("metas_comerciales_tienda").insert(rows.slice(index, index + 500));
+    if (error) throw dbError(error);
+  }
+  if (!rubro) {
+    if (annualTarget == null) {
+      const { error } = await supabase.from("metas_comerciales_anuales").delete().eq("anio", year);
+      if (error) throw dbError(error);
+    } else {
+      const { error } = await supabase.from("metas_comerciales_anuales").upsert({ anio: year, meta_venta: annualTarget,
+        actualizado_por: user.id, actualizado_en: new Date().toISOString() }, { onConflict: "anio" });
+      if (error) throw dbError(error);
+    }
+  }
+  return listCommercialGoals({ queryStringParameters: { anio: String(year) } });
+}
+
+let publishedReleaseCache = null;
+let publishedReleasePromise = null;
+const commercialFileMetadataCache = new Map();
+
 async function publishedCommercialRelease() {
+  if (publishedReleaseCache?.expires > Date.now()) return publishedReleaseCache.value;
+  if (publishedReleasePromise) return publishedReleasePromise;
+  publishedReleasePromise = (async () => {
   const { data, error } = await supabase.from("dashboard_releases")
     .select("id,version,sales_cutoff,stock_cutoff,published_at")
     .eq("status", "published")
@@ -295,20 +445,41 @@ async function publishedCommercialRelease() {
     .maybeSingle();
   if (error) throw dbError(error);
   if (!data) throw httpError("Todavía no hay una publicación comercial disponible.", 404);
+  publishedReleaseCache = { value: data, expires: Date.now() + 15_000 };
   return data;
+  })();
+  try { return await publishedReleasePromise; }
+  finally { publishedReleasePromise = null; }
 }
 
 async function commercialFileRows(releaseId, access, logicalName = null) {
+  const cacheKey = `${releaseId}:${access.scopeType}:${access.scopeValue || "all"}:${logicalName || "*"}`;
+  const cached = commercialFileMetadataCache.get(cacheKey);
+  if (cached?.expires > Date.now()) return cached.value || cached.promise;
   const table = access.scopeType === "all" ? "dashboard_files" : "dashboard_scope_files";
-  let query = supabase.from(table).select("logical_name,checksum_sha256,parts")
-    .eq("release_id", releaseId);
-  if (access.scopeType !== "all") {
-    query = query.eq("scope_type", access.scopeType).eq("scope_value", access.scopeValue);
+  const promise = (async () => {
+    let query = supabase.from(table).select("logical_name,checksum_sha256,parts")
+      .eq("release_id", releaseId);
+    if (access.scopeType !== "all") {
+      query = query.eq("scope_type", access.scopeType).eq("scope_value", access.scopeValue);
+    }
+    if (logicalName) query = query.eq("logical_name", logicalName);
+    const { data, error } = await query;
+    if (error) throw dbError(error);
+    return data || [];
+  })();
+  commercialFileMetadataCache.set(cacheKey, { promise, expires: Date.now() + 60_000 });
+  try {
+    const value = await promise;
+    commercialFileMetadataCache.set(cacheKey, { value, expires: Date.now() + 60_000 });
+    if (commercialFileMetadataCache.size > 200) {
+      for (const [key, entry] of commercialFileMetadataCache) if (entry.expires <= Date.now()) commercialFileMetadataCache.delete(key);
+    }
+    return value;
+  } catch (error) {
+    commercialFileMetadataCache.delete(cacheKey);
+    throw error;
   }
-  if (logicalName) query = query.eq("logical_name", logicalName);
-  const { data, error } = await query;
-  if (error) throw dbError(error);
-  return data || [];
 }
 
 async function commercialManifest(sessionUser) {
@@ -4024,41 +4195,6 @@ async function updateMiTiendaData(event, user) {
   if (error) throw dbError(error);
 }
 
-async function getMiTiendaGoals(event, user) {
-  const requestedYear = Number(event.queryStringParameters?.anio || new Date().getFullYear());
-  if (!Number.isInteger(requestedYear) || requestedYear < 2024 || requestedYear > 2100) throw httpError("El año de metas no es válido.", 400);
-  const { data, error } = await supabase.from("metas_comerciales_tienda")
-    .select("anio,mes,meta_venta,actualizado_en")
-    .eq("tienda_id", user.tienda_id).eq("anio", requestedYear).order("mes");
-  if (error) throw dbError(error);
-  return { anio: requestedYear, metas: data || [] };
-}
-
-async function saveMiTiendaGoals(event, user) {
-  const data = bodyOf(event); const year = Number(data.anio);
-  if (!Number.isInteger(year) || year < 2024 || year > 2100) throw httpError("El año de metas no es válido.", 400);
-  if (!Array.isArray(data.metas) || data.metas.length !== 12) throw httpError("Registra los doce meses del año.", 400);
-  const months = new Set(); const upserts = []; const cleared = [];
-  for (const row of data.metas) {
-    const month = Number(row.mes); const raw = row.meta_venta;
-    if (!Number.isInteger(month) || month < 1 || month > 12 || months.has(month)) throw httpError("Los meses de la meta no son válidos.", 400);
-    months.add(month);
-    if (raw === "" || raw == null) { cleared.push(month); continue; }
-    const target = Number(raw);
-    if (!Number.isFinite(target) || target < 0 || target > 999999999999.99) throw httpError(`La meta del mes ${month} no es válida.`, 400);
-    upserts.push({ tienda_id: user.tienda_id, anio: year, mes: month, meta_venta: Math.round(target * 100) / 100, actualizado_por: user.id, actualizado_en: new Date().toISOString() });
-  }
-  if (upserts.length) {
-    const { error } = await supabase.from("metas_comerciales_tienda").upsert(upserts, { onConflict: "tienda_id,anio,mes" });
-    if (error) throw dbError(error);
-  }
-  if (cleared.length) {
-    const { error } = await supabase.from("metas_comerciales_tienda").delete().eq("tienda_id", user.tienda_id).eq("anio", year).in("mes", cleared);
-    if (error) throw dbError(error);
-  }
-  return getMiTiendaGoals({ queryStringParameters: { anio: String(year) } }, user);
-}
-
 async function saveMiTiendaRecord(event, user, kind, id = null) {
   const table = miTiendaTables[kind];
   if (!table) throw httpError("Tipo de registro no válido.", 400);
@@ -4522,6 +4658,14 @@ export async function handler(event) {
     if (path === "/commercial/access" && method === "GET") {
       return json(200, { access: await currentCommercialAccess(user) });
     }
+    if (path === "/commercial-goals" && method === "GET") {
+      ensureAuth(event, "gerente_comercial");
+      return json(200, await listCommercialGoals(event));
+    }
+    if (path === "/commercial-goals" && method === "PUT") {
+      ensureAuth(event, "gerente_comercial");
+      return json(200, await saveCommercialGoals(event, user));
+    }
     if (path === "/commercial/product-codes" && method === "POST") {
       await currentCommercialAccess(user);
       return json(200, { codes: await commercialProductCodes(bodyOf(event).productIds) });
@@ -4975,12 +5119,6 @@ export async function handler(event) {
     }
     if (path === "/mi-tienda-gestion/datos" && method === "PUT") {
       ensureAuth(event, "jefe_tienda"); await updateMiTiendaData(event, user); return json(200, { ok: true });
-    }
-    if (path === "/mi-tienda-gestion/metas" && method === "GET") {
-      ensureAuth(event, "jefe_tienda"); return json(200, await getMiTiendaGoals(event, user));
-    }
-    if (path === "/mi-tienda-gestion/metas" && method === "PUT") {
-      ensureAuth(event, "jefe_tienda"); return json(200, await saveMiTiendaGoals(event, user));
     }
     if (path === "/mi-tienda-gestion/archivo" && method === "POST") {
       ensureAuth(event, "jefe_tienda"); return json(201, await uploadMiTiendaFile(event, user));

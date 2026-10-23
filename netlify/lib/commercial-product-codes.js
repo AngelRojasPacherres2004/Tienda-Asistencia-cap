@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+export const MAX_PRODUCT_CODE_IDS = 20_000;
+
 async function readCatalogCodes(db) {
   const pageSize = 1000;
   const page = async index => {
@@ -37,7 +39,7 @@ export function createProductCodeLookup(db) {
   let cached;
   let expires = 0;
   return async function productCodes(productIds) {
-    if (!Array.isArray(productIds) || productIds.length > 5000 ||
+    if (!Array.isArray(productIds) || productIds.length > MAX_PRODUCT_CODE_IDS ||
         productIds.some(id => typeof id !== 'string' || !/^P_[A-F0-9]{16}$/.test(id))) {
       const error = new Error('La lista de productos no es válida.');
       error.status = 400;

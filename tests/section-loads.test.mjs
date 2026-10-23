@@ -10,7 +10,7 @@ const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const methods = ['ensureSellerDetail', 'loadDetail', 'releaseSectionDetails'];
+const methods = ['ensureSellerDetail', 'loadDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
 vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), { exports, URL, Worker: undefined, AbortController, DOMException });
@@ -79,4 +79,11 @@ test('a canceled source lookup never starts a download', async () => {
   const load = subject.loadDetail('dashboard-stock-products.json', controller.signal);
   controller.abort(); finish({ urls: [] });
   await assert.rejects(load, error => error.name === 'AbortError');
+});
+test('el inventario queda disponible antes de enriquecer códigos Nissei', () => {
+  const start = source.indexOf('private async ensureStockDetail');
+  const end = source.indexOf('private async enrichProductCodes', start);
+  const method = source.slice(start, end);
+  assert.ok(method.indexOf('this.stockDetailLoaded.set(true)') < method.indexOf('void this.enrichProductCodes'));
+  assert.equal(method.includes('await this.cloud.productCodes'), false);
 });

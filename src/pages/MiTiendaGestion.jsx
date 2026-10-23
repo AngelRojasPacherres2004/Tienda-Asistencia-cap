@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ClipboardCheck, Download, FileSpreadsheet, FileText, Plus, Save, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ClipboardCheck, FileText, Plus, Upload } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
-import { exportExcel } from "../lib/excelExport";
 import { EmptyState, Field, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
 import AuditObservationCenter from "../components/AuditObservationCenter";
 import UploadPicker from "../components/UploadPicker";
@@ -16,8 +15,7 @@ const DOCUMENTOS_POR_AREA = {
 };
 const AREAS_DOCUMENTOS = Object.keys(DOCUMENTOS_POR_AREA);
 const AREAS_REQUERIMIENTOS = ["Operaciones","Sistemas","Marketing","Seguridad","Logística","Mantenimiento","Recursos Humanos","Otro"];
-const tabs = [["resumen","Resumen"],["metas","Metas mensuales"],["documentos","Documentos"],["operacion","Operación"],["auditorias","Auditorías"]];
-const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const tabs = [["resumen","Resumen"],["documentos","Documentos"],["operacion","Operación"],["auditorias","Auditorías"]];
 const reportKindBySub = { municipal:"documentos", reclamaciones:"reclamaciones", requerimientos:"requerimientos", observaciones:"supervisiones" };
 const blank = (type) => ({
   documento: { area_documental:AREAS_DOCUMENTOS[0], responsables:[AREAS_DOCUMENTOS[0]], codigo:"", tipo_documento:DOCUMENTOS_POR_AREA[AREAS_DOCUMENTOS[0]][0], frecuencia_revision:"Anual", fecha_emision:"", fecha_vencimiento:"", estado:"vigente", archivo:null },
@@ -89,76 +87,13 @@ export default function MiTiendaGestion() {
       <div className="store-summary-grid">{[["Documentos próximos a vencer",r.documentos_por_vencer],["Reclamos en atención",r.reclamos_en_atencion],["Observaciones zonales abiertas",r.observaciones_abiertas]].map(([l,v])=><section className="panel mini-status" key={l}><small>{l}</small><strong>{v}</strong></section>)}</div>
     </div>}
 
-    {tab === "metas" && <StoreGoalsPlanner />}
-
     {tab === "documentos" && <ModuleTabs items={[["municipal","Documentación municipal"],["reclamaciones","Libro de reclamaciones"],["alertas","Configuración de alertas"]]} sub={sub} setSub={setSub} />}
     {tab === "operacion" && <ModuleTabs items={[["requerimientos","Requerimientos de tienda"]]} sub={sub} setSub={setSub} />}
     {tab === "auditorias" && <AuditObservationCenter observations={data.observaciones||[]} visits={data.visitas||[]} onLift={(row)=>open("observacion",{...row,archivo:null})} onViewFile={viewFile} onExport={()=>exportFile("supervisiones","reporte-auditorias.xlsx")}/>}
     {sub === "alertas" && <DocumentAlertSettings documents={data.documentos || []} reload={load} />}
-    {!['resumen','metas','auditorias'].includes(tab) && sub !== "alertas" && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>exportFile(reportKindBySub[sub],`reporte-${reportKindBySub[sub]}.xlsx`)} />}
+    {!['resumen','auditorias'].includes(tab) && sub !== "alertas" && <Records section={sub} rows={currentRows} open={open} viewFile={viewFile} exportRows={()=>exportFile(reportKindBySub[sub],`reporte-${reportKindBySub[sub]}.xlsx`)} />}
 
     <EditorModal type={modal} form={form} setForm={setForm} error={error} busy={busy} onClose={()=>setModal(null)} onSave={modal==="datos" ? async()=>{setBusy(true);try{await api("/mi-tienda-gestion/datos",{method:"PUT",body:form});setModal(null);await load();}catch(e){setError(e.message);}finally{setBusy(false);}} : save} />
-  </section>;
-}
-
-function StoreGoalsPlanner() {
-  const initialYear = Number(todayISO().slice(0, 4));
-  const [year, setYear] = useState(initialYear);
-  const [goals, setGoals] = useState(() => MONTHS.map((_, index) => ({ mes:index + 1, meta_venta:"" })));
-  const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState(null);
-  const importRef = useRef(null);
-  useEffect(() => {
-    let active = true; setLoading(true); setNotice(null);
-    api(`/mi-tienda-gestion/metas?anio=${year}`).then(result => {
-      if (!active) return;
-      const byMonth = new Map((result.metas || []).map(row => [Number(row.mes), row]));
-      setGoals(MONTHS.map((_, index) => ({ mes:index + 1, meta_venta:byMonth.get(index + 1)?.meta_venta ?? "" })));
-    }).catch(error => active && setNotice({ type:"error", text:error.message })).finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [year]);
-  const setGoal = (month, value) => setGoals(rows => rows.map(row => row.mes === month ? { ...row, meta_venta:value } : row));
-  const total = goals.reduce((sum, row) => sum + (Number(row.meta_venta) || 0), 0);
-  const save = async () => {
-    setBusy(true); setNotice(null);
-    try {
-      const result = await api("/mi-tienda-gestion/metas", { method:"PUT", body:{ anio:year, metas:goals } });
-      const byMonth = new Map((result.metas || []).map(row => [Number(row.mes), row]));
-      setGoals(MONTHS.map((_, index) => ({ mes:index + 1, meta_venta:byMonth.get(index + 1)?.meta_venta ?? "" })));
-      setNotice({ type:"success", text:"Metas guardadas. El dashboard comercial general ya usará estos valores." });
-    } catch (error) { setNotice({ type:"error", text:error.message }); }
-    finally { setBusy(false); }
-  };
-  const downloadTemplate = () => exportExcel(`metas-mensuales-${year}.xlsx`, MONTHS.map((month, index) => ({ Mes:month, "Número de mes":index + 1, "Meta de venta (S/)":Number(goals[index].meta_venta) || "" })), "Metas");
-  const importExcel = async event => {
-    const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
-    setBusy(true); setNotice(null);
-    try {
-      const { default: ExcelJS } = await import("exceljs"); const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(await file.arrayBuffer()); const sheet = workbook.worksheets[0];
-      if (!sheet) throw new Error("El archivo no contiene una hoja de metas.");
-      const normalize = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-      const headers = {}; sheet.getRow(1).eachCell((cell, column) => { headers[normalize(cell.value)] = column; });
-      const monthColumn = headers["numero de mes"] || headers["mes numero"] || headers["mes"];
-      const targetColumn = headers["meta de venta (s/)"] || headers["meta de venta"] || headers["meta"];
-      if (!monthColumn || !targetColumn) throw new Error("Usa la plantilla: faltan las columnas Mes y Meta de venta (S/).");
-      const imported = new Map();
-      sheet.eachRow((row, index) => {
-        if (index === 1) return;
-        const rawMonth = row.getCell(monthColumn).value; const normalizedMonth = normalize(rawMonth);
-        const month = Number(rawMonth) || MONTHS.findIndex(name => normalize(name) === normalizedMonth) + 1;
-        const target = row.getCell(targetColumn).value;
-        if (month >= 1 && month <= 12 && target !== "" && target != null && Number.isFinite(Number(target)) && Number(target) >= 0) imported.set(month, String(Number(target)));
-      });
-      if (!imported.size) throw new Error("No se encontraron metas válidas en el Excel.");
-      setGoals(rows => rows.map(row => imported.has(row.mes) ? { ...row, meta_venta:imported.get(row.mes) } : row));
-      setNotice({ type:"success", text:`Se cargaron ${imported.size} meses. Revisa los montos y pulsa Guardar metas.` });
-    } catch (error) { setNotice({ type:"error", text:error.message }); }
-    finally { setBusy(false); }
-  };
-  return <section className="panel store-goals-panel">
-    <header><div><small>Plan comercial por tienda</small><h2>Metas mensuales</h2><p>Estos montos alimentan Meta, Brecha y Meta vs real del dashboard general.</p></div><div className="store-goals-actions"><label>Año<select value={year} onChange={event => setYear(Number(event.target.value))}>{Array.from({length:5},(_,index)=>initialYear - 1 + index).map(option=><option value={option} key={option}>{option}</option>)}</select></label><button className="button button--ghost" type="button" onClick={downloadTemplate}><Download size={15}/>Plantilla</button><button className="button button--ghost" type="button" disabled={busy} onClick={()=>importRef.current?.click()}><Upload size={15}/>Subir Excel</button><input ref={importRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel}/></div></header>
-    {notice && <Notice type={notice.type}>{notice.text}</Notice>}
-    {loading ? <Loading /> : <><div className="store-goals-grid">{goals.map((row,index)=><label key={row.mes}><span>{MONTHS[index]}</span><div><b>S/</b><input type="number" min="0" step="100" inputMode="decimal" value={row.meta_venta} onChange={event=>setGoal(row.mes,event.target.value)} aria-label={`Meta de ${MONTHS[index]}`} placeholder="0"/></div></label>)}</div><footer><div><FileSpreadsheet size={18}/><span>Meta anual calculada</span><strong>{new Intl.NumberFormat("es-PE",{style:"currency",currency:"PEN",maximumFractionDigits:0}).format(total)}</strong></div><button type="button" className="button button--primary" disabled={busy} onClick={save}><Save size={16}/>{busy?"Guardando…":"Guardar metas"}</button></footer></>}
   </section>;
 }
 

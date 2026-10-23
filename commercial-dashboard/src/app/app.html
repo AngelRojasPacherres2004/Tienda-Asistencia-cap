@@ -58,7 +58,7 @@
           <button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button>
         </div>
         <div class="transfer-context">
-          @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei. Recarga la página para volver a intentarlo.</p> }
+          @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei. <button type="button" class="transfer-reset" (click)="retryProductCodes()">Reintentar códigos</button></p> }
           <p>Stock: {{ formatDate(data()!.metadata.stockCutoff) }} · Ventas 30D: {{ formatDate(data()!.metadata.salesCutoff) }}</p>
           <div class="transfer-rules"><span>Exceso: &gt;90 días o sin ventas</span><span>Falta: &lt;30 días</span><span>Crítico: ≤15 días</span></div>
           <p class="transfer-totals-note">Totales de las oportunidades filtradas, sin repetir productos por tienda.@if (transferStore()) { Solo se suman las unidades de la tienda seleccionada. }</p>
@@ -119,6 +119,21 @@
         <div class="ticket-modal-content">
           <dashboard-chart [option]="conversionMonthlyOption()" label="Evolución mensual de conversión" />
           <div class="ticket-monthly-table"><table aria-label="Conversión, transacciones y tráfico por mes"><thead><tr><th scope="col">Mes</th><th scope="col">Conversión</th><th scope="col">Transacciones</th><th scope="col">Tráfico</th></tr></thead><tbody>@for (row of conversionMonthlyRows(); track row.label) { <tr><th scope="row">{{ row.label }}</th><td>{{ percent(row.conversion) }}</td><td>{{ number(row.transactions) }}</td><td>{{ number(row.traffic) }}</td></tr> }</tbody></table></div>
+        </div>
+      </section>
+    }
+    @if (expandedChart() === 'traffic-average') {
+      <section class="card chart-card chart-expanded ticket-modal" role="dialog" aria-modal="true" aria-labelledby="traffic-chart-title" tabindex="-1" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
+        <button type="button" class="chart-expand" aria-label="Cerrar gráfico de tráfico" (click)="closeExpandedChart()">×</button>
+        <h2 id="traffic-chart-title">{{ trafficChartLabel() }} POR MES · {{ ticketChartYear() }}</h2>
+        <div class="ticket-modal-filters">
+          <label class="ticket-year-selector">Año <select autofocus [ngModel]="ticketChartYear()" (ngModelChange)="setTicketChartYear($event)">@for (yearOption of ticketChartYears(); track yearOption) { <option [ngValue]="yearOption">{{ yearOption }}</option> }</select></label>
+          @if (!storeFilterLocked()) { <div class="filter-field"><span>Tiendas</span><details class="filter-dropdown"><summary>{{ ticketChartSelectedStores().length ? ticketChartSelectedStores().length + ' seleccionadas' : 'Todas las tiendas del formato' }}</summary><div class="filter-menu"><button type="button" (click)="ticketChartSelectedStores.set([])">Todas</button>@for (storeOption of trafficChartStores(); track storeOption.storeId) { <button type="button" [class.active]="ticketChartSelectedStores().includes(storeOption.storeId)" [attr.aria-pressed]="ticketChartSelectedStores().includes(storeOption.storeId)" (click)="toggleTicketChartStore(storeOption.storeId)">{{ storeOption.alias || storeOption.store }}</button> }</div></details></div> }
+        </div>
+        @if (!trafficChartHasData()) { <p role="status">No hay tráfico registrado para {{ ticketChartYear() }} con estos filtros.</p> }
+        <div class="ticket-modal-content">
+          <dashboard-chart [option]="trafficMonthlyOption()" [label]="'Evolución mensual de ' + trafficChartLabel().toLowerCase()" />
+          <div class="ticket-monthly-table"><table aria-label="Tráfico mensual por formato"><thead><tr><th scope="col">Mes</th><th scope="col">Tráfico</th><th scope="col">Transacciones</th><th scope="col">Conversión</th></tr></thead><tbody>@for (row of trafficMonthlyRows(); track row.label) { <tr><th scope="row">{{ row.label }}</th><td>{{ number(row.traffic) }}</td><td>{{ number(row.transactions) }}</td><td>{{ percent(row.conversion) }}</td></tr> }</tbody></table></div>
         </div>
       </section>
     }
@@ -238,8 +253,8 @@
 
         <div class="block-heading"><span>A</span><h2>INDICADORES CLAVE</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('commercial-a', '01.A Indicadores clave')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('commercial-a'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }
         <div class="kpi-strip">
-          @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() === 'METRO') { <article title="Fórmula: Σ(visitas registradas) en tiendas de formato METRO, según el período y filtros."><span>TRÁFICO METRO</span><strong [class.missing]="metrics().trafficMetro == null">{{ number(metrics().trafficMetro) }}</strong></article> }
-          @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() !== 'METRO') { <article title="Fórmula: Σ(visitas registradas) en tiendas de formato distinto de METRO, según el período y filtros."><span>TRÁFICO OTRAS TDS.</span><strong [class.missing]="metrics().trafficOther == null">{{ number(metrics().trafficOther) }}</strong></article> }
+          @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() === 'METRO') { <article class="ticket-kpi traffic-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver evolución mensual del tráfico de tiendas METRO" (click)="openTrafficChart('METRO')" (keydown.enter)="openTrafficChart('METRO')" (keydown.space)="$event.preventDefault(); openTrafficChart('METRO')"><span>TRÁFICO METRO</span><strong [class.missing]="metrics().trafficMetro == null">{{ number(metrics().trafficMetro) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article> }
+          @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() !== 'METRO') { <article class="ticket-kpi traffic-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver evolución mensual del tráfico de otras tiendas" (click)="openTrafficChart('OTHER')" (keydown.enter)="openTrafficChart('OTHER')" (keydown.space)="$event.preventDefault(); openTrafficChart('OTHER')"><span>TRÁFICO OTRAS TDS.</span><strong [class.missing]="metrics().trafficOther == null">{{ number(metrics().trafficOther) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article> }
           <article class="ticket-kpi conversion-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Fórmula: transacciones ÷ tráfico × 100. Ver evolución mensual" (click)="openConversionChart()" (keydown.enter)="openConversionChart()" (keydown.space)="$event.preventDefault(); openConversionChart()"><span>CONVERSIÓN</span><strong>{{ percent(metrics().conversion) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article>
           <article class="ticket-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver ticket promedio por mes" (click)="openTicketChart()" (keydown.enter)="openTicketChart()" (keydown.space)="$event.preventDefault(); openTicketChart()"><span>TICKET PROMEDIO</span><strong>{{ money(metrics().ticket) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article>
           <article title="Fórmula: venta neta ÷ (Σ metraje físico de tiendas filtradas × 80%)."><span>VENTA × M²</span><strong>{{ money(metrics().saleM2) }}</strong></article>
@@ -294,7 +309,7 @@
             </div>
           </article>
           <article class="card chart-card growth"><h2><svg><use href="/comercial/assets/icons.svg#trend"></use></svg> TENDENCIA INTERANUAL ACUMULADA VENTAS</h2><dashboard-chart [option]="growthOption()" label="Venta acumulada del año seleccionado frente al año anterior" /></article>
-          <article class="card chart-card price-range-card" [class.chart-expanded]="expandedChart() === 'price-range'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('price-range')" [attr.aria-label]="expandedChart() === 'price-range' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'price-range' ? '×' : '⛶' }}</button><div class="price-range-header"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RANGO DE PRECIOS VENDIDOS</h2><div class="price-range-years"><span>Año base <strong>{{ year() }}</strong></span>@if (priceRangeComparisonYears().length) { <label>Comparar con<select [ngModel]="effectivePriceRangeComparisonYear()" (ngModelChange)="setPriceRangeComparisonYear($event)">@for (comparisonYear of priceRangeComparisonYears(); track comparisonYear) { <option [ngValue]="comparisonYear">{{ comparisonYear }}</option> }</select></label> }</div></div><div class="price-range-chart-content"><dashboard-chart [option]="priceRangeOption()" label="Venta y unidades por rango de precios vendidos y año" /><div class="price-range-detail-table" aria-label="Detalle por rango de precios y año"><div class="price-range-detail-head"><span>RANGO / AÑO</span><span>VENTA NETA</span><span>PARTICIPACIÓN</span><span>UNIDADES</span><span>PRECIO PROM.</span></div><div class="price-range-detail-body">@for (range of priceRangeSummary(); track range.year + '-' + range.label) { <div [class.base-year]="range.year === year()"><strong>{{ range.label }}<small>{{ range.year }}</small></strong><span>{{ money(range.net, true) }}</span><span>{{ percent(range.share) }}</span><span>{{ number(range.units) }}</span><span>{{ money(range.averagePrice) }}</span></div> } @empty { <p>N/A</p> }</div></div></div></article>
+          <article class="card chart-card price-range-card" [class.chart-expanded]="expandedChart() === 'price-range'"><button type="button" class="chart-expand" (click)="toggleChartExpansion('price-range')" [attr.aria-label]="expandedChart() === 'price-range' ? 'Cerrar gráfico' : 'Ampliar gráfico y ver detalle'">{{ expandedChart() === 'price-range' ? '×' : '⛶' }}</button><div class="price-range-header"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RANGO DE PRECIOS VENDIDOS</h2><div class="price-range-years"><span>Año base <strong>{{ year() }}</strong></span>@if (priceRangeComparisonYears().length) { <label>Comparar con<select [ngModel]="effectivePriceRangeComparisonYear()" (ngModelChange)="setPriceRangeComparisonYear($event)">@for (comparisonYear of priceRangeComparisonYears(); track comparisonYear) { <option [ngValue]="comparisonYear">{{ comparisonYear }}</option> }</select></label> }</div></div><div class="price-range-chart-content"><dashboard-chart [option]="priceRangeOption()" label="Venta y unidades por rango de precios vendidos y año" />@if (expandedChart() === 'price-range') { <div class="price-range-detail-table" aria-label="Detalle por rango de precios y año"><div class="price-range-detail-head"><span>RANGO / AÑO</span><span>VENTA NETA</span><span>PARTICIPACIÓN</span><span>UNIDADES</span><span>PRECIO PROM.</span></div><div class="price-range-detail-body">@for (range of priceRangeSummary(); track range.year + '-' + range.label) { <div [class.base-year]="range.year === year()"><strong>{{ range.label }}<small>{{ range.year }}</small></strong><span>{{ money(range.net, true) }}</span><span>{{ percent(range.share) }}</span><span>{{ number(range.units) }}</span><span>{{ money(range.averagePrice) }}</span></div> } @empty { <p>N/A</p> }</div></div> }</div></article>
         </div>
       </section>
     } @else if (page() === 2) {
@@ -323,27 +338,51 @@
         </div>
 
         <div class="block-heading"><span>B</span><h2>COBERTURA Y DISTRIBUCIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-b', '02.B Cobertura y distribución')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('inventory-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }<div class="inventory-analysis-row">
-          <article class="card chart-card store-value-coverage-card" [class.chart-expanded]="expandedChart() === 'store-value-coverage'" [style.height.px]="storeFilterLocked() && expandedChart() !== 'store-value-coverage' ? 260 : null">
+          <article class="card chart-card store-value-coverage-card" [class.chart-expanded]="expandedChart() === 'store-value-coverage'">
             <button type="button" class="chart-expand" (click)="toggleChartExpansion('store-value-coverage')" [attr.aria-label]="expandedChart() === 'store-value-coverage' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'store-value-coverage' ? '×' : '⛶' }}</button>
             <div class="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#warehouse"></use></svg> VALOR DE INVENTARIO POR TIENDA</h2></div>
-            <dashboard-chart [option]="storeValueCoverageOption()" label="Valor de inventario por tienda, coloreado según estado de cobertura" />
-            <div class="inventory-health-strip">@for (item of inventoryHealthSummary(); track item.label) { <span [class]="item.tone"><i></i>{{ item.label }}<strong>{{ item.count }}</strong></span> }</div>
-          </article>
-
-          <article class="card inventory-matrix-card" [style.height.px]="storeFilterLocked() ? 260 : null">
-            <div class="inventory-matrix-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RESUMEN DE STOCK POR TIENDA</h2></div>
-            <div class="inventory-matrix-scroll">
-              <table [style.height]="storeFilterLocked() ? 'auto' : null">
-                <colgroup><col class="store-col"><col class="capacity-col"><col class="stock-col"><col class="income-col"><col class="sales-col"><col class="coverage-col"><col class="status-col"></colgroup>
-                <thead><tr><th>TIENDA</th><th>CAPACIDAD</th><th>STOCK</th><th title="Ingreso promedio diario: FactIngresos; si no hay registro, conciliación de stock y ventas">INGRESO<br>PROM.</th><th title="Venta promedio diaria">VENTA<br>PROM.</th><th>COBERTURA</th><th>ESTADO</th></tr></thead>
-                <tbody>@for (row of inventoryMatrixRows(); track row.storeId) { <tr [class]="row.tone"><th [title]="row.alias">{{ row.alias }}</th><td [title]="number(row.capacity, ' unidades')">{{ number(row.capacity, ' und') }}</td><td [title]="number(row.stockUnits, ' unidades')">{{ number(row.stockUnits, ' und') }}</td><td [title]="number(row.receivedDaily, ' unidades por día')">{{ number(row.receivedDaily, ' und/día') }}</td><td [title]="number(row.dailySales, ' unidades por día')">{{ number(row.dailySales, ' und/día') }}</td><td [title]="row.coverageDays == null ? 'Sin venta reciente' : number(row.coverageDays, ' días de cobertura')">{{ row.coverageDays == null ? 'SIN VENTA' : number(row.coverageDays, ' días') }}</td><td><strong [class]="'status-pill ' + row.tone">{{ row.status }}</strong></td></tr> } @empty { <tr><td colspan="7">N/A</td></tr> }</tbody>
-              </table>
+            <div class="store-value-coverage-content">
+              <div class="store-value-chart-pane">
+                <dashboard-chart [option]="storeValueCoverageOption()" label="Valor de inventario por tienda, coloreado según estado de cobertura" />
+                <div class="inventory-health-strip">@for (item of inventoryHealthSummary(); track item.label) { <span [class]="item.tone"><i></i>{{ item.label }}<strong>{{ item.count }}</strong></span> }</div>
+              </div>
+              @if (expandedChart() === 'store-value-coverage') {
+                <section class="inventory-matrix-card inventory-matrix-card--embedded" aria-label="Resumen de stock por tienda">
+                  <div class="inventory-matrix-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RESUMEN DE STOCK POR TIENDA</h2></div>
+                  <div class="inventory-matrix-scroll">
+                    <table>
+                      <colgroup><col class="store-col"><col class="capacity-col"><col class="stock-col"><col class="income-col"><col class="sales-col"><col class="coverage-col"><col class="status-col"></colgroup>
+                      <thead><tr><th>TIENDA</th><th>CAPACIDAD</th><th>STOCK</th><th title="Ingreso promedio diario: FactIngresos; si no hay registro, conciliación de stock y ventas">INGRESO<br>PROM.</th><th title="Venta promedio diaria">VENTA<br>PROM.</th><th>COBERTURA</th><th>ESTADO</th></tr></thead>
+                      <tbody>@for (row of inventoryMatrixRows(); track row.storeId) { <tr [class]="row.tone"><th [title]="row.alias">{{ row.alias }}</th><td [title]="number(row.capacity, ' unidades')">{{ number(row.capacity, ' und') }}</td><td [title]="number(row.stockUnits, ' unidades')">{{ number(row.stockUnits, ' und') }}</td><td [title]="number(row.receivedDaily, ' unidades por día')">{{ number(row.receivedDaily, ' und/día') }}</td><td [title]="number(row.dailySales, ' unidades por día')">{{ number(row.dailySales, ' und/día') }}</td><td [title]="row.coverageDays == null ? 'Sin venta reciente' : number(row.coverageDays, ' días de cobertura')">{{ row.coverageDays == null ? 'SIN VENTA' : number(row.coverageDays, ' días') }}</td><td><strong [class]="'status-pill ' + row.tone">{{ row.status }}</strong></td></tr> } @empty { <tr><td colspan="7">N/A</td></tr> }</tbody>
+                    </table>
+                  </div>
+                </section>
+              }
             </div>
+          </article>
+          <article class="card chart-card size-distribution-card" [class.chart-expanded]="expandedChart() === 'size-distribution'">
+            <button type="button" class="chart-expand" (click)="toggleChartExpansion('size-distribution')" [attr.aria-label]="expandedChart() === 'size-distribution' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'size-distribution' ? '×' : '⛶' }}</button>
+            <div class="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> VENTA, STOCK Y TRASLADOS POR TALLA</h2></div>
+            <div class="size-chart-controls">
+              <div role="group" aria-label="Rubro de tallas"><button type="button" [class.active]="sizeRubro() === 'CALZADO'" (click)="sizeRubro.set('CALZADO')">CALZADO</button><button type="button" [class.active]="sizeRubro() === 'TEXTIL'" (click)="sizeRubro.set('TEXTIL')">TEXTIL</button></div>
+              <div role="group" aria-label="Métrica de tallas"><button type="button" [class.active]="sizeMetric() === 'SALES'" (click)="sizeMetric.set('SALES')">VENTA 30D</button><button type="button" [class.active]="sizeMetric() === 'STOCK'" (click)="sizeMetric.set('STOCK')">STOCK</button><button type="button" [class.active]="sizeMetric() === 'TRANSFERS'" (click)="sizeMetric.set('TRANSFERS')">TRASLADOS</button></div>
+              @if (sizeRubro() === 'CALZADO') { <div role="group" aria-label="Sistema de talla"><button type="button" [class.active]="shoeSizeSystem() === 'USA'" (click)="shoeSizeSystem.set('USA')">USA</button><button type="button" [class.active]="shoeSizeSystem() === 'EUR'" (click)="shoeSizeSystem.set('EUR')">EUR</button></div> }
+            </div>
+            @if (!stockDetailLoaded()) {
+              <div class="card-inline-loader"><span class="loader"></span>Preparando tallas · {{ stockDetailProgress() }}%</div>
+            } @else {
+              @if (productCodeLoading()) { <div class="card-inline-loader card-inline-loader--overlay"><span class="loader"></span>Identificando tallas por código Nissei…</div> }
+              @else if (transferCodeError() && !sizeChartRows().length) { <div class="card-inline-loader card-inline-loader--overlay"><strong>No se pudieron identificar las tallas.</strong><button type="button" class="retry-button" (click)="retryProductCodes()">REINTENTAR</button></div> }
+              <dashboard-chart [option]="sizeDistributionOption()" [label]="sizeMetricLabel() + ' por talla ' + sizeRubro().toLowerCase()" />
+              <div class="size-chart-summary"><span><small>TALLAS VISIBLES</small><strong>{{ number(sizeChartRows().length) }}</strong></span><span><small>SKU MAPEADOS</small><strong>{{ number(sizeChartCoverage().mapped) }} / {{ number(sizeChartCoverage().total) }}</strong></span><span [class.pending]="sizeChartCoverage().pending > 0"><small>PENDIENTES</small><strong>{{ number(sizeChartCoverage().pending) }}</strong></span></div>
+            }
           </article>
         </div>
 
-        @if (!stockDetailLoaded()) {
-          <div class="detail-loader compact"><span class="loader"></span><strong>Preparando analítica por producto…</strong></div>
+        @if (stockDetailFailed()) {
+          <div class="detail-loader compact detail-loader--error"><strong>No se pudo abrir la analítica por producto.</strong><button type="button" class="retry-button" (click)="retryStockDetail()">REINTENTAR</button></div>
+        } @else if (!stockDetailLoaded()) {
+          <div class="detail-loader compact"><span class="loader"></span><strong>Preparando analítica por producto · {{ stockDetailProgress() }}%</strong></div>
         } @else {
         <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
           <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2>@if (!storeFilterLocked()) { <button type="button" class="retry-button" (click)="openTransfers()">VER TRASLADOS ENTRE TIENDAS</button> }<button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>

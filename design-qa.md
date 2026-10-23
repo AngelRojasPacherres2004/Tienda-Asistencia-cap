@@ -32,3 +32,24 @@ Date: 2026-10-21
 - Python dashboard partition tests: 3 passed.
 
 final result: passed
+
+## QA update · 2026-10-22
+
+Final result: passed
+
+### References reviewed
+
+- `codex-clipboard-567a6b4e-f204-4d9f-bc0a-b4f4b59fc499.png`: price-range density and labels.
+- `codex-clipboard-ce10ed56-73e8-4ee5-b995-fd921668f923.png`: goals-matrix width and usable height.
+- `codex-clipboard-c97405c9-2777-4de4-88ec-05705fa3e830.png`: zero-valued inventory and indefinite analytics loading.
+
+### Checks
+
+- Interannual trend: vertical month labels, smaller typography and a narrower relative card width.
+- Price ranges: vertical labels; only the base series displays percentages and shares below 2% are omitted. Full values remain available in the tooltip and expanded detail.
+- Hourly performance: vertical ranges from `8-9` through `23-24`.
+- Commercial goals: explanatory copy removed, summary height reduced and all 12 monthly columns compacted to use the available width.
+- Inventory: store values render from base aggregates before product detail finishes; heavy data starts after first paint, complete caches survive page changes and failures expose a retry action.
+- Browser: the three charts and inventory panel were visually checked with local data; the browser console had no errors or warnings.
+- Quality: `npm run check`, `npm run build` and 116 Node tests executed (112 passed, 4 skipped, 0 failed).
+- The generated artifact was temporarily inspected in local data mode and restored to `dataMode: 'portal'` afterwards.

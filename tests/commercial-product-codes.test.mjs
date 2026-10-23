@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalogProductId, createProductCodeLookup } from '../netlify/lib/commercial-product-codes.js';
+import { MAX_PRODUCT_CODE_IDS, catalogProductId, createProductCodeLookup } from '../netlify/lib/commercial-product-codes.js';
 
 function fixture(failFirst = false) {
   let calls = 0;
@@ -27,7 +27,7 @@ test('resolves only requested exact product IDs and preserves leading zeros', as
 
 test('rejects malformed and oversized requests before reading the catalog', async () => {
   const { lookup, calls } = fixture();
-  for (const ids of [undefined, ['402020L-BLLM'], Array(5001).fill('P_1111111111111111')]) {
+  for (const ids of [undefined, ['402020L-BLLM'], Array(MAX_PRODUCT_CODE_IDS + 1).fill('P_1111111111111111')]) {
     await assert.rejects(lookup(ids), error => error.status === 400);
   }
   assert.equal(calls(), 0);
