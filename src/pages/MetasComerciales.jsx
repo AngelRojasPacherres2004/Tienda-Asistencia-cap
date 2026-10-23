@@ -79,8 +79,8 @@ export default function MetasComerciales() {
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
     <section className="commercial-goals-controls panel">
-      <label><span>Año</span><select value={year} onChange={(event) => setYear(Number(event.target.value))}>{Array.from({ length: currentYear + 6 - 2024 }, (_, index) => 2024 + index).map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-      <label><span>Alcance</span><select value={rubro} onChange={(event) => setRubro(event.target.value)}><option value="">Total automático</option><option value="TEXTIL">Rubro · TEXTIL</option><option value="CALZADO">Rubro · CALZADO</option></select></label>
+      <label><span>Año</span><select value={year} onChange={(event) => { const nextYear = Number(event.target.value); setYear(nextYear); if (nextYear <= 2025) setRubro(""); }}>{Array.from({ length: currentYear + 6 - 2024 }, (_, index) => 2024 + index).map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+      <label><span>Alcance</span><select value={rubro} onChange={(event) => setRubro(event.target.value)} disabled={historical}><option value="">Total automático</option><option value="TEXTIL">Rubro · TEXTIL</option><option value="CALZADO">Rubro · CALZADO</option></select></label>
       {!rubro && <label className="commercial-goals-annual"><span>Meta anual corporativa · calculada</span><output>{money(annualTarget)}</output></label>}
       <p className="commercial-goals-mode">{historical ? `${year} es un año histórico: sus metas se pueden consultar, pero no modificar.` : automaticScope ? "El total se calcula automáticamente sumando TEXTIL y CALZADO." : `Editando únicamente las metas de ${rubro}.`}</p>
     </section>

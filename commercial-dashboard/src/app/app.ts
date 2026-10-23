@@ -2929,7 +2929,7 @@ export class App implements OnInit {
           { label: 'Estado', value: row?.status || 'SIN INFORMACIÓN' }
         ]);
       } },
-      grid: { left: 38, right: this.expandedChart() === 'store-value-coverage' ? 150 : 132, top: 6, bottom: 30 },
+      grid: { left: 38, right: this.expandedChart() === 'store-value-coverage' ? '25%' : '38%', top: 6, bottom: 30 },
       xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 24, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#334155', fontSize: 9, fontWeight: 850 } },
       series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 13, barCategoryGap: '24%',
