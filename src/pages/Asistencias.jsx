@@ -88,7 +88,7 @@ export default function Asistencias() {
     {!roster ? <Loading/> : visibles.length ? <div className="attendance-scroll"><div className="attendance-table">
       <div className="attendance-head"><span>Trabajador</span>{estados.map((state) => <span key={state.value}>{state.label}</span>)}<span>Observación</span></div>
       {visibles.map((employee) => <div className="attendance-row" key={employee.usuario_id}>
-        <div className="person-cell"><span className="avatar">{employee.nombre.charAt(0).toUpperCase()}</span><div><strong>{employee.nombre}</strong><small>{employee.dni}{employee.estado === "inactivo" ? " · Inactivo" : ""}</small></div></div>
+        <div className="person-cell"><span className="avatar">{employee.nombre.charAt(0).toUpperCase()}</span><div><strong>{employee.nombre}</strong><small>{employee.dni}{employee.rol === "jefe_tienda" ? " · Administrador de tienda" : ""}{employee.estado === "inactivo" ? " · Inactivo" : ""}</small></div></div>
         {estados.map((state) => <button key={state.value} type="button" className={`attendance-check attendance-check--${state.value} ${employee.registro?.estado === state.value ? "checked" : ""}`} aria-label={`${state.label} para ${employee.nombre}`} onClick={() => marcar(employee, state.value)}>{employee.registro?.estado === state.value && <Check size={13}/>}</button>)}
         <input className="attendance-obs" maxLength={500} disabled={!employee.registro} placeholder={employee.registro ? "Observación (opcional)" : "Marca un estado primero"} value={employee.registro?.observaciones || ""} onChange={(event) => setObservacion(employee, event.target.value)}/>
       </div>)}

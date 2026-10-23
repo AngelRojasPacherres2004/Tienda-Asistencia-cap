@@ -384,8 +384,8 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
                 <span><StatusBadge value={item.estado} /></span>
                 <div className="row-actions">
                   <button onClick={() => openView(item)} title="Ver ficha" aria-label="Ver ficha"><Eye size={15} /></button>
-                  {(!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit3 size={15} /></button>}
-                  {!zonalTeam && <button className="danger" onClick={() => setDeleting(item)} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
+                  {(!isStoreAdmin || item.rol !== "jefe_tienda") && (!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit3 size={15} /></button>}
+                  {!zonalTeam && (!isStoreAdmin || item.rol !== "jefe_tienda") && <button className="danger" onClick={() => setDeleting(item)} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
                 </div>
               </div>
             ))}

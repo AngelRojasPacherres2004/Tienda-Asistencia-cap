@@ -1453,7 +1453,7 @@ async function listUsers(actor, storeId = null, options = {}) {
       request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${actor.id}`) : request.eq("zonal_creador_id", actor.id);
     }
   }
-  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+  if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", storeStaffRoles);
   if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
   if (storeId) request = request.eq("tienda_id", storeId);
   const data = await fetchAllReportPages(request.order("id"));
@@ -2055,7 +2055,7 @@ async function listAsistenciasDia(event, user) {
   const query = event.queryStringParameters || {};
   const tiendaScope = await resolveStoreScope(user, query.tienda_id);
   const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
-  let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado")
+  let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado,rol")
     .in("rol", attendanceStaffRoles).order("nombres");
   empleadosQuery = applyStoreScope(empleadosQuery, tiendaScope);
   if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
@@ -2070,8 +2070,8 @@ async function listAsistenciasDia(event, user) {
   const byUser = new Map(registros.map((row) => [row.usuario_id, row]));
   return {
     fecha,
-    empleados: empleados.map((emp) => ({
-      usuario_id: emp.id, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado,
+    empleados: [...empleados].sort((a, b) => Number(b.rol === "jefe_tienda") - Number(a.rol === "jefe_tienda")).map((emp) => ({
+      usuario_id: emp.id, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado, rol: emp.rol,
       registro: byUser.get(emp.id) || null,
     })),
   };
