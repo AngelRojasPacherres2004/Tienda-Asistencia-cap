@@ -44,6 +44,30 @@ test('a failed catalog read can be retried', async () => {
   assert.deepEqual(await lookup([id]), { [id]: '00023C7003' });
 });
 
+test('uses the legacy catalog only while the indexed view is not deployed', async () => {
+  const code = '00023C7003';
+  const tables = [];
+  let legacyReads = 0;
+  const db = { from(table) {
+    tables.push(table);
+    if (table === 'productos_codigos_portal') return {
+      select() { return this; },
+      async in() { return { error: { code: 'PGRST205' } }; },
+    };
+    return {
+      select() { return this; },
+      order() { return this; },
+      async range() { legacyReads++; return { data: [{ codigo_nissei: code }] }; },
+    };
+  } };
+  const lookup = createProductCodeLookup(db);
+  const id = catalogProductId(code);
+  assert.deepEqual(await lookup([id]), { [id]: code });
+  assert.deepEqual(await lookup([id]), { [id]: code });
+  assert.deepEqual(tables, ['productos_codigos_portal', 'productos']);
+  assert.equal(legacyReads, 1);
+});
+
 test('queries only the requested hashes in bounded batches', async () => {
   const rows = Array.from({ length: PRODUCT_CODE_QUERY_BATCH + 3 }, (_, index) => {
     const codigo_nissei = String(index).padStart(14, '0');
