@@ -22,7 +22,9 @@ const signal = initial => {
   return read;
 };
 const sellerSubject = () => Object.assign(new exports.Subject(), {
-  sectionLoads: new SectionLoads(), year: signal(2026), sellerDetailLoaded: signal(false), sellerDetailLoading: signal(false), sellerPerformanceData: signal([])
+  sectionLoads: new SectionLoads(), year: signal(2026), selectedMonths: signal([]),
+  selectedCategories: signal([]), selectedLines: signal([]), selectedSublines: signal([]),
+  sellerDetailGeneration: 0, sellerDetailLoaded: signal(false), sellerDetailLoading: signal(false), sellerPerformanceData: signal([])
 });
 test('leaving a section cancels its generation and permits a fresh load', () => {
   const scope = new SectionLoads(), old = scope.signal;
@@ -36,7 +38,7 @@ test('a late seller response cannot repopulate memory or clear the new load', as
   const resolve = [];
   subject.loadDetail = () => new Promise(done => resolve.push(done));
   const oldLoad = subject.ensureSellerDetail();
-  subject.sectionLoads.release(); subject.sellerDetailPromise = undefined;
+  subject.sellerDetailAbort.abort(); subject.sellerDetailGeneration += 1; subject.sellerDetailPromise = undefined;
   const newLoad = subject.ensureSellerDetail(), newPromise = subject.sellerDetailPromise;
   resolve[0]({ sellerPerformance: [{ seller: 'Old' }] });
   await oldLoad;
@@ -47,6 +49,21 @@ test('a late seller response cannot repopulate memory or clear the new load', as
   await newLoad;
   assert.equal(subject.sellerPerformanceData()[0].seller, 'New');
   assert.equal(subject.sellerDetailLoading(), false);
+});
+test('seller ranking uses the compact yearly summary and one-month hierarchy detail', async () => {
+  const subject = sellerSubject();
+  const requested = [];
+  subject.loadDetail = async file => {
+    requested.push(file);
+    return { sellerPerformance: [{ periodId: 202602, storeId: 'T001', seller: 'ANA', net: 10 }] };
+  };
+  await subject.ensureSellerDetail();
+  assert.deepEqual(requested, ['dashboard-sellers-summary-2026.json']);
+  subject.sellerDetailLoaded.set(false); subject.sellerDetailPromise = undefined;
+  subject.selectedCategories.set(['TEXTIL']); subject.selectedMonths.set([2]);
+  await subject.ensureSellerDetail();
+  assert.deepEqual(requested, ['dashboard-sellers-summary-2026.json', 'dashboard-sellers-2026-02.json']);
+  assert.equal(subject.sellerPerformanceData()[0].seller, 'ANA');
 });
 test('section release clears product arrays, indexes and loaded flags', () => {
   const subject = new exports.Subject();
@@ -63,6 +80,7 @@ test('section release clears product arrays, indexes and loaded flags', () => {
     return target[key];
   } });
   proxy.hierarchyDetailTimer = undefined;
+  proxy.sellerDetailAbort = undefined;
   const oldSignal = subject.sectionLoads.signal;
   proxy.releaseSectionDetails();
   assert.equal(oldSignal.aborted, true);

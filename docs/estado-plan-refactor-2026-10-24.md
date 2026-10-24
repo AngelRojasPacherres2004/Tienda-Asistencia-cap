@@ -37,7 +37,7 @@ la CLI local. El paso 1 incluyó cambios verificados en esa base principal.
 La organización Supabase está en Free y no dispone de respaldos programados.
 La CLI local continúa enlazada al proyecto legacy `imiuwbhuiqvktcqeyowq`;
 las migraciones se aplicaron con la conexión explícita a la base principal,
-sin usar `db push` indiscriminadamente. La contraseña temporal se retirará del
+sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 árbol de trabajo al concluir las operaciones de base.
 
 ## Paso 2: optimización del dashboard — en curso, no publicado
@@ -49,9 +49,20 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retirará del
   rangos de precio (33.84 MiB) y sublíneas (29.32 MiB).
 - El resumen inicial de marcas repetía tres campos vacíos en 49,252 filas.
   Se compactó el generador sin alterar los importes ni las unidades; la
-  proyección con la publicación vigente reduce el núcleo de aproximadamente
-  15.36 a 13.62 MiB. La cifra real se medirá
-  después de regenerar, probar y publicar una versión nueva.
+  regeneración local redujo el núcleo de 15.36 a 13.62 MiB (14.28 MB
+  decimales), por debajo de la puerta de 15 MB. Aún no se ha publicado.
+- El ranking de vendedores sin filtros jerárquicos se preagrupó por
+  mes/tienda/vendedor: 498,005 filas históricas quedan en 9,044 filas de
+  resumen, de 0.44–0.46 MiB por año. Al elegir un mes y un filtro de
+  rubro/línea/sublínea se descarga su partición mensual, cuyo máximo medido
+  es 4.32 MiB (4.53 MB). La vista conserva un fallback para publicaciones
+  antiguas y cancela solicitudes de vendedor al cambiar los filtros.
+- Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
+  `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
+  `scripts/verify-dashboard-regeneration.py` comparó 110 conjuntos de filas
+  sin depender del orden: cero diferencias no explicadas. La única variación
+  en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
+  como corresponde. El manifiesto local descubre 87 archivos, ninguno falta.
 - Ya existe código de partición anual y carga selectiva, pero la publicación
   vigente aún contiene monolitos de vendedores, marcas, precio y sublíneas.
   Una partición anual de vendedores aún llegaría a 33.78 MB; las particiones
@@ -60,7 +71,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retirará del
   finos: una tienda puede llegar a 5.57 MB, pero tienda+rubro a 2.66 MB.
   Queda preagregar y particionar los detalles por mes/tienda/rubro, verificar
   que los filtros conservan los resultados y cumplir el máximo de 5 MB por
-  panel completo, no solo por archivo, antes de iniciar el paso 3.
+  panel completo, no solo por archivo, antes de iniciar el paso 3. Los archivos
+  diarios y los detalles anuales de marcas/precios/sublíneas, stock y
+  predictivo todavía superan 5 MB. La nueva versión no se publicará antes
+  de resolver y verificar esos casos.
 
 ## Pasos 3–5: no completados
 
@@ -73,5 +87,5 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retirará del
 - **Tablas:** hay candidatas legacy documentadas, pero no hay periodo de
   observación, archivo, respaldo probado ni eliminación.
 
-No avanzar al paso 2 hasta aplicar y verificar el paso 1 en el destino
-acordado. Tampoco retirar Angular ni tablas antes de sus puertas respectivas.
+No avanzar al paso 3 hasta publicar y verificar el paso 2. Tampoco retirar
+Angular ni tablas antes de sus puertas respectivas.

@@ -211,6 +211,8 @@ export class App implements OnInit {
   private predictiveDetailPromise?: Promise<void>;
   private priceRangeDetailPromise?: Promise<void>;
   private sellerDetailPromise?: Promise<void>;
+  private sellerDetailAbort?: AbortController;
+  private sellerDetailGeneration = 0;
   private pageOverflowBeforeModal = '';
   private readonly sectionLoads = new SectionLoads();
 
@@ -600,6 +602,7 @@ export class App implements OnInit {
     }
     this.clearDateRange();
     this.calendarOpen.set(false);
+    this.invalidateSellerDetailForMonth();
   }
 
   readonly selectedStoreSingle = computed(() => this.selectedStores().length === 1 ? this.selectedStores()[0] : 'TODAS');
@@ -625,6 +628,7 @@ export class App implements OnInit {
       this.selectedSublines.set([]);
     }
     this.productId.set('AUTO');
+    this.invalidateSellerDetail();
     this.deferHierarchyDetails();
   }
 
@@ -648,6 +652,7 @@ export class App implements OnInit {
       this.selectedSublines.set([]);
     }
     this.productId.set('AUTO');
+    this.invalidateSellerDetail();
     this.deferHierarchyDetails();
   }
 
@@ -659,6 +664,7 @@ export class App implements OnInit {
       this.selectedSublines.set([val]);
     }
     this.productId.set('AUTO');
+    this.invalidateSellerDetail();
     this.deferHierarchyDetails();
   }
 
@@ -3195,12 +3201,14 @@ export class App implements OnInit {
   clearMonths(): void {
     // MES es estrictamente temporal. No toca Tienda, Clúster, Formato, Rubro, Línea ni Sublínea.
     this.selectedMonths.set([]);
+    this.invalidateSellerDetailForMonth();
   }
   toggleMonth(value: number): void {
     const month = Number(value); if (!this.availableMonths().includes(month)) return;
     // ÚNICA mutación de este evento: selectedMonths.
     this.selectedMonths.set(this.toggleValue(this.selectedMonths(), month).sort((a, b) => a - b));
     this.clearDateRange();
+    this.invalidateSellerDetailForMonth();
   }
   clearStores(): void {
     if (this.storeFilterLocked()) return;
@@ -3212,10 +3220,11 @@ export class App implements OnInit {
     this.selectedStores.set(this.toggleValue(this.selectedStores(), value));
     this.productId.set('AUTO');
   }
-  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); }
+  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); }
   toggleCategory(value: string): void {
     if (!this.categories().includes(value)) return;
     this.selectedCategories.set(this.toggleValue(this.selectedCategories(), value)); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO');
+    this.invalidateSellerDetail();
     this.deferHierarchyDetails();
   }
   clearGenders(): void { this.selectedGenders.set([]); this.productId.set('AUTO'); }
@@ -3223,16 +3232,18 @@ export class App implements OnInit {
     if (!this.genderFilterEnabled() || !GENDER_ORDER.includes(value)) return;
     this.selectedGenders.set(this.toggleValue(this.selectedGenders(), value)); this.productId.set('AUTO');
   }
-  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); }
+  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); }
   toggleLine(value: string): void {
     if (!this.lines().includes(value)) return;
     this.selectedLines.set(this.toggleValue(this.selectedLines(), value)); this.selectedSublines.set([]); this.productId.set('AUTO');
+    this.invalidateSellerDetail();
     this.deferHierarchyDetails();
   }
-  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); }
+  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); }
   toggleSubline(value: string): void {
     if (!this.sublines().includes(value)) return;
     this.selectedSublines.set(this.toggleValue(this.selectedSublines(), value)); this.productId.set('AUTO');
+    this.invalidateSellerDetail();
     this.deferHierarchyDetails();
   }
   private hierarchyDetailTimer?: ReturnType<typeof setTimeout>;
@@ -3244,6 +3255,23 @@ export class App implements OnInit {
       void this.ensureSublineDetail();
       void this.ensureBrandDetail();
     }, 250);
+  }
+
+  private invalidateSellerDetail(): void {
+    this.sellerDetailGeneration += 1;
+    this.sellerDetailAbort?.abort();
+    this.sellerDetailAbort = undefined;
+    this.sellerDetailPromise = undefined;
+    this.sellerDetailLoading.set(false);
+    this.sellerDetailLoaded.set(false);
+    this.sellerPerformanceData.set([]);
+    if (this.page() === 3) void this.ensureSellerDetail();
+  }
+
+  private invalidateSellerDetailForMonth(): void {
+    if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
+      this.invalidateSellerDetail();
+    }
   }
 
   onYear(value: number): void {
@@ -3362,6 +3390,9 @@ export class App implements OnInit {
   }
   private cancelPendingSectionLoads(): void {
     this.sectionLoads.release();
+    this.sellerDetailGeneration += 1;
+    this.sellerDetailAbort?.abort();
+    this.sellerDetailAbort = undefined;
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
     this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.legacyStockPromise = undefined;
     this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
@@ -3437,6 +3468,7 @@ export class App implements OnInit {
     this.openFilter.set(null); this.filterSearch.set({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' }); this.stockHistoryBucketsSelected.set([]);
     this.calendarOpen.set(false);
     this.applyAccessScope();
+    this.invalidateSellerDetail();
   }
 
   private applyAccessScope(): void {
@@ -3656,23 +3688,55 @@ export class App implements OnInit {
   private async ensureSellerDetail(): Promise<void> {
     if (this.sellerDetailLoaded()) return;
     if (this.sellerDetailPromise) return this.sellerDetailPromise;
-    const signal = this.sectionLoads.signal;
+    const controller = new AbortController();
+    this.sellerDetailAbort = controller;
+    const signal = controller.signal;
+    const generation = this.sellerDetailGeneration;
+    const hierarchyActive = this.selectedCategories().length > 0 || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
     this.sellerDetailLoading.set(true);
     this.sellerDetailPromise = (async () => {
       try {
-        const rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+        let rows: SellerPerformanceRow[];
+        if (hierarchyActive) {
+          const month = this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0;
+          if (month) {
+            try {
+              const name = `dashboard-sellers-${this.year()}-${String(month).padStart(2, '0')}.json`;
+              const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>(name, signal);
+              rows = payload.sellerPerformance || [];
+            } catch {
+              signal.throwIfAborted();
+              // Compatibilidad con publicaciones anteriores sin particiones mensuales.
+              const yearly = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+              rows = yearly.filter(row => row.periodId % 100 === month);
+            }
+          } else {
+            rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+          }
+        } else {
+          try {
+            const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>(`dashboard-sellers-summary-${this.year()}.json`, signal);
+            rows = payload.sellerPerformance || [];
+          } catch {
+            signal.throwIfAborted();
+            // Una publicación anterior no contiene el resumen; conserva el ranking original.
+            rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+          }
+        }
         signal.throwIfAborted();
+        if (generation !== this.sellerDetailGeneration) return;
         this.sellerPerformanceData.set(rows);
         this.sellerDetailLoaded.set(true);
       } catch {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.sellerDetailGeneration) return;
         // Las demás métricas de Talento deben seguir disponibles si falla este detalle.
         signal.throwIfAborted();
         this.sellerPerformanceData.set([]);
       } finally {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.sellerDetailGeneration) return;
         this.sellerDetailLoading.set(false);
         this.sellerDetailPromise = undefined;
+        this.sellerDetailAbort = undefined;
       }
     })();
     return this.sellerDetailPromise;

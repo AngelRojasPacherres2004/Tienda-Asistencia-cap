@@ -64,6 +64,19 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
             files.append(legacy)
         else:
             missing.append(f"{dataset}-AAAA.json")
+    seller_years = {
+        name.removeprefix("dashboard-sellers-").removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-sellers-\d{4}\.json", name)
+    }
+    seller_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-sellers-summary-????.json")))
+    if seller_summaries:
+        summary_years = {
+            name.removeprefix("dashboard-sellers-summary-").removesuffix(".json")
+            for name in seller_summaries
+        }
+        missing.extend(f"dashboard-sellers-summary-{year}.json" for year in sorted(seller_years - summary_years))
+        files.extend(seller_summaries)
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-sellers-????-??.json")))
     daily_files = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-????-??.json")))
     if not daily_files and (data_dir / "dashboard-daily.json").is_file():
         daily_files = ("dashboard-daily.json",)

@@ -10,10 +10,28 @@ PIPELINES = Path(__file__).resolve().parents[1] / "piplines"
 sys.path.insert(0, str(PIPELINES))
 
 from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashboard_files  # noqa: E402
-from generar_datos_web import particionar_registros_anuales, resumir_marcas  # noqa: E402
+from generar_datos_web import (  # noqa: E402
+    particionar_registros_anuales, particionar_registros_mensuales, resumir_marcas, resumir_vendedores,
+)
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_seller_summary_preserves_ranking_metrics_per_period_and_store(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X",
+             "seller": "ANA", "net": 10, "units": 2, "transactions": 1},
+            {"periodId": 202601, "storeId": "T001", "category": "CALZADO", "line": "B", "subline": "Y",
+             "seller": "ANA", "net": 7, "units": 1, "transactions": 2},
+            {"periodId": 202602, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X",
+             "seller": "ANA", "net": 5, "units": 1, "transactions": 1},
+            {"periodId": 202601, "storeId": "T002", "category": "TEXTIL", "line": "A", "subline": "X",
+             "seller": "ANA", "net": 3, "units": 1, "transactions": 1},
+        ]
+        summary = resumir_vendedores(rows)
+        self.assertEqual(len(summary), 3)
+        self.assertEqual((summary[0]["net"], summary[0]["units"], summary[0]["transactions"]), (17, 3, 3))
+        self.assertEqual((summary[1]["periodId"], summary[2]["storeId"]), (202602, "T002"))
+
     def test_brand_summary_preserves_totals_without_empty_dimensions(self) -> None:
         rows = [
             {"periodId": 202601, "storeId": "T001", "brand": "A", "category": "TEXTIL", "net": 10, "units": 2},
@@ -41,6 +59,33 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
                 self.assertNotIn(f"{dataset}.json", files)
                 self.assertIn(f"{dataset}-2025.json", files)
                 self.assertIn(f"{dataset}-2026.json", files)
+
+    def test_includes_complete_seller_summaries_and_rejects_missing_years(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-10.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2025.json", f"{dataset}-2026.json")
+            self.touch(root, "dashboard-sellers-summary-2025.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertIn("dashboard-sellers-summary-2025.json", files)
+            self.assertIn("dashboard-sellers-summary-2026.json", missing)
+            self.touch(root, "dashboard-sellers-summary-2026.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertIn("dashboard-sellers-summary-2026.json", files)
+
+    def test_discovers_monthly_seller_detail_without_replacing_annual_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2026.json")
+            self.touch(root, "dashboard-sellers-2026-01.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertIn("dashboard-sellers-2026.json", files)
+            self.assertIn("dashboard-sellers-2026-01.json", files)
 
     def test_accepts_legacy_files_until_data_is_regenerated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -85,6 +130,20 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
     def test_year_partition_rejects_rows_without_period(self) -> None:
         with self.assertRaisesRegex(ValueError, "periodId"):
             particionar_registros_anuales([{"storeId": "T001"}], "dashboard-sellers", "sellerPerformance")
+
+    def test_month_partition_preserves_rows_and_rejects_invalid_month(self) -> None:
+        rows = [
+            {"periodId": 202602, "storeId": "T001", "net": 2},
+            {"periodId": 202601, "storeId": "T002", "net": 3},
+            {"periodId": 202602, "storeId": "T003", "net": 4},
+        ]
+        files = particionar_registros_mensuales(rows, "dashboard-sellers", "sellerPerformance")
+        self.assertEqual(set(files), {"dashboard-sellers-2026-01.json", "dashboard-sellers-2026-02.json"})
+        self.assertCountEqual(
+            [row for payload in files.values() for row in payload["sellerPerformance"]], rows,
+        )
+        with self.assertRaisesRegex(ValueError, "periodId"):
+            particionar_registros_mensuales([{"periodId": 202613}], "dashboard-sellers", "sellerPerformance")
 
 
 if __name__ == "__main__":

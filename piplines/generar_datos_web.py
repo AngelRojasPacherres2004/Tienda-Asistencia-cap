@@ -45,6 +45,21 @@ def particionar_registros_anuales(registros: list[dict], nombre: str, clave: str
     }
 
 
+def particionar_registros_mensuales(registros: list[dict], nombre: str, clave: str) -> dict[str, dict]:
+    """Conserva exactamente las filas y el orden dentro de cada mes."""
+
+    filas_por_periodo: dict[int, list[dict]] = {}
+    for registro in registros:
+        periodo = int(registro.get("periodId") or 0)
+        if periodo <= 0 or not 1 <= periodo % 100 <= 12:
+            raise ValueError(f"{clave} contiene una fila sin periodId mensual válido")
+        filas_por_periodo.setdefault(periodo, []).append(registro)
+    return {
+        f"{nombre}-{periodo // 100:04d}-{periodo % 100:02d}.json": {clave: filas}
+        for periodo, filas in sorted(filas_por_periodo.items())
+    }
+
+
 def resumir_marcas(registros: list[dict]) -> list[dict]:
     """Conserva los totales visibles sin repetir dimensiones vacías por marca."""
 
@@ -63,6 +78,31 @@ def resumir_marcas(registros: list[dict]) -> list[dict]:
         )
         agregado["net"] += registro["net"]
         agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
+def resumir_vendedores(registros: list[dict]) -> list[dict]:
+    """Preagrupa el ranking sin perder el detalle jerárquico opcional."""
+
+    resumen: dict[tuple[int, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["seller"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": "",
+                "line": "",
+                "subline": "",
+                "seller": registro["seller"],
+                "net": 0.0,
+                "units": 0.0,
+                "transactions": 0.0,
+            },
+        )
+        for campo in ("net", "units", "transactions"):
+            agregado[campo] += registro[campo]
     return list(resumen.values())
 
 
@@ -998,6 +1038,10 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-summary-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-summary-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-brand-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-brand-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-subline-????.json"),
@@ -1032,6 +1076,8 @@ def escribir(resultado: dict) -> None:
         # Los detalles temporales se descargan por año. La interfaz conserva un
         # fallback a los monolitos antiguos para abrir publicaciones previas.
         **particionar_registros_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_mensuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_anuales(resumir_vendedores(resultado["sellerPerformance"]), "dashboard-sellers-summary", "sellerPerformance"),
         **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
         **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
         **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
