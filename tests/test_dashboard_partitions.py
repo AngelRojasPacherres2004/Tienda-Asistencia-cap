@@ -11,11 +11,26 @@ sys.path.insert(0, str(PIPELINES))
 
 from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashboard_files  # noqa: E402
 from generar_datos_web import (  # noqa: E402
-    particionar_registros_anuales, particionar_registros_mensuales, resumir_marcas, resumir_vendedores,
+    particionar_registros_anuales, particionar_registros_mensuales, resumir_marcas,
+    resumir_rangos_precio, resumir_vendedores,
 )
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_price_summary_preserves_band_totals_for_each_store_and_month(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X",
+             "bandOrder": 1, "priceBand": "S/ 0–30", "net": 10, "units": 2},
+            {"periodId": 202601, "storeId": "T001", "category": "CALZADO", "line": "B", "subline": "Y",
+             "bandOrder": 1, "priceBand": "S/ 0–30", "net": 7, "units": 1},
+            {"periodId": 202602, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X",
+             "bandOrder": 2, "priceBand": "S/ 31–60", "net": 5, "units": 1},
+        ]
+        summary = resumir_rangos_precio(rows)
+        self.assertEqual(len(summary), 2)
+        self.assertEqual((summary[0]["bandOrder"], summary[0]["net"], summary[0]["units"]), (1, 17, 3))
+        self.assertEqual((summary[1]["periodId"], summary[1]["net"]), (202602, 5))
+
     def test_seller_summary_preserves_ranking_metrics_per_period_and_store(self) -> None:
         rows = [
             {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X",
@@ -86,6 +101,17 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
             self.assertEqual(missing, [])
             self.assertIn("dashboard-sellers-2026.json", files)
             self.assertIn("dashboard-sellers-2026-01.json", files)
+
+    def test_requires_price_summaries_for_each_existing_price_year(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2025.json", f"{dataset}-2026.json")
+            self.touch(root, "dashboard-price-range-summary-2025.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertIn("dashboard-price-range-summary-2025.json", files)
+            self.assertIn("dashboard-price-range-summary-2026.json", missing)
 
     def test_accepts_legacy_files_until_data_is_regenerated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

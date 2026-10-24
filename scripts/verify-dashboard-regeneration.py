@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -96,6 +97,27 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
         if not rows_equal(yearly_rows, monthly_rows):
             errors.append(f"dashboard-sellers-{year}: particiones mensuales incompletas")
         checked += 1
+
+    original_prices = before_dir / "dashboard-price-range.json"
+    if original_prices.is_file():
+        totals: dict[tuple[int, str, int], list[float]] = defaultdict(lambda: [0.0, 0.0])
+        for row in read(original_prices)["monthlyPriceRange"]:
+            values = totals[(row["periodId"], row["storeId"], row["bandOrder"])]
+            values[0] += row["net"]
+            values[1] += row["units"]
+        summaries = sorted(after_dir.glob("dashboard-price-range-summary-????.json"))
+        if summaries:
+            actual = {
+                (row["periodId"], row["storeId"], row["bandOrder"]): row
+                for path in summaries for row in read(path)["monthlyPriceRange"]
+            }
+            if totals.keys() != actual.keys() or any(
+                not math.isclose(values[0], actual[key]["net"], rel_tol=0, abs_tol=1e-6)
+                or not math.isclose(values[1], actual[key]["units"], rel_tol=0, abs_tol=1e-6)
+                for key, values in totals.items() if key in actual
+            ):
+                errors.append("dashboard-price-range-summary: cambian los totales por banda")
+            checked += 1
 
     print(f"Comparaciones: {checked}; diferencias: {len(errors)}")
     for error in errors:

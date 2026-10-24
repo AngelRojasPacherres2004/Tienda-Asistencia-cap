@@ -210,6 +210,8 @@ export class App implements OnInit {
   private legacyStockPromise?: Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>;
   private predictiveDetailPromise?: Promise<void>;
   private priceRangeDetailPromise?: Promise<void>;
+  private priceRangeDetailAbort?: AbortController;
+  private priceRangeDetailGeneration = 0;
   private sellerDetailPromise?: Promise<void>;
   private sellerDetailAbort?: AbortController;
   private sellerDetailGeneration = 0;
@@ -629,6 +631,7 @@ export class App implements OnInit {
     }
     this.productId.set('AUTO');
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
     this.deferHierarchyDetails();
   }
 
@@ -653,6 +656,7 @@ export class App implements OnInit {
     }
     this.productId.set('AUTO');
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
     this.deferHierarchyDetails();
   }
 
@@ -665,6 +669,7 @@ export class App implements OnInit {
     }
     this.productId.set('AUTO');
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
     this.deferHierarchyDetails();
   }
 
@@ -3220,11 +3225,12 @@ export class App implements OnInit {
     this.selectedStores.set(this.toggleValue(this.selectedStores(), value));
     this.productId.set('AUTO');
   }
-  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); }
+  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); }
   toggleCategory(value: string): void {
     if (!this.categories().includes(value)) return;
     this.selectedCategories.set(this.toggleValue(this.selectedCategories(), value)); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO');
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
     this.deferHierarchyDetails();
   }
   clearGenders(): void { this.selectedGenders.set([]); this.productId.set('AUTO'); }
@@ -3232,18 +3238,20 @@ export class App implements OnInit {
     if (!this.genderFilterEnabled() || !GENDER_ORDER.includes(value)) return;
     this.selectedGenders.set(this.toggleValue(this.selectedGenders(), value)); this.productId.set('AUTO');
   }
-  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); }
+  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); }
   toggleLine(value: string): void {
     if (!this.lines().includes(value)) return;
     this.selectedLines.set(this.toggleValue(this.selectedLines(), value)); this.selectedSublines.set([]); this.productId.set('AUTO');
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
     this.deferHierarchyDetails();
   }
-  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); }
+  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); }
   toggleSubline(value: string): void {
     if (!this.sublines().includes(value)) return;
     this.selectedSublines.set(this.toggleValue(this.selectedSublines(), value)); this.productId.set('AUTO');
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
     this.deferHierarchyDetails();
   }
   private hierarchyDetailTimer?: ReturnType<typeof setTimeout>;
@@ -3272,6 +3280,17 @@ export class App implements OnInit {
     if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
       this.invalidateSellerDetail();
     }
+  }
+
+  private invalidatePriceRangeDetail(): void {
+    this.priceRangeDetailGeneration += 1;
+    this.priceRangeDetailAbort?.abort();
+    this.priceRangeDetailAbort = undefined;
+    this.priceRangeDetailPromise = undefined;
+    this.priceRangeDetailLoaded.set(false);
+    this.monthlyPriceRangeIndex.clear();
+    this.priceRangeData.set([]);
+    if (this.page() === 1) void this.ensurePriceRangeDetail();
   }
 
   onYear(value: number): void {
@@ -3393,6 +3412,9 @@ export class App implements OnInit {
     this.sellerDetailGeneration += 1;
     this.sellerDetailAbort?.abort();
     this.sellerDetailAbort = undefined;
+    this.priceRangeDetailGeneration += 1;
+    this.priceRangeDetailAbort?.abort();
+    this.priceRangeDetailAbort = undefined;
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
     this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.legacyStockPromise = undefined;
     this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
@@ -3469,6 +3491,7 @@ export class App implements OnInit {
     this.calendarOpen.set(false);
     this.applyAccessScope();
     this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
   }
 
   private applyAccessScope(): void {
@@ -3661,26 +3684,43 @@ export class App implements OnInit {
   private async ensurePriceRangeDetail(): Promise<void> {
     if (this.priceRangeDetailLoaded()) return;
     if (this.priceRangeDetailPromise) return this.priceRangeDetailPromise;
-    const signal = this.sectionLoads.signal;
+    const controller = new AbortController();
+    this.priceRangeDetailAbort = controller;
+    const signal = controller.signal;
+    const generation = this.priceRangeDetailGeneration;
+    const years = [...new Set([this.year(), this.effectivePriceRangeComparisonYear()])];
+    const hierarchyActive = this.selectedCategories().length > 0 || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
     this.priceRangeDetailPromise = (async () => {
       try {
-        const rows = await this.loadYearDetail<PriceRangeRow>(
-          'dashboard-price-range.json',
-          'monthlyPriceRange',
-          [this.year(), this.effectivePriceRangeComparisonYear()],
-          signal,
-        );
+        let rows: PriceRangeRow[];
+        if (hierarchyActive) {
+          rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+        } else {
+          try {
+            const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(
+              `dashboard-price-range-summary-${year}.json`, signal,
+            )));
+            rows = payloads.flatMap(payload => payload.monthlyPriceRange || []);
+          } catch {
+            signal.throwIfAborted();
+            // El manifiesto anterior al resumen aún usa los años completos.
+            rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          }
+        }
         signal.throwIfAborted();
-        this.monthlyPriceRangeIndex = await this.indexPeriodStoreAsync(rows, signal);
+        const index = await this.indexPeriodStoreAsync(rows, signal);
         signal.throwIfAborted();
+        if (generation !== this.priceRangeDetailGeneration) return;
+        this.monthlyPriceRangeIndex = index;
         this.priceRangeData.set(rows);
         this.priceRangeDetailLoaded.set(true);
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.priceRangeDetailGeneration) return;
         this.loadingError.set(`No se pudo abrir el detalle de rangos de precio: ${error instanceof Error ? error.message : error}`);
       } finally {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.priceRangeDetailGeneration) return;
         this.priceRangeDetailPromise = undefined;
+        this.priceRangeDetailAbort = undefined;
       }
     })();
     return this.priceRangeDetailPromise;

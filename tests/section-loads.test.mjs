@@ -10,7 +10,7 @@ const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const methods = ['ensureSellerDetail', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
+const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
 vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), { exports, URL, Worker: undefined, AbortController, DOMException });
@@ -65,6 +65,32 @@ test('seller ranking uses the compact yearly summary and one-month hierarchy det
   assert.deepEqual(requested, ['dashboard-sellers-summary-2026.json', 'dashboard-sellers-2026-02.json']);
   assert.equal(subject.sellerPerformanceData()[0].seller, 'ANA');
 });
+test('price range uses two compact yearly summaries until hierarchy filters need full detail', async () => {
+  const subject = sellerSubject();
+  const requested = [];
+  subject.priceRangeDetailGeneration = 0;
+  subject.priceRangeData = signal([]);
+  subject.priceRangeDetailLoaded = signal(false);
+  subject.effectivePriceRangeComparisonYear = () => 2025;
+  subject.indexPeriodStoreAsync = async rows => new Map(rows.map(row => [String(row.periodId), [row]]));
+  subject.loadDetail = async file => {
+    requested.push(file);
+    const year = Number(file.match(/(\d{4})\.json$/)?.[1]);
+    return { monthlyPriceRange: [{ periodId: year * 100 + 1, storeId: 'T001', bandOrder: 1, net: 10 }] };
+  };
+  await subject.ensurePriceRangeDetail();
+  assert.deepEqual(requested.sort(), ['dashboard-price-range-summary-2025.json', 'dashboard-price-range-summary-2026.json']);
+  assert.equal(subject.priceRangeData().length, 2);
+  subject.priceRangeDetailLoaded.set(false); subject.priceRangeDetailPromise = undefined;
+  subject.selectedCategories.set(['TEXTIL']);
+  subject.loadYearDetail = async (_file, _key, years) => {
+    requested.push(`detail:${years.join(',')}`);
+    return [{ periodId: 202601, storeId: 'T001', category: 'TEXTIL', bandOrder: 1, net: 4 }];
+  };
+  await subject.ensurePriceRangeDetail();
+  assert.equal(requested.at(-1), 'detail:2026,2025');
+  assert.equal(subject.priceRangeData()[0].net, 4);
+});
 test('section release clears product arrays, indexes and loaded flags', () => {
   const subject = new exports.Subject();
   subject.sectionLoads = new SectionLoads();
@@ -81,6 +107,7 @@ test('section release clears product arrays, indexes and loaded flags', () => {
   } });
   proxy.hierarchyDetailTimer = undefined;
   proxy.sellerDetailAbort = undefined;
+  proxy.priceRangeDetailAbort = undefined;
   const oldSignal = subject.sectionLoads.signal;
   proxy.releaseSectionDetails();
   assert.equal(oldSignal.aborted, true);

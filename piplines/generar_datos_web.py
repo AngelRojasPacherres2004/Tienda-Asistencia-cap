@@ -106,6 +106,31 @@ def resumir_vendedores(registros: list[dict]) -> list[dict]:
     return list(resumen.values())
 
 
+def resumir_rangos_precio(registros: list[dict]) -> list[dict]:
+    """Mantiene ventas/unidades por banda para la gráfica sin filtros jerárquicos."""
+
+    resumen: dict[tuple[int, str, int], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["bandOrder"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": "",
+                "line": "",
+                "subline": "",
+                "bandOrder": registro["bandOrder"],
+                "priceBand": registro["priceBand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
 def filas(conexion: duckdb.DuckDBPyConnection, consulta: str) -> list[dict]:
     cursor = conexion.execute(consulta)
     columnas = [item[0] for item in cursor.description]
@@ -1048,6 +1073,8 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-subline-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-summary-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-summary-????.json"),
     ]
     for obsoleto in obsoletos:
         obsoleto.unlink(missing_ok=True)
@@ -1081,6 +1108,7 @@ def escribir(resultado: dict) -> None:
         **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
         **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
         **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
+        **particionar_registros_anuales(resumir_rangos_precio(resultado["monthlyPriceRange"]), "dashboard-price-range-summary", "monthlyPriceRange"),
         # Separar el resumen de antigüedad del detalle por producto evita que la
         # pestaña de Inventario tenga que descargar ~60 MB antes de poder pintar.
         "dashboard-stock-origin.json": {"stockOrigin": resultado["stockOrigin"]},
