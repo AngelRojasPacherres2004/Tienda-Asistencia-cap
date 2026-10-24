@@ -86,3 +86,36 @@ Orden recomendado restante:
    Angular.
 4. Repetir por página y retirar Angular solo cuando todas las rutas tengan
    paridad funcional y visual.
+
+## Puerta de validación de particiones (2026-10-24)
+
+La validación local de las cuatro series temporales usó
+`scripts/benchmark-dashboard-partitions.py` sobre los JSON del corte
+2026-10-15. Comparó cada fila por año con su origen y confirmó 1,139,781 filas
+sin pérdida. Los tamaños corresponden a gzip nivel 6, como la publicación:
+
+```powershell
+& '.\.venv\Scripts\python.exe' scripts/benchmark-dashboard-partitions.py --directory commercial-dashboard/public/assets/data
+```
+
+| Serie | Monolito comprimido | Solo 2026 comprimido |
+| --- | ---: | ---: |
+| Vendedores | 5,774,471 B | 2,282,264 B |
+| Marcas | 3,309,701 B | 1,175,674 B |
+| Rangos de precio | 2,447,446 B | 909,225 B |
+| Sublíneas | 3,068,819 B | 1,145,771 B |
+| **Total** | **14,600,437 B** | **5,512,934 B** |
+
+Para una vista de un año, la transferencia estimada de estas cuatro series
+baja aproximadamente 62%. Algunas comparativas requieren dos años, por lo
+que su ahorro será menor. La medición es de bytes, no de latencia real del
+navegador.
+
+La consulta de solo lectura a la última versión publicada
+(`20261018T182658Z-ecc5c3a0d968`) encontró todavía los cuatro monolitos en
+`dashboard_files`. No se publicaron las particiones ni se aplicaron las
+migraciones SQL de esta rama. Por la indicación de trabajar localmente y de
+no avanzar sin verificar el paso anterior, la migración de páginas a React
+queda detenida hasta probar las particiones en una versión de prueba con los
+roles y filtros reales. El manifiesto de reportes anuales v3, que ya existe,
+es un conjunto distinto y no sustituye esta validación.
