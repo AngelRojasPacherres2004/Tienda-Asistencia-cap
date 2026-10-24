@@ -88,15 +88,16 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 errors.append(f"{name}/{key}: cambió el contenido")
             checked += 1
 
-    seller_years = sorted(after_dir.glob("dashboard-sellers-[0-9][0-9][0-9][0-9].json"))
-    for yearly_file in seller_years:
-        year = yearly_file.stem.rsplit("-", 1)[1]
-        months = sorted(after_dir.glob(f"dashboard-sellers-{year}-[0-9][0-9].json"))
-        yearly_rows = read(yearly_file)["sellerPerformance"]
-        monthly_rows = [row for month in months for row in read(month)["sellerPerformance"]]
-        if not rows_equal(yearly_rows, monthly_rows):
-            errors.append(f"dashboard-sellers-{year}: particiones mensuales incompletas")
-        checked += 1
+    for dataset, key in (("dashboard-sellers", "sellerPerformance"), ("dashboard-price-range", "monthlyPriceRange")):
+        yearly_files = sorted(after_dir.glob(f"{dataset}-[0-9][0-9][0-9][0-9].json"))
+        for yearly_file in yearly_files:
+            year = yearly_file.stem.rsplit("-", 1)[1]
+            months = sorted(after_dir.glob(f"{dataset}-{year}-[0-9][0-9].json"))
+            yearly_rows = read(yearly_file)[key]
+            monthly_rows = [row for month in months for row in read(month)[key]]
+            if not rows_equal(yearly_rows, monthly_rows):
+                errors.append(f"{dataset}-{year}: particiones mensuales incompletas")
+            checked += 1
 
     original_prices = before_dir / "dashboard-price-range.json"
     if original_prices.is_file():

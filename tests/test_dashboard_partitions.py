@@ -112,6 +112,9 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
             files, missing = discover_dashboard_files(root)
             self.assertIn("dashboard-price-range-summary-2025.json", files)
             self.assertIn("dashboard-price-range-summary-2026.json", missing)
+            self.touch(root, "dashboard-price-range-2026-01.json")
+            files, _ = discover_dashboard_files(root)
+            self.assertIn("dashboard-price-range-2026-01.json", files)
 
     def test_accepts_legacy_files_until_data_is_regenerated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

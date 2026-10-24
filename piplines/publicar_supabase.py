@@ -89,6 +89,7 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         }
         missing.extend(f"dashboard-price-range-summary-{year}.json" for year in sorted(price_years - summary_years))
         files.extend(price_summaries)
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-price-range-????-??.json")))
     daily_files = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-????-??.json")))
     if not daily_files and (data_dir / "dashboard-daily.json").is_file():
         daily_files = ("dashboard-daily.json",)

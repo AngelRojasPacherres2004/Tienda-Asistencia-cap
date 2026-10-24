@@ -90,6 +90,12 @@ test('price range uses two compact yearly summaries until hierarchy filters need
   await subject.ensurePriceRangeDetail();
   assert.equal(requested.at(-1), 'detail:2026,2025');
   assert.equal(subject.priceRangeData()[0].net, 4);
+  subject.priceRangeDetailLoaded.set(false); subject.priceRangeDetailPromise = undefined;
+  subject.selectedMonths.set([2]);
+  await subject.ensurePriceRangeDetail();
+  assert.deepEqual(requested.slice(-2).sort(), [
+    'dashboard-price-range-2025-02.json', 'dashboard-price-range-2026-02.json',
+  ]);
 });
 test('section release clears product arrays, indexes and loaded flags', () => {
   const subject = new exports.Subject();

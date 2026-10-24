@@ -1073,6 +1073,8 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-subline-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-summary-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-summary-????.json"),
     ]
@@ -1108,6 +1110,7 @@ def escribir(resultado: dict) -> None:
         **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
         **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
         **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
+        **particionar_registros_mensuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
         **particionar_registros_anuales(resumir_rangos_precio(resultado["monthlyPriceRange"]), "dashboard-price-range-summary", "monthlyPriceRange"),
         # Separar el resumen de antigüedad del detalle por producto evita que la
         # pestaña de Inventario tenga que descargar ~60 MB antes de poder pintar.

@@ -605,6 +605,7 @@ export class App implements OnInit {
     this.clearDateRange();
     this.calendarOpen.set(false);
     this.invalidateSellerDetailForMonth();
+    this.invalidatePriceRangeDetailForMonth();
   }
 
   readonly selectedStoreSingle = computed(() => this.selectedStores().length === 1 ? this.selectedStores()[0] : 'TODAS');
@@ -3207,6 +3208,7 @@ export class App implements OnInit {
     // MES es estrictamente temporal. No toca Tienda, Clúster, Formato, Rubro, Línea ni Sublínea.
     this.selectedMonths.set([]);
     this.invalidateSellerDetailForMonth();
+    this.invalidatePriceRangeDetailForMonth();
   }
   toggleMonth(value: number): void {
     const month = Number(value); if (!this.availableMonths().includes(month)) return;
@@ -3214,6 +3216,7 @@ export class App implements OnInit {
     this.selectedMonths.set(this.toggleValue(this.selectedMonths(), month).sort((a, b) => a - b));
     this.clearDateRange();
     this.invalidateSellerDetailForMonth();
+    this.invalidatePriceRangeDetailForMonth();
   }
   clearStores(): void {
     if (this.storeFilterLocked()) return;
@@ -3291,6 +3294,12 @@ export class App implements OnInit {
     this.monthlyPriceRangeIndex.clear();
     this.priceRangeData.set([]);
     if (this.page() === 1) void this.ensurePriceRangeDetail();
+  }
+
+  private invalidatePriceRangeDetailForMonth(): void {
+    if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
+      this.invalidatePriceRangeDetail();
+    }
   }
 
   onYear(value: number): void {
@@ -3694,7 +3703,21 @@ export class App implements OnInit {
       try {
         let rows: PriceRangeRow[];
         if (hierarchyActive) {
-          rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          const month = this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0;
+          if (month) {
+            try {
+              const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(
+                `dashboard-price-range-${year}-${String(month).padStart(2, '0')}.json`, signal,
+              )));
+              rows = payloads.flatMap(payload => payload.monthlyPriceRange || []);
+            } catch {
+              signal.throwIfAborted();
+              const yearly = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+              rows = yearly.filter(row => row.periodId % 100 === month);
+            }
+          } else {
+            rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          }
         } else {
           try {
             const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(

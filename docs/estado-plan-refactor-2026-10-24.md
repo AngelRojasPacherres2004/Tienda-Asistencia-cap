@@ -61,13 +61,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   los tres resúmenes anuales suman 0.90 MB y la comparación habitual de dos
   años descarga menos de 0.61 MB. Con rubro/línea/sublínea conserva el detalle
   original. El cambio de filtros cancela la carga anterior y evita pintar una
-  respuesta obsoleta.
+  respuesta obsoleta. Si además se elige un mes, descarga solo ese mes para
+  cada año comparado; la mayor partición individual mide 1.574 MB.
 - Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
   `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
-  `scripts/verify-dashboard-regeneration.py` comparó 111 conjuntos de filas
+  `scripts/verify-dashboard-regeneration.py` comparó 114 conjuntos de filas
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
-  como corresponde. El manifiesto local descubre 90 archivos, ninguno falta.
+  como corresponde. El manifiesto local descubre 124 archivos, ninguno falta.
 - Ya existe código de partición anual y carga selectiva, pero la publicación
   vigente aún contiene monolitos de vendedores, marcas, precio y sublíneas.
   Una partición anual de vendedores aún llegaría a 33.78 MB; las particiones
