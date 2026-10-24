@@ -24,9 +24,8 @@ revoke all on function public.codigo_portal_producto(text) from public, anon, au
 grant execute on function public.codigo_portal_producto(text) to service_role;
 
 -- La clave es derivada: se indexa la expresión y se expone mediante una vista
--- para no repetirla físicamente en las 265 mil filas del catálogo.
-alter table public.productos
-  drop column if exists codigo_portal_id;
+-- para no repetirla físicamente en las 265 mil filas del catálogo. No se
+-- elimina una posible columna heredada sin verificar antes sus consumidores.
 
 create unique index if not exists productos_codigo_portal_id_ux
   on public.productos (public.codigo_portal_producto(codigo_nissei));

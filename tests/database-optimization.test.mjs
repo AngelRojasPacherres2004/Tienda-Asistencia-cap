@@ -9,6 +9,7 @@ test('la clave comercial se calcula en una vista y no se duplica como columna al
   assert.match(sql, /create unique index if not exists productos_codigo_portal_id_ux[\s\S]*codigo_portal_producto\(codigo_nissei\)/);
   assert.match(sql, /create or replace view public\.productos_codigos_portal[\s\S]*security_invoker = true/);
   assert.doesNotMatch(sql, /add column if not exists codigo_portal_id/);
+  assert.doesNotMatch(sql, /drop column if exists codigo_portal_id/);
 });
 
 test('los índices de talla excluyen los códigos históricos que no tienen sufijo canónico', () => {
@@ -17,10 +18,9 @@ test('los índices de talla excluyen los códigos históricos que no tienen sufi
   assert.match(sql, /productos_codigo_talla_idx[\s\S]*where codigo_talla is not null/);
 });
 
-test('la optimización de tráfico conserva los índices útiles y ajusta autovacuum', () => {
+test('la optimización de tráfico no retira índices sin medir consultas reales', () => {
   const sql = readMigration('20261023164227_optimize_operational_schema.sql');
-  assert.match(sql, /drop index if exists public\.trafico_tienda_fecha_idx/);
-  assert.match(sql, /drop index if exists public\.idx_trafico_tienda_tienda/);
+  assert.doesNotMatch(sql, /drop index/);
   assert.match(sql, /autovacuum_vacuum_scale_factor = 0\.05/);
-  assert.doesNotMatch(sql, /drop index[^;]+idx_trafico_tienda_fecha/);
+  assert.match(sql, /index advisor/);
 });

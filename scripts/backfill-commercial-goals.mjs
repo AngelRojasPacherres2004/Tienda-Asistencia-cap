@@ -5,7 +5,7 @@
 import process from 'node:process';
 import { gunzipSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
-import { buildCommercialGoalBackfill } from '../netlify/lib/commercial-goals-backfill.js';
+import { buildCommercialGoalBackfill, compareCommercialGoalBackfill } from '../netlify/lib/commercial-goals-backfill.js';
 
 const apply = process.argv.includes('--apply');
 const url = process.env.SUPABASE_URL;
@@ -44,14 +44,28 @@ if (!apply) process.exit(0);
 
 const schema = await db.from('metas_comerciales_tienda').select('rubro').limit(1);
 if (schema.error) throw new Error('Aplica primero la migracion de metas comerciales con la columna rubro.');
-for (let offset = 0; offset < plan.rows.length; offset += 500) {
-  const { error } = await db.from('metas_comerciales_tienda')
-    .upsert(plan.rows.slice(offset, offset + 500), { onConflict: 'tienda_id,anio,mes,rubro' });
-  if (error) throw error;
+async function readStoredGoals() {
+  const rows = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await db.from('metas_comerciales_tienda')
+      .select('tienda_id,anio,mes,rubro,meta_venta').in('anio', [2024, 2025, 2026])
+      .order('id').range(offset, offset + 999);
+    if (error) throw error;
+    rows.push(...data);
+    if (data.length < 1000) return rows;
+  }
 }
 
-const { count, error: verifyError } = await db.from('metas_comerciales_tienda')
-  .select('id', { count: 'exact', head: true }).in('anio', [2024, 2025, 2026]);
-if (verifyError) throw verifyError;
-if (count < plan.rows.length) throw new Error(`La verificacion encontro ${count} filas; se esperaban al menos ${plan.rows.length}.`);
-console.log(JSON.stringify({ ok: true, written: plan.rows.length, verifiedRows: count }, null, 2));
+const before = compareCommercialGoalBackfill(plan.rows, await readStoredGoals());
+if (before.conflicting.length) {
+  throw new Error(`${before.conflicting.length} metas ya tienen importes distintos; no se sobrescribirán. Revisa la fuente y la base antes de continuar.`);
+}
+const { error: writeError } = await db.from('metas_comerciales_tienda')
+  .upsert(plan.rows, { onConflict: 'tienda_id,anio,mes,rubro' });
+if (writeError) throw writeError;
+
+const after = compareCommercialGoalBackfill(plan.rows, await readStoredGoals());
+if (after.missing.length || after.conflicting.length) {
+  throw new Error(`La verificación detectó ${after.missing.length} metas ausentes y ${after.conflicting.length} importes distintos.`);
+}
+console.log(JSON.stringify({ ok: true, written: plan.rows.length - before.matching, verifiedRows: after.matching }, null, 2));

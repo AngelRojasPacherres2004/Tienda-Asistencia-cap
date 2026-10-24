@@ -51,3 +51,18 @@ export function buildCommercialGoalBackfill({ monthlyStore = [], monthlyCategory
     }])),
   };
 }
+
+export function compareCommercialGoalBackfill(expectedRows, storedRows) {
+  const keyOf = row => `${Number(row.tienda_id)}|${Number(row.anio)}|${Number(row.mes)}|${String(row.rubro || '')}`;
+  const stored = new Map((storedRows || []).map(row => [keyOf(row), Number(row.meta_venta)]));
+  const missing = [];
+  const conflicting = [];
+  let matching = 0;
+  for (const row of expectedRows || []) {
+    const key = keyOf(row);
+    if (!stored.has(key)) missing.push(key);
+    else if (Math.abs(stored.get(key) - Number(row.meta_venta)) > 0.001) conflicting.push(key);
+    else matching++;
+  }
+  return { matching, missing, conflicting };
+}

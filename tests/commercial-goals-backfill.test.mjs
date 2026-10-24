@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCommercialGoalBackfill } from '../netlify/lib/commercial-goals-backfill.js';
+import { buildCommercialGoalBackfill, compareCommercialGoalBackfill } from '../netlify/lib/commercial-goals-backfill.js';
 
 test('preserves historical totals and imports only editable category goals', () => {
   const result = buildCommercialGoalBackfill({
@@ -30,4 +30,18 @@ test('blocks an incomplete store mapping before any write', () => {
   });
   assert.deepEqual(result.rows, []);
   assert.deepEqual(result.missingStores, ['T404']);
+});
+
+test('verifies each imported amount and detects an existing conflicting goal', () => {
+  const expected = [
+    { tienda_id: 7, anio: 2024, mes: 1, rubro: '', meta_venta: 100 },
+    { tienda_id: 7, anio: 2026, mes: 1, rubro: 'TEXTIL', meta_venta: 90 },
+  ];
+  assert.deepEqual(compareCommercialGoalBackfill(expected, [
+    { ...expected[0], meta_venta: '100.00' },
+    { ...expected[1], meta_venta: '91.00' },
+  ]), { matching: 1, missing: [], conflicting: ['7|2026|1|TEXTIL'] });
+  assert.deepEqual(compareCommercialGoalBackfill(expected, [expected[0]]), {
+    matching: 1, missing: ['7|2026|1|TEXTIL'], conflicting: [],
+  });
 });
