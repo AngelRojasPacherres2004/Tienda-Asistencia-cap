@@ -1,4 +1,3 @@
-import ExcelJS from "exceljs";
 import { genderFromLine } from "../../shared/annualReports.js";
 
 const BLUE = "183F87";
@@ -111,7 +110,8 @@ function styleTable(sheet, headerRow) {
   sheet.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: headerRow, column: sheet.columnCount } };
 }
 
-export function buildAnnualSummaryWorkbook(summary, filters, stores) {
+export async function buildAnnualSummaryWorkbook(summary, filters, stores) {
+  const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Asiste";
   workbook.created = new Date();

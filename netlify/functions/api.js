@@ -4,7 +4,6 @@ import { fetchFacebookInsights } from "../lib/facebook-insights.js";
 import { businessDate, addDays, attendanceCounts, courseProgress, rotationCounts, employmentPeriods, pendingAttendance } from "../../shared/metrics.js";
 import { createClient } from "@supabase/supabase-js";
 import jwt from "jsonwebtoken";
-import ExcelJS from "exceljs";
 import { mailConfigured } from "../lib/attendance-mail.js";
 import { validateSchedule, zonalReportStores, sendScheduledReport } from "../lib/attendance-reports.js";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
@@ -34,6 +33,13 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SEC
   global: { fetch: retrySupabaseRead },
 });
 const commercialProductCodes = createProductCodeLookup(supabase);
+let excelModulePromise;
+
+async function createExcelWorkbook() {
+  excelModulePromise ||= import("exceljs");
+  const { default: ExcelJS } = await excelModulePromise;
+  return new ExcelJS.Workbook();
+}
 
 const headers = {
   "Content-Type": "application/json; charset=utf-8",
@@ -1065,7 +1071,7 @@ async function annualSummaryExcel(event, sessionUser) {
     return { storeId: item.storeId, rows };
   }));
   const result = summarizeAnnualReports(storeRows, filters, manifest.stores, manifest.cutoffs);
-  const workbook = buildAnnualSummaryWorkbook(result, filters, manifest.stores);
+  const workbook = await buildAnnualSummaryWorkbook(result, filters, manifest.stores);
   return excelResponse(workbook, `resumen-comercial-${filters.year}.xlsx`);
 }
 
@@ -1840,7 +1846,7 @@ async function importUsersAdmin(event, actor) {
 
 async function exportUsersExcelAdmin(actor, template = false) {
   const rows = template ? [] : await listUsers(actor);
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   const sheet = workbook.addWorksheet("Usuarios");
   sheet.columns = [
     { header: "Nombres", key: "nombres", width: 22 }, { header: "Apellidos", key: "apellidos", width: 24 },
@@ -2946,7 +2952,7 @@ async function excelResponse(workbook, filename) {
 }
 
 async function exportStoreUsersExcel(actor, templateOnly = false) {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   const sheet = workbook.addWorksheet("Usuarios");
   sheet.columns = [
     { header: "Nombres", key: "nombres", width: 22 },
@@ -3000,7 +3006,7 @@ async function exportTiendaExcel(event, id) {
   const tipo = query.tipo === "capacitaciones" ? "capacitaciones" : "asistencias";
   const { data: tienda } = await supabase.from("tiendas").select("nombre").eq("id", id).maybeSingle();
   if (!tienda) throw httpError("Tienda no encontrada.", 404);
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   if (tipo === "capacitaciones") {
     addCapacitacionesSheet(workbook, "Capacitaciones", await fetchCapacitacionesExport(id, query.desde, query.hasta));
   } else {
@@ -3012,7 +3018,7 @@ async function exportTiendaExcel(event, id) {
 async function exportMiHistorialExcel(event, user) {
   const query = event.queryStringParameters || {};
   const rows = await fetchAsistenciasExport(user.tienda_id, query.desde, query.hasta);
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   addAsistenciasSheet(workbook, "Asistencias", rows);
   return excelResponse(workbook, "mi-tienda-asistencias.xlsx");
 }
@@ -3022,7 +3028,7 @@ async function exportTodoExcel(event) {
   const tipo = query.tipo === "capacitaciones" ? "capacitaciones" : "asistencias";
   const { data: tiendas, error } = await readAllResult(supabase.from("tiendas").select("id,nombre").order("nombre"));
   if (error) throw dbError(error);
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   if (!tiendas.length) {
     if (tipo === "capacitaciones") addCapacitacionesSheet(workbook, "Capacitaciones", []);
     else addAsistenciasSheet(workbook, "Asistencias", []);
@@ -3116,7 +3122,7 @@ async function updateTraffic(event, user, id) {
 async function exportTrafficExcel(event, user) {
   const rows = await listOperational("trafico_tienda", event, user,
     "fecha,rango_hora,cantidad,observaciones,tiendas(nombre),usuarios!trafico_tienda_registrado_por_fkey(nombres,apellidos,usuario)");
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   workbook.creator = "Asiste";
   workbook.created = new Date();
 
@@ -3439,7 +3445,7 @@ async function listStoreProducts(event, user) {
 
 async function exportIncidentsExcel(event, user) {
   const rows = await listIncidents(event, user);
-  const workbook = new ExcelJS.Workbook();
+  const workbook = await createExcelWorkbook();
   workbook.creator = "Asiste";
   workbook.created = new Date();
 
@@ -3923,7 +3929,7 @@ async function signedZonalSupervisionFile(event, user) {
 }
 
 async function exportZonalSupervisions(user) {
-  const result=await getZonalModule({},user,"supervisiones"); const workbook=new ExcelJS.Workbook(); const sheet=workbook.addWorksheet("Supervisiones");
+  const result=await getZonalModule({},user,"supervisiones"); const workbook=await createExcelWorkbook(); const sheet=workbook.addWorksheet("Supervisiones");
   sheet.columns=[{header:"Código",key:"codigo",width:14},{header:"Tienda",key:"tienda",width:22},{header:"Administrador",key:"administrador",width:25},{header:"Fecha",key:"fecha",width:14},{header:"Periodo",key:"periodo",width:18},{header:"Puntaje",key:"puntaje",width:12},{header:"Observaciones",key:"observaciones",width:16},{header:"Por validar",key:"por_validar",width:14},{header:"Estado",key:"estado",width:18}];
   sheet.addRows(result.visitas.map(visit=>{const observations=result.observaciones.filter(item=>item.visita_id===visit.id);const chief=visit.tiendas?.jefe;return{codigo:`SUP-${String(visit.id).padStart(4,"0")}`,tienda:visit.tiendas?.nombre||"",administrador:chief?`${chief.nombres} ${chief.apellidos}`:"Sin asignar",fecha:visit.fecha,periodo:visit.periodo||"",puntaje:visit.puntaje??"",observaciones:observations.length,por_validar:observations.filter(item=>item.estado==="en_validacion").length,estado:observations.some(item=>item.estado==="en_validacion")?"Por validar":observations.some(item=>item.estado!=="levantada")?"En seguimiento":"Cerrada"};})); styleHeader(sheet); return excelResponse(workbook,"supervisiones-zonales.xlsx");
 }
@@ -3958,7 +3964,7 @@ async function updateZonalIncident(event, user, id) {
 }
 
 async function exportZonalIncidents(user) {
-  const rows = await getZonalModule({}, user, "incidencias"); const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("Incidencias zonales");
+  const rows = await getZonalModule({}, user, "incidencias"); const workbook = await createExcelWorkbook(); const sheet = workbook.addWorksheet("Incidencias zonales");
   sheet.columns = [{header:"Código",key:"codigo",width:14},{header:"Fecha",key:"fecha",width:14},{header:"Tipo",key:"tipo",width:24},{header:"Alcance",key:"alcance",width:20},{header:"Tienda origen",key:"origen",width:22},{header:"Tienda afectada",key:"afectada",width:22},{header:"Estado",key:"estado",width:18},{header:"Descripción",key:"descripcion",width:45},{header:"Responsable",key:"responsable",width:24}];
   sheet.addRows(rows.map((row)=>({codigo:`IZ-${String(row.id).padStart(4,"0")}`,fecha:row.fecha,tipo:row.tipo.replaceAll("_"," "),alcance:row.alcance.replaceAll("_"," "),origen:row.origen?.nombre||"",afectada:row.afectada?.nombre||"",estado:row.estado.replaceAll("_"," "),descripcion:row.descripcion,responsable:row.responsable_seguimiento}))); styleHeader(sheet);
   return excelResponse(workbook, "incidencias-zonales.xlsx");
@@ -4186,7 +4192,7 @@ function addAttendanceSummary(workbook, rows) {
 }
 
 async function exportReportExcel(event, user, kind) {
-  const rows=await getReportRows(event,user,kind); const workbook=new ExcelJS.Workbook(); workbook.creator="Asiste"; workbook.created=new Date();
+  const rows=await getReportRows(event,user,kind); const workbook=await createExcelWorkbook(); workbook.creator="Asiste"; workbook.created=new Date();
   if (kind === "personal") { addPersonnelSummary(workbook,rows.filter(person=>person.estado==="activo")); addPersonnelDepartures(workbook,rows); }
   if (kind === "asistencias") addAttendanceSummary(workbook,rows);
   const detail=addReportSheet(workbook,kind,rows);
@@ -4214,7 +4220,7 @@ async function getMovements(event,user) {
   return movements.filter((row)=>(!query.modulo||row.modulo===query.modulo)&&(!query.operacion||row.operacion===query.operacion)&&(!query.desde||String(row.fecha_hora).slice(0,10)>=query.desde)&&(!query.hasta||String(row.fecha_hora).slice(0,10)<=query.hasta)&&(!search||Object.values(row).some((value)=>reportText(value).toLocaleLowerCase("es").includes(search)))).sort((a,b)=>String(b.fecha_hora).localeCompare(String(a.fecha_hora))).slice(0,500);
 }
 
-async function exportMovementsExcel(event,user){const rows=await getMovements(event,user);const workbook=new ExcelJS.Workbook();const sheet=workbook.addWorksheet("Historial");sheet.columns=[{header:"Fecha y hora",key:"fecha_hora",width:22},{header:"Módulo",key:"modulo",width:20},{header:"Operación",key:"operacion",width:18},{header:"Tienda",key:"tienda",width:26},{header:"Movimiento",key:"titulo",width:34},{header:"Detalle",key:"detalle",width:55},{header:"Realizado por",key:"realizado_por",width:28},{header:"Valor anterior",key:"valor_anterior",width:22},{header:"Valor nuevo",key:"valor_nuevo",width:22}];sheet.addRows(rows.map((row)=>({...row,modulo:humanize(row.modulo),operacion:humanize(row.operacion)})));styleHeader(sheet);return excelResponse(workbook,`historial-movimientos-${todayISO()}.xlsx`);}
+async function exportMovementsExcel(event,user){const rows=await getMovements(event,user);const workbook=await createExcelWorkbook();const sheet=workbook.addWorksheet("Historial");sheet.columns=[{header:"Fecha y hora",key:"fecha_hora",width:22},{header:"Módulo",key:"modulo",width:20},{header:"Operación",key:"operacion",width:18},{header:"Tienda",key:"tienda",width:26},{header:"Movimiento",key:"titulo",width:34},{header:"Detalle",key:"detalle",width:55},{header:"Realizado por",key:"realizado_por",width:28},{header:"Valor anterior",key:"valor_anterior",width:22},{header:"Valor nuevo",key:"valor_nuevo",width:22}];sheet.addRows(rows.map((row)=>({...row,modulo:humanize(row.modulo),operacion:humanize(row.operacion)})));styleHeader(sheet);return excelResponse(workbook,`historial-movimientos-${todayISO()}.xlsx`);}
 
 // ---------- Mi tienda (solo jefe de tienda) ----------
 
