@@ -45,6 +45,27 @@ def particionar_registros_anuales(registros: list[dict], nombre: str, clave: str
     }
 
 
+def resumir_marcas(registros: list[dict]) -> list[dict]:
+    """Conserva los totales visibles sin repetir dimensiones vacías por marca."""
+
+    resumen: dict[tuple[int, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["brand"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "brand": registro["brand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
 def filas(conexion: duckdb.DuckDBPyConnection, consulta: str) -> list[dict]:
     cursor = conexion.execute(consulta)
     columnas = [item[0] for item in cursor.description]
@@ -986,20 +1007,6 @@ def escribir(resultado: dict) -> None:
     ]
     for obsoleto in obsoletos:
         obsoleto.unlink(missing_ok=True)
-    resumen_marca: dict[tuple[int, str, str], dict] = {}
-    for registro in resultado["monthlyBrand"]:
-        llave = (registro["periodId"], registro["storeId"], registro["brand"])
-        agregado = resumen_marca.setdefault(
-            llave,
-            {
-                "periodId": registro["periodId"], "storeId": registro["storeId"],
-                "category": "", "line": "", "subline": "", "brand": registro["brand"],
-                "net": 0.0, "units": 0.0,
-            },
-        )
-        agregado["net"] += registro["net"]
-        agregado["units"] += registro["units"]
-
     catalogo = sorted(
         {
             (registro["category"], registro["line"], registro["subline"])
@@ -1056,7 +1063,7 @@ def escribir(resultado: dict) -> None:
             for rubro, linea, sublinea in catalogo
         ],
         "monthlySubline": [],
-        "monthlyBrand": list(resumen_marca.values()),
+        "monthlyBrand": resumir_marcas(resultado["monthlyBrand"]),
         "monthlyPriceRange": [],
         "sellerPerformance": [],
         "clientPerformance": [],

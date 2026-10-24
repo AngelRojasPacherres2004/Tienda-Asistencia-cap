@@ -28,7 +28,7 @@ type PersonnelProfile = {
   name: string; storeId: string; gender: 'M' | 'F' | 'N/A'; birthDate?: string; birthdayMonth?: number; birthdayDay?: number;
   role: string; area: string; areaType: string; hireDate?: string; retirementDate?: string; retirementReason?: string; status: string;
 };
-type BrandRow = { periodId: number; storeId: string; category: string; line: string; subline: string; brand: string; net: number; units: number };
+type BrandRow = { periodId: number; storeId: string; category?: string; line?: string; subline?: string; brand: string; net: number; units: number };
 type PriceRangeRow = { periodId: number; storeId: string; category: string; line: string; subline: string; bandOrder: number; priceBand: string; net: number; units: number };
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };

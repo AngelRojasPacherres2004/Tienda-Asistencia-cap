@@ -2,54 +2,68 @@
 
 Rama Git local: `prueba/refactor-integral`. El proyecto operativo es
 `xtnihjzqnxozbotymoma` (`bd-app`), no el proyecto legacy al que está enlazada
-la CLI local. Esta auditoría de la base fue de solo lectura.
+la CLI local. El paso 1 incluyó cambios verificados en esa base principal.
 
-## Paso 1: corrección de datos — pendiente de aplicación y verificación
+## Paso 1: corrección de datos — aplicado y verificado en la base principal
 
-- La última migración registrada en `supabase_migrations.schema_migrations` es
-  `20261018120000`. El esquema real contiene objetos posteriores, de modo que
-  el historial y la base no coinciden; no se debe ejecutar ciegamente todo el
-  directorio de migraciones.
-- `metas_comerciales_tienda` existe, pero tiene cero filas y aún no tiene
-  `rubro`. No existen `metas_comerciales_anuales`, `tallas_nissei`, la vista de
-  códigos de portal ni el índice hash.
-- `productos` tiene 265,612 filas; 47,960 códigos son canónicos de 14
-  caracteres. No hay grupos duplicados tras la normalización requerida por el
-  futuro índice hash. PostgreSQL 17.6 tiene `pgcrypto` 1.3 instalado en
-  `extensions`. La migración de catálogo no elimina columnas heredadas.
-- Las 45 contraseñas operativas no nulas ya son bcrypt `$2b$12$`; las otras
-  225 cuentas tienen contraseña nula. La migración de claves no debe volver a
-  convertir esos 45 hashes.
-- El backfill de solo lectura de la versión `20261018T182658Z-ecc5c3a0d968`
-  encontró 216 filas para 2024, 216 para 2025 y 408 de TEXTIL/CALZADO para
-  2026; no faltan mapeos de tiendas. `T018` tiene 12 metas totales cero en
-  2026 y no tiene desglose por rubro; no se inventarán cifras.
-- `scripts/backfill-commercial-goals.mjs` ahora detiene la importación si una
-  meta existente tiene otro importe, envía las 840 filas en una sola operación
-  y verifica cada fila e importe al terminar.
+- Antes de escribir, se creó un volcado lógico completo con `pg_dump 17.11`
+  fuera de Git, en `%LOCALAPPDATA%/DashBoardGeneral/backups/`. El archivo
+  `xtnihjzqnxozbotymoma-pre-migrations-20261024-083607.dump` tiene
+  6,124,539 bytes, 1,117 entradas (105 de datos, incluidas las 66 tablas de
+  `public`), se leyó íntegramente con `pg_restore` y tiene SHA-256
+  `B2B20F606FC4515D9D4C0EE9BD1F982F89AC2723E18BC3158634B396C3AC93FB`.
+  La prueba de restauración en una instancia independiente sigue pendiente;
+  es obligatoria antes de retirar tablas en el paso 5.
+- Se aplicaron transaccionalmente las migraciones de metas, tallas y códigos
+  de producto. El esquema y los permisos se comprobaron con SQL y por la API.
+  El historial remoto se reparó para seis versiones ya verificadas, desde
+  `20261020120000` hasta `20261023162555`. La migración operativa
+  `20261023164227` se reserva para el paso 3.
+- El backfill de la publicación `20261018T182658Z-ecc5c3a0d968` importó y
+  verificó 840 metas: 216 en 2024 (S/ 51,719,360.62), 216 en 2025
+  (S/ 68,152,791.94) y 408 de TEXTIL/CALZADO en 2026
+  (S/ 66,358,635.86). `T018` no tenía desglose 2026 y no se inventaron cifras.
+  La vista calcula 204 totales mensuales de tienda para 2026.
+- El catálogo contiene 68 tallas. De 265,612 productos, 47,960 tienen código
+  canónico de 14 caracteres y 34,558 obtienen una talla del catálogo.
+  No hay derivaciones de talla desde códigos de longitud distinta ni colisiones
+  del identificador normalizado. `EXPLAIN ANALYZE` confirmó que la búsqueda
+  por identificador usa `productos_codigo_portal_id_ux`.
+- Las 45 contraseñas no nulas ya estaban en bcrypt; la migración modificó
+  cero filas. La API confirmó acceso de servicio a metas, tallas y vista de
+  códigos. Pasaron 241 pruebas Node (8 omitidas), 8 pruebas Python, ESLint y
+  el build. El build aún avisa que el bundle inicial Angular supera su límite.
 
-La organización Supabase está en Free. Su opción de rama de base exige subir
-de plan y muestra un cargo de cómputo de USD 0.01344/h mientras exista la rama.
-El panel de Backups confirma que Free no incluye respaldos programados. La
-cadena de conexión muestra `[YOUR-PASSWORD]`, no una credencial utilizable;
-no hay contraseña de Postgres en el entorno local. Esta máquina tampoco tiene
-Docker/Postgres local. La conexión MCP disponible apunta a otro proyecto y la
-CLI local sigue enlazada al proyecto legacy `imiuwbhuiqvktcqeyowq`.
+La organización Supabase está en Free y no dispone de respaldos programados.
+La CLI local continúa enlazada al proyecto legacy `imiuwbhuiqvktcqeyowq`;
+las migraciones se aplicaron con la conexión explícita a la base principal,
+sin usar `db push` indiscriminadamente. La contraseña temporal se retirará del
+árbol de trabajo al concluir las operaciones de base.
 
-El usuario eligió permitir producción **después** de un respaldo. Aún no hay
-respaldo verificable ni destino donde ensayar la restauración. Por ello no se
-han aplicado migraciones ni backfill al proyecto operativo. No restablecer la
-contraseña de producción solo para obtener acceso: puede cortar conexiones
-existentes. Una vía segura es proveer una conexión Postgres temporal de forma
-local (sin escribir secretos en Git ni en el chat) para hacer un volcado lógico
-y ensayar la restauración en otro proyecto antes del despliegue.
+## Paso 2: optimización del dashboard — en curso, no publicado
 
-## Pasos 2–5: no completados
+- La publicación vigente contiene 42 archivos y 848.85 MiB descomprimidos
+  (53.97 MiB almacenados con gzip). `dashboard.json` mide 15.36 MiB y supera
+  el objetivo inicial de 15 MB. Los mayores detalles individuales son
+  vendedores (84.81 MiB), productos de stock (56.83 MiB), marcas (39.64 MiB),
+  rangos de precio (33.84 MiB) y sublíneas (29.32 MiB).
+- El resumen inicial de marcas repetía tres campos vacíos en 49,252 filas.
+  Se compactó el generador sin alterar los importes ni las unidades; la
+  proyección con la publicación vigente reduce el núcleo de aproximadamente
+  15.36 a 13.62 MiB. La cifra real se medirá
+  después de regenerar, probar y publicar una versión nueva.
+- Ya existe código de partición anual y carga selectiva, pero la publicación
+  vigente aún contiene monolitos de vendedores, marcas, precio y sublíneas.
+  Una partición anual de vendedores aún llegaría a 33.78 MB; las particiones
+  mensuales medidas tendrían como máximo 4.20 MB (vendedores), 1.69 MB
+  (marcas), 1.48 MB (precio) y 1.14 MB (sublíneas). Stock necesita cortes más
+  finos: una tienda puede llegar a 5.57 MB, pero tienda+rubro a 2.66 MB.
+  Queda preagregar y particionar los detalles por mes/tienda/rubro, verificar
+  que los filtros conservan los resultados y cumplir el máximo de 5 MB por
+  panel completo, no solo por archivo, antes de iniciar el paso 3.
 
-- **Dashboard:** existen particiones anuales y carga selectiva en código, pero
-  la versión publicada todavía contiene los cuatro monolitos. Falta
-  preagregación y partición por mes/tienda/rubro, más medir las metas de 15 MB
-  iniciales y 5 MB por panel en una versión de prueba.
+## Pasos 3–5: no completados
+
 - **Backend:** `api.js` sigue concentrando los dominios. La carga de Excel se
   hizo diferida, pero la división por dominios y las consultas por gráfica
   todavía no están completas. Ningún índice se retirará sin `EXPLAIN`, métricas

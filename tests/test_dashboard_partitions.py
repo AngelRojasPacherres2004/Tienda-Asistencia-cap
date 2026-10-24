@@ -10,10 +10,19 @@ PIPELINES = Path(__file__).resolve().parents[1] / "piplines"
 sys.path.insert(0, str(PIPELINES))
 
 from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashboard_files  # noqa: E402
-from generar_datos_web import particionar_registros_anuales  # noqa: E402
+from generar_datos_web import particionar_registros_anuales, resumir_marcas  # noqa: E402
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_brand_summary_preserves_totals_without_empty_dimensions(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "brand": "A", "category": "TEXTIL", "net": 10, "units": 2},
+            {"periodId": 202601, "storeId": "T001", "brand": "A", "category": "CALZADO", "net": 7, "units": 1},
+        ]
+        self.assertEqual(resumir_marcas(rows), [{
+            "periodId": 202601, "storeId": "T001", "brand": "A", "net": 17.0, "units": 3.0,
+        }])
+
     def touch(self, root: Path, *names: str) -> None:
         for name in names:
             (root / name).write_text("{}", encoding="utf-8")
