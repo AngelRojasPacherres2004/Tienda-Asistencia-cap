@@ -120,6 +120,25 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 errors.append("dashboard-price-range-summary: cambian los totales por banda")
             checked += 1
 
+        category_totals: dict[tuple[int, str, str, int], list[float]] = defaultdict(lambda: [0.0, 0.0])
+        for row in read(original_prices)["monthlyPriceRange"]:
+            values = category_totals[(row["periodId"], row["storeId"], row["category"], row["bandOrder"])]
+            values[0] += row["net"]
+            values[1] += row["units"]
+        category_summaries = sorted(after_dir.glob("dashboard-price-range-category-????.json"))
+        if category_summaries:
+            actual = {
+                (row["periodId"], row["storeId"], row["category"], row["bandOrder"]): row
+                for path in category_summaries for row in read(path)["monthlyPriceRange"]
+            }
+            if category_totals.keys() != actual.keys() or any(
+                not math.isclose(values[0], actual[key]["net"], rel_tol=0, abs_tol=1e-6)
+                or not math.isclose(values[1], actual[key]["units"], rel_tol=0, abs_tol=1e-6)
+                for key, values in category_totals.items() if key in actual
+            ):
+                errors.append("dashboard-price-range-category: cambian los totales por rubro y banda")
+            checked += 1
+
     original_brands = before_dir / "dashboard-brand.json"
     if original_brands.is_file():
         totals: dict[tuple[int, str, str, str], list[float]] = defaultdict(lambda: [0.0, 0.0])

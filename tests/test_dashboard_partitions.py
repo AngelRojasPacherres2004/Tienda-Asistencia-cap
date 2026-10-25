@@ -13,7 +13,7 @@ from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashb
 from generar_datos_web import (  # noqa: E402
     particionar_registros_anuales, particionar_registros_mensuales, resumir_marcas,
     resumir_marcas_por_rubro,
-    resumir_rangos_precio, resumir_vendedores, resumir_vendedores_por_rubro,
+    resumir_rangos_precio, resumir_rangos_precio_por_rubro, resumir_vendedores, resumir_vendedores_por_rubro,
 )
 
 
@@ -55,6 +55,17 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(summary), 2)
         self.assertEqual((summary[0]["bandOrder"], summary[0]["net"], summary[0]["units"]), (1, 17, 3))
         self.assertEqual((summary[1]["periodId"], summary[1]["net"]), (202602, 5))
+
+    def test_price_category_summary_preserves_band_totals_per_rubro(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X", "bandOrder": 1, "priceBand": "S/ 0–30", "net": 10, "units": 2},
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "B", "subline": "Y", "bandOrder": 1, "priceBand": "S/ 0–30", "net": 7, "units": 1},
+            {"periodId": 202601, "storeId": "T001", "category": "CALZADO", "line": "C", "subline": "Z", "bandOrder": 1, "priceBand": "S/ 0–30", "net": 4, "units": 1},
+        ]
+        summary = resumir_rangos_precio_por_rubro(rows)
+        self.assertEqual(len(summary), 2)
+        self.assertEqual((summary[0]["category"], summary[0]["net"], summary[0]["units"]), ("TEXTIL", 17, 3))
+        self.assertEqual((summary[0]["line"], summary[0]["subline"]), ("", ""))
 
     def test_seller_summary_preserves_ranking_metrics_per_period_and_store(self) -> None:
         rows = [
@@ -151,6 +162,17 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
             self.touch(root, "dashboard-price-range-2026-01.json")
             files, _ = discover_dashboard_files(root)
             self.assertIn("dashboard-price-range-2026-01.json", files)
+
+    def test_requires_price_category_summary_for_each_existing_year(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2025.json", f"{dataset}-2026.json")
+            self.touch(root, "dashboard-price-range-category-2025.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertIn("dashboard-price-range-category-2025.json", files)
+            self.assertIn("dashboard-price-range-category-2026.json", missing)
 
     def test_requires_brand_category_summary_for_each_existing_year(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

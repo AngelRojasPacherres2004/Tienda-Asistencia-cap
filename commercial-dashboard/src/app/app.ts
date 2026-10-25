@@ -3745,10 +3745,21 @@ export class App implements OnInit {
     const generation = this.priceRangeDetailGeneration;
     const years = [...new Set([this.year(), this.effectivePriceRangeComparisonYear()])];
     const hierarchyActive = this.selectedCategories().length > 0 || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
+    const categoryOnly = this.selectedCategories().length > 0 && !this.selectedLines().length && !this.selectedSublines().length;
     this.priceRangeDetailPromise = (async () => {
       try {
         let rows: PriceRangeRow[];
-        if (hierarchyActive) {
+        if (categoryOnly) {
+          try {
+            const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(
+              `dashboard-price-range-category-${year}.json`, signal,
+            )));
+            rows = payloads.flatMap(payload => payload.monthlyPriceRange || []);
+          } catch {
+            signal.throwIfAborted();
+            rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          }
+        } else if (hierarchyActive) {
           const month = this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0;
           if (month) {
             try {

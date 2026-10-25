@@ -31,6 +31,7 @@ def measure(directory: Path) -> list[tuple[str, int, str, int]]:
         ("Vendedores · detalle anual", "dashboard-sellers-????.json", 1, PANEL_LIMIT),
         ("Vendedores · un mes", "dashboard-sellers-????-??.json", 1, PANEL_LIMIT),
         ("Precios · comparación resumida", "dashboard-price-range-summary-????.json", 2, PANEL_LIMIT),
+        ("Precios · comparación por rubro", "dashboard-price-range-category-????.json", 2, PANEL_LIMIT),
         ("Precios · comparación anual detallada", "dashboard-price-range-????.json", 2, PANEL_LIMIT),
         ("Precios · comparación mensual detallada", "dashboard-price-range-????-??.json", 2, PANEL_LIMIT),
         ("Marcas · rubro", "dashboard-brand-category-????.json", 1, PANEL_LIMIT),

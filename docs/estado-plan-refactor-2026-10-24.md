@@ -67,20 +67,24 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   original. El cambio de filtros cancela la carga anterior y evita pintar una
   respuesta obsoleta. Si además se elige un mes, descarga solo ese mes para
   cada año comparado; la mayor partición individual mide 1.574 MB.
+- Con un filtro exclusivo de rubro, la comparación de precios usa bandas
+  agregadas por mes/tienda/rubro. Los dos años más grandes suman 2.898 MB;
+  conservan importes y unidades. Con filtro de línea o sublínea continúa
+  utilizando el detalle. Hay fallback para la publicación anterior.
 - Marca con solo filtro de rubro usa un resumen exacto por mes/tienda/rubro/
   marca, máximo 2.326 MB por año. El detalle de sublínea ya no se solicita al
   filtrar únicamente por rubro o línea. La actualización de índices de marcas
   y sublíneas ahora invalida sus cálculos reactivos al finalizar la carga.
 - Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
   `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
-  `scripts/verify-dashboard-regeneration.py` comparó 116 conjuntos de filas
+  `scripts/verify-dashboard-regeneration.py` comparó 117 conjuntos de filas
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
   como corresponde. El manifiesto local incluye ahora el resumen anual por
   rubro y vendedor; ninguno de sus archivos falta.
 - `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
   y falla hasta que se cumplan ambas puertas. Hoy pasan la carga inicial, los
-  resúmenes de vendedores (también por rubro), precios y marcas, el detalle de un mes de vendedores/
+  resúmenes de vendedores (también por rubro), precios (también por rubro) y marcas, el detalle de un mes de vendedores/
   precios y origen de inventario; fallan siete escenarios: vendedores anual
   (33.784 MB), comparación anual detallada de precios (24.450 MB), marcas
   anual (14.245 MB), sublíneas anual (11.442 MB), productos/tallas de stock

@@ -72,7 +72,28 @@ test('seller ranking uses compact yearly and category summaries before detailed 
   assert.equal(requested.at(-1), 'dashboard-sellers-2026-02.json');
   assert.equal(subject.sellerPerformanceData()[0].seller, 'ANA');
 });
-test('price range uses two compact yearly summaries until hierarchy filters need full detail', async () => {
+
+test('category summaries fall back to annual data from an older publication', async () => {
+  const seller = sellerSubject();
+  seller.selectedCategories.set(['TEXTIL']);
+  seller.loadDetail = async () => { throw new Error('404'); };
+  seller.loadYearDetail = async () => [{ periodId: 202601, storeId: 'T001', category: 'TEXTIL', seller: 'ANA', net: 10 }];
+  await seller.ensureSellerDetail();
+  assert.equal(seller.sellerPerformanceData()[0].seller, 'ANA');
+
+  const price = sellerSubject();
+  price.selectedCategories.set(['TEXTIL']);
+  price.priceRangeDetailGeneration = 0;
+  price.priceRangeData = signal([]);
+  price.priceRangeDetailLoaded = signal(false);
+  price.effectivePriceRangeComparisonYear = () => 2025;
+  price.loadDetail = async () => { throw new Error('404'); };
+  price.loadYearDetail = async () => [{ periodId: 202601, storeId: 'T001', category: 'TEXTIL', bandOrder: 1, net: 4 }];
+  price.indexPeriodStoreAsync = async () => new Map();
+  await price.ensurePriceRangeDetail();
+  assert.equal(price.priceRangeData()[0].net, 4);
+});
+test('price range uses compact yearly and category summaries before line detail', async () => {
   const subject = sellerSubject();
   const requested = [];
   subject.priceRangeDetailGeneration = 0;
@@ -94,6 +115,10 @@ test('price range uses two compact yearly summaries until hierarchy filters need
     requested.push(`detail:${years.join(',')}`);
     return [{ periodId: 202601, storeId: 'T001', category: 'TEXTIL', bandOrder: 1, net: 4 }];
   };
+  await subject.ensurePriceRangeDetail();
+  assert.deepEqual(requested.slice(-2).sort(), ['dashboard-price-range-category-2025.json', 'dashboard-price-range-category-2026.json']);
+  subject.priceRangeDetailLoaded.set(false); subject.priceRangeDetailPromise = undefined;
+  subject.selectedLines.set(['A']);
   await subject.ensurePriceRangeDetail();
   assert.equal(requested.at(-1), 'detail:2026,2025');
   assert.equal(subject.priceRangeData()[0].net, 4);
