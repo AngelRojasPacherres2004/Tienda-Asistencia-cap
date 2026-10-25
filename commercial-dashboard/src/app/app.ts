@@ -204,6 +204,8 @@ export class App implements OnInit {
   private monthlyBrandIndex = new Map<string, BrandRow[]>();
   private monthlyPriceRangeIndex = new Map<string, PriceRangeRow[]>();
   private brandDetailPromise?: Promise<void>;
+  private brandDetailAbort?: AbortController;
+  private brandDetailGeneration = 0;
   private sublineDetailPromise?: Promise<void>;
   private stockOriginPromise?: Promise<void>;
   private stockDetailPromise?: Promise<void>;
@@ -633,6 +635,7 @@ export class App implements OnInit {
     this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
 
@@ -658,6 +661,7 @@ export class App implements OnInit {
     this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
 
@@ -671,6 +675,7 @@ export class App implements OnInit {
     this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
 
@@ -922,7 +927,10 @@ export class App implements OnInit {
 
   private currentDimensionIndex(): Map<string, Monthly[]> {
     if (this.selectedGenders().length && this.genderFilterEnabled()) return this.monthlyLineIndex;
-    if (this.selectedSublines().length) return this.monthlySublineIndex;
+    if (this.selectedSublines().length) {
+      this.sublineDetailLoaded();
+      return this.monthlySublineIndex;
+    }
     if (this.selectedLines().length) return this.monthlyLineIndex;
     if (this.selectedCategories().length) return this.monthlyCategoryIndex;
     return this.monthlyStoreIndex;
@@ -2701,6 +2709,7 @@ export class App implements OnInit {
     } as EChartsOption;
   });
   readonly brandSummary = computed<BrandSummary[]>(() => {
+    this.brandDetailLoaded();
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyBrandIndex, periods, ids)).filter(row =>
       this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
@@ -3228,12 +3237,13 @@ export class App implements OnInit {
     this.selectedStores.set(this.toggleValue(this.selectedStores(), value));
     this.productId.set('AUTO');
   }
-  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); }
+  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); }
   toggleCategory(value: string): void {
     if (!this.categories().includes(value)) return;
     this.selectedCategories.set(this.toggleValue(this.selectedCategories(), value)); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
   clearGenders(): void { this.selectedGenders.set([]); this.productId.set('AUTO'); }
@@ -3241,31 +3251,44 @@ export class App implements OnInit {
     if (!this.genderFilterEnabled() || !GENDER_ORDER.includes(value)) return;
     this.selectedGenders.set(this.toggleValue(this.selectedGenders(), value)); this.productId.set('AUTO');
   }
-  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); }
+  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); this.deferHierarchyDetails(); }
   toggleLine(value: string): void {
     if (!this.lines().includes(value)) return;
     this.selectedLines.set(this.toggleValue(this.selectedLines(), value)); this.selectedSublines.set([]); this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
-  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); }
+  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); this.deferHierarchyDetails(); }
   toggleSubline(value: string): void {
     if (!this.sublines().includes(value)) return;
     this.selectedSublines.set(this.toggleValue(this.selectedSublines(), value)); this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
   private hierarchyDetailTimer?: ReturnType<typeof setTimeout>;
   private deferHierarchyDetails(): void {
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
     this.hierarchyDetailTimer = setTimeout(() => {
-      // Primero deja que la UI pinte el filtro. Los JSON grandes se cargan una sola vez
-      // y ya indexados, evitando que Firefox parezca congelado en cada clic.
-      void this.ensureSublineDetail();
-      void this.ensureBrandDetail();
+      // Solo la sublínea requiere el detalle completo; rubro y línea usan
+      // agregados más livianos o índices presentes en el núcleo.
+      if (this.selectedSublines().length) void this.ensureSublineDetail();
+      if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
+        void this.ensureBrandDetail();
+      }
     }, 250);
+  }
+
+  private invalidateBrandDetail(): void {
+    this.brandDetailGeneration += 1;
+    this.brandDetailAbort?.abort();
+    this.brandDetailAbort = undefined;
+    this.brandDetailPromise = undefined;
+    this.monthlyBrandIndex = this.indexPeriodStore(this.data()?.monthlyBrand || []);
+    this.brandDetailLoaded.set(false);
   }
 
   private invalidateSellerDetail(): void {
@@ -3289,6 +3312,9 @@ export class App implements OnInit {
     this.priceRangeDetailGeneration += 1;
     this.priceRangeDetailAbort?.abort();
     this.priceRangeDetailAbort = undefined;
+    this.brandDetailGeneration += 1;
+    this.brandDetailAbort?.abort();
+    this.brandDetailAbort = undefined;
     this.priceRangeDetailPromise = undefined;
     this.priceRangeDetailLoaded.set(false);
     this.monthlyPriceRangeIndex.clear();
@@ -3501,6 +3527,7 @@ export class App implements OnInit {
     this.applyAccessScope();
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
   }
 
   private applyAccessScope(): void {
@@ -3653,19 +3680,38 @@ export class App implements OnInit {
   private async ensureBrandDetail(): Promise<void> {
     if (this.brandDetailLoaded()) return;
     if (this.brandDetailPromise) return this.brandDetailPromise;
-    const signal = this.sectionLoads.signal;
+    const controller = new AbortController();
+    this.brandDetailAbort = controller;
+    const signal = controller.signal;
+    const generation = this.brandDetailGeneration;
+    const categoryOnly = this.selectedCategories().length > 0 && !this.selectedLines().length && !this.selectedSublines().length;
     this.brandDetailPromise = (async () => {
       try {
-        const rows = await this.loadYearDetail<BrandRow>('dashboard-brand.json', 'monthlyBrand', [this.year()], signal);
+        let rows: BrandRow[];
+        if (categoryOnly) {
+          try {
+            const payload = await this.loadDetail<{ monthlyBrand: BrandRow[] }>(`dashboard-brand-category-${this.year()}.json`, signal);
+            rows = payload.monthlyBrand || [];
+          } catch {
+            signal.throwIfAborted();
+            rows = await this.loadYearDetail<BrandRow>('dashboard-brand.json', 'monthlyBrand', [this.year()], signal);
+          }
+        } else {
+          rows = await this.loadYearDetail<BrandRow>('dashboard-brand.json', 'monthlyBrand', [this.year()], signal);
+        }
         signal.throwIfAborted();
-        this.monthlyBrandIndex = await this.indexPeriodStoreAsync(rows, signal);
+        const index = await this.indexPeriodStoreAsync(rows, signal);
+        signal.throwIfAborted();
+        if (generation !== this.brandDetailGeneration) return;
+        this.monthlyBrandIndex = index;
         this.brandDetailLoaded.set(true);
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.brandDetailGeneration) return;
         this.loadingError.set(`No se pudo abrir el detalle de marcas: ${error instanceof Error ? error.message : error}`);
       } finally {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.brandDetailGeneration) return;
         this.brandDetailPromise = undefined;
+        this.brandDetailAbort = undefined;
       }
     })();
     return this.brandDetailPromise;

@@ -10,10 +10,13 @@ const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
+const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'ensureBrandDetail', 'deferHierarchyDetails', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
-vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), { exports, URL, Worker: undefined, AbortController, DOMException });
+vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), {
+  exports, URL, Worker: undefined, AbortController, DOMException,
+  setTimeout: callback => { callback(); return 1; }, clearTimeout: () => undefined,
+});
 const signal = initial => {
   let value = initial;
   const read = () => value;
@@ -97,6 +100,43 @@ test('price range uses two compact yearly summaries until hierarchy filters need
     'dashboard-price-range-2025-02.json', 'dashboard-price-range-2026-02.json',
   ]);
 });
+test('brand category filter loads the compact rubro summary and line filter loads detail', async () => {
+  const subject = sellerSubject();
+  const requested = [];
+  subject.brandDetailGeneration = 0;
+  subject.brandDetailLoaded = signal(false);
+  subject.loadingError = signal('');
+  subject.indexPeriodStoreAsync = async rows => new Map(rows.map(row => [String(row.periodId), [row]]));
+  subject.selectedCategories.set(['TEXTIL']);
+  subject.loadDetail = async file => {
+    requested.push(file);
+    return { monthlyBrand: [{ periodId: 202601, storeId: 'T001', category: 'TEXTIL', brand: 'Z', net: 10 }] };
+  };
+  await subject.ensureBrandDetail();
+  assert.deepEqual(requested, ['dashboard-brand-category-2026.json']);
+  assert.equal(subject.monthlyBrandIndex.get('202601')[0].net, 10);
+  subject.brandDetailLoaded.set(false); subject.brandDetailPromise = undefined;
+  subject.selectedLines.set(['A']);
+  subject.loadYearDetail = async () => {
+    requested.push('full-year');
+    return [{ periodId: 202601, storeId: 'T001', category: 'TEXTIL', line: 'A', brand: 'Z', net: 4 }];
+  };
+  await subject.ensureBrandDetail();
+  assert.equal(requested.at(-1), 'full-year');
+  assert.equal(subject.monthlyBrandIndex.get('202601')[0].net, 4);
+});
+test('category and line filters do not request the subline dataset', () => {
+  const subject = sellerSubject();
+  const requested = [];
+  subject.ensureBrandDetail = () => { requested.push('brand'); };
+  subject.ensureSublineDetail = () => { requested.push('subline'); };
+  subject.selectedCategories.set(['TEXTIL']);
+  subject.deferHierarchyDetails();
+  assert.deepEqual(requested, ['brand']);
+  subject.selectedSublines.set(['CAMISA']);
+  subject.deferHierarchyDetails();
+  assert.deepEqual(requested.slice(1), ['subline', 'brand']);
+});
 test('section release clears product arrays, indexes and loaded flags', () => {
   const subject = new exports.Subject();
   subject.sectionLoads = new SectionLoads();
@@ -114,6 +154,7 @@ test('section release clears product arrays, indexes and loaded flags', () => {
   proxy.hierarchyDetailTimer = undefined;
   proxy.sellerDetailAbort = undefined;
   proxy.priceRangeDetailAbort = undefined;
+  proxy.brandDetailAbort = undefined;
   const oldSignal = subject.sectionLoads.signal;
   proxy.releaseSectionDetails();
   assert.equal(oldSignal.aborted, true);

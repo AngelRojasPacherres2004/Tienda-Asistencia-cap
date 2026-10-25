@@ -81,6 +81,28 @@ def resumir_marcas(registros: list[dict]) -> list[dict]:
     return list(resumen.values())
 
 
+def resumir_marcas_por_rubro(registros: list[dict]) -> list[dict]:
+    """Mantiene rubro y marca para filtros de categoría sin cargar línea/sublínea."""
+
+    resumen: dict[tuple[int, str, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["category"], registro["brand"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": registro["category"],
+                "brand": registro["brand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
 def resumir_vendedores(registros: list[dict]) -> list[dict]:
     """Preagrupa el ranking sin perder el detalle jerárquico opcional."""
 
@@ -1069,6 +1091,8 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-summary-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-brand-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-brand-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-brand-category-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-brand-category-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-subline-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-subline-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????.json"),
@@ -1108,6 +1132,7 @@ def escribir(resultado: dict) -> None:
         **particionar_registros_mensuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
         **particionar_registros_anuales(resumir_vendedores(resultado["sellerPerformance"]), "dashboard-sellers-summary", "sellerPerformance"),
         **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
+        **particionar_registros_anuales(resumir_marcas_por_rubro(resultado["monthlyBrand"]), "dashboard-brand-category", "monthlyBrand"),
         **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
         **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
         **particionar_registros_mensuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),

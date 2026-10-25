@@ -120,6 +120,27 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 errors.append("dashboard-price-range-summary: cambian los totales por banda")
             checked += 1
 
+    original_brands = before_dir / "dashboard-brand.json"
+    if original_brands.is_file():
+        totals: dict[tuple[int, str, str, str], list[float]] = defaultdict(lambda: [0.0, 0.0])
+        for row in read(original_brands)["monthlyBrand"]:
+            values = totals[(row["periodId"], row["storeId"], row["category"], row["brand"])]
+            values[0] += row["net"]
+            values[1] += row["units"]
+        summaries = sorted(after_dir.glob("dashboard-brand-category-????.json"))
+        if summaries:
+            actual = {
+                (row["periodId"], row["storeId"], row["category"], row["brand"]): row
+                for path in summaries for row in read(path)["monthlyBrand"]
+            }
+            if totals.keys() != actual.keys() or any(
+                not math.isclose(values[0], actual[key]["net"], rel_tol=0, abs_tol=1e-6)
+                or not math.isclose(values[1], actual[key]["units"], rel_tol=0, abs_tol=1e-6)
+                for key, values in totals.items() if key in actual
+            ):
+                errors.append("dashboard-brand-category: cambian los totales por rubro y marca")
+            checked += 1
+
     print(f"Comparaciones: {checked}; diferencias: {len(errors)}")
     for error in errors:
         print(f"ERROR: {error}")
