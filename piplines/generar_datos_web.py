@@ -128,6 +128,31 @@ def resumir_vendedores(registros: list[dict]) -> list[dict]:
     return list(resumen.values())
 
 
+def resumir_vendedores_por_rubro(registros: list[dict]) -> list[dict]:
+    """Agrupa el ranking por rubro sin perder la selección de tienda y mes."""
+
+    resumen: dict[tuple[int, str, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["category"], registro["seller"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": registro["category"],
+                "line": "",
+                "subline": "",
+                "seller": registro["seller"],
+                "net": 0.0,
+                "units": 0.0,
+                "transactions": 0.0,
+            },
+        )
+        for campo in ("net", "units", "transactions"):
+            agregado[campo] += registro[campo]
+    return list(resumen.values())
+
+
 def resumir_rangos_precio(registros: list[dict]) -> list[dict]:
     """Mantiene ventas/unidades por banda para la gráfica sin filtros jerárquicos."""
 
@@ -1089,6 +1114,8 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-sellers-summary-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-summary-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-category-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-category-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-brand-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-brand-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-brand-category-????.json"),
@@ -1131,6 +1158,7 @@ def escribir(resultado: dict) -> None:
         **particionar_registros_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
         **particionar_registros_mensuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
         **particionar_registros_anuales(resumir_vendedores(resultado["sellerPerformance"]), "dashboard-sellers-summary", "sellerPerformance"),
+        **particionar_registros_anuales(resumir_vendedores_por_rubro(resultado["sellerPerformance"]), "dashboard-sellers-category", "sellerPerformance"),
         **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
         **particionar_registros_anuales(resumir_marcas_por_rubro(resultado["monthlyBrand"]), "dashboard-brand-category", "monthlyBrand"),
         **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),

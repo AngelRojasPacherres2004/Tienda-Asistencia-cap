@@ -57,6 +57,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   rubro/línea/sublínea se descarga su partición mensual, cuyo máximo medido
   es 4.32 MiB (4.53 MB). La vista conserva un fallback para publicaciones
   antiguas y cancela solicitudes de vendedor al cambiar los filtros.
+- Con filtro exclusivo de rubro, vendedores usa ahora un resumen exacto por
+  mes/tienda/rubro/vendedor. El peor año regenerado mide 4.858 MB, dentro de
+  la puerta de 5 MB. El filtro de línea o sublínea conserva el detalle y el
+  fallback anual anterior; los archivos nuevos todavía no se han publicado.
 - Rango de precios sin filtros jerárquicos usa totales por mes/tienda/banda:
   los tres resúmenes anuales suman 0.90 MB y la comparación habitual de dos
   años descarga menos de 0.61 MB. Con rubro/línea/sublínea conserva el detalle
@@ -69,13 +73,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   y sublíneas ahora invalida sus cálculos reactivos al finalizar la carga.
 - Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
   `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
-  `scripts/verify-dashboard-regeneration.py` comparó 115 conjuntos de filas
+  `scripts/verify-dashboard-regeneration.py` comparó 116 conjuntos de filas
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
-  como corresponde. El manifiesto local descubre 127 archivos, ninguno falta.
+  como corresponde. El manifiesto local incluye ahora el resumen anual por
+  rubro y vendedor; ninguno de sus archivos falta.
 - `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
   y falla hasta que se cumplan ambas puertas. Hoy pasan la carga inicial, los
-  resúmenes de vendedores/precios/marcas, el detalle de un mes de vendedores/
+  resúmenes de vendedores (también por rubro), precios y marcas, el detalle de un mes de vendedores/
   precios y origen de inventario; fallan siete escenarios: vendedores anual
   (33.784 MB), comparación anual detallada de precios (24.450 MB), marcas
   anual (14.245 MB), sublíneas anual (11.442 MB), productos/tallas de stock

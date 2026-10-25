@@ -3802,11 +3802,21 @@ export class App implements OnInit {
     const signal = controller.signal;
     const generation = this.sellerDetailGeneration;
     const hierarchyActive = this.selectedCategories().length > 0 || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
+    const categoryOnly = this.selectedCategories().length > 0 && !this.selectedLines().length && !this.selectedSublines().length;
     this.sellerDetailLoading.set(true);
     this.sellerDetailPromise = (async () => {
       try {
         let rows: SellerPerformanceRow[];
-        if (hierarchyActive) {
+        if (categoryOnly) {
+          try {
+            const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>(`dashboard-sellers-category-${this.year()}.json`, signal);
+            rows = payload.sellerPerformance || [];
+          } catch {
+            signal.throwIfAborted();
+            // Publicaciones anteriores no incluyen el resumen por rubro.
+            rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+          }
+        } else if (hierarchyActive) {
           const month = this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0;
           if (month) {
             try {

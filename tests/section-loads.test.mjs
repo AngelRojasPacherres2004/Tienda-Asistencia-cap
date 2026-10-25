@@ -53,7 +53,7 @@ test('a late seller response cannot repopulate memory or clear the new load', as
   assert.equal(subject.sellerPerformanceData()[0].seller, 'New');
   assert.equal(subject.sellerDetailLoading(), false);
 });
-test('seller ranking uses the compact yearly summary and one-month hierarchy detail', async () => {
+test('seller ranking uses compact yearly and category summaries before detailed hierarchy', async () => {
   const subject = sellerSubject();
   const requested = [];
   subject.loadDetail = async file => {
@@ -65,7 +65,11 @@ test('seller ranking uses the compact yearly summary and one-month hierarchy det
   subject.sellerDetailLoaded.set(false); subject.sellerDetailPromise = undefined;
   subject.selectedCategories.set(['TEXTIL']); subject.selectedMonths.set([2]);
   await subject.ensureSellerDetail();
-  assert.deepEqual(requested, ['dashboard-sellers-summary-2026.json', 'dashboard-sellers-2026-02.json']);
+  assert.deepEqual(requested, ['dashboard-sellers-summary-2026.json', 'dashboard-sellers-category-2026.json']);
+  subject.sellerDetailLoaded.set(false); subject.sellerDetailPromise = undefined;
+  subject.selectedLines.set(['A']);
+  await subject.ensureSellerDetail();
+  assert.equal(requested.at(-1), 'dashboard-sellers-2026-02.json');
   assert.equal(subject.sellerPerformanceData()[0].seller, 'ANA');
 });
 test('price range uses two compact yearly summaries until hierarchy filters need full detail', async () => {

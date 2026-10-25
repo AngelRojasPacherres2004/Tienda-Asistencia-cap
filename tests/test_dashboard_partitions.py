@@ -13,11 +13,23 @@ from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashb
 from generar_datos_web import (  # noqa: E402
     particionar_registros_anuales, particionar_registros_mensuales, resumir_marcas,
     resumir_marcas_por_rubro,
-    resumir_rangos_precio, resumir_vendedores,
+    resumir_rangos_precio, resumir_vendedores, resumir_vendedores_por_rubro,
 )
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_seller_category_summary_preserves_dimensions_and_totals(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X", "seller": "ANA", "net": 10, "units": 2, "transactions": 1},
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "B", "subline": "Y", "seller": "ANA", "net": 7, "units": 1, "transactions": 2},
+            {"periodId": 202601, "storeId": "T001", "category": "CALZADO", "line": "C", "subline": "Z", "seller": "ANA", "net": 4, "units": 1, "transactions": 1},
+        ]
+        summary = resumir_vendedores_por_rubro(rows)
+        self.assertEqual(len(summary), 2)
+        self.assertEqual((summary[0]["category"], summary[0]["net"], summary[0]["units"], summary[0]["transactions"]), ("TEXTIL", 17, 3, 3))
+        self.assertEqual((summary[0]["line"], summary[0]["subline"]), ("", ""))
+        self.assertEqual(summary[1]["category"], "CALZADO")
+
     def test_brand_category_summary_keeps_category_and_totals(self) -> None:
         rows = [
             {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X", "brand": "Z", "net": 10, "units": 2},
@@ -102,6 +114,17 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
             files, missing = discover_dashboard_files(root)
             self.assertEqual(missing, [])
             self.assertIn("dashboard-sellers-summary-2026.json", files)
+
+    def test_requires_seller_category_summary_for_each_existing_year(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2025.json", f"{dataset}-2026.json")
+            self.touch(root, "dashboard-sellers-category-2025.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertIn("dashboard-sellers-category-2025.json", files)
+            self.assertIn("dashboard-sellers-category-2026.json", missing)
 
     def test_discovers_monthly_seller_detail_without_replacing_annual_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

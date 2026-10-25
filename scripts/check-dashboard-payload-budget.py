@@ -27,6 +27,7 @@ def measure(directory: Path) -> list[tuple[str, int, str, int]]:
     scenarios = [
         ("Carga inicial", "dashboard.json", 1, INITIAL_LIMIT),
         ("Vendedores · resumen", "dashboard-sellers-summary-????.json", 1, PANEL_LIMIT),
+        ("Vendedores · rubro", "dashboard-sellers-category-????.json", 1, PANEL_LIMIT),
         ("Vendedores · detalle anual", "dashboard-sellers-????.json", 1, PANEL_LIMIT),
         ("Vendedores · un mes", "dashboard-sellers-????-??.json", 1, PANEL_LIMIT),
         ("Precios · comparación resumida", "dashboard-price-range-summary-????.json", 2, PANEL_LIMIT),

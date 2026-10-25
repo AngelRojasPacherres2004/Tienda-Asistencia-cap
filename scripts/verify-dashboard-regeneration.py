@@ -141,6 +141,27 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 errors.append("dashboard-brand-category: cambian los totales por rubro y marca")
             checked += 1
 
+    original_sellers = before_dir / "dashboard-sellers.json"
+    if original_sellers.is_file():
+        totals: dict[tuple[int, str, str, str], list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0])
+        for row in read(original_sellers)["sellerPerformance"]:
+            values = totals[(row["periodId"], row["storeId"], row["category"], row["seller"])]
+            for index, field in enumerate(("net", "units", "transactions")):
+                values[index] += row[field]
+        summaries = sorted(after_dir.glob("dashboard-sellers-category-????.json"))
+        if summaries:
+            actual = {
+                (row["periodId"], row["storeId"], row["category"], row["seller"]): row
+                for path in summaries for row in read(path)["sellerPerformance"]
+            }
+            if totals.keys() != actual.keys() or any(
+                not math.isclose(value, actual[key][field], rel_tol=0, abs_tol=1e-6)
+                for key, values in totals.items() if key in actual
+                for field, value in zip(("net", "units", "transactions"), values)
+            ):
+                errors.append("dashboard-sellers-category: cambian los totales por rubro y vendedor")
+            checked += 1
+
     print(f"Comparaciones: {checked}; diferencias: {len(errors)}")
     for error in errors:
         print(f"ERROR: {error}")

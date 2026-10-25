@@ -76,6 +76,14 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         }
         missing.extend(f"dashboard-sellers-summary-{year}.json" for year in sorted(seller_years - summary_years))
         files.extend(seller_summaries)
+    seller_categories = tuple(sorted(path.name for path in data_dir.glob("dashboard-sellers-category-????.json")))
+    if seller_categories:
+        category_years = {
+            name.removeprefix("dashboard-sellers-category-").removesuffix(".json")
+            for name in seller_categories
+        }
+        missing.extend(f"dashboard-sellers-category-{year}.json" for year in sorted(seller_years - category_years))
+        files.extend(seller_categories)
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-sellers-????-??.json")))
     price_years = {
         name.removeprefix("dashboard-price-range-").removesuffix(".json")
