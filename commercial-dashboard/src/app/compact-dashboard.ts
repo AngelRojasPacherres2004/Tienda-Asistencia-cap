@@ -30,6 +30,13 @@ export type StockCompact = {
   products: unknown[][];
   rows: unknown[][];
 };
+export type SizeCompact = {
+  encoding: 'sizes-v1';
+  category: 'TEXTIL' | 'CALZADO';
+  stores: string[];
+  products: unknown[][];
+  rows: unknown[][];
+};
 
 function indexedValue(dictionary: unknown, value: unknown): unknown {
   if (!Array.isArray(dictionary) || typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value >= dictionary.length) {
@@ -193,5 +200,24 @@ export function decodeStockCompact<T extends object>(payload: StockCompact, sign
       record[metric] = mask & (1 << index) ? values[position++] : index === 1 ? values[2] : 0;
     });
     return record as T;
+  });
+}
+
+export function decodeSizeCompact<T extends object>(payload: SizeCompact, signal?: AbortSignal): T[] {
+  if (payload?.encoding !== 'sizes-v1' || !['TEXTIL', 'CALZADO'].includes(payload.category) ||
+      !Array.isArray(payload.stores) || !Array.isArray(payload.products) || !Array.isArray(payload.rows)) {
+    throw new Error('Formato de tallas no válido.');
+  }
+  return payload.rows.map((values, rowIndex) => {
+    if (rowIndex % 4096 === 0) signal?.throwIfAborted();
+    if (!Array.isArray(values) || values.length !== 4) throw new Error('Fila de tallas incompleta.');
+    const product = indexedValue(payload.products, values[1]);
+    if (!Array.isArray(product) || product.length !== 5) throw new Error('SKU de tallas no válido.');
+    return {
+      storeId: indexedValue(payload.stores, values[0]),
+      productId: product[0], productCode: product[1], product: product[2],
+      category: payload.category, line: product[3], subline: product[4],
+      stockUnits: values[2], units30: values[3],
+    } as T;
   });
 }

@@ -203,6 +203,7 @@ test('section release clears product arrays, indexes and loaded flags', () => {
   proxy.sellerDetailAbort = undefined;
   proxy.priceRangeDetailAbort = undefined;
   proxy.brandDetailAbort = undefined;
+  proxy.sizeDetailPromises = new Map();
   const oldSignal = subject.sectionLoads.signal;
   proxy.releaseSectionDetails();
   assert.equal(oldSignal.aborted, true);

@@ -36,6 +36,8 @@ STATIC_CORE_FILES = (
     "dashboard-stock-origin.json",
     "dashboard-stock-hierarchy.json",
     "dashboard-stock-transfers.json",
+    "dashboard-stock-sizes-textil.json",
+    "dashboard-stock-sizes-calzado.json",
     "dashboard-stock-products.json",
 )
 YEARLY_DATASETS = (

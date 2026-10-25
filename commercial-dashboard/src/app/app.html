@@ -364,11 +364,11 @@
             <button type="button" class="chart-expand" (click)="toggleChartExpansion('size-distribution')" [attr.aria-label]="expandedChart() === 'size-distribution' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'size-distribution' ? '×' : '⛶' }}</button>
             <div class="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> VENTA, STOCK Y TRASLADOS POR TALLA</h2></div>
             <div class="size-chart-controls">
-              <div role="group" aria-label="Rubro de tallas"><button type="button" [class.active]="sizeRubro() === 'CALZADO'" (click)="sizeRubro.set('CALZADO')">CALZADO</button><button type="button" [class.active]="sizeRubro() === 'TEXTIL'" (click)="sizeRubro.set('TEXTIL')">TEXTIL</button></div>
+              <div role="group" aria-label="Rubro de tallas"><button type="button" [class.active]="sizeRubro() === 'CALZADO'" (click)="selectSizeRubro('CALZADO')">CALZADO</button><button type="button" [class.active]="sizeRubro() === 'TEXTIL'" (click)="selectSizeRubro('TEXTIL')">TEXTIL</button></div>
               <div role="group" aria-label="Métrica de tallas"><button type="button" [class.active]="sizeMetric() === 'SALES'" (click)="sizeMetric.set('SALES')">VENTA 30D</button><button type="button" [class.active]="sizeMetric() === 'STOCK'" (click)="sizeMetric.set('STOCK')">STOCK</button><button type="button" [class.active]="sizeMetric() === 'TRANSFERS'" (click)="sizeMetric.set('TRANSFERS')">TRASLADOS</button></div>
               @if (sizeRubro() === 'CALZADO') { <div role="group" aria-label="Sistema de talla"><button type="button" [class.active]="shoeSizeSystem() === 'USA'" (click)="shoeSizeSystem.set('USA')">USA</button><button type="button" [class.active]="shoeSizeSystem() === 'EUR'" (click)="shoeSizeSystem.set('EUR')">EUR</button></div> }
             </div>
-            @if (!stockDetailLoaded()) {
+            @if (!stockDetailLoaded() && (!sizeDetailLoaded()[sizeRubro()] || !stockTransfersLoaded())) {
               <div class="card-inline-loader"><span class="loader"></span>Preparando tallas · {{ stockDetailProgress() }}%</div>
             } @else {
               @if (productCodeLoading()) { <div class="card-inline-loader card-inline-loader--overlay" role="status" aria-label="Cargando tallas"><span class="loader"></span></div> }

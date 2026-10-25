@@ -11,8 +11,8 @@ import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
 import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
-import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact,
-  type CompactRows, type DailyCompact, type PredictiveCompact, type StockCompact } from './compact-dashboard';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact,
+  type CompactRows, type DailyCompact, type PredictiveCompact, type StockCompact, type SizeCompact } from './compact-dashboard';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -43,6 +43,8 @@ type StockOrigin = { storeId: string; category: string; line: string; subline: s
 type StockHierarchyRow = { storeId: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits: number; units30: number; sales30: number;
   mermaStockUnits?: number; desmedroStockUnits?: number };
+type SizeProductRow = { storeId: string; productId: string; productCode: string; product: string;
+  category: SizeRubro; line: string; subline: string; stockUnits: number; units30: number };
 type PredictiveStore = { storeId: string; stockUnits: number; stockValue: number; units30: number; sales30: number; coverageDays: number | null; rotation: number | null };
 type PredictiveCategory = { storeId: string; category: string; stockUnits: number; stockValue: number; units30: number; sales30: number; rotation: number | null };
 type HourlySalesRow = { periodId: number; date?: string; storeId: string; hour: number; transactions: number; net: number };
@@ -185,6 +187,8 @@ export class App implements OnInit {
   readonly stockHierarchyLoaded = signal(false);
   readonly stockTransferProductsData = signal<ProductRow[]>([]);
   readonly stockTransfersLoaded = signal(false);
+  readonly sizeProductsData = signal<Record<SizeRubro, SizeProductRow[]>>({ CALZADO: [], TEXTIL: [] });
+  readonly sizeDetailLoaded = signal<Record<SizeRubro, boolean>>({ CALZADO: false, TEXTIL: false });
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
   readonly predictiveAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -219,6 +223,7 @@ export class App implements OnInit {
   private stockOriginPromise?: Promise<void>;
   private stockHierarchyPromise?: Promise<void>;
   private stockTransfersPromise?: Promise<void>;
+  private sizeDetailPromises = new Map<SizeRubro, Promise<void>>();
   private stockDetailPromise?: Promise<void>;
   private legacyStockPromise?: Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>;
   private predictiveDetailPromise?: Promise<void>;
@@ -1925,6 +1930,10 @@ export class App implements OnInit {
   readonly transferPage = signal(0);
   readonly transferCodeError = signal(false);
   readonly sizeRubro = signal<SizeRubro>('CALZADO');
+  selectSizeRubro(rubro: SizeRubro): void {
+    this.sizeRubro.set(rubro);
+    if (this.page() === 2 && !this.stockDetailLoaded()) void this.ensureSizeDetail(rubro);
+  }
   readonly shoeSizeSystem = signal<ShoeSizeSystem>('USA');
   readonly sizeMetric = signal<SizeMetric>('SALES');
   readonly transferPageSize = 10;
@@ -1963,9 +1972,23 @@ export class App implements OnInit {
   readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
   readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
 
+  private sizeProductsForChart(rubro: SizeRubro): Array<ProductRow | SizeProductRow> {
+    if (this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const ids = this.inventoryStoreIdsIgnoringStoreFilter();
+    return this.sizeProductsData()[rubro].filter(row => ids.has(row.storeId) &&
+      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+  }
+
+  private sizeTransfersForChart(rubro: SizeRubro): ProductRow[] {
+    if (this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const ids = this.inventoryStoreIdsIgnoringStoreFilter();
+    return this.stockTransferProductsData().filter(row => ids.has(row.storeId) && row.category === rubro &&
+      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+  }
+
   readonly sizeChartRows = computed(() => {
     const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
-    const products = this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const products = this.sizeProductsForChart(rubro);
     const rows = new Map<string, SizeChartRow>();
     const add = (row: { productId: string; productCode?: string; category?: string; line?: string; product?: string }, field: 'sales' | 'stock' | 'transfers', value: number) => {
       const size = resolveProductSize(row, rubro, system); if (!size) return;
@@ -1978,14 +2001,14 @@ export class App implements OnInit {
       add(row, 'sales', row.units30);
       add(row, 'stock', row.stockUnits);
     }
-    for (const transfer of stockTransfers(products)) add(transfer, 'transfers', transfer.suggested);
+    for (const transfer of stockTransfers(this.sizeTransfersForChart(rubro))) add(transfer, 'transfers', transfer.suggested);
     return [...rows.values()].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label, 'es'));
   });
 
   readonly sizeChartCoverage = computed(() => {
     const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
-    const products = this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
-    const unique = new Map<string, ProductRow>();
+    const products = this.sizeProductsForChart(rubro);
+    const unique = new Map<string, ProductRow | SizeProductRow>();
     for (const row of products) if (!unique.has(row.productId)) unique.set(row.productId, row);
     const coded = [...unique.values()].filter(row => !!row.productCode);
     const mapped = coded.filter(row => !!resolveProductSize(row, rubro, system));
@@ -3454,6 +3477,8 @@ export class App implements OnInit {
     // Antigüedad pesa ~4 MB; el detalle por producto (~54 MB) se prepara en tiempo ocioso.
     void this.ensureStockOrigin();
     void this.ensureStockHierarchy();
+    void this.ensureSizeDetail(this.sizeRubro());
+    void this.ensureStockTransfers();
     this.scheduleInventoryProductDetail();
   }
 
@@ -3484,6 +3509,7 @@ export class App implements OnInit {
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
     this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.stockHierarchyPromise = undefined;
     this.stockTransfersPromise = undefined; this.legacyStockPromise = undefined;
+    this.sizeDetailPromises.clear();
     this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
     this.brandDetailPromise = undefined; this.sublineDetailPromise = undefined; this.priceRangeDetailPromise = undefined;
     this.detailLoading.set(false); this.stockDetailLoading.set(false); this.stockDetailProgress.set(0); this.productCodeLoading.set(false);
@@ -3503,6 +3529,8 @@ export class App implements OnInit {
     if (this.page() === 2) {
       if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
       if (!this.stockHierarchyLoaded()) void this.ensureStockHierarchy();
+      if (!this.sizeDetailLoaded()[this.sizeRubro()]) void this.ensureSizeDetail(this.sizeRubro());
+      if (!this.stockTransfersLoaded()) void this.ensureStockTransfers();
       this.scheduleInventoryProductDetail();
     }
     if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
@@ -3513,6 +3541,8 @@ export class App implements OnInit {
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
     this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);
     this.stockTransferProductsData.set([]); this.stockTransfersLoaded.set(false);
+    this.sizeProductsData.set({ CALZADO: [], TEXTIL: [] });
+    this.sizeDetailLoaded.set({ CALZADO: false, TEXTIL: false });
     this.stockAggregateByStore.set(new Map()); this.predictiveAggregateByStore.set(new Map());
     this.predictiveAggregateByProduct.set(new Map()); this.predictiveIndex.set(new Map());
     this.stockDetailLoaded.set(false); this.stockOriginLoaded.set(false); this.stockDetailFailed.set(false);
@@ -3957,7 +3987,8 @@ export class App implements OnInit {
   private async ensureStockHierarchy(): Promise<void> {
     if (this.stockHierarchyLoaded() || this.stockHierarchyPromise) return this.stockHierarchyPromise;
     const signal = this.sectionLoads.signal;
-    this.stockHierarchyPromise = (async () => {
+    let promise!: Promise<void>;
+    promise = (async () => {
       try {
         const payload = await this.loadDetail<{ stockHierarchy: CompactRows }>('dashboard-stock-hierarchy.json', signal);
         signal.throwIfAborted();
@@ -3967,17 +3998,19 @@ export class App implements OnInit {
         // Las versiones previas siguen utilizando el detalle por producto.
         this.stockHierarchyData.set([]);
       } finally {
-        this.stockHierarchyPromise = undefined;
+        if (this.stockHierarchyPromise === promise) this.stockHierarchyPromise = undefined;
         if (!signal.aborted) this.stockHierarchyLoaded.set(true);
       }
     })();
-    return this.stockHierarchyPromise;
+    this.stockHierarchyPromise = promise;
+    return promise;
   }
 
   private async ensureStockTransfers(): Promise<void> {
     if (this.stockDetailLoaded() || this.stockTransfersLoaded() || this.stockTransfersPromise) return this.stockTransfersPromise;
     const signal = this.sectionLoads.signal;
-    this.stockTransfersPromise = (async () => {
+    let promise!: Promise<void>;
+    promise = (async () => {
       try {
         const payload = await this.loadDetail<{ stockCompact: StockCompact }>('dashboard-stock-transfers.json', signal);
         signal.throwIfAborted();
@@ -3988,10 +4021,39 @@ export class App implements OnInit {
         // Una publicación anterior conserva el detalle completo.
         await this.ensureStockDetail();
       } finally {
-        this.stockTransfersPromise = undefined;
+        if (this.stockTransfersPromise === promise) this.stockTransfersPromise = undefined;
       }
     })();
-    return this.stockTransfersPromise;
+    this.stockTransfersPromise = promise;
+    return promise;
+  }
+
+  private async ensureSizeDetail(rubro: SizeRubro): Promise<void> {
+    if (this.stockDetailLoaded() || this.sizeDetailLoaded()[rubro]) return;
+    const pending = this.sizeDetailPromises.get(rubro);
+    if (pending) return pending;
+    const signal = this.sectionLoads.signal;
+    let promise!: Promise<void>;
+    promise = (async () => {
+      try {
+        const payload = await this.loadDetail<{ sizeCompact: SizeCompact }>(
+          `dashboard-stock-sizes-${rubro.toLowerCase()}.json`, signal,
+        );
+        signal.throwIfAborted();
+        if (payload.sizeCompact.category !== rubro) throw new Error('Rubro de tallas incorrecto.');
+        const rows = decodeSizeCompact<SizeProductRow>(payload.sizeCompact, signal);
+        this.sizeProductsData.update(current => ({ ...current, [rubro]: rows }));
+        this.sizeDetailLoaded.update(current => ({ ...current, [rubro]: true }));
+      } catch {
+        if (signal.aborted) return;
+        // La publicación anterior mantiene el detalle por SKU completo.
+        await this.ensureStockDetail();
+      } finally {
+        if (this.sizeDetailPromises.get(rubro) === promise) this.sizeDetailPromises.delete(rubro);
+      }
+    })();
+    this.sizeDetailPromises.set(rubro, promise);
+    return promise;
   }
 
   private async ensureStockDetail(): Promise<void> {

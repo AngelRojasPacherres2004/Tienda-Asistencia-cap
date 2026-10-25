@@ -12,8 +12,8 @@ sys.path.insert(0, str(PIPELINES))
 from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashboard_files  # noqa: E402
 from compactar_dashboard import (  # noqa: E402
     compactar_diario, compactar_predictivo, compactar_registros,
-    candidatos_traslado, compactar_stock, descompactar_diario, descompactar_predictivo, descompactar_registros,
-    descompactar_stock, resumir_stock_jerarquia,
+    candidatos_traslado, compactar_stock, compactar_tallas, descompactar_diario, descompactar_predictivo,
+    descompactar_registros, descompactar_stock, descompactar_tallas, resumir_stock_jerarquia,
 )
 from particionar_dashboard import scope_payload  # noqa: E402
 from generar_datos_web import (  # noqa: E402
@@ -157,6 +157,19 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
         rows = [row("P1", "T001", 100, 0), row("P1", "T002", 1, 20),
                 row("P1", "T003", 3, 0), row("P2", "T001", 1, 0)]
         self.assertEqual(candidatos_traslado(rows), rows[:3])
+
+    def test_size_codec_keeps_mapped_name_and_scopes_stores(self) -> None:
+        rows = [
+            {"storeId": store, "productId": "P1", "productCode": "00000000001007",
+             "product": "ZAPATO 7", "category": "CALZADO", "line": "DAMAS", "subline": "ZAPATOS",
+             "stockUnits": units, "units30": 1.0}
+            for store, units in (("T001", 3.0), ("T002", 2.0))
+        ]
+        encoded = compactar_tallas(rows, "CALZADO")
+        self.assertEqual(descompactar_tallas(encoded), rows)
+        scoped = scope_payload({"sizeCompact": encoded}, {"T002"})["sizeCompact"]
+        self.assertEqual(descompactar_tallas(scoped), rows[1:])
+        self.assertEqual(scoped["stores"], ["T002"])
 
     def test_seller_category_summary_preserves_dimensions_and_totals(self) -> None:
         rows = [

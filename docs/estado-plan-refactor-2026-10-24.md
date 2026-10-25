@@ -84,15 +84,15 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   filas y diccionarios para no filtrar nombres o SKU de otro alcance.
 - Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
   `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
-  `scripts/verify-dashboard-regeneration.py` comparó 200 conjuntos de filas
+  `scripts/verify-dashboard-regeneration.py` comparó 202 conjuntos de filas
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
-  como corresponde. El manifiesto local incluye 133 archivos, sin faltantes;
+  como corresponde. El manifiesto local incluye 137 archivos, sin faltantes;
   prefiere los detalles compactos a los anuales y mensuales crudos.
 - `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
-  y falla hasta que se cumplan ambas puertas. Pasan 17 de 18 escenarios:
-  únicamente falla productos y tallas de stock (64.682 MB). Esa misma matriz
-  alimenta traslados, búsqueda por SKU y cálculos predictivos; requiere
+  y falla hasta que se cumplan ambas puertas. Pasan 18 de 19 escenarios:
+  únicamente falla el detalle completo de SKU (64.682 MB). Esa misma matriz
+  aún alimenta búsqueda de SKU y cálculos predictivos; requiere
   preagregados para los gráficos y consultas específicas para el detalle.
   La nueva versión no se publicará antes de preservar esas funciones y probar
   el máximo de 5 MB por panel completo, no solo por archivo.
@@ -107,6 +107,11 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   rubro TEXTIL ocupa 6.727 MB. Esto confirma que la búsqueda y los paneles
   restantes requieren agregados o consultas por filtro: comprimir el mismo
   detalle no satisface el límite de 5 MB.
+- Las tallas ahora usan un archivo por rubro. TEXTIL mide 3.943 MB y CALZADO
+  2.970 MB; con los candidatos de traslado el peor panel suma 4.760 MB.
+  `scripts/verify-stock-size-parity.mjs` comparó ventas, stock, traslados y
+  conteos exactos de SKU contra las 142,055 filas originales, en USA y EUR:
+  cuatro comparaciones conformes. La pantalla mantiene el fallback anterior.
 
 ## Pasos 3–5: no completados
 

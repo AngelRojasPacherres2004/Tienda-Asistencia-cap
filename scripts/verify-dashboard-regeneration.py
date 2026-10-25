@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "piplines"))
 from compactar_dashboard import (  # noqa: E402
     candidatos_traslado, descompactar_diario, descompactar_predictivo, descompactar_registros,
-    descompactar_stock, resumir_stock_jerarquia,
+    descompactar_stock, descompactar_tallas, resumir_stock_jerarquia,
 )
 
 
@@ -138,6 +138,22 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
             ):
                 errors.append("dashboard-stock-transfers.json: faltan filas o cambian valores")
             checked += 1
+            for rubro in ("TEXTIL", "CALZADO"):
+                size_file = after_dir / f"dashboard-stock-sizes-{rubro.lower()}.json"
+                if not size_file.is_file():
+                    errors.append(f"{size_file.name}: falta el detalle de tallas")
+                else:
+                    original_sizes = [
+                        {"storeId": row["storeId"], "productId": row["productId"],
+                         "productCode": row["productCode"],
+                         "product": row["product"] if len(row["productCode"]) == 14 else "",
+                         "category": row["category"], "line": row["line"], "subline": row["subline"],
+                         "stockUnits": row["stockUnits"], "units30": row["units30"]}
+                        for row in regenerated["stockProducts"] if row["category"] == rubro
+                    ]
+                    if not rows_equal(original_sizes, descompactar_tallas(read(size_file)["sizeCompact"])):
+                        errors.append(f"{size_file.name}: faltan SKU, unidades o tallas")
+                checked += 1
 
     for dataset, key in (("dashboard-sellers", "sellerPerformance"), ("dashboard-price-range", "monthlyPriceRange")):
         yearly_files = sorted(after_dir.glob(f"{dataset}-[0-9][0-9][0-9][0-9].json"))

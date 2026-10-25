@@ -40,11 +40,16 @@ def measure(directory: Path) -> list[tuple[str, int, str, int]]:
         ("Inventario · origen", "dashboard-stock-origin.json", 1, PANEL_LIMIT),
         ("Inventario · jerarquía agregada", "dashboard-stock-hierarchy.json", 1, PANEL_LIMIT),
         ("Inventario · candidatos de traslado", "dashboard-stock-transfers.json", 1, PANEL_LIMIT),
-        ("Inventario · productos y tallas", "dashboard-stock-products.json", 1, PANEL_LIMIT),
+        ("Inventario · detalle completo de SKU", "dashboard-stock-products.json", 1, PANEL_LIMIT),
         ("Inventario · predictivo", "dashboard-predictive-compact.json", 1, PANEL_LIMIT),
         ("Detalle diario · un mes", "dashboard-daily-compact-????-??.json", 1, PANEL_LIMIT),
     ]
-    return [(label, *largest(directory, pattern, count), limit) for label, pattern, count, limit in scenarios]
+    result = [(label, *largest(directory, pattern, count), limit) for label, pattern, count, limit in scenarios]
+    size_bytes, size_file = largest(directory, "dashboard-stock-sizes-*.json")
+    transfer_bytes, transfer_file = largest(directory, "dashboard-stock-transfers.json")
+    result.append(("Inventario · tallas y traslados", size_bytes + transfer_bytes,
+                   f"{size_file}, {transfer_file}", PANEL_LIMIT))
+    return result
 
 
 def report(directory: Path) -> bool:

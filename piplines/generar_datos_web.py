@@ -15,7 +15,7 @@ from maestros import homologar_tienda_python, tienda_id_python
 from xlsx_staging import origen_xlsx_csv
 from compactar_dashboard import (
     candidatos_traslado, compactar_diario, compactar_predictivo, compactar_registros,
-    compactar_stock, resumir_stock_jerarquia,
+    compactar_stock, compactar_tallas, resumir_stock_jerarquia,
 )
 
 
@@ -1235,6 +1235,12 @@ def escribir(resultado: dict) -> None:
         },
         "dashboard-stock-transfers.json": {
             "stockCompact": compactar_stock(candidatos_traslado(resultado["stockProducts"])),
+        },
+        **{
+            f"dashboard-stock-sizes-{rubro.lower()}.json": {
+                "sizeCompact": compactar_tallas(resultado["stockProducts"], rubro),
+            }
+            for rubro in ("TEXTIL", "CALZADO")
         },
         "dashboard-stock-products.json": {"stockProducts": resultado["stockProducts"]},
         "dashboard-predictive.json": {

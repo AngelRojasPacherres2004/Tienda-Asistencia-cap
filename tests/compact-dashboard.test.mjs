@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
 
 test('compact dashboard rows restore repeated dimensions and numeric values', () => {
   const payload = {
@@ -67,6 +67,14 @@ test('stock rows restore shared SKU metadata and sparse quantities', () => {
   assert.equal(rows[1].units30, 1);
   assert.equal(rows[1].productCode, '00000000001007');
   assert.throws(() => decodeStockCompact({ encoding: 'stock-v1', stores: ['T001'], products: [], rows: [[0, 9, 4, 0]] }));
+});
+
+test('size rows keep Nissei code and filter dimensions for one rubro', () => {
+  const rows = decodeSizeCompact({ encoding: 'sizes-v1', category: 'CALZADO', stores: ['T001'],
+    products: [['P1', '00000000001007', 'ZAPATO 7', 'DAMAS', 'ZAPATOS']],
+    rows: [[0, 0, 3, 2]] });
+  assert.deepEqual(rows[0], { storeId: 'T001', productId: 'P1', productCode: '00000000001007',
+    product: 'ZAPATO 7', category: 'CALZADO', line: 'DAMAS', subline: 'ZAPATOS', stockUnits: 3, units30: 2 });
 });
 
 test('predictive rows restore zero windows, growth and sparse spoilage', () => {

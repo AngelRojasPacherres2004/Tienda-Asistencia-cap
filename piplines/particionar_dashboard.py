@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from compactar_dashboard import (
-    SCHEMAS, compactar_diario, compactar_predictivo, compactar_registros, compactar_stock,
-    descompactar_diario, descompactar_predictivo, descompactar_registros, descompactar_stock,
+    SCHEMAS, compactar_diario, compactar_predictivo, compactar_registros, compactar_stock, compactar_tallas,
+    descompactar_diario, descompactar_predictivo, descompactar_registros, descompactar_stock, descompactar_tallas,
 )
 
 
@@ -52,6 +52,13 @@ def scope_payload(payload: dict[str, Any], allowed_store_ids: set[str]) -> dict[
             if any(not isinstance(row.get("storeId"), str) for row in decoded):
                 raise ValueError("stockCompact no tiene storeId; no se puede publicar con seguridad")
             result[name] = compactar_stock([row for row in decoded if row["storeId"] in allowed_store_ids])
+        elif name == "sizeCompact" and isinstance(value, dict) and value.get("encoding") == "sizes-v1":
+            decoded = descompactar_tallas(value)
+            if any(not isinstance(row.get("storeId"), str) for row in decoded):
+                raise ValueError("sizeCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_tallas(
+                [row for row in decoded if row["storeId"] in allowed_store_ids], value["category"],
+            )
         elif name in SCHEMAS and isinstance(value, dict) and value.get("encoding") in {"dictionary-v1", "seller-grouped-v1"}:
             if value["encoding"] == "seller-grouped-v1" and name != "sellerPerformance":
                 raise ValueError(f"Codificación de vendedores inesperada para {name}")

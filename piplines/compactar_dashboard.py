@@ -382,3 +382,50 @@ def candidatos_traslado(registros: list[dict[str, Any]]) -> list[dict[str, Any]]
         if any(origen != destino for origen in donantes for destino in receptores):
             candidatos.add(producto)
     return [registro for registro in registros if registro["productId"] in candidatos]
+
+
+def compactar_tallas(registros: list[dict[str, Any]], rubro: str) -> dict[str, Any]:
+    """Solo transfiere SKU y métricas que necesita el panel de tallas."""
+    if rubro not in {"TEXTIL", "CALZADO"}:
+        raise ValueError("Rubro de tallas desconocido")
+    tiendas: list[str] = []
+    productos: list[list[Any]] = []
+    indices_tienda: dict[str, int] = {}
+    indices_producto: dict[str, int] = {}
+    filas: list[list[Any]] = []
+    for registro in registros:
+        if registro["category"] != rubro:
+            continue
+        tienda = registro["storeId"]
+        indice_tienda = indices_tienda.get(tienda)
+        if indice_tienda is None:
+            indice_tienda = len(tiendas)
+            indices_tienda[tienda] = indice_tienda
+            tiendas.append(tienda)
+        producto = registro["productId"]
+        codigo = registro["productCode"]
+        metadatos = [producto, codigo, registro["product"] if len(codigo) == 14 else "",
+                     registro["line"], registro["subline"]]
+        indice_producto = indices_producto.get(producto)
+        if indice_producto is None:
+            indice_producto = len(productos)
+            indices_producto[producto] = indice_producto
+            productos.append(metadatos)
+        elif productos[indice_producto] != metadatos:
+            raise ValueError(f"El SKU {producto} tiene tallas incompatibles entre tiendas")
+        filas.append([indice_tienda, indice_producto, registro["stockUnits"], registro["units30"]])
+    return {"encoding": "sizes-v1", "category": rubro, "stores": tiendas, "products": productos, "rows": filas}
+
+
+def descompactar_tallas(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("encoding") != "sizes-v1":
+        raise ValueError("Formato de tallas desconocido")
+    resultado: list[dict[str, Any]] = []
+    for tienda, producto, stock, venta in payload["rows"]:
+        sku, codigo, nombre, linea, sublinea = payload["products"][producto]
+        resultado.append({
+            "storeId": payload["stores"][tienda], "productId": sku, "productCode": codigo,
+            "product": nombre, "category": payload["category"], "line": linea,
+            "subline": sublinea, "stockUnits": stock, "units30": venta,
+        })
+    return resultado
