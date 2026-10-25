@@ -112,6 +112,11 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `scripts/verify-stock-size-parity.mjs` comparó ventas, stock, traslados y
   conteos exactos de SKU contra las 142,055 filas originales, en USA y EUR:
   cuatro comparaciones conformes. La pantalla mantiene el fallback anterior.
+- El detalle completo de SKU comienza al acercarse a la sección de productos
+  mediante `IntersectionObserver`; salir de Inventario cancela la observación.
+  Los gráficos generales, tallas y traslados pueden mostrarse con sus archivos
+  acotados antes de iniciar esa lectura pesada. Esta carga diferida mejora la
+  respuesta visible pero no cierra la puerta de 5 MB del detalle predictivo.
 
 ## Pasos 3–5: no completados
 

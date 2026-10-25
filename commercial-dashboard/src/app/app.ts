@@ -225,6 +225,7 @@ export class App implements OnInit {
   private stockTransfersPromise?: Promise<void>;
   private sizeDetailPromises = new Map<SizeRubro, Promise<void>>();
   private stockDetailPromise?: Promise<void>;
+  private stockDetailObserver?: IntersectionObserver;
   private legacyStockPromise?: Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>;
   private predictiveDetailPromise?: Promise<void>;
   private priceRangeDetailPromise?: Promise<void>;
@@ -3493,13 +3494,26 @@ export class App implements OnInit {
     const idleWindow = typeof window === 'undefined' ? undefined : window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
     };
-    // La descarga y el parseo se ejecutan en un Worker, por lo que pueden comenzar
-    // apenas pinta la sección sin bloquear la interacción del dashboard.
-    if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(start, { timeout: 250 });
-    else setTimeout(start, 0);
+    const observe = (): void => {
+      if (this.page() !== 2 || this.stockDetailLoaded() || this.stockDetailPromise) return;
+      if (typeof document === 'undefined') { start(); return; }
+      const target = document.querySelector('app-root')?.shadowRoot?.querySelector('.stock-product-detail-trigger');
+      if (!target || typeof IntersectionObserver === 'undefined') { start(); return; }
+      this.stockDetailObserver?.disconnect();
+      this.stockDetailObserver = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)) return;
+        this.stockDetailObserver?.disconnect();
+        this.stockDetailObserver = undefined;
+        start();
+      }, { rootMargin: '400px 0px' });
+      this.stockDetailObserver.observe(target);
+    };
+    if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(observe, { timeout: 250 });
+    else setTimeout(observe, 0);
   }
   private cancelPendingSectionLoads(): void {
     this.sectionLoads.release();
+    this.stockDetailObserver?.disconnect(); this.stockDetailObserver = undefined;
     this.sellerDetailGeneration += 1;
     this.sellerDetailAbort?.abort();
     this.sellerDetailAbort = undefined;

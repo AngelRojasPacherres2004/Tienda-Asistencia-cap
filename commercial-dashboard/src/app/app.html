@@ -382,7 +382,7 @@
         @if (stockDetailFailed()) {
           <div class="detail-loader compact detail-loader--error"><strong>No se pudo abrir la analítica por producto.</strong><button type="button" class="retry-button" (click)="retryStockDetail()">REINTENTAR</button></div>
         } @else if (!stockDetailLoaded()) {
-          <div class="detail-loader compact"><span class="loader"></span><strong>Preparando analítica por producto · {{ stockDetailProgress() }}%</strong></div>
+          <div class="detail-loader compact stock-product-detail-trigger"><span class="loader"></span><strong>Preparando analítica por producto · {{ stockDetailProgress() }}%</strong></div>
         } @else {
         <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
           <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>

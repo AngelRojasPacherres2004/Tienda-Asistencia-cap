@@ -204,9 +204,12 @@ test('section release clears product arrays, indexes and loaded flags', () => {
   proxy.priceRangeDetailAbort = undefined;
   proxy.brandDetailAbort = undefined;
   proxy.sizeDetailPromises = new Map();
+  let observerDisconnected = false;
+  proxy.stockDetailObserver = { disconnect: () => { observerDisconnected = true; } };
   const oldSignal = subject.sectionLoads.signal;
   proxy.releaseSectionDetails();
   assert.equal(oldSignal.aborted, true);
+  assert.equal(observerDisconnected, true);
   signals.forEach(name => assert.equal(subject[name]().length, 0));
   maps.forEach(name => assert.equal(subject[name].size, 0));
   assert.equal(subject.stockDetailLoaded(), false);
