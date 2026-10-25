@@ -73,6 +73,13 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
   como corresponde. El manifiesto local descubre 127 archivos, ninguno falta.
+- `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
+  y falla hasta que se cumplan ambas puertas. Hoy pasan la carga inicial, los
+  resúmenes de vendedores/precios/marcas, el detalle de un mes de vendedores/
+  precios y origen de inventario; fallan siete escenarios: vendedores anual
+  (33.784 MB), comparación anual detallada de precios (24.450 MB), marcas
+  anual (14.245 MB), sublíneas anual (11.442 MB), productos/tallas de stock
+  (64.682 MB), predictivo (21.571 MB) y detalle diario mensual (32.775 MB).
 - Ya existe código de partición anual y carga selectiva, pero la publicación
   vigente aún contiene monolitos de vendedores, marcas, precio y sublíneas.
   Una partición anual de vendedores aún llegaría a 33.78 MB; las particiones
