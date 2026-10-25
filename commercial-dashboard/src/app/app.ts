@@ -11,6 +11,7 @@ import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
 import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, type CompactRows, type DailyCompact, type PredictiveCompact } from './compact-dashboard';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -987,7 +988,13 @@ export class App implements OnInit {
     const monthTo = `${key}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`;
     const promise = (async () => {
       let detail: { dailyStore?: Monthly[]; hourlySales?: HourlySalesRow[] } | undefined;
-      if (!this.cloud.remoteEnabled()) {
+      try {
+        const payload = await this.loadDetail<{ dailyCompact: DailyCompact }>(`dashboard-daily-compact-${key}.json`);
+        detail = decodeDailyCompact<Monthly, HourlySalesRow>(payload.dailyCompact);
+      } catch {
+        // Publicaciones anteriores tienen el detalle mensual sin codificar.
+      }
+      if (!detail && !this.cloud.remoteEnabled()) {
         try {
           const response = await fetch(`/api/dashboard/daily?from=${encodeURIComponent(monthFrom)}&to=${encodeURIComponent(monthTo)}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3652,6 +3659,20 @@ export class App implements OnInit {
     const selectedYears = [...new Set(years.filter(year => Number.isInteger(year) && year > 0))].sort((a, b) => a - b);
     if (!selectedYears.length) return [];
     const partitionName = (year: number) => legacyFile.replace(/\.json$/i, `-${year}.json`);
+    if (['sellerPerformance', 'monthlyBrand', 'monthlySubline', 'monthlyPriceRange'].includes(key)) {
+      try {
+        const payloads = await Promise.all(selectedYears.map(year => this.loadDetail<Record<string, CompactRows>>(
+          legacyFile.replace(/\.json$/i, `-compact-${year}.json`), signal,
+        )));
+        signal?.throwIfAborted();
+        const rows = payloads.flatMap(payload => decodeCompactRows<T>(payload[key], signal));
+        signal?.throwIfAborted();
+        return rows;
+      } catch {
+        signal?.throwIfAborted();
+        // Las publicaciones antiguas contienen los detalles anuales sin codificar.
+      }
+    }
     try {
       const payloads = await Promise.all(selectedYears.map((year, index) => this.loadDetail<Record<string, T[]>>(
         partitionName(year),
@@ -4014,7 +4035,14 @@ export class App implements OnInit {
     this.predictiveDetailLoading.set(true);
     this.predictiveDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ note: string; rows: PredictiveRow[] }>('dashboard-predictive.json', signal);
+        let payload: { note: string; rows: PredictiveRow[] };
+        try {
+          const compact = await this.loadDetail<{ predictiveCompact: PredictiveCompact }>('dashboard-predictive-compact.json', signal);
+          payload = decodePredictiveCompact<PredictiveRow>(compact.predictiveCompact, signal);
+        } catch {
+          signal.throwIfAborted();
+          payload = await this.loadDetail<{ note: string; rows: PredictiveRow[] }>('dashboard-predictive.json', signal);
+        }
         signal.throwIfAborted();
         const rows = payload.rows || [];
         signal.throwIfAborted();

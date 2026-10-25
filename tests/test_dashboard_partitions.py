@@ -10,14 +10,101 @@ PIPELINES = Path(__file__).resolve().parents[1] / "piplines"
 sys.path.insert(0, str(PIPELINES))
 
 from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashboard_files  # noqa: E402
+from compactar_dashboard import (  # noqa: E402
+    compactar_diario, compactar_predictivo, compactar_registros,
+    descompactar_diario, descompactar_predictivo, descompactar_registros,
+)
+from particionar_dashboard import scope_payload  # noqa: E402
 from generar_datos_web import (  # noqa: E402
-    particionar_registros_anuales, particionar_registros_mensuales, resumir_marcas,
+    particionar_registros_anuales, particionar_registros_compactos_anuales,
+    particionar_registros_mensuales, resumir_marcas,
     resumir_marcas_por_rubro,
     resumir_rangos_precio, resumir_rangos_precio_por_rubro, resumir_vendedores, resumir_vendedores_por_rubro,
 )
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_predictive_compaction_keeps_sku_windows_and_store_scope(self) -> None:
+        rows = [
+            {"storeId": "T001", "productId": "P1", "units60": 0.0, "units90": 0.0, "merma30": 0.0, "merma60": 0.0, "merma90": 0.0},
+            {"storeId": "T002", "productId": "P2", "units60": 3.0, "units90": 5.0, "merma30": 0.0, "merma60": 1.0, "merma90": 1.0},
+        ]
+        payload = compactar_predictivo(rows, "Nota")
+        self.assertEqual(descompactar_predictivo(payload), {"note": "Nota", "rows": rows})
+        scoped = scope_payload({"predictiveCompact": payload}, {"T001"})["predictiveCompact"]
+        self.assertEqual(descompactar_predictivo(scoped)["rows"], rows[:1])
+        self.assertNotIn("P2", scoped["dictionary"]["productId"])
+
+    def test_publishes_predictive_compact_instead_of_raw_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-predictive-compact.json", "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2026.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertIn("dashboard-predictive-compact.json", files)
+            self.assertNotIn("dashboard-predictive.json", files)
+
+    def test_daily_compaction_preserves_every_metric_and_hour(self) -> None:
+        base = {"date": "2025-12-24", "periodId": 202512, "year": 2025, "month": 12, "storeId": "T001",
+                "category": "TEXTIL", "line": "A", "subline": "BVD", "brand": "Z", "bandOrder": 1,
+                "gross": 12.0, "positiveReal": 10.0, "notes": 0.0, "discount": 2.0, "net": 10.0,
+                "transactions": 1, "units": 2.0, "target": 0.0, "traffic": 0.0, "personnel": 0.0, "received": 0.0}
+        daily = [base, {**base, "storeId": "T002", "net": 9.0, "target": 5.0, "received": 2.0}]
+        hourly = [{"date": "2025-12-24", "periodId": 202512, "storeId": "T001", "hour": 9, "transactions": 1, "net": 10.0}]
+        payload = compactar_diario(daily, hourly)
+        self.assertEqual(payload["encoding"], "daily-v1")
+        self.assertEqual(descompactar_diario(payload), {"dailyStore": daily, "hourlySales": hourly})
+
+    def test_daily_scope_rebuilds_dictionaries_after_filtering(self) -> None:
+        base = {"date": "2025-12-24", "periodId": 202512, "year": 2025, "month": 12, "storeId": "T001",
+                "category": "TEXTIL", "line": "A", "subline": "BVD", "brand": "VISIBLE", "bandOrder": 1,
+                "gross": 10.0, "positiveReal": 10.0, "notes": 0.0, "discount": 0.0, "net": 10.0,
+                "transactions": 1, "units": 1.0, "target": 0.0, "traffic": 0.0, "personnel": 0.0, "received": 0.0}
+        rows = [base, {**base, "storeId": "T002", "brand": "SECRETA"}]
+        scoped = scope_payload({"dailyCompact": compactar_diario(rows, [])}, {"T001"})["dailyCompact"]
+        self.assertEqual(descompactar_diario(scoped)["dailyStore"], rows[:1])
+        self.assertNotIn("SECRETA", scoped["dictionary"]["brand"])
+
+    def test_compact_rows_round_trip_without_losing_dimensions_or_metrics(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "BVD", "brand": "Z", "net": 12.5, "units": 2},
+            {"periodId": 202601, "storeId": "T002", "category": "TEXTIL", "line": "A", "subline": "BVD", "brand": "Z", "net": 7, "units": 1},
+        ]
+        payload = compactar_registros(rows, "monthlyBrand")
+        self.assertEqual(payload["encoding"], "dictionary-v1")
+        self.assertEqual(descompactar_registros(payload), rows)
+        files = particionar_registros_compactos_anuales(rows, "dashboard-brand", "monthlyBrand")
+        self.assertEqual(set(files), {"dashboard-brand-compact-2026.json"})
+        self.assertEqual(descompactar_registros(files["dashboard-brand-compact-2026.json"]["monthlyBrand"]), rows)
+
+    def test_compact_rows_reject_unknown_columns_instead_of_dropping_data(self) -> None:
+        row = {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "BVD", "brand": "Z", "net": 12.5, "units": 2, "extra": 1}
+        with self.assertRaisesRegex(ValueError, "columnas"):
+            compactar_registros([row], "monthlyBrand")
+
+    def test_seller_grouped_rows_restore_equal_and_distinct_transaction_counts(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "BVD", "seller": "ANA", "net": 12.5, "units": 2.0, "transactions": 2.0},
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "BVD", "seller": "LUZ", "net": 7.0, "units": 3.0, "transactions": 2.0},
+        ]
+        payload = compactar_registros(rows, "sellerPerformance")
+        self.assertEqual(payload["encoding"], "seller-grouped-v1")
+        self.assertEqual(len(payload["rows"][0]), 4)
+        self.assertEqual(len(payload["rows"][1]), 5)
+        self.assertEqual(descompactar_registros(payload), rows)
+
+    def test_compact_scope_removes_other_stores_from_rows_and_dictionary(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "BVD", "brand": "A", "net": 10, "units": 2},
+            {"periodId": 202601, "storeId": "T002", "category": "CALZADO", "line": "B", "subline": "ZAPATOS", "brand": "SECRETA", "net": 20, "units": 3},
+        ]
+        scoped = scope_payload({"monthlyBrand": compactar_registros(rows, "monthlyBrand")}, {"T001"})
+        self.assertEqual(descompactar_registros(scoped["monthlyBrand"]), rows[:1])
+        self.assertNotIn("SECRETA", scoped["monthlyBrand"]["dictionary"]["brand"])
+        self.assertNotIn("T002", scoped["monthlyBrand"]["dictionary"]["storeId"])
+
     def test_seller_category_summary_preserves_dimensions_and_totals(self) -> None:
         rows = [
             {"periodId": 202601, "storeId": "T001", "category": "TEXTIL", "line": "A", "subline": "X", "seller": "ANA", "net": 10, "units": 2, "transactions": 1},
@@ -110,6 +197,45 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
                 self.assertNotIn(f"{dataset}.json", files)
                 self.assertIn(f"{dataset}-2025.json", files)
                 self.assertIn(f"{dataset}-2026.json", files)
+
+    def test_publishes_compact_years_instead_of_large_raw_details(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2025.json", f"{dataset}-2026.json")
+                self.touch(root, f"{dataset}-compact-2025.json", f"{dataset}-compact-2026.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            for dataset in YEARLY_DATASETS:
+                self.assertIn(f"{dataset}-compact-2026.json", files)
+                self.assertNotIn(f"{dataset}-2026.json", files)
+
+    def test_rejects_incomplete_compact_years(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2025.json", f"{dataset}-2026.json")
+            self.touch(root, "dashboard-subline-compact-2025.json")
+            _, missing = discover_dashboard_files(root)
+            self.assertIn("dashboard-subline-compact-2026.json", missing)
+
+    def test_publishes_complete_compact_daily_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES)
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2026.json")
+            self.touch(root, "dashboard-daily-2026-01.json", "dashboard-daily-2026-02.json",
+                       "dashboard-daily-compact-2026-01.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertIn("dashboard-daily-compact-2026-02.json", missing)
+            self.assertNotIn("dashboard-daily-2026-01.json", files)
+            self.touch(root, "dashboard-daily-compact-2026-02.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertIn("dashboard-daily-compact-2026-02.json", files)
 
     def test_includes_complete_seller_summaries_and_rejects_missing_years(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

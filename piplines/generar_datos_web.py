@@ -13,6 +13,7 @@ from project_paths import PROJECT_ROOT, CAPA2_DIR
 from runtime_config import finalizar_proceso
 from maestros import homologar_tienda_python, tienda_id_python
 from xlsx_staging import origen_xlsx_csv
+from compactar_dashboard import compactar_diario, compactar_predictivo, compactar_registros
 
 
 WEB_DIR = PROJECT_ROOT / "commercial-dashboard"
@@ -57,6 +58,13 @@ def particionar_registros_mensuales(registros: list[dict], nombre: str, clave: s
     return {
         f"{nombre}-{periodo // 100:04d}-{periodo % 100:02d}.json": {clave: filas}
         for periodo, filas in sorted(filas_por_periodo.items())
+    }
+
+
+def particionar_registros_compactos_anuales(registros: list[dict], nombre: str, clave: str) -> dict[str, dict]:
+    return {
+        archivo: {clave: compactar_registros(datos[clave], clave)}
+        for archivo, datos in particionar_registros_anuales(registros, f"{nombre}-compact", clave).items()
     }
 
 
@@ -1120,6 +1128,8 @@ def escribir(resultado: dict) -> None:
     obsoletos = [
         SALIDA_PUBLICA.parent / "dashboard-stock.json",
         SALIDA_COMPILADA.parent / "dashboard-stock.json",
+        SALIDA_PUBLICA.parent / "dashboard-predictive-compact.json",
+        SALIDA_COMPILADA.parent / "dashboard-predictive-compact.json",
         SALIDA_PUBLICA.parent / "dashboard-daily.json",
         SALIDA_COMPILADA.parent / "dashboard-daily.json",
         SALIDA_PUBLICA.parent / "dashboard-sellers.json",
@@ -1132,8 +1142,12 @@ def escribir(resultado: dict) -> None:
         SALIDA_COMPILADA.parent / "dashboard-price-range.json",
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-daily-compact-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-daily-compact-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-compact-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-sellers-summary-????.json"),
@@ -1142,12 +1156,18 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-sellers-category-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-brand-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-brand-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-brand-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-brand-compact-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-brand-category-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-brand-category-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-subline-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-subline-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-subline-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-subline-compact-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-compact-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-summary-????.json"),
@@ -1179,16 +1199,26 @@ def escribir(resultado: dict) -> None:
             nombre: {"dailyStore": filas_mes, "hourlySales": horas_por_mes.get(nombre, [])}
             for nombre, filas_mes in sorted(diario_por_mes.items())
         },
+        **{
+            nombre.replace("dashboard-daily-", "dashboard-daily-compact-"): {
+                "dailyCompact": compactar_diario(filas_mes, horas_por_mes.get(nombre, [])),
+            }
+            for nombre, filas_mes in sorted(diario_por_mes.items())
+        },
         # Los detalles temporales se descargan por año. La interfaz conserva un
         # fallback a los monolitos antiguos para abrir publicaciones previas.
         **particionar_registros_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_compactos_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
         **particionar_registros_mensuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
         **particionar_registros_anuales(resumir_vendedores(resultado["sellerPerformance"]), "dashboard-sellers-summary", "sellerPerformance"),
         **particionar_registros_anuales(resumir_vendedores_por_rubro(resultado["sellerPerformance"]), "dashboard-sellers-category", "sellerPerformance"),
         **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
+        **particionar_registros_compactos_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
         **particionar_registros_anuales(resumir_marcas_por_rubro(resultado["monthlyBrand"]), "dashboard-brand-category", "monthlyBrand"),
         **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
+        **particionar_registros_compactos_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
         **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
+        **particionar_registros_compactos_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
         **particionar_registros_mensuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
         **particionar_registros_anuales(resumir_rangos_precio(resultado["monthlyPriceRange"]), "dashboard-price-range-summary", "monthlyPriceRange"),
         **particionar_registros_anuales(resumir_rangos_precio_por_rubro(resultado["monthlyPriceRange"]), "dashboard-price-range-category", "monthlyPriceRange"),
@@ -1206,6 +1236,11 @@ def escribir(resultado: dict) -> None:
             ),
             "rows": resultado["predictiveRows"],
         },
+    }
+    archivos["dashboard-predictive-compact.json"] = {
+        "predictiveCompact": compactar_predictivo(
+            resultado["predictiveRows"], archivos["dashboard-predictive.json"]["note"],
+        ),
     }
     principal = {
         **{

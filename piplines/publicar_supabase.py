@@ -55,18 +55,28 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
 
     files = list(STATIC_CORE_FILES)
     missing = [name for name in STATIC_CORE_FILES if not (data_dir / name).is_file()]
+    if (data_dir / "dashboard-predictive-compact.json").is_file():
+        files.remove("dashboard-predictive.json")
+        missing = [name for name in missing if name != "dashboard-predictive.json"]
+        files.append("dashboard-predictive-compact.json")
     for dataset in YEARLY_DATASETS:
         partitions = tuple(sorted(path.name for path in data_dir.glob(f"{dataset}-????.json")))
+        compact = tuple(sorted(path.name for path in data_dir.glob(f"{dataset}-compact-????.json")))
         legacy = f"{dataset}.json"
-        if partitions:
+        if compact:
+            raw_years = {name.removeprefix(f"{dataset}-").removesuffix(".json") for name in partitions}
+            compact_years = {name.removeprefix(f"{dataset}-compact-").removesuffix(".json") for name in compact}
+            missing.extend(f"{dataset}-compact-{year}.json" for year in sorted(raw_years - compact_years))
+            files.extend(compact)
+        elif partitions:
             files.extend(partitions)
         elif (data_dir / legacy).is_file():
             files.append(legacy)
         else:
             missing.append(f"{dataset}-AAAA.json")
     seller_years = {
-        name.removeprefix("dashboard-sellers-").removesuffix(".json")
-        for name in files if re.fullmatch(r"dashboard-sellers-\d{4}\.json", name)
+        name.rsplit("-", 1)[-1].removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-sellers-(?:compact-)?\d{4}\.json", name)
     }
     seller_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-sellers-summary-????.json")))
     if seller_summaries:
@@ -86,8 +96,8 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         files.extend(seller_categories)
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-sellers-????-??.json")))
     price_years = {
-        name.removeprefix("dashboard-price-range-").removesuffix(".json")
-        for name in files if re.fullmatch(r"dashboard-price-range-\d{4}\.json", name)
+        name.rsplit("-", 1)[-1].removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-price-range-(?:compact-)?\d{4}\.json", name)
     }
     price_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-price-range-summary-????.json")))
     if price_summaries:
@@ -107,8 +117,8 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         files.extend(price_categories)
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-price-range-????-??.json")))
     brand_years = {
-        name.removeprefix("dashboard-brand-").removesuffix(".json")
-        for name in files if re.fullmatch(r"dashboard-brand-\d{4}\.json", name)
+        name.rsplit("-", 1)[-1].removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-brand-(?:compact-)?\d{4}\.json", name)
     }
     brand_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-brand-category-????.json")))
     if brand_summaries:
@@ -118,7 +128,13 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         }
         missing.extend(f"dashboard-brand-category-{year}.json" for year in sorted(brand_years - summary_years))
         files.extend(brand_summaries)
-    daily_files = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-????-??.json")))
+    daily_raw = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-????-??.json")))
+    daily_compact = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-compact-????-??.json")))
+    if daily_compact:
+        raw_periods = {name.removeprefix("dashboard-daily-") for name in daily_raw}
+        compact_periods = {name.removeprefix("dashboard-daily-compact-") for name in daily_compact}
+        missing.extend(f"dashboard-daily-compact-{period}" for period in sorted(raw_periods - compact_periods))
+    daily_files = daily_compact or daily_raw
     if not daily_files and (data_dir / "dashboard-daily.json").is_file():
         daily_files = ("dashboard-daily.json",)
     if not daily_files:

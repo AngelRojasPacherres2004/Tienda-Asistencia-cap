@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from compactar_dashboard import (
+    SCHEMAS, compactar_diario, compactar_predictivo, compactar_registros,
+    descompactar_diario, descompactar_predictivo, descompactar_registros,
+)
+
 
 GLOBAL_FIELDS = frozenset({"note"})
 PRIVATE_METADATA_FIELDS = frozenset({"sourceCoverage", "dataWarnings"})
@@ -26,6 +31,29 @@ def scope_payload(payload: dict[str, Any], allowed_store_ids: set[str]) -> dict[
             result[name] = {key: item for key, item in value.items() if key not in PRIVATE_METADATA_FIELDS}
         elif name in GLOBAL_FIELDS:
             result[name] = value
+        elif name == "dailyCompact" and isinstance(value, dict) and value.get("encoding") == "daily-v1":
+            decoded = descompactar_diario(value)
+            if any(not isinstance(row.get("storeId"), str) for rows in decoded.values() for row in rows):
+                raise ValueError("dailyCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_diario(
+                [row for row in decoded["dailyStore"] if row["storeId"] in allowed_store_ids],
+                [row for row in decoded["hourlySales"] if row["storeId"] in allowed_store_ids],
+            )
+        elif name == "predictiveCompact" and isinstance(value, dict) and value.get("encoding") == "predictive-v1":
+            decoded = descompactar_predictivo(value)
+            if any(not isinstance(row.get("storeId"), str) for row in decoded["rows"]):
+                raise ValueError("predictiveCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_predictivo(
+                [row for row in decoded["rows"] if row["storeId"] in allowed_store_ids],
+                decoded["note"],
+            )
+        elif name in SCHEMAS and isinstance(value, dict) and value.get("encoding") == "dictionary-v1":
+            rows = descompactar_registros(value)
+            if any(not isinstance(row.get("storeId"), str) for row in rows):
+                raise ValueError(f"{name} no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_registros(
+                [row for row in rows if row["storeId"] in allowed_store_ids], name,
+            )
         elif isinstance(value, list):
             if name == "hierarchyCatalog":
                 source_lines = payload.get("monthlyLine", [])

@@ -75,32 +75,27 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   marca, máximo 2.326 MB por año. El detalle de sublínea ya no se solicita al
   filtrar únicamente por rubro o línea. La actualización de índices de marcas
   y sublíneas ahora invalida sus cálculos reactivos al finalizar la carga.
+- La codificación sin pérdida comparte dimensiones repetidas y reconstruye
+  todas las filas en el navegador. Los máximos anuales son vendedores 4.764 MB,
+  marcas 2.796 MB y sublíneas 2.638 MB; la comparación de dos años de precios
+  suma 4.334 MB. El detalle diario mensual más grande mide 4.656 MB y el
+  predictivo por SKU 3.777 MB. Se conserva fallback para versiones anteriores.
+  La publicación por tienda o clúster vuelve a codificar solo sus propias
+  filas y diccionarios para no filtrar nombres o SKU de otro alcance.
 - Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
   `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
-  `scripts/verify-dashboard-regeneration.py` comparó 117 conjuntos de filas
+  `scripts/verify-dashboard-regeneration.py` comparó 198 conjuntos de filas
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
-  como corresponde. El manifiesto local incluye ahora el resumen anual por
-  rubro y vendedor; ninguno de sus archivos falta.
+  como corresponde. El manifiesto local incluye 133 archivos, sin faltantes;
+  prefiere los detalles compactos a los anuales y mensuales crudos.
 - `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
-  y falla hasta que se cumplan ambas puertas. Hoy pasan la carga inicial, los
-  resúmenes de vendedores (también por rubro), precios (también por rubro) y marcas, el detalle de un mes de vendedores/
-  precios y origen de inventario; fallan siete escenarios: vendedores anual
-  (33.784 MB), comparación anual detallada de precios (24.450 MB), marcas
-  anual (14.245 MB), sublíneas anual (11.442 MB), productos/tallas de stock
-  (64.682 MB), predictivo (21.571 MB) y detalle diario mensual (32.775 MB).
-- Ya existe código de partición anual y carga selectiva, pero la publicación
-  vigente aún contiene monolitos de vendedores, marcas, precio y sublíneas.
-  Una partición anual de vendedores aún llegaría a 33.78 MB; las particiones
-  mensuales medidas tendrían como máximo 4.20 MB (vendedores), 1.69 MB
-  (marcas), 1.48 MB (precio) y 1.14 MB (sublíneas). Stock necesita cortes más
-  finos: una tienda puede llegar a 5.57 MB, pero tienda+rubro a 2.66 MB.
-  Queda preagregar y particionar los detalles por mes/tienda/rubro, verificar
-  que los filtros conservan los resultados y cumplir el máximo de 5 MB por
-  panel completo, no solo por archivo, antes de iniciar el paso 3. Los archivos
-  diarios y los detalles anuales de marcas/precios/sublíneas, stock y
-  predictivo todavía superan 5 MB. La nueva versión no se publicará antes
-  de resolver y verificar esos casos.
+  y falla hasta que se cumplan ambas puertas. Pasan 15 de 16 escenarios:
+  únicamente falla productos y tallas de stock (64.682 MB). Esa misma matriz
+  alimenta traslados, búsqueda por SKU y cálculos predictivos; requiere
+  preagregados para los gráficos y consultas específicas para el detalle.
+  La nueva versión no se publicará antes de preservar esas funciones y probar
+  el máximo de 5 MB por panel completo, no solo por archivo.
 
 ## Pasos 3–5: no completados
 

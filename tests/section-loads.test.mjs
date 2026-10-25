@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import { SectionLoads } from '../commercial-dashboard/src/app/section-loads.ts';
+import { decodeCompactRows } from '../commercial-dashboard/src/app/compact-dashboard.ts';
 
 const require = createRequire(new URL('../commercial-dashboard/package.json', import.meta.url));
 const ts = require('typescript');
@@ -14,7 +15,7 @@ const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'ensureBrandDet
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
 vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), {
-  exports, URL, Worker: undefined, AbortController, DOMException,
+  exports, URL, Worker: undefined, AbortController, DOMException, decodeCompactRows,
   setTimeout: callback => { callback(); return 1; }, clearTimeout: () => undefined,
 });
 const signal = initial => {
@@ -92,6 +93,24 @@ test('category summaries fall back to annual data from an older publication', as
   price.indexPeriodStoreAsync = async () => new Map();
   await price.ensurePriceRangeDetail();
   assert.equal(price.priceRangeData()[0].net, 4);
+});
+
+test('annual hierarchy detail prefers compact rows and restores every dimension', async () => {
+  const subject = sellerSubject();
+  const requested = [];
+  subject.loadDetail = async name => {
+    requested.push(name);
+    return { monthlySubline: {
+      encoding: 'dictionary-v1',
+      columns: ['periodId', 'storeId', 'category', 'line', 'subline', 'net'],
+      dictionary: { periodId: [202601], storeId: ['T001'], category: ['TEXTIL'], line: ['A'], subline: ['BVD'] },
+      rows: [[0, 0, 0, 0, 0, 19.5]],
+    } };
+  };
+  const rows = await subject.loadYearDetail('dashboard-subline.json', 'monthlySubline', [2026]);
+  assert.deepEqual(requested, ['dashboard-subline-compact-2026.json']);
+  assert.equal(rows[0].subline, 'BVD');
+  assert.equal(rows[0].net, 19.5);
 });
 test('price range uses compact yearly and category summaries before line detail', async () => {
   const subject = sellerSubject();

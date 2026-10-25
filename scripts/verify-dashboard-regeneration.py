@@ -10,8 +10,13 @@ import argparse
 import hashlib
 import json
 import math
+import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "piplines"))
+from compactar_dashboard import descompactar_diario, descompactar_predictivo, descompactar_registros  # noqa: E402
 
 
 PARTITIONED = {
@@ -52,6 +57,11 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 if not target.is_file() or not rows_equal(rows, read(target)[key]):
                     errors.append(f"{target.name}: faltan filas o cambió el contenido")
                 checked += 1
+                if key in ("sellerPerformance", "monthlyBrand", "monthlySubline", "monthlyPriceRange"):
+                    compact = after_dir / name.replace(".json", f"-compact-{year}.json")
+                    if not compact.is_file() or not rows_equal(rows, descompactar_registros(read(compact)[key])):
+                        errors.append(f"{compact.name}: la codificación cambia filas o valores")
+                    checked += 1
             continue
 
         target = after_dir / name
@@ -87,6 +97,25 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
             elif old_value != new_value:
                 errors.append(f"{name}/{key}: cambió el contenido")
             checked += 1
+        if re.fullmatch(r"dashboard-daily-\d{4}-\d{2}\.json", name):
+            compact = after_dir / name.replace("dashboard-daily-", "dashboard-daily-compact-")
+            if not compact.is_file():
+                errors.append(f"{compact.name}: falta el detalle diario compacto")
+            else:
+                decoded = descompactar_diario(read(compact)["dailyCompact"])
+                for key in ("dailyStore", "hourlySales"):
+                    if not rows_equal(original[key], decoded[key]):
+                        errors.append(f"{compact.name}/{key}: la codificación cambia filas o valores")
+                    checked += 1
+        if name == "dashboard-predictive.json":
+            compact = after_dir / "dashboard-predictive-compact.json"
+            if not compact.is_file():
+                errors.append("dashboard-predictive-compact.json: falta el detalle predictivo")
+            else:
+                decoded = descompactar_predictivo(read(compact)["predictiveCompact"])
+                if decoded["note"] != original["note"] or not rows_equal(original["rows"], decoded["rows"]):
+                    errors.append("dashboard-predictive-compact.json: cambian las ventanas o la nota")
+                checked += 1
 
     for dataset, key in (("dashboard-sellers", "sellerPerformance"), ("dashboard-price-range", "monthlyPriceRange")):
         yearly_files = sorted(after_dir.glob(f"{dataset}-[0-9][0-9][0-9][0-9].json"))
