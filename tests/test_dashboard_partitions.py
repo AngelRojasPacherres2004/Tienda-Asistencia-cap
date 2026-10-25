@@ -12,7 +12,8 @@ sys.path.insert(0, str(PIPELINES))
 from publicar_supabase import STATIC_CORE_FILES, YEARLY_DATASETS, discover_dashboard_files  # noqa: E402
 from compactar_dashboard import (  # noqa: E402
     compactar_diario, compactar_predictivo, compactar_registros,
-    descompactar_diario, descompactar_predictivo, descompactar_registros,
+    candidatos_traslado, compactar_stock, descompactar_diario, descompactar_predictivo, descompactar_registros,
+    descompactar_stock, resumir_stock_jerarquia,
 )
 from particionar_dashboard import scope_payload  # noqa: E402
 from generar_datos_web import (  # noqa: E402
@@ -104,6 +105,58 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
         self.assertEqual(descompactar_registros(scoped["monthlyBrand"]), rows[:1])
         self.assertNotIn("SECRETA", scoped["monthlyBrand"]["dictionary"]["brand"])
         self.assertNotIn("T002", scoped["monthlyBrand"]["dictionary"]["storeId"])
+
+    def test_grouped_sellers_are_scoped_before_publication(self) -> None:
+        rows = [
+            {"periodId": 202601, "storeId": store, "category": "CALZADO", "line": "ZAPATOS",
+             "subline": "HOMBRE", "seller": "VENDEDOR", "net": 100.0, "units": 2.0,
+             "transactions": 2.0}
+            for store in ("T001", "T002")
+        ]
+        scoped = scope_payload({"sellerPerformance": compactar_registros(rows, "sellerPerformance")}, {"T001"})
+        self.assertEqual(descompactar_registros(scoped["sellerPerformance"]), rows[:1])
+        self.assertEqual(scoped["sellerPerformance"]["dictionary"]["storeId"], ["T001"])
+
+    def test_stock_codec_preserves_sku_and_store_metrics(self) -> None:
+        metadata = {"productId": "P1", "productCode": "00000000001007", "product": "ZAPATO 7",
+                    "category": "CALZADO", "line": "DAMAS", "subline": "ZAPATOS", "brand": "MARCA"}
+        rows = [
+            {"storeId": "T001", **metadata, "stockUnits": 4.0, "stockValue": 100.0,
+             "goodUnits": 4.0, "mermaStockUnits": 0.0, "desmedroStockUnits": 0.0,
+             "units30": 1.0, "sales30": 25.0, "units12": 10.0, "sales12": 250.0},
+            {"storeId": "T002", **metadata, "stockUnits": 2.0, "stockValue": 50.0,
+             "goodUnits": 1.0, "mermaStockUnits": 0.0, "desmedroStockUnits": 1.0,
+             "units30": 0.0, "sales30": 0.0, "units12": 0.0, "sales12": 0.0},
+        ]
+        compact = compactar_stock(rows)
+        self.assertEqual(len(compact["products"]), 1)
+        self.assertEqual(descompactar_stock(compact), rows)
+        scoped = scope_payload({"stockCompact": compact}, {"T002"})
+        self.assertEqual(descompactar_stock(scoped["stockCompact"]), rows[1:])
+        self.assertEqual(scoped["stockCompact"]["stores"], ["T002"])
+
+    def test_stock_hierarchy_aggregates_and_respects_store_scope(self) -> None:
+        metadata = {"productCode": "00000000001007", "product": "ZAPATO", "category": "CALZADO",
+                    "line": "DAMAS", "subline": "ZAPATOS", "brand": "MARCA"}
+        rows = [
+            {"storeId": store, "productId": product, **metadata, "stockUnits": units,
+             "stockValue": units * 25, "goodUnits": units, "mermaStockUnits": 0.0,
+             "desmedroStockUnits": 0.0, "units30": units / 2, "sales30": units * 5,
+             "units12": units * 3, "sales12": units * 75}
+            for store, product, units in (("T001", "P1", 2.0), ("T001", "P2", 3.0), ("T002", "P1", 4.0))
+        ]
+        compact = compactar_registros(resumir_stock_jerarquia(rows), "stockHierarchy")
+        scoped = scope_payload({"stockHierarchy": compact}, {"T001"})["stockHierarchy"]
+        self.assertEqual(descompactar_registros(scoped)[0]["stockUnits"], 5.0)
+        self.assertEqual(scoped["dictionary"]["storeId"], ["T001"])
+
+    def test_transfer_candidates_keep_all_stores_of_qualifying_sku(self) -> None:
+        def row(product: str, store: str, stock: float, sales: float) -> dict:
+            return {"productId": product, "storeId": store, "goodUnits": stock,
+                    "stockUnits": stock, "units30": sales}
+        rows = [row("P1", "T001", 100, 0), row("P1", "T002", 1, 20),
+                row("P1", "T003", 3, 0), row("P2", "T001", 1, 0)]
+        self.assertEqual(candidatos_traslado(rows), rows[:3])
 
     def test_seller_category_summary_preserves_dimensions_and_totals(self) -> None:
         rows = [

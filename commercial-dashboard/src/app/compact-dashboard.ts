@@ -24,6 +24,12 @@ export type PredictiveCompact = {
   dictionary: { storeId: string[]; productId: string[] };
   rows: unknown[][];
 };
+export type StockCompact = {
+  encoding: 'stock-v1';
+  stores: string[];
+  products: unknown[][];
+  rows: unknown[][];
+};
 
 function indexedValue(dictionary: unknown, value: unknown): unknown {
   if (!Array.isArray(dictionary) || typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value >= dictionary.length) {
@@ -121,7 +127,7 @@ export function decodeDailyCompact<D extends object, H extends object>(payload: 
     if (!Array.isArray(values) || values.length !== 5) throw new Error('Fila horaria incompleta.');
     const date = indexedValue(payload.dictionary['date'], values[0]);
     return {
-      ...dateParts(date), storeId: indexedValue(payload.dictionary['storeId'], values[1]),
+      date, periodId: dateParts(date).periodId, storeId: indexedValue(payload.dictionary['storeId'], values[1]),
       hour: values[2], transactions: values[3], net: values[4],
     } as H;
   });
@@ -155,4 +161,37 @@ export function decodePredictiveCompact<T extends object>(payload: PredictiveCom
     return record as T;
   });
   return { note: payload.note, rows };
+}
+
+export function decodeStockCompact<T extends object>(payload: StockCompact, signal?: AbortSignal): T[] {
+  if (payload?.encoding !== 'stock-v1' || !Array.isArray(payload.stores) ||
+      !Array.isArray(payload.products) || !Array.isArray(payload.rows)) {
+    throw new Error('Formato de stock no válido.');
+  }
+  const metadata = ['productId', 'productCode', 'product', 'category', 'line', 'subline', 'brand'];
+  const metrics = ['stockValue', 'goodUnits', 'mermaStockUnits', 'desmedroStockUnits',
+    'units30', 'sales30', 'units12', 'sales12'];
+  return payload.rows.map((values, rowIndex) => {
+    if (rowIndex % 4096 === 0) signal?.throwIfAborted();
+    if (!Array.isArray(values) || values.length < 4 || typeof values[2] !== 'number') {
+      throw new Error('Fila de stock incompleta.');
+    }
+    const mask = values[3];
+    if (typeof mask !== 'number' || !Number.isInteger(mask) || mask < 0 || mask > 255 ||
+        values.length !== 4 + metrics.filter((_, index) => mask & (1 << index)).length) {
+      throw new Error('Máscara de stock no válida.');
+    }
+    const product = indexedValue(payload.products, values[1]);
+    if (!Array.isArray(product) || product.length !== metadata.length) throw new Error('SKU de stock no válido.');
+    const record: Record<string, unknown> = {
+      storeId: indexedValue(payload.stores, values[0]),
+      stockUnits: values[2],
+    };
+    metadata.forEach((column, index) => { record[column] = product[index]; });
+    let position = 4;
+    metrics.forEach((metric, index) => {
+      record[metric] = mask & (1 << index) ? values[position++] : index === 1 ? values[2] : 0;
+    });
+    return record as T;
+  });
 }

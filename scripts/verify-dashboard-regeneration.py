@@ -16,7 +16,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "piplines"))
-from compactar_dashboard import descompactar_diario, descompactar_predictivo, descompactar_registros  # noqa: E402
+from compactar_dashboard import (  # noqa: E402
+    candidatos_traslado, descompactar_diario, descompactar_predictivo, descompactar_registros,
+    descompactar_stock, resumir_stock_jerarquia,
+)
 
 
 PARTITIONED = {
@@ -116,6 +119,25 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 if decoded["note"] != original["note"] or not rows_equal(original["rows"], decoded["rows"]):
                     errors.append("dashboard-predictive-compact.json: cambian las ventanas o la nota")
                 checked += 1
+        if name == "dashboard-stock-products.json":
+            summary_file = after_dir / "dashboard-stock-hierarchy.json"
+            if not summary_file.is_file():
+                errors.append("dashboard-stock-hierarchy.json: falta el agregado por jerarquía")
+            elif not rows_equal(
+                resumir_stock_jerarquia(regenerated["stockProducts"]),
+                descompactar_registros(read(summary_file)["stockHierarchy"]),
+            ):
+                errors.append("dashboard-stock-hierarchy.json: cambian importes o unidades")
+            checked += 1
+            transfer_file = after_dir / "dashboard-stock-transfers.json"
+            if not transfer_file.is_file():
+                errors.append("dashboard-stock-transfers.json: faltan los SKU candidatos")
+            elif not rows_equal(
+                candidatos_traslado(regenerated["stockProducts"]),
+                descompactar_stock(read(transfer_file)["stockCompact"]),
+            ):
+                errors.append("dashboard-stock-transfers.json: faltan filas o cambian valores")
+            checked += 1
 
     for dataset, key in (("dashboard-sellers", "sellerPerformance"), ("dashboard-price-range", "monthlyPriceRange")):
         yearly_files = sorted(after_dir.glob(f"{dataset}-[0-9][0-9][0-9][0-9].json"))

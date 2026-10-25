@@ -44,8 +44,8 @@
         <div class="transfer-intro">
           <p>Encuentra productos con exceso de stock y tiendas que necesitan reposición.</p>
           <div class="transfer-inline-totals" aria-live="polite" aria-atomic="true">
-            <span>Stock total: <strong>{{ stockDetailLoaded() ? number(transferSummary().stockUnits) : '—' }} und</strong></span>
-            <span>Ventas totales · 30 días: <strong>{{ stockDetailLoaded() ? number(transferSummary().salesUnits) : '—' }} und</strong></span>
+            <span>Stock total: <strong>{{ stockDetailLoaded() || stockTransfersLoaded() ? number(transferSummary().stockUnits) : '—' }} und</strong></span>
+            <span>Ventas totales · 30 días: <strong>{{ stockDetailLoaded() || stockTransfersLoaded() ? number(transferSummary().salesUnits) : '—' }} und</strong></span>
           </div>
         </div>
         <div class="transfer-filters">
@@ -63,7 +63,7 @@
           <div class="transfer-rules"><span>Exceso: &gt;90 días o sin ventas</span><span>Falta: &lt;30 días</span><span>Crítico: ≤15 días</span></div>
           <p class="transfer-totals-note">Totales de las oportunidades filtradas, sin repetir productos por tienda.@if (transferStore()) { Solo se suman las unidades de la tienda seleccionada. }</p>
         </div>
-        @if (stockDetailFailed()) { <p role="alert">No se pudo cargar el detalle de productos.</p> } @else if (!stockDetailLoaded()) { <p role="status">Cargando productos por tienda…</p> } @else if (!transferRecommendations().length) {
+        @if (stockDetailFailed() && !stockTransfersLoaded()) { <p role="alert">No se pudo cargar el detalle de productos.</p> } @else if (!stockDetailLoaded() && !stockTransfersLoaded()) { <p role="status">Cargando oportunidades de traslado…</p> } @else if (!transferRecommendations().length) {
           <div class="transfer-empty" role="status"><strong>No hay oportunidades para estos filtros</strong><p>Prueba con otra tienda, marca o prioridad. Solo se comparan productos y tiendas con datos registrados.</p><button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button></div>
         } @else {
           <div class="transfer-pagination" aria-label="Paginación de oportunidades">
@@ -337,7 +337,7 @@
           </article>
         </div>
 
-        <div class="block-heading"><span>B</span><h2>COBERTURA Y DISTRIBUCIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-b', '02.B Cobertura y distribución')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('inventory-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }<div class="inventory-analysis-row">
+        <div class="block-heading"><span>B</span><h2>COBERTURA Y DISTRIBUCIÓN</h2>@if (!storeFilterLocked()) { <button type="button" class="retry-button" (click)="openTransfers()">VER TRASLADOS ENTRE TIENDAS</button> }<button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-b', '02.B Cobertura y distribución')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('inventory-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }<div class="inventory-analysis-row">
           <article class="card chart-card store-value-coverage-card" [class.chart-expanded]="expandedChart() === 'store-value-coverage'">
             <button type="button" class="chart-expand" (click)="toggleChartExpansion('store-value-coverage')" [attr.aria-label]="expandedChart() === 'store-value-coverage' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'store-value-coverage' ? '×' : '⛶' }}</button>
             <div class="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#warehouse"></use></svg> VALOR DE INVENTARIO POR TIENDA</h2></div>
@@ -385,7 +385,7 @@
           <div class="detail-loader compact"><span class="loader"></span><strong>Preparando analítica por producto · {{ stockDetailProgress() }}%</strong></div>
         } @else {
         <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
-          <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2>@if (!storeFilterLocked()) { <button type="button" class="retry-button" (click)="openTransfers()">VER TRASLADOS ENTRE TIENDAS</button> }<button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>
+          <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>
           @if (sectionAdviceEnabled() && sectionAdviceFor('inventory-c'); as advice) { <div class="predictive-advice-row"><p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p></div> }
           <div class="predictive-parameters">
             <div class="predictive-rubro-control"><span>RUBRO</span><div class="predictive-toggle"><button type="button" [class.active]="predictiveRubros().includes('TEXTIL')" (click)="togglePredictiveRubro('TEXTIL')">TEXTIL</button><button type="button" [class.active]="predictiveRubros().includes('CALZADO')" (click)="togglePredictiveRubro('CALZADO')">CALZADO</button></div></div>

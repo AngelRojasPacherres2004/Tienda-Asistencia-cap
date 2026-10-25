@@ -24,6 +24,8 @@ const product = (storeId, stockUnits, units30, productId = 'P1', brand = 'ADIDAS
 function fixture() {
   const subject = new exports.Subject();
   subject.predictiveStoreOptions = () => ['A', 'B', 'C'].map(storeId => ({ storeId, alias: storeId, isStore: true }));
+  subject.stockDetailLoaded = signal(true);
+  subject.stockTransferProductsData = signal([]);
   subject.stockProductsData = () => [product('A', 100, 10), product('B', 0, 10), product('C', 12, 20), product('A', 80, 0, 'P2', 'NIKE', 'CALZADO'), product('B', 0, 20, 'P2', 'NIKE', 'CALZADO'), product('OUTSIDE', 1000, 1000)];
   return subject;
 }

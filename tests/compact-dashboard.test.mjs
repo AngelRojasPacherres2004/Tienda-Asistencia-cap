@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
 
 test('compact dashboard rows restore repeated dimensions and numeric values', () => {
   const payload = {
@@ -52,6 +52,21 @@ test('daily rows restore derived periods, omitted zeros and hourly sales', () =>
   assert.equal(result.dailyStore[1].received, 5);
   assert.equal(result.hourlySales[0].date, '2025-12-24');
   assert.equal(result.hourlySales[0].periodId, 202512);
+  assert.deepEqual(result.hourlySales[0], { date: '2025-12-24', periodId: 202512, storeId: 'T001', hour: 9, transactions: 1, net: 10 });
+});
+
+test('stock rows restore shared SKU metadata and sparse quantities', () => {
+  const rows = decodeStockCompact({
+    encoding: 'stock-v1', stores: ['T001', 'T002'],
+    products: [['P1', '00000000001007', 'ZAPATO 7', 'CALZADO', 'DAMAS', 'ZAPATOS', 'MARCA']],
+    rows: [[0, 0, 4, 0], [1, 0, 2, 17, 100, 1]],
+  });
+  assert.equal(rows[0].goodUnits, 4);
+  assert.equal(rows[0].stockValue, 0);
+  assert.equal(rows[1].stockValue, 100);
+  assert.equal(rows[1].units30, 1);
+  assert.equal(rows[1].productCode, '00000000001007');
+  assert.throws(() => decodeStockCompact({ encoding: 'stock-v1', stores: ['T001'], products: [], rows: [[0, 9, 4, 0]] }));
 });
 
 test('predictive rows restore zero windows, growth and sparse spoilage', () => {

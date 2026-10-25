@@ -6,6 +6,7 @@ objetos con las mismas claves mediante compact-dashboard.ts.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -20,6 +21,10 @@ SCHEMAS: dict[str, tuple[str, ...]] = {
     ),
     "monthlyPriceRange": (
         "periodId", "storeId", "category", "line", "subline", "bandOrder", "priceBand", "net", "units",
+    ),
+    "stockHierarchy": (
+        "storeId", "category", "line", "subline", "brand", "stockUnits", "stockValue",
+        "goodUnits", "units30", "sales30",
     ),
 }
 
@@ -38,6 +43,11 @@ PREDICTIVE_FIELDS = frozenset({
     "storeId", "productId", "units60", "units90", "merma30", "merma60", "merma90",
 })
 PREDICTIVE_METRICS = ("units60", "units90", "merma30", "merma60", "merma90")
+STOCK_METADATA = ("productId", "productCode", "product", "category", "line", "subline", "brand")
+STOCK_METRICS = (
+    "stockUnits", "stockValue", "goodUnits", "mermaStockUnits", "desmedroStockUnits",
+    "units30", "sales30", "units12", "sales12",
+)
 
 
 def compactar_registros(registros: list[dict[str, Any]], clave: str) -> dict[str, Any]:
@@ -266,3 +276,109 @@ def descompactar_predictivo(payload: dict[str, Any]) -> dict[str, Any]:
             **dict(zip(PREDICTIVE_METRICS, metricas, strict=True)),
         })
     return {"note": payload["note"], "rows": registros}
+
+
+def compactar_stock(registros: list[dict[str, Any]]) -> dict[str, Any]:
+    """Comparte metadatos de SKU entre tiendas y omite métricas por defecto."""
+    productos: list[list[Any]] = []
+    tiendas: list[str] = []
+    indices_producto: dict[str, int] = {}
+    indices_tienda: dict[str, int] = {}
+    filas: list[list[Any]] = []
+    for registro in registros:
+        esperado = {"storeId", *STOCK_METADATA, *STOCK_METRICS}
+        if set(registro) != esperado:
+            raise ValueError(f"stockProducts tiene columnas inesperadas o faltantes: {set(registro) ^ esperado}")
+        producto_id = registro["productId"]
+        metadatos = [registro[campo] for campo in STOCK_METADATA]
+        indice_producto = indices_producto.get(producto_id)
+        if indice_producto is None:
+            indice_producto = len(productos)
+            indices_producto[producto_id] = indice_producto
+            productos.append(metadatos)
+        elif productos[indice_producto] != metadatos:
+            raise ValueError(f"El SKU {producto_id} tiene metadatos incompatibles entre tiendas")
+        tienda_id = registro["storeId"]
+        indice_tienda = indices_tienda.get(tienda_id)
+        if indice_tienda is None:
+            indice_tienda = len(tiendas)
+            indices_tienda[tienda_id] = indice_tienda
+            tiendas.append(tienda_id)
+        unidades = registro["stockUnits"]
+        valores = [registro[campo] for campo in STOCK_METRICS[1:]]
+        por_defecto = [0.0, unidades, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        presentes = [valor != defecto or type(valor) is not type(defecto)
+                     for valor, defecto in zip(valores, por_defecto, strict=True)]
+        mascara = sum(1 << i for i, presente in enumerate(presentes) if presente)
+        filas.append([indice_tienda, indice_producto, unidades, mascara,
+                      *(valor for valor, presente in zip(valores, presentes, strict=True) if presente)])
+    return {"encoding": "stock-v1", "stores": tiendas, "products": productos, "rows": filas}
+
+
+def descompactar_stock(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("encoding") != "stock-v1":
+        raise ValueError("Formato de stock desconocido")
+    resultado: list[dict[str, Any]] = []
+    for fila in payload["rows"]:
+        unidades = fila[2]
+        mascara = fila[3]
+        valores = iter(fila[4:])
+        por_defecto = [0.0, unidades, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        metricas = [unidades, *[
+            next(valores) if mascara & (1 << i) else defecto
+            for i, defecto in enumerate(por_defecto)
+        ]]
+        producto = payload["products"][fila[1]]
+        resultado.append({
+            "storeId": payload["stores"][fila[0]],
+            **dict(zip(STOCK_METADATA, producto, strict=True)),
+            **dict(zip(STOCK_METRICS, metricas, strict=True)),
+        })
+    return resultado
+
+
+def resumir_stock_jerarquia(registros: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Suma medidas aditivas por tienda y jerarquía para gráficos generales."""
+    dimensiones = SCHEMAS["stockHierarchy"][:5]
+    metricas = SCHEMAS["stockHierarchy"][5:]
+    grupos: dict[tuple[str, ...], dict[str, Any]] = {}
+    for registro in registros:
+        clave = tuple(registro[campo] for campo in dimensiones)
+        fila = grupos.get(clave)
+        if fila is None:
+            fila = {**dict(zip(dimensiones, clave, strict=True)), **{campo: 0.0 for campo in metricas}}
+            grupos[clave] = fila
+        for campo in metricas:
+            fila[campo] += float(registro[campo])
+    return list(grupos.values())
+
+
+def candidatos_traslado(registros: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Conserva los SKU capaces de generar una ruta con las reglas actuales."""
+    posiciones: dict[str, dict[str, list[float]]] = {}
+    for registro in registros:
+        producto = str(registro["productId"] or "").strip()
+        if not producto:
+            continue
+        tienda = registro["storeId"]
+        grupo = posiciones.setdefault(producto, {}).setdefault(tienda, [0.0, 0.0])
+        grupo[0] += max(0.0, float(registro["goodUnits"] if registro["goodUnits"] is not None
+                                     else registro["stockUnits"] * .82))
+        grupo[1] += float(registro["units30"])
+    candidatos: set[str] = set()
+    for producto, tiendas in posiciones.items():
+        donantes: set[str] = set()
+        receptores: set[str] = set()
+        for tienda, (stock, ventas) in tiendas.items():
+            ventas = max(0.0, ventas)
+            diario = ventas / 30
+            dias = stock / diario if diario > 0 else None
+            disponible = max(0, math.floor(stock - diario * 30))
+            faltante = max(0, math.ceil(diario * 30 - stock))
+            if disponible > 0 and (ventas == 0 or dias is not None and dias > 90):
+                donantes.add(tienda)
+            if ventas > 0 and dias is not None and dias < 30 and faltante > 0:
+                receptores.add(tienda)
+        if any(origen != destino for origen in donantes for destino in receptores):
+            candidatos.add(producto)
+    return [registro for registro in registros if registro["productId"] in candidatos]

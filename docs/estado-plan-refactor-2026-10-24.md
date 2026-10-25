@@ -84,18 +84,29 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   filas y diccionarios para no filtrar nombres o SKU de otro alcance.
 - Antes de regenerar se copiaron los 42 JSON locales (890,085,911 bytes) a
   `%LOCALAPPDATA%/DashBoardGeneral/backups/dashboard-data-pre-regen-20261024-1740`.
-  `scripts/verify-dashboard-regeneration.py` comparó 198 conjuntos de filas
+  `scripts/verify-dashboard-regeneration.py` comparó 200 conjuntos de filas
   sin depender del orden: cero diferencias no explicadas. La única variación
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
   como corresponde. El manifiesto local incluye 133 archivos, sin faltantes;
   prefiere los detalles compactos a los anuales y mensuales crudos.
 - `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
-  y falla hasta que se cumplan ambas puertas. Pasan 15 de 16 escenarios:
+  y falla hasta que se cumplan ambas puertas. Pasan 17 de 18 escenarios:
   únicamente falla productos y tallas de stock (64.682 MB). Esa misma matriz
   alimenta traslados, búsqueda por SKU y cálculos predictivos; requiere
   preagregados para los gráficos y consultas específicas para el detalle.
   La nueva versión no se publicará antes de preservar esas funciones y probar
   el máximo de 5 MB por panel completo, no solo por archivo.
+- Un agregado exacto por tienda/rubro/línea/sublínea/marca ocupa 0.898 MB y
+  alimenta cobertura, rotación y totales mientras carga el detalle. Los SKU
+  candidatos para traslados ocupan 0.817 MB; las 2,839 recomendaciones
+  calculadas con ellos coinciden, fila por fila y en orden, con las del archivo
+  completo. El publicador filtra y vuelve a codificar ambos archivos por
+  tienda o clúster. También se corrigió el filtrado del nuevo formato compacto
+  de vendedores por alcance, que habría impedido publicarlo.
+- Una codificación sin pérdida de todo el stock ocupa 13.177 MB; incluso el
+  rubro TEXTIL ocupa 6.727 MB. Esto confirma que la búsqueda y los paneles
+  restantes requieren agregados o consultas por filtro: comprimir el mismo
+  detalle no satisface el límite de 5 MB.
 
 ## Pasos 3–5: no completados
 

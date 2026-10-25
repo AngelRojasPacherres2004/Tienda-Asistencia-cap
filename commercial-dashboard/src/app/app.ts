@@ -11,7 +11,8 @@ import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
 import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
-import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, type CompactRows, type DailyCompact, type PredictiveCompact } from './compact-dashboard';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact,
+  type CompactRows, type DailyCompact, type PredictiveCompact, type StockCompact } from './compact-dashboard';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -39,6 +40,9 @@ type ProductRow = {
   units30: number; sales30: number; units12: number; sales12: number;
 };
 type StockOrigin = { storeId: string; category: string; line: string; subline: string; originPeriodId: number; units: number; value: number };
+type StockHierarchyRow = { storeId: string; category: string; line: string; subline: string; brand: string;
+  stockUnits: number; stockValue: number; goodUnits: number; units30: number; sales30: number;
+  mermaStockUnits?: number; desmedroStockUnits?: number };
 type PredictiveStore = { storeId: string; stockUnits: number; stockValue: number; units30: number; sales30: number; coverageDays: number | null; rotation: number | null };
 type PredictiveCategory = { storeId: string; category: string; stockUnits: number; stockValue: number; units30: number; sales30: number; rotation: number | null };
 type HourlySalesRow = { periodId: number; date?: string; storeId: string; hour: number; transactions: number; net: number };
@@ -177,6 +181,10 @@ export class App implements OnInit {
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
   readonly priceRangeComparisonYear = signal(2025);
   readonly stockOriginData = signal<StockOrigin[]>([]);
+  readonly stockHierarchyData = signal<StockHierarchyRow[]>([]);
+  readonly stockHierarchyLoaded = signal(false);
+  readonly stockTransferProductsData = signal<ProductRow[]>([]);
+  readonly stockTransfersLoaded = signal(false);
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
   readonly predictiveAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -209,6 +217,8 @@ export class App implements OnInit {
   private brandDetailGeneration = 0;
   private sublineDetailPromise?: Promise<void>;
   private stockOriginPromise?: Promise<void>;
+  private stockHierarchyPromise?: Promise<void>;
+  private stockTransfersPromise?: Promise<void>;
   private stockDetailPromise?: Promise<void>;
   private legacyStockPromise?: Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>;
   private predictiveDetailPromise?: Promise<void>;
@@ -1920,7 +1930,8 @@ export class App implements OnInit {
   readonly transferPageSize = 10;
   readonly transferProducts = computed(() => {
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
-    return this.stockProductsData().filter(row => ids.has(row.storeId));
+    const products = this.stockDetailLoaded() ? this.stockProductsData() : this.stockTransferProductsData();
+    return products.filter(row => ids.has(row.storeId));
   });
   readonly transferRubros = computed(() => [...new Set(this.transferProducts()
     .map(row => row.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')));
@@ -2074,7 +2085,7 @@ export class App implements OnInit {
   openTransfers(): void {
     this.resetTransferFilters();
     this.toggleChartExpansion('stock-transfers');
-    void this.ensureStockDetail();
+    if (!this.stockDetailLoaded()) void this.ensureStockTransfers();
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
   }
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
@@ -2221,6 +2232,11 @@ export class App implements OnInit {
     return { high: values.slice(0, 3), low: [...values].sort((a, b) => a.units - b.units).slice(0, 3) };
   });
 
+  readonly inventoryHierarchyRowsIgnoringStoreFilter = computed(() => {
+    const ids = this.inventoryStoreIdsIgnoringStoreFilter();
+    return this.stockHierarchyData().filter(row => ids.has(row.storeId) &&
+      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+  });
   readonly stockTotals = computed(() => {
     const hierarchyActive = this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length;
     const selectedIds = this.filteredStoreIds();
@@ -2235,7 +2251,10 @@ export class App implements OnInit {
       baseStockByStore.set(row.storeId, current);
     }
     const readyAggregates = aggregates.size ? aggregates : baseStockByStore;
-    const stockRows = hierarchyActive ? this.filteredProducts() : [];
+    const stockRows: Array<ProductRow | StockHierarchyRow> = hierarchyActive
+      ? this.stockDetailLoaded() ? this.filteredProducts()
+        : this.inventoryHierarchyRowsIgnoringStoreFilter().filter(row => selectedIds.has(row.storeId))
+      : [];
     return {
       capacity: this.filteredStores().reduce((t, s) => t + (s.capacity || 0), 0),
       units: hierarchyActive ? sum(stockRows, 'stockUnits') : [...selectedIds].reduce((total, id) => total + (readyAggregates.get(id)?.stockUnits || 0), 0),
@@ -2323,7 +2342,9 @@ export class App implements OnInit {
   }
   readonly coverageRows = computed<CoverageRow[]>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store]));
-    const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => row.storeId);
+    const products: Array<ProductRow | StockHierarchyRow> = this.stockDetailLoaded()
+      ? this.inventoryProductsIgnoringStoreFilter() : this.inventoryHierarchyRowsIgnoringStoreFilter();
+    const groups = grouped(products, row => row.storeId);
     const predictiveByStore = new Map((this.data()?.predictiveStore || []).map(row => [row.storeId, row]));
     const stockByStore = new Map((this.data()?.stockStore || []).map(row => [row.storeId, row]));
     return [...storeMap.keys()].map(storeId => {
@@ -2911,7 +2932,9 @@ export class App implements OnInit {
   });
   readonly rotationOption = computed<EChartsOption>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
-    const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => row.storeId);
+    const products: Array<ProductRow | StockHierarchyRow> = this.stockDetailLoaded()
+      ? this.inventoryProductsIgnoringStoreFilter() : this.inventoryHierarchyRowsIgnoringStoreFilter();
+    const groups = grouped(products, row => row.storeId);
     const rows = [...storeMap.entries()].map(([storeId, label]) => {
       const products = groups.get(storeId) || [];
       const sales = sum(products, 'sales30'); const value = sum(products, 'stockValue');
@@ -3430,6 +3453,7 @@ export class App implements OnInit {
     // La parte superior usa agregados de dashboard.json y aparece de inmediato.
     // Antigüedad pesa ~4 MB; el detalle por producto (~54 MB) se prepara en tiempo ocioso.
     void this.ensureStockOrigin();
+    void this.ensureStockHierarchy();
     this.scheduleInventoryProductDetail();
   }
 
@@ -3458,7 +3482,8 @@ export class App implements OnInit {
     this.priceRangeDetailAbort?.abort();
     this.priceRangeDetailAbort = undefined;
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
-    this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.legacyStockPromise = undefined;
+    this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.stockHierarchyPromise = undefined;
+    this.stockTransfersPromise = undefined; this.legacyStockPromise = undefined;
     this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
     this.brandDetailPromise = undefined; this.sublineDetailPromise = undefined; this.priceRangeDetailPromise = undefined;
     this.detailLoading.set(false); this.stockDetailLoading.set(false); this.stockDetailProgress.set(0); this.productCodeLoading.set(false);
@@ -3477,6 +3502,7 @@ export class App implements OnInit {
     if (this.page() === 3) void this.ensureSellerDetail();
     if (this.page() === 2) {
       if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
+      if (!this.stockHierarchyLoaded()) void this.ensureStockHierarchy();
       this.scheduleInventoryProductDetail();
     }
     if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
@@ -3485,6 +3511,8 @@ export class App implements OnInit {
     this.cancelPendingSectionLoads();
     this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
+    this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);
+    this.stockTransferProductsData.set([]); this.stockTransfersLoaded.set(false);
     this.stockAggregateByStore.set(new Map()); this.predictiveAggregateByStore.set(new Map());
     this.predictiveAggregateByProduct.set(new Map()); this.predictiveIndex.set(new Map());
     this.stockDetailLoaded.set(false); this.stockOriginLoaded.set(false); this.stockDetailFailed.set(false);
@@ -3924,6 +3952,46 @@ export class App implements OnInit {
       }
     })();
     return this.stockOriginPromise;
+  }
+
+  private async ensureStockHierarchy(): Promise<void> {
+    if (this.stockHierarchyLoaded() || this.stockHierarchyPromise) return this.stockHierarchyPromise;
+    const signal = this.sectionLoads.signal;
+    this.stockHierarchyPromise = (async () => {
+      try {
+        const payload = await this.loadDetail<{ stockHierarchy: CompactRows }>('dashboard-stock-hierarchy.json', signal);
+        signal.throwIfAborted();
+        this.stockHierarchyData.set(decodeCompactRows<StockHierarchyRow>(payload.stockHierarchy, signal));
+      } catch {
+        if (signal.aborted) return;
+        // Las versiones previas siguen utilizando el detalle por producto.
+        this.stockHierarchyData.set([]);
+      } finally {
+        this.stockHierarchyPromise = undefined;
+        if (!signal.aborted) this.stockHierarchyLoaded.set(true);
+      }
+    })();
+    return this.stockHierarchyPromise;
+  }
+
+  private async ensureStockTransfers(): Promise<void> {
+    if (this.stockDetailLoaded() || this.stockTransfersLoaded() || this.stockTransfersPromise) return this.stockTransfersPromise;
+    const signal = this.sectionLoads.signal;
+    this.stockTransfersPromise = (async () => {
+      try {
+        const payload = await this.loadDetail<{ stockCompact: StockCompact }>('dashboard-stock-transfers.json', signal);
+        signal.throwIfAborted();
+        this.stockTransferProductsData.set(decodeStockCompact<ProductRow>(payload.stockCompact, signal));
+        this.stockTransfersLoaded.set(true);
+      } catch {
+        if (signal.aborted) return;
+        // Una publicación anterior conserva el detalle completo.
+        await this.ensureStockDetail();
+      } finally {
+        this.stockTransfersPromise = undefined;
+      }
+    })();
+    return this.stockTransfersPromise;
   }
 
   private async ensureStockDetail(): Promise<void> {

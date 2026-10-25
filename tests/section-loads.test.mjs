@@ -4,18 +4,18 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import { SectionLoads } from '../commercial-dashboard/src/app/section-loads.ts';
-import { decodeCompactRows } from '../commercial-dashboard/src/app/compact-dashboard.ts';
+import { decodeCompactRows, decodeStockCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
 
 const require = createRequire(new URL('../commercial-dashboard/package.json', import.meta.url));
 const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'ensureBrandDetail', 'deferHierarchyDetails', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
+const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'ensureBrandDetail', 'ensureStockHierarchy', 'ensureStockTransfers', 'deferHierarchyDetails', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
 vm.runInNewContext(code.replaceAll('import.meta.url', JSON.stringify(import.meta.url)), {
-  exports, URL, Worker: undefined, AbortController, DOMException, decodeCompactRows,
+  exports, URL, Worker: undefined, AbortController, DOMException, decodeCompactRows, decodeStockCompact,
   setTimeout: callback => { callback(); return 1; }, clearTimeout: () => undefined,
 });
 const signal = initial => {
@@ -190,7 +190,7 @@ test('section release clears product arrays, indexes and loaded flags', () => {
   subject.sectionLoads = new SectionLoads();
   subject.data = signal({ monthlyBrand: [], monthlySubline: [] });
   subject.indexPeriodStore = () => new Map();
-  const signals = ['stockProductsData', 'staticPredictiveProductsData', 'stockOriginData', 'sellerPerformanceData', 'priceRangeData'];
+  const signals = ['stockProductsData', 'staticPredictiveProductsData', 'stockOriginData', 'stockHierarchyData', 'stockTransferProductsData', 'sellerPerformanceData', 'priceRangeData'];
   signals.forEach(name => { subject[name] = signal([{ productId: 'SKU' }]); });
   const maps = ['stockProductsByStore', 'stockProductsByCategory', 'predictiveProductsByProduct', 'monthlyPriceRangeIndex'];
   maps.forEach(name => { subject[name] = new Map([['SKU', [{}]]]); });
@@ -209,7 +209,47 @@ test('section release clears product arrays, indexes and loaded flags', () => {
   signals.forEach(name => assert.equal(subject[name]().length, 0));
   maps.forEach(name => assert.equal(subject[name].size, 0));
   assert.equal(subject.stockDetailLoaded(), false);
+  assert.equal(subject.stockHierarchyLoaded(), false);
+  assert.equal(subject.stockTransfersLoaded(), false);
   assert.equal(subject.sellerDetailLoaded(), false);
+});
+
+test('inventory hierarchy loads a small exact aggregate before product detail', async () => {
+  const subject = new exports.Subject();
+  subject.sectionLoads = new SectionLoads();
+  subject.stockHierarchyData = signal([]);
+  subject.stockHierarchyLoaded = signal(false);
+  const requested = [];
+  subject.loadDetail = async file => {
+    requested.push(file);
+    return { stockHierarchy: { encoding: 'dictionary-v1',
+      columns: ['storeId', 'category', 'line', 'subline', 'brand', 'stockUnits', 'stockValue', 'goodUnits', 'units30', 'sales30'],
+      dictionary: { storeId: ['T001'], category: ['CALZADO'], line: ['DAMA'], subline: ['ZAPATOS'], brand: ['MARCA'] },
+      rows: [[0, 0, 0, 0, 0, 4, 100, 4, 1, 25]] } };
+  };
+  await subject.ensureStockHierarchy();
+  assert.deepEqual(requested, ['dashboard-stock-hierarchy.json']);
+  assert.equal(subject.stockHierarchyData()[0].stockValue, 100);
+  assert.equal(subject.stockHierarchyLoaded(), true);
+});
+
+test('transfer modal loads only candidate SKUs from the compact file', async () => {
+  const subject = new exports.Subject();
+  subject.sectionLoads = new SectionLoads();
+  subject.stockDetailLoaded = signal(false);
+  subject.stockTransfersLoaded = signal(false);
+  subject.stockTransferProductsData = signal([]);
+  const requested = [];
+  subject.loadDetail = async file => {
+    requested.push(file);
+    return { stockCompact: { encoding: 'stock-v1', stores: ['T001'],
+      products: [['P1', '00000000001007', 'ZAPATO', 'CALZADO', 'DAMA', 'ZAPATOS', 'MARCA']],
+      rows: [[0, 0, 5, 0]] } };
+  };
+  await subject.ensureStockTransfers();
+  assert.deepEqual(requested, ['dashboard-stock-transfers.json']);
+  assert.equal(subject.stockTransferProductsData()[0].productId, 'P1');
+  assert.equal(subject.stockTransfersLoaded(), true);
 });
 test('a canceled source lookup never starts a download', async () => {
   const subject = new exports.Subject();

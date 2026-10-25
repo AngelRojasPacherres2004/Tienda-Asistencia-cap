@@ -13,7 +13,10 @@ from project_paths import PROJECT_ROOT, CAPA2_DIR
 from runtime_config import finalizar_proceso
 from maestros import homologar_tienda_python, tienda_id_python
 from xlsx_staging import origen_xlsx_csv
-from compactar_dashboard import compactar_diario, compactar_predictivo, compactar_registros
+from compactar_dashboard import (
+    candidatos_traslado, compactar_diario, compactar_predictivo, compactar_registros,
+    compactar_stock, resumir_stock_jerarquia,
+)
 
 
 WEB_DIR = PROJECT_ROOT / "commercial-dashboard"
@@ -1225,6 +1228,14 @@ def escribir(resultado: dict) -> None:
         # Separar el resumen de antigüedad del detalle por producto evita que la
         # pestaña de Inventario tenga que descargar ~60 MB antes de poder pintar.
         "dashboard-stock-origin.json": {"stockOrigin": resultado["stockOrigin"]},
+        "dashboard-stock-hierarchy.json": {
+            "stockHierarchy": compactar_registros(
+                resumir_stock_jerarquia(resultado["stockProducts"]), "stockHierarchy",
+            ),
+        },
+        "dashboard-stock-transfers.json": {
+            "stockCompact": compactar_stock(candidatos_traslado(resultado["stockProducts"])),
+        },
         "dashboard-stock-products.json": {"stockProducts": resultado["stockProducts"]},
         "dashboard-predictive.json": {
             "note": (
