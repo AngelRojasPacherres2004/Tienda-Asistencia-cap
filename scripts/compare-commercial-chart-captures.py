@@ -6,11 +6,13 @@ from PIL import Image, ImageChops
 root = Path(os.environ.get("LOCALAPPDATA", ".")) / "DashBoardGeneral" / "audits"
 chart_id = os.environ.get("AUDIT_CHART_ID", "growth")
 capture_state = os.environ.get("AUDIT_CAPTURE_STATE", "ready")
-if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range"}:
+if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking"}:
     raise SystemExit("Unknown chart")
 if capture_state not in {"ready", "loading"}:
     raise SystemExit("Unknown capture state")
 suffix = "-loading" if capture_state == "loading" else ""
+view_suffix = ("-fallback" if chart_id == "store-ranking" and os.environ.get("AUDIT_RANKING_FALLBACK") == "1"
+               else "-markup" if chart_id == "store-ranking" and os.environ.get("AUDIT_RANKING_VIEW") == "MARKUP" else "")
 scenarios = (
     ("gerente_comercial", 1440, 2026),
     ("gerente_comercial", 820, 2025),
@@ -20,7 +22,7 @@ scenarios = (
     ("jefe_tienda", 820, 2025),
 )
 for role, width, year in scenarios:
-    prefix = f"{chart_id}-{role}-{width}-{year}"
+    prefix = f"{chart_id}-{role}-{width}-{year}{view_suffix}"
     with Image.open(root / f"{prefix}-angular{suffix}.png") as source, Image.open(root / f"{prefix}-react{suffix}.png") as target:
         a, b = source.convert("RGB"), target.convert("RGB")
         if a.size != b.size:

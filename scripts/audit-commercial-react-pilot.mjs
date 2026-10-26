@@ -10,7 +10,10 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking"].includes(chartId), "Panel de prueba no válido.");
+const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
+const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
+const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup" : "";
 const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
 const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
   headers,
@@ -78,6 +81,7 @@ try {
       if (route.request().method() !== "GET") return route.abort();
       return route.continue();
     });
+    if (rankingFallback) await page.route("**/api/commercial/company-ranking", route => route.abort());
     let releaseGoals;
     if (delayedGoalsBody) {
       const gate = new Promise(resolve => { releaseGoals = resolve; });
@@ -93,12 +97,16 @@ try {
       await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
       const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
         : chartId === "category-participation" ? "category-card"
-          : chartId === "price-range" ? "price-range-card" : chartId;
+          : chartId === "price-range" ? "price-range-card"
+            : chartId === "store-ranking" ? "commercial-ranking-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
         const alerts = await page.locator('[role="alert"]').allTextContents();
         throw new Error(`${scenario.role} ${mode}: gráfico ausente; ${JSON.stringify({ failures, alerts })}`, { cause: error });
+      }
+      if (scenario.role === "jefe_tienda" && chartId === "store-ranking") {
+        assert.match(await card.locator(".ranking-store-count").innerText(), /^1 TIENDA · 1 ACTIVA/, "El ranking mostró otras tiendas");
       }
       if (scenario.year !== "2026") {
         await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
@@ -111,6 +119,14 @@ try {
         await card.locator(".category-view-toggle button").last().waitFor({ state: "visible" });
         assert.match(await card.locator(".category-view-toggle button").last().getAttribute("class") || "", /active/);
         assert.match(await card.locator(".category-title h2").innerText(), /CATEGORÍA/);
+      }
+      if (rankingMarkupOnly) {
+        const buttons = card.locator(".ranking-metric-toggle button");
+        for (const index of [0, 2, 3]) await buttons.nth(index).click();
+        for (let index = 0; index < 4; index += 1) {
+          assert.equal(await buttons.nth(index).getAttribute("aria-pressed"), index === 1 ? "true" : "false",
+            `${mode}: selección de markup incorrecta`);
+        }
       }
       if (releaseGoals) {
         await card.locator(".card-inline-loader").waitFor({ state: "visible", timeout: 30_000 });
@@ -148,7 +164,7 @@ try {
       const reactCount = await card.locator(`[data-react-commercial-chart="${chartId}"]`).count();
       assert.equal(reactCount, mode === "react" ? 1 : 0, `${mode}: motor incorrecto`);
       const dimensions = await card.boundingBox();
-      const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+      const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}${captureSuffix}-${mode}.png`);
       await page.evaluate(() => document.fonts.ready);
       let screenshotBytes;
       let previousHash = "";

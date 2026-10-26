@@ -2456,10 +2456,11 @@ export class App implements OnInit {
   });
   readonly rankingStoreCountLabel = computed(() => {
     const stores = (this.companyRankingData()?.stores || this.data()?.stores || []).filter(store => store.isStore)
+      .filter(store => this.storeAllowedByAccess(store))
       .filter(store => this.storeOverlapsPeriod(store, this.year() * 100 + 1, this.year() * 100 + 12));
     const closed = stores.filter(store => store.closingDate?.startsWith(`${this.year()}-`)).length;
     const active = Math.max(0, stores.length - closed);
-    return `${stores.length} TIENDAS · ${active} ACTIVAS${closed ? ` + ${closed} CERRADA${closed === 1 ? '' : 'S'}` : ''}`;
+    return `${stores.length} TIENDA${stores.length === 1 ? '' : 'S'} · ${active} ACTIVA${active === 1 ? '' : 'S'}${closed ? ` + ${closed} CERRADA${closed === 1 ? '' : 'S'}` : ''}`;
   });
   readonly growthOption = computed<EChartsOption>(() => {
     const selectedYear = this.year(); const previousYear = selectedYear - 1; const monthLimit = this.yearOnlyMonthLimit(selectedYear);
@@ -2503,6 +2504,7 @@ export class App implements OnInit {
     // algún momento del año, incluso si una cerró durante ese ejercicio.
     const candidates = (company?.stores || d.stores)
       .filter(store => store.isStore)
+      .filter(store => this.storeAllowedByAccess(store))
       .filter(store => this.storeOverlapsPeriod(store, selectedYear * 100 + 1, selectedYear * 100 + 12));
     const candidateIds = new Set(candidates.map(store => store.storeId));
     const factRows = company
@@ -3202,6 +3204,7 @@ export class App implements OnInit {
   private async loadDashboardBase(): Promise<void> {
     const goalLoadToken = ++this.goalLoadToken;
     this.storeGoalsReady.set(false);
+    this.companyRankingData.set(null);
     try {
       const loaded = await this.loadDetail<DashboardData>('dashboard.json');
       // T014 conserva su ID histórico, pero su nombre comercial visible es AGU.
@@ -3222,7 +3225,11 @@ export class App implements OnInit {
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
       this.data.set(loaded);
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
-      this.cloud.companyRanking().then(ranking => this.companyRankingData.set(ranking)).catch(() => this.companyRankingData.set(null));
+      this.cloud.companyRanking().then(ranking => {
+        if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(ranking);
+      }).catch(() => {
+        if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(null);
+      });
       this.cloud.storeGoals().then(result => {
         if (goalLoadToken !== this.goalLoadToken) return;
         this.storeGoalOverrides.set(result.goals); this.annualGoalOverrides.set(result.annualTargets);
