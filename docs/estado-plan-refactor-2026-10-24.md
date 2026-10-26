@@ -208,20 +208,21 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- Se añadió un puente React/ECharts para nueve gráficas: Tendencia interanual,
+- Se añadió un puente React/ECharts para once gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
   categoría, Rango de precios vendidos, Ranking tiendas, Venta por marca y
-  los dos gráficos de Participación género.
+  los dos gráficos de Participación género, Rotación de inventario y Capacidad.
   Reciben la misma opción ECharts y los
   mismos filtros que Angular; las tarjetas, sus controles y los demás paneles
   continúan en Angular.
 - La activación es por ID mediante `VITE_COMMERCIAL_REACT_CHARTS` (lista
-  separada por comas). Por defecto los nueve siguen en Angular. Solo en Vite
+  separada por comas). Por defecto los once siguen en Angular. Solo en Vite
   local puede probarse una gráfica con `?reactChart=growth`,
   `?reactChart=meta-vs-real`, `?reactChart=hourly-performance`,
   `?reactChart=category-participation`, `?reactChart=price-range` o
   `?reactChart=store-ranking`, `?reactChart=brand-sales`,
-  `?reactChart=gender-donut` o `?reactChart=gender-bar`.
+  `?reactChart=gender-donut`, `?reactChart=gender-bar`,
+  `?reactChart=inventory-rotation` o `?reactChart=inventory-capacity`.
 - `scripts/audit-commercial-react-pilot.mjs` comparó Angular y React para
   gerencia comercial, jefatura zonal y jefatura de tienda, a 1440/820 px y
   en 2026/2025. Tendencia, Meta vs real, Desempeño por hora y la vista Rubro
@@ -252,11 +253,16 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   solo Textil, conservó el lienzo y los controles; una etiqueta exterior se
   desplazó en algunos casos dentro de un recuadro máximo de 47 × 29 px.
   El comparador solo tolera ese desplazamiento acotado en etiquetas de pie.
+- Rotación y Capacidad tuvieron cero píxeles distintos en seis escenarios
+  cada una, incluidos los roles con alcance de tienda y clúster. La auditoría
+  de Rotación espera datos reales de `dashboard-stock-hierarchy.json`; una
+  captura temprana había mostrado 0% y no se aceptó como paridad. La tarjeta
+  ahora muestra un estado de preparación mientras carga el agregado de stock.
 - La respuesta de metas retenida artificialmente mostró el mismo estado
   “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
-- Quedan por migrar 23 de las 32 instancias de gráfico y la interfaz
+- Quedan por migrar 21 de las 32 instancias de gráfico y la interfaz
   Angular que coordina filtros, secciones y controles. No se ha activado ningún
   flag en Netlify ni se ha retirado Angular.
 

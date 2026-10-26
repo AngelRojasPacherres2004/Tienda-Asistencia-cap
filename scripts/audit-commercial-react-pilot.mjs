@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -98,12 +98,16 @@ try {
         ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
         : null;
       await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      if (chartId.startsWith("inventory-")) {
+        await page.locator(".page-tabs button").nth(1).click();
+      }
       const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
         : chartId === "category-participation" ? "category-card"
           : chartId === "price-range" ? "price-range-card"
             : chartId === "store-ranking" ? "commercial-ranking-card"
               : chartId === "brand-sales" ? "brand-sales-card"
-                : chartId.startsWith("gender-") ? "gender-card" : chartId;
+                : chartId.startsWith("gender-") ? "gender-card"
+                  : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
@@ -141,6 +145,13 @@ try {
         await card.locator(".chart-expand").click();
         await card.locator(".gender-bar-chart").waitFor({ state: "visible" });
       }
+      if (chartId === "inventory-capacity") {
+        await card.locator(".rotation-switch button").last().click();
+        await card.locator(".capacity-donut").waitFor({ state: "visible" });
+      }
+      if (chartId === "inventory-rotation") {
+        await page.locator('.rotation-card[data-stock-hierarchy-ready="true"]').waitFor({ timeout: 30_000 });
+      }
       if (genderTextil) {
         await card.locator(".gender-rubro-toggle button").last().click();
         await card.locator(".gender-rubro-toggle button:nth-child(2).active").waitFor({ state: "hidden" });
@@ -154,7 +165,8 @@ try {
         releaseGoals();
       }
       const canvas = chartId === "gender-bar" ? card.locator(".gender-bar-chart canvas")
-        : chartId === "gender-donut" ? card.locator(".gender-donut-pane canvas") : card.locator("canvas");
+        : chartId === "gender-donut" ? card.locator(".gender-donut-pane canvas")
+          : chartId === "inventory-capacity" ? card.locator(".capacity-donut canvas") : card.locator("canvas");
       if (goalsRequest) {
         const goalsResponse = await goalsRequest;
         assert.equal(goalsResponse.status(), 200, `${mode}: faltan metas comerciales`);
