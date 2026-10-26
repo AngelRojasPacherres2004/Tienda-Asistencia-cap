@@ -9,11 +9,19 @@ export type DashboardRuntimeConfig = {
   portalUser?: { nombres?: string; apellidos?: string } | null;
   groqChatModel?: string;
   groqFallbackModels?: string[];
+  reactCharts?: string[];
+};
+
+export type ReactChartBridge = {
+  update: (option: import('echarts').EChartsOption) => void;
+  dispose: () => void;
 };
 
 declare global {
   interface Window {
     __DASHBOARD_CONFIG__?: Partial<DashboardRuntimeConfig>;
+    mountReactCommercialChart?: (host: HTMLElement, chartId: string, label: string,
+      onClick: (data: unknown) => void) => ReactChartBridge;
   }
 }
 

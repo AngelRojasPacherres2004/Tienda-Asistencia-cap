@@ -19,6 +19,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "bcryptjs": "^3.0.3",
     "cookie": "^1.0.2",
+    "echarts": "6.1.0",
     "exceljs": "^4.4.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.468.0",

@@ -69,12 +69,11 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     const stores = (mappings || []).filter(row => row.tienda_id != null);
     if (!stores.length) return { goals: [] };
     const dashboardByStore = new Map(stores.map(row => [Number(row.tienda_id), row.dashboard_store_id]));
-    const [goalsResult, annualResult, published] = await Promise.all([
+    const [goalsResult, annualResult] = await Promise.all([
       supabase.from("metas_comerciales_tienda")
         .select("tienda_id,anio,mes,rubro,meta_venta,actualizado_en")
         .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
       supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").order("anio"),
-      commercialCompanyRanking(sessionUser, true),
     ]);
     let goalRows = goalsResult.data || []; let annualRows = annualResult.data || [];
     if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annualResult.error)) {
@@ -88,6 +87,12 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       for (const row of document.goals || []) merged.set(`${row.tienda_id}|${row.anio}|${row.mes}|${row.rubro || ""}`, row);
       goalRows = [...merged.values()]; annualRows = document.annualTargets || [];
     } else if (goalsResult.error || annualResult.error) throw dbError(goalsResult.error || annualResult.error);
+    // Los archivos publicados ya están cargados en el cliente. Consultarlos de
+    // nuevo aquí obliga a descargar y descomprimir todo dashboard.json en cada
+    // arranque frío. Solo se usan como fallback si falta el plan central.
+    const published = !goalRows.length || !annualRows.length
+      ? await commercialCompanyRanking(sessionUser, true)
+      : { monthlyStore: [], monthlyCategoryTarget: [] };
     const mergedGoals = new Map();
     for (const row of published.monthlyStore || []) {
       if (!access.storeIds.includes(row.storeId) || row.target == null) continue;

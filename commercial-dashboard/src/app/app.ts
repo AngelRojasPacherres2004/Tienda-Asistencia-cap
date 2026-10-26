@@ -158,6 +158,8 @@ export class App implements OnInit {
   readonly data = signal<DashboardData | null>(null);
   readonly storeGoalOverrides = signal<StoreGoal[]>([]);
   readonly annualGoalOverrides = signal<AnnualGoal[]>([]);
+  readonly storeGoalsReady = signal(false);
+  private goalLoadToken = 0;
   readonly dataWarnings = computed(() => this.data()?.metadata.dataWarnings ?? []);
   readonly salesCutoffYear = computed(() => Number(this.data()?.metadata.salesCutoff?.slice(0, 4)) || new Date().getFullYear());
   readonly loadingError = signal('');
@@ -3168,6 +3170,7 @@ export class App implements OnInit {
   }
 
   async signOut(): Promise<void> {
+    this.goalLoadToken += 1;
     await this.cloud.signOut();
     this.releaseSectionDetails();
     this.data.set(null);
@@ -3175,6 +3178,7 @@ export class App implements OnInit {
     this.companyRankingData.set(null);
     this.storeGoalOverrides.set([]);
     this.annualGoalOverrides.set([]);
+    this.storeGoalsReady.set(false);
     this.sellerPerformanceData.set([]);
     this.sellerDetailLoaded.set(false);
     this.loadingError.set('');
@@ -3186,6 +3190,8 @@ export class App implements OnInit {
   }
 
   private async loadDashboardBase(): Promise<void> {
+    const goalLoadToken = ++this.goalLoadToken;
+    this.storeGoalsReady.set(false);
     try {
       const loaded = await this.loadDetail<DashboardData>('dashboard.json');
       // T014 conserva su ID histórico, pero su nombre comercial visible es AGU.
@@ -3208,8 +3214,14 @@ export class App implements OnInit {
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
       this.cloud.companyRanking().then(ranking => this.companyRankingData.set(ranking)).catch(() => this.companyRankingData.set(null));
       this.cloud.storeGoals().then(result => {
+        if (goalLoadToken !== this.goalLoadToken) return;
         this.storeGoalOverrides.set(result.goals); this.annualGoalOverrides.set(result.annualTargets);
-      }).catch(() => { this.storeGoalOverrides.set([]); this.annualGoalOverrides.set([]); });
+      }).catch(() => {
+        if (goalLoadToken !== this.goalLoadToken) return;
+        this.storeGoalOverrides.set([]); this.annualGoalOverrides.set([]);
+      }).finally(() => {
+        if (goalLoadToken === this.goalLoadToken) this.storeGoalsReady.set(true);
+      });
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();

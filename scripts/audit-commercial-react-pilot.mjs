@@ -1,0 +1,187 @@
+// Read-only visual parity check for the first Angular-to-React commercial chart.
+import assert from "node:assert/strict";
+import { loadEnv } from "vite";
+import jwt from "jsonwebtoken";
+import { chromium } from "playwright-core";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+
+Object.assign(process.env, loadEnv("development", process.cwd(), ""));
+const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
+const chartId = process.env.AUDIT_CHART_ID || "growth";
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation"].includes(chartId), "Panel de prueba no válido.");
+const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
+const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
+  headers,
+});
+assert.equal(response.status, 200);
+const people = await response.json();
+const [scopesResponse, storesResponse] = await Promise.all([
+  fetch(`${process.env.SUPABASE_URL}/rest/v1/commercial_user_scopes?select=usuario_id,scope_type,scope_value&scope_type=eq.store`, { headers }),
+  fetch(`${process.env.SUPABASE_URL}/rest/v1/commercial_store_map?select=dashboard_store_id,tienda_id`, { headers }),
+]);
+assert.equal(scopesResponse.status, 200);
+assert.equal(storesResponse.status, 200);
+const scopes = new Map((await scopesResponse.json()).map(row => [row.usuario_id, row.scope_value]));
+const storeMap = new Map((await storesResponse.json()).map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+const { handler } = await import("../netlify/functions/api.js");
+let chief;
+for (const candidate of people.filter(row => row.rol === "jefe_tienda" && !row.cambio_credenciales_pendiente
+  && scopes.get(row.id) === storeMap.get(Number(row.tienda_id)))) {
+  const token = jwt.sign(candidate, process.env.JWT_SECRET, { expiresIn: "10m" });
+  const result = await handler({ httpMethod: "GET", path: "/api/commercial/access",
+    headers: { authorization: `Bearer ${token}` }, queryStringParameters: {}, body: null });
+  if (result.statusCode === 200) { chief = candidate; break; }
+}
+assert.ok(chief, "No hay jefe de tienda con alcance comercial vigente para la prueba.");
+const browser = await chromium.launch({ channel: "msedge", headless: true });
+const output = join(process.env.LOCALAPPDATA || process.cwd(), "DashBoardGeneral", "audits");
+await mkdir(output, { recursive: true });
+const scenarios = [
+  { role: "gerente_comercial", width: 1440, year: "2026" },
+  { role: "gerente_comercial", width: 820, year: "2025" },
+  { role: "jefe_zonal", width: 1440, year: "2026" },
+  { role: "jefe_zonal", width: 820, year: "2025" },
+  { role: "jefe_tienda", width: 1440, year: "2026" },
+  { role: "jefe_tienda", width: 820, year: "2025" },
+].slice(0, Number(process.env.AUDIT_SCENARIO_LIMIT || 6));
+const results = [];
+try {
+  for (const scenario of scenarios) {
+    const user = scenario.role === "jefe_tienda" ? chief
+      : people.find(row => row.rol === scenario.role && !row.cambio_credenciales_pendiente);
+    assert.ok(user, `No hay cuenta activa de ${scenario.role} para la prueba.`);
+    let delayedGoalsBody;
+    if (chartId === "meta-vs-real" && process.env.AUDIT_LOADING_STATE === "1") {
+      const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
+      const result = await handler({ httpMethod: "GET", path: "/api/commercial/store-goals",
+        headers: { authorization: `Bearer ${token}` }, queryStringParameters: {}, body: null });
+      assert.equal(result.statusCode, 200, `No se pudieron preparar las metas de ${scenario.role}`);
+      delayedGoalsBody = result.body;
+    }
+    const pair = [];
+    for (const [mode, query] of [["angular", ""], ["react", `?reactChart=${chartId}`]]) {
+    console.log(JSON.stringify({ checking: scenario, mode }));
+    const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
+    const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
+    await context.addCookies([{ name: "asiste_session", value: token, url: origin, httpOnly: true, sameSite: "Lax" }]);
+    const page = await context.newPage();
+    const failures = [];
+    const goalEvents = [];
+    page.on("pageerror", error => failures.push(error.message));
+    page.on("response", item => {
+      if (item.url().includes("/api/") && item.status() >= 400) failures.push(`API ${item.status()}: ${new URL(item.url()).pathname}`);
+      if (item.url().includes("/api/commercial/store-goals")) goalEvents.push(item.status());
+    });
+    await page.route("**/api/**", route => {
+      if (route.request().method() !== "GET") return route.abort();
+      return route.continue();
+    });
+    let releaseGoals;
+    if (delayedGoalsBody) {
+      const gate = new Promise(resolve => { releaseGoals = resolve; });
+      await page.route("**/api/commercial/store-goals", async route => {
+        await gate;
+        if (!page.isClosed()) await route.fulfill({ status: 200, contentType: "application/json", body: delayedGoalsBody });
+      });
+    }
+    try {
+      const goalsRequest = chartId === "meta-vs-real"
+        ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
+        : null;
+      await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
+        : chartId === "category-participation" ? "category-card" : chartId;
+      const card = page.locator(`.chart-card.${cardClass}`);
+      try { await card.waitFor({ timeout: 30_000 }); }
+      catch (error) {
+        const alerts = await page.locator('[role="alert"]').allTextContents();
+        throw new Error(`${scenario.role} ${mode}: gráfico ausente; ${JSON.stringify({ failures, alerts })}`, { cause: error });
+      }
+      if (scenario.year !== "2026") {
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        await page.locator(".filter-panel label").first().locator("select").selectOption(scenario.year);
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        await page.locator(".dashboard-filter-drawer").waitFor({ state: "hidden" });
+      }
+      if (chartId === "category-participation" && process.env.AUDIT_CATEGORY_VIEW === "LINEA") {
+        await card.locator(".category-view-toggle button").last().click();
+        await card.locator(".category-view-toggle button").last().waitFor({ state: "visible" });
+        assert.match(await card.locator(".category-view-toggle button").last().getAttribute("class") || "", /active/);
+        assert.match(await card.locator(".category-title h2").innerText(), /CATEGORÍA/);
+      }
+      if (releaseGoals) {
+        await card.locator(".card-inline-loader").waitFor({ state: "visible", timeout: 30_000 });
+        assert.equal(await card.locator("canvas").count(), 0, "El gráfico apareció antes de cargar las metas");
+        await card.screenshot({ animations: "disabled", path: join(output,
+          `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}-loading.png`) });
+        releaseGoals();
+      }
+      const canvas = card.locator("canvas");
+      if (goalsRequest) {
+        const goalsResponse = await goalsRequest;
+        assert.equal(goalsResponse.status(), 200, `${mode}: faltan metas comerciales`);
+        const goalsBody = await goalsResponse.json();
+        assert.ok(goalsBody.goals?.length > 0, `${mode}: metas comerciales vacías`);
+        await card.locator(".card-inline-loader").waitFor({ state: "hidden" });
+      }
+      try { await canvas.waitFor({ timeout: 30_000 }); }
+      catch (error) {
+        throw new Error(`${scenario.role} ${mode}: gráfico sin lienzo; ${JSON.stringify({
+          failures, goalEvents, cardText: (await card.innerText()).slice(0, 180),
+        })}`, { cause: error });
+      }
+      let painted = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        painted = await canvas.evaluate(element => {
+          const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+          if (!pixels) return false;
+          for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 0) return true;
+          return false;
+        });
+        if (painted) break;
+        await page.waitForTimeout(100);
+      }
+      assert.ok(painted, `${mode}: ECharts no pintó el lienzo`);
+      const canvasStats = await canvas.evaluate(element => {
+        const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+        let visible = 0;
+        if (pixels) for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index + 3] > 0 && Math.min(pixels[index], pixels[index + 1], pixels[index + 2]) < 230) visible += 1;
+        }
+        return { width: element.width, height: element.height, visible };
+      });
+      const reactCount = await card.locator(`[data-react-commercial-chart="${chartId}"]`).count();
+      assert.equal(reactCount, mode === "react" ? 1 : 0, `${mode}: motor incorrecto`);
+      const dimensions = await card.boundingBox();
+      const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+      await page.evaluate(() => document.fonts.ready);
+      let screenshotBytes;
+      let previousHash = "";
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        screenshotBytes = await card.screenshot({ path: screenshot });
+        const hash = createHash("sha256").update(screenshotBytes).digest("hex");
+        if (hash === previousHash) break;
+        previousHash = hash;
+        await page.waitForTimeout(100);
+      }
+      if (failures.length) throw new Error(failures.join("\n"));
+      pair.push({ mode, dimensions, canvasStats, screenshot,
+        sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+    } finally {
+      await context.close();
+    }
+    }
+    assert.ok(Math.abs(pair[0].dimensions.width - pair[1].dimensions.width) < 1, "Ancho distinto");
+    assert.ok(Math.abs(pair[0].dimensions.height - pair[1].dimensions.height) < 1, "Alto distinto");
+    assert.deepEqual(pair[0].canvasStats, pair[1].canvasStats, "El lienzo del gráfico difiere");
+    results.push({ ...scenario, dimensions: pair[0].dimensions, canvasStats: pair[0].canvasStats,
+      captures: pair.map(item => ({ mode: item.mode, screenshot: item.screenshot, sha256: item.sha256 })) });
+  }
+  console.log(JSON.stringify(results.map(({ role, width, year, canvasStats, captures }) => ({
+    role, width, year, canvasStats, equal: captures[0].sha256 === captures[1].sha256,
+  }))));
+} finally {
+  await browser.close();
+}

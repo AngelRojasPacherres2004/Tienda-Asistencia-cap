@@ -176,6 +176,12 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   específico por año, mes, tienda y rubro según los filtros. Inventario usa
   `/commercial/stock-insights`, que consulta por tienda y agrega las respuestas
   sin enviar el detalle completo de SKU.
+- `/commercial/store-goals` ya no vuelve a descargar y descomprimir el
+  `dashboard.json` general cuando las metas centrales y anuales existen en
+  PostgreSQL. El fallback a la publicación sigue disponible si falta el plan
+  central; el cliente conserva sus metas base por tienda para cualquier fila
+  que todavía no esté en la base. Esto evita una lectura pesada en el arranque
+  del panel Meta vs real.
 - La auditoría de integración de solo lectura recorrió 140 rutas y roles contra
   la base principal, sin fallos. Otra auditoría comprobó seis rutas de comercial
   y seguridad, todas HTTP 200. Pasaron 161 pruebas Node (157 conformes,
@@ -194,15 +200,45 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   talla de `productos` todavía registran cero. **No se retiró ningún índice.**
   Antes de una retirada futura se requiere instalar y ejecutar Index Advisor,
   revisar planes representativos y observar uso durante un periodo suficiente.
-  La migración local `20261026180000_optimize_operational_schema.sql` sigue
-  pendiente en producción; ajusta autovacuum de tráfico, sin borrar índices.
+  La migración `20261026180000_optimize_operational_schema.sql` se aplicó en la
+  base principal el 26/10/2026. `pg_class.reloptions` confirmó los factores
+  `autovacuum_vacuum_scale_factor=0.05` y
+  `autovacuum_analyze_scale_factor=0.02`; la versión quedó registrada en
+  `supabase_migrations.schema_migrations`. No se borró ningún índice.
 
-## Pasos 4–5: pendientes
+## Paso 4: migración React en curso
 
-- **React:** Angular sigue siendo el dashboard. Falta migrar panel por panel,
-  activar flags y comprobar paridad visual y funcional por rol.
-- **Tablas:** hay candidatas legacy documentadas, pero faltan periodo de
-  observación, consolidación, archivo, restauración probada y eliminación.
+- Se añadió un puente React/ECharts para cuatro gráficas: Tendencia interanual,
+  Meta vs real, Desempeño comercial por hora y Participación por rubro o
+  categoría. Reciben la misma opción ECharts y los mismos filtros que Angular;
+  las tarjetas, sus controles y los demás paneles continúan en Angular.
+- La activación es por ID mediante `VITE_COMMERCIAL_REACT_CHARTS` (lista
+  separada por comas). Por defecto los cuatro siguen en Angular. Solo en Vite
+  local puede probarse una gráfica con `?reactChart=growth`,
+  `?reactChart=meta-vs-real`, `?reactChart=hourly-performance` o
+  `?reactChart=category-participation`.
+- `scripts/audit-commercial-react-pilot.mjs` comparó Angular y React para
+  gerencia comercial, jefatura zonal y jefatura de tienda, a 1440/820 px y
+  en 2026/2025. Tendencia, Meta vs real, Desempeño por hora y la vista Rubro
+  de Participación tuvieron cero píxeles distintos en sus seis pares cada una.
+  La vista Categoría conservó el lienzo y los controles; una sola etiqueta
+  exterior cambió de posición en un área de hasta 38 × 29 px (máximo 308 de
+  107,415 píxeles). El comparador limita expresamente esa excepción a una
+  caja pequeña y mantiene tolerancia de 0.1 % para los otros gráficos.
+- La respuesta de metas retenida artificialmente mostró el mismo estado
+  “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
+  El gráfico solo se crea después de recibir metas; un token de carga impide
+  que una respuesta vieja reemplace las metas de una sesión nueva.
+- Quedan por migrar 28 de las 32 instancias de gráfico y la interfaz
+  Angular que coordina filtros, secciones y controles. No se ha activado ningún
+  flag en Netlify ni se ha retirado Angular.
+
+## Paso 5: pendiente tras la paridad completa del paso 4
+
+- Hay candidatas legacy documentadas, pero faltan el periodo de observación,
+  consolidación, archivo, restauración probada y eliminación. El respaldo
+  lógico previo fue validado con `pg_restore` como archivo, pero todavía no se
+  ha restaurado en una instancia independiente. No se ha borrado ninguna tabla.
 
 La versión optimizada del paso 2 sigue preparada para validación local; la
 publicación pública espera comprobar la compatibilidad de Netlify. No retirar
