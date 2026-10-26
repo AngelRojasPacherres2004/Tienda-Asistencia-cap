@@ -35,3 +35,26 @@ test('invalid rubros and oversized results are rejected', async () => {
   await assert.rejects(commercialStockInsights(db, access, release, { ...filters, storeIds: ['B'] }),
     error => error.status === 503);
 });
+
+test('multiple stores are queried separately and chart aggregates preserve totals', async () => {
+  const calls = [];
+  const perStore = store => ({
+    rowCount: store === 'A' ? 2 : 3,
+    brandRows: [{ name: 'MARCA', stockUnits: store === 'A' ? 4 : 6, stockValue: store === 'A' ? 40 : 60, demandUnits: 2, movementUnits: 3 }],
+    healthRows: [{ status: 'ALERTA', value: store === 'A' ? 30 : 50, products: store === 'A' ? 2 : 3 }],
+    projectionRows: [{ status: 'CRÍTICO', value: store === 'A' ? 30 : 50, products: store === 'A' ? 2 : 3 }],
+    riskRows: [{ storeId: store, totalValue: 30, riskValue: 10, riskProducts: 1, products: 2 }],
+    priorityProducts: [{ storeId: store, product: store, status: store === 'A' ? 'ALERTA' : 'CRÍTICO', coverageDays: 2, vendibleValue: 20 }],
+  });
+  const db = { async rpc(_name, params) {
+    calls.push(params.p_store_ids);
+    return { data: perStore(params.p_store_ids[0]), error: null };
+  } };
+  const result = await commercialStockInsights(db, access, release, { ...filters, storeIds: ['A', 'B'] });
+  assert.deepEqual(calls, [['A'], ['B']]);
+  assert.equal(result.rowCount, 5);
+  assert.deepEqual(result.brandRows[0], { name: 'MARCA', stockUnits: 10, stockValue: 100, demandUnits: 4, movementUnits: 6 });
+  assert.deepEqual(result.healthRows[0], { status: 'ALERTA', value: 80, products: 5 });
+  assert.equal(result.riskRows.length, 2);
+  assert.deepEqual(result.priorityProducts.map(row => row.storeId), ['B', 'A']);
+});

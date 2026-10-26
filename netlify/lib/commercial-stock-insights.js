@@ -44,14 +44,57 @@ export function stockInsightParams(access, release, input) {
 
 const cache = new Map();
 
+export function mergeStockInsights(results) {
+  const grouped = keys => {
+    const rows = new Map();
+    for (const result of results) for (const row of result[keys.collection]) {
+      const key = row[keys.key];
+      const target = rows.get(key) || { ...row };
+      if (rows.has(key)) for (const metric of keys.metrics) target[metric] += row[metric];
+      rows.set(key, target);
+    }
+    return [...rows.values()];
+  };
+  const statusOrder = { "CRÍTICO": 0, "ALERTA": 1, "SIN ROTACIÓN": 2, "BAJA ROTACIÓN": 3, "ÓPTIMO": 4 };
+  const priorityProducts = results.flatMap(result => result.priorityProducts)
+    .sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9)
+      || (a.coverageDays == null ? -Infinity : a.coverageDays) - (b.coverageDays == null ? -Infinity : b.coverageDays)
+      || b.vendibleValue - a.vendibleValue)
+    .slice(0, 5);
+  return {
+    rowCount: results.reduce((total, result) => total + result.rowCount, 0),
+    brandRows: grouped({ collection: "brandRows", key: "name", metrics: ["stockUnits", "stockValue", "demandUnits", "movementUnits"] }),
+    healthRows: grouped({ collection: "healthRows", key: "status", metrics: ["value", "products"] }),
+    projectionRows: grouped({ collection: "projectionRows", key: "status", metrics: ["value", "products"] }),
+    riskRows: results.flatMap(result => result.riskRows),
+    priorityProducts,
+  };
+}
+
+async function stockInsightForStore(supabase, params, storeId) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { data, error } = await supabase.rpc("dashboard_stock_insights", { ...params, p_store_ids: [storeId] });
+    if (!error && data && typeof data === "object") return data;
+    if (error?.code !== "57014" || attempt === 1) throw error || inputError("El corte de inventario no está disponible.", 503);
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw inputError("La consulta de inventario agotó el tiempo.", 503);
+}
+
 export async function commercialStockInsights(supabase, access, release, input) {
   const params = stockInsightParams(access, release, input);
   const key = JSON.stringify(params);
   const cached = cache.get(key);
   if (cached?.expires > Date.now()) return cached.value;
-  const { data, error } = await supabase.rpc("dashboard_stock_insights", params);
-  if (error) throw error;
-  if (!data || typeof data !== "object") throw inputError("El corte de inventario no está disponible.", 503);
+  const results = new Array(params.p_store_ids.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, results.length) }, async () => {
+    while (next < results.length) {
+      const index = next++;
+      results[index] = await stockInsightForStore(supabase, params, params.p_store_ids[index]);
+    }
+  }));
+  const data = results.length === 1 ? results[0] : mergeStockInsights(results);
   const bytes = Buffer.byteLength(JSON.stringify(data), "utf8");
   if (bytes >= 5_000_000) throw inputError("La consulta excede el límite del panel.", 503);
   cache.set(key, { value: data, expires: Date.now() + 60_000 });

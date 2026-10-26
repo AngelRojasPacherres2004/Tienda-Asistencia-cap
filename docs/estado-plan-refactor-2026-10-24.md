@@ -40,7 +40,7 @@ las migraciones se aplicaron con la conexión explícita a la base principal,
 sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 árbol de trabajo al concluir las operaciones de base.
 
-## Paso 2: optimización del dashboard — en curso, no publicado
+## Paso 2: optimización del dashboard — verificada en local, no activada en Netlify
 
 - La publicación vigente contiene 42 archivos y 848.85 MiB descomprimidos
   (53.97 MiB almacenados con gzip). `dashboard.json` mide 15.36 MiB y supera
@@ -126,8 +126,12 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   calculan ahora en PostgreSQL para el rubro, jerarquía, tienda y parámetros
   elegidos. La comparación contra los JSON originales dio paridad en el total
   de 142,055 filas y en una tienda de CALZADO. La consulta API real devolvió
-  24,034 bytes para las 18 tiendas autorizadas. La respuesta completa tardó
-  aproximadamente 7–11 s sin caché; la API conserva el resultado un minuto.
+  24,034 bytes para las 18 tiendas autorizadas. La consulta conjunta podía
+  agotar el tiempo cuando el publicador cargaba archivos; la API ahora consulta
+  hasta cuatro tiendas en paralelo y suma las métricas sin alterar el alcance.
+  Bajo esa carga respondió en 9.28 s con 24,478 bytes y coincidió con el JSON fuente;
+  también pasó un filtro de tienda/rubro/línea/sublínea de 1,203 filas.
+  La API conserva el resultado un minuto.
   No se descargan 64.682 MB para abrir esa sección en modo portal.
 - El build, 160 pruebas Node (156 conformes, cuatro omitidas), 37 pruebas
   Python, ESLint y el presupuesto de archivos pasaron. La compilación de
@@ -140,7 +144,24 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   archivo grande antes de desplegar el frontend actualizado podría romper
   clientes anteriores. Netlify requiere reconectar la integración para
   comprobar el despliegue de TEST2; la publicación de datos queda pendiente
-  hasta confirmar la compatibilidad del sitio consumidor.
+  hasta confirmar la compatibilidad del sitio consumidor. El usuario indicó
+  que Netlify existe pero que por ahora se validará localmente. El backend
+  local puede leer explícitamente una versión `staging` mediante
+  `DASHBOARD_PREVIEW_RELEASE_VERSION`; ese ajuste solo funciona con
+  `CONTEXT=dev` y no cambia la publicación activa.
+- La versión `20261026T041029Z-fd83aac2ac10` quedó preparada en `staging`:
+  136 archivos generales y 2,720 archivos privados de tienda/clúster,
+  298,443,807 bytes lógicos. `scripts/verify-staged-dashboard.py` comprobó
+  nombres, tamaños y checksums de los 136 archivos, cobertura completa de
+  alcances y descargas reales del núcleo y de tallas de una tienda.
+  `dashboard-stock-products.json` no figura en el manifiesto nuevo.
+- La API local con esa versión preparada pasó una prueba de navegador en
+  `http://127.0.0.1:5180/comercial/`: Inventario y el panel de salud mostraron
+  importes reales, `/commercial/stock-insights` devolvió HTTP 200 y no hubo
+  respuestas 404 para los archivos compactos. Pasaron 161 pruebas Node (157
+  conformes, cuatro omitidas), 37 Python, ESLint y el presupuesto de carga.
+  La activación pública espera la validación del despliegue Netlify, conforme
+  a la indicación de trabajar localmente por ahora.
 
 ## Pasos 3–5: no completados
 
@@ -153,5 +174,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 - **Tablas:** hay candidatas legacy documentadas, pero no hay periodo de
   observación, archivo, respaldo probado ni eliminación.
 
-No avanzar al paso 3 hasta publicar y verificar el paso 2. Tampoco retirar
-Angular ni tablas antes de sus puertas respectivas.
+El paso 2 cumple sus puertas locales y permite iniciar el paso 3 localmente.
+Antes de activar la versión pública, verificar el frontend desplegado en
+Netlify para que ningún cliente antiguo solicite el archivo de SKU retirado.
+Tampoco retirar Angular ni tablas antes de sus puertas respectivas.

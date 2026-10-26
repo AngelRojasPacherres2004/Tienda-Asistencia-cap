@@ -494,7 +494,8 @@ def cleanup_release_history(
     }
 
 
-def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: str | None = None) -> None:
+def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: str | None = None,
+            stage_only: bool = False) -> None:
     load_env_file(env_path)
     public_config = load_public_runtime_config()
     base_url = (
@@ -700,6 +701,17 @@ def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: 
         postgrest(base_url, api_key, access_token, "POST", "dashboard_files", file_rows)
         for start in range(0, len(scope_rows), 500):
             postgrest(base_url, api_key, access_token, "POST", "dashboard_scope_files", scope_rows[start:start + 500])
+        if stage_only:
+            postgrest(
+                base_url, api_key, access_token, "PATCH",
+                f"dashboard_releases?id=eq.{urllib.parse.quote(release_id)}",
+                {"manifest": manifest},
+            )
+            if publisher_session:
+                control_session(base_url, api_key, access_token, "release")
+            print(f"Versión preparada sin activar: {version}")
+            print(f"Archivos: {len(file_rows)}; alcances privados: {len(scope_rows)}")
+            return
         published_at = datetime.now(timezone.utc).isoformat()
         query = f"dashboard_releases?id=eq.{urllib.parse.quote(release_id)}"
         postgrest(
@@ -779,12 +791,18 @@ def main() -> int:
         "--expected-project-ref",
         help="Verifica el proyecto Supabase antes de publicar.",
     )
+    parser.add_argument(
+        "--stage-only",
+        action="store_true",
+        help="Prepara y verifica los objetos sin cambiar la versión publicada.",
+    )
     args = parser.parse_args()
     try:
         publish(
             args.env if args.env.is_absolute() else ROOT / args.env,
             interactive=args.interactive,
             expected_project_ref=args.expected_project_ref,
+            stage_only=args.stage_only,
         )
         return 0
     except Exception as exc:

@@ -47,10 +47,12 @@ try {
   await page.locator('.health-card').waitFor({ timeout: 90_000 });
   await page.getByRole('heading', { name: /SALUD DEL INVENTARIO/ }).waitFor({ timeout: 90_000 });
   if (!stockResponses.includes(200)) throw new Error('No hubo respuesta correcta de stock-insights.');
+  const healthValues = await page.locator('.health-card .health-table span').allTextContents();
+  if (!healthValues.some(value => value.includes('S/'))) throw new Error('El panel de salud no muestra valores de inventario.');
   const output = join(process.env.LOCALAPPDATA || process.cwd(), 'DashBoardGeneral', 'audits');
   await mkdir(output, { recursive: true });
   const screenshot = join(output, 'stock-insights-desktop.png');
-  await page.screenshot({ path: screenshot, fullPage: false });
+  await page.locator('.health-card').screenshot({ path: screenshot });
   if (failures.length) throw new Error(failures.join('\n'));
   console.log(`Inventario comercial visible; stock API HTTP 200; captura: ${screenshot}`);
 } finally {

@@ -493,17 +493,20 @@ async function saveCommercialGoals(event, user) {
 let publishedReleaseCache = null;
 let publishedReleasePromise = null;
 const commercialFileMetadataCache = new Map();
+const localPreviewReleaseVersion = process.env.CONTEXT === "dev"
+  && /^\d{8}T\d{6}Z-[0-9a-f]{12}$/.test(process.env.DASHBOARD_PREVIEW_RELEASE_VERSION || "")
+  ? process.env.DASHBOARD_PREVIEW_RELEASE_VERSION : null;
 
 async function publishedCommercialRelease() {
   if (publishedReleaseCache?.expires > Date.now()) return publishedReleaseCache.value;
   if (publishedReleasePromise) return publishedReleasePromise;
   publishedReleasePromise = (async () => {
-  const { data, error } = await supabase.from("dashboard_releases")
-    .select("id,version,sales_cutoff,stock_cutoff,published_at")
-    .eq("status", "published")
-    .order("published_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let query = supabase.from("dashboard_releases")
+    .select("id,version,sales_cutoff,stock_cutoff,published_at");
+  query = localPreviewReleaseVersion
+    ? query.eq("version", localPreviewReleaseVersion).eq("status", "staging")
+    : query.eq("status", "published").order("published_at", { ascending: false });
+  const { data, error } = await query.limit(1).maybeSingle();
   if (error) throw dbError(error);
   if (!data) throw httpError("Todavía no hay una publicación comercial disponible.", 404);
   publishedReleaseCache = { value: data, expires: Date.now() + 15_000 };
