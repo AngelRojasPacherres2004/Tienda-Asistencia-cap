@@ -2907,9 +2907,19 @@ export class App implements OnInit {
     const totals = { base: base.reduce((value, row) => value + row.net, 0), comparison: comparison.reduce((value, row) => value + row.net, 0) };
     const priceScale = adaptiveValueScale([...base, ...comparison].map(value => value.net), 3);
     const valueName = (year: number) => `VENTA ${year}`; const unitsName = (year: number) => `UNIDADES ${year}`;
+    // Selección estable de porcentajes destacados, separados al menos por una
+    // banda. Evita el amontonamiento y decisiones de ocultación dependientes
+    // del momento en que ECharts mide el lienzo.
+    const visibleShares = new Set<number>();
+    base.map((row, index) => ({ index, share: totals.base ? row.net / totals.base : 0 }))
+      .filter(row => row.share >= .02)
+      .sort((left, right) => right.share - left.share)
+      .forEach(row => {
+        if (visibleShares.size < 4 && [...visibleShares].every(index => Math.abs(index - row.index) > 1)) visibleShares.add(row.index);
+      });
     const shareLabel = (total: number) => ({ show: true, position: 'top' as const, formatter: (params: any) => {
       const share = total ? Number(params.value) / total : 0;
-      return share >= .02 ? this.percent(share) : '';
+      return visibleShares.has(params.dataIndex) ? this.percent(share) : '';
     }, color: '#172033', fontSize: 8, fontWeight: 700, distance: 3, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [1, 3], borderRadius: 3 });
     return {
       animation: false,
@@ -2928,7 +2938,7 @@ export class App implements OnInit {
         { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: C.slate, fontSize: 9 }, splitLine: { show: false } }
       ],
       series: [
-        { name: valueName(baseYear), type: 'bar', data: base.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#BFD4F3', borderColor: C.navy, borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.base), labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
+        { name: valueName(baseYear), type: 'bar', data: base.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#BFD4F3', borderColor: C.navy, borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.base) },
         { name: valueName(comparisonYear), type: 'bar', data: comparison.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#E2E8F0', borderColor: C.slate, borderWidth: 1, borderRadius: [3, 3, 0, 0] } },
         { name: unitsName(baseYear), type: 'line', yAxisIndex: 1, data: base.map(row => row.units), symbol: 'circle', symbolSize: 6, z: 20, lineStyle: { width: 3, color: C.navy }, itemStyle: { color: C.navy, borderColor: '#FFFFFF', borderWidth: 1 } },
         { name: unitsName(comparisonYear), type: 'line', yAxisIndex: 1, data: comparison.map(row => row.units), symbol: 'diamond', symbolSize: 7, z: 20, lineStyle: { width: 3, type: 'dashed', color: C.slate }, itemStyle: { color: C.slate, borderColor: '#FFFFFF', borderWidth: 1 } },

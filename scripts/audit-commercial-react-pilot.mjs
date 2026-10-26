@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range"].includes(chartId), "Panel de prueba no válido.");
 const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
 const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
   headers,
@@ -92,7 +92,8 @@ try {
         : null;
       await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
       const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
-        : chartId === "category-participation" ? "category-card" : chartId;
+        : chartId === "category-participation" ? "category-card"
+          : chartId === "price-range" ? "price-range-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
@@ -144,14 +145,6 @@ try {
         await page.waitForTimeout(100);
       }
       assert.ok(painted, `${mode}: ECharts no pintó el lienzo`);
-      const canvasStats = await canvas.evaluate(element => {
-        const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
-        let visible = 0;
-        if (pixels) for (let index = 0; index < pixels.length; index += 4) {
-          if (pixels[index + 3] > 0 && Math.min(pixels[index], pixels[index + 1], pixels[index + 2]) < 230) visible += 1;
-        }
-        return { width: element.width, height: element.height, visible };
-      });
       const reactCount = await card.locator(`[data-react-commercial-chart="${chartId}"]`).count();
       assert.equal(reactCount, mode === "react" ? 1 : 0, `${mode}: motor incorrecto`);
       const dimensions = await card.boundingBox();
@@ -166,6 +159,14 @@ try {
         previousHash = hash;
         await page.waitForTimeout(100);
       }
+      const canvasStats = await canvas.evaluate(element => {
+        const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+        let visible = 0;
+        if (pixels) for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index + 3] > 0 && Math.min(pixels[index], pixels[index + 1], pixels[index + 2]) < 230) visible += 1;
+        }
+        return { width: element.width, height: element.height, visible };
+      });
       if (failures.length) throw new Error(failures.join("\n"));
       pair.push({ mode, dimensions, canvasStats, screenshot,
         sha256: createHash("sha256").update(screenshotBytes).digest("hex") });

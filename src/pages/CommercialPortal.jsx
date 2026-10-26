@@ -40,7 +40,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
       try {
         const bundle = await loadCommercialBundle();
         if (!active) return;
-        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation"]);
+        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range"]);
         const reactCharts = (import.meta.env.VITE_COMMERCIAL_REACT_CHARTS || "")
           .split(",").map(value => value.trim()).filter(value => supportedReactCharts.has(value));
         const previewChart = new URLSearchParams(location.search).get("reactChart");

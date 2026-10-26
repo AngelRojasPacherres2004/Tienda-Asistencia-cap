@@ -208,15 +208,16 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- Se añadió un puente React/ECharts para cuatro gráficas: Tendencia interanual,
-  Meta vs real, Desempeño comercial por hora y Participación por rubro o
-  categoría. Reciben la misma opción ECharts y los mismos filtros que Angular;
-  las tarjetas, sus controles y los demás paneles continúan en Angular.
+- Se añadió un puente React/ECharts para cinco gráficas: Tendencia interanual,
+  Meta vs real, Desempeño comercial por hora, Participación por rubro o
+  categoría y Rango de precios vendidos. Reciben la misma opción ECharts y los
+  mismos filtros que Angular; las tarjetas, sus controles y los demás paneles
+  continúan en Angular.
 - La activación es por ID mediante `VITE_COMMERCIAL_REACT_CHARTS` (lista
-  separada por comas). Por defecto los cuatro siguen en Angular. Solo en Vite
+  separada por comas). Por defecto los cinco siguen en Angular. Solo en Vite
   local puede probarse una gráfica con `?reactChart=growth`,
-  `?reactChart=meta-vs-real`, `?reactChart=hourly-performance` o
-  `?reactChart=category-participation`.
+  `?reactChart=meta-vs-real`, `?reactChart=hourly-performance`,
+  `?reactChart=category-participation` o `?reactChart=price-range`.
 - `scripts/audit-commercial-react-pilot.mjs` comparó Angular y React para
   gerencia comercial, jefatura zonal y jefatura de tienda, a 1440/820 px y
   en 2026/2025. Tendencia, Meta vs real, Desempeño por hora y la vista Rubro
@@ -225,11 +226,16 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   exterior cambió de posición en un área de hasta 38 × 29 px (máximo 308 de
   107,415 píxeles). El comparador limita expresamente esa excepción a una
   caja pequeña y mantiene tolerancia de 0.1 % para los otros gráficos.
+- Rango de precios espera la partición seleccionada antes de pintar; las seis
+  comparaciones conservaron el mismo lienzo y mostraron entre cero y 18
+  píxeles distintos en la tarjeta, limitados al icono de ampliar. Los
+  porcentajes sobre las barras ahora se eligen por importancia y separación
+  para evitar saturación y ocultaciones variables entre motores.
 - La respuesta de metas retenida artificialmente mostró el mismo estado
   “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
-- Quedan por migrar 28 de las 32 instancias de gráfico y la interfaz
+- Quedan por migrar 27 de las 32 instancias de gráfico y la interfaz
   Angular que coordina filtros, secciones y controles. No se ha activado ningún
   flag en Netlify ni se ha retirado Angular.
 
