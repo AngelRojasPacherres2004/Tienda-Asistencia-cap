@@ -10,6 +10,7 @@ import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "../lib/commercial-access.js";
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
 import { createProductCodeLookup } from "../lib/commercial-product-codes.js";
+import { commercialStockInsights } from "../lib/commercial-stock-insights.js";
 import { hashOperationalPassword, verifyOperationalPassword } from "../lib/operational-passwords.js";
 import { aggregateCommercialGoalTotals, normalizeGoalRubro } from "../lib/commercial-goals.js";
 import { buildStoreSalesForecast } from "../lib/store-sales-forecast.js";
@@ -4769,6 +4770,11 @@ export async function handler(event) {
     }
     if (path === "/commercial/manifest" && method === "GET") {
       return json(200, await commercialManifest(user));
+    }
+    if (path === "/commercial/stock-insights" && method === "POST") {
+      const access = await currentCommercialAccess(user);
+      const release = await publishedCommercialRelease();
+      return json(200, await commercialStockInsights(supabase, access, release, bodyOf(event)));
     }
     if (path === "/commercial/normalized-reports" && method === "GET") {
       return json(200, await normalizedReportCatalog(user));

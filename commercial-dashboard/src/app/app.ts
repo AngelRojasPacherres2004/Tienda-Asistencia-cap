@@ -1,12 +1,12 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { EChartsOption } from 'echarts';
 import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
 import { adaptiveValueScale } from './chart-scale';
-import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StoreGoal } from './cloud-data.service';
+import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { SectionLoads } from './section-loads';
@@ -184,6 +184,9 @@ export class App implements OnInit {
   readonly priceRangeComparisonYear = signal(2025);
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly stockHierarchyData = signal<StockHierarchyRow[]>([]);
+  readonly stockInsightsData = signal<StockInsights | null>(null);
+  private readonly stockInsightsActivated = signal(false);
+  private readonly stockInsightsRetry = signal(0);
   readonly stockHierarchyLoaded = signal(false);
   readonly stockTransferProductsData = signal<ProductRow[]>([]);
   readonly stockTransfersLoaded = signal(false);
@@ -2113,13 +2116,14 @@ export class App implements OnInit {
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
   }
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
-    const byBrand = grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA');
     const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
     const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
-    return [...byBrand.entries()].map(([name, brandRows]) => {
-      const stockUnits = sum(brandRows, 'stockUnits'); const stockValue = sum(brandRows, 'stockValue');
-      const demandUnits = brandRows.reduce((total, row) => total + this.predictiveWindowUnits(row, window), 0);
-      const movementUnits = brandRows.reduce((total, row) => total + this.predictiveWindowUnits(row, movementDays), 0);
+    const serverRows = this.stockInsightsData()?.brandRows;
+    const brands = serverRows || [...grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA').entries()]
+      .map(([name, rows]) => ({ name, stockUnits: sum(rows, 'stockUnits'), stockValue: sum(rows, 'stockValue'),
+        demandUnits: rows.reduce((total, row) => total + this.predictiveWindowUnits(row, window), 0),
+        movementUnits: rows.reduce((total, row) => total + this.predictiveWindowUnits(row, movementDays), 0) }));
+    return brands.map(({ name, stockUnits, stockValue, demandUnits, movementUnits }) => {
       const demandDaily = demandUnits / window; const vendibleUnits = stockUnits * (1 - nonSellableRate); const vendibleValue = stockValue * (1 - nonSellableRate);
       const coverageDays = demandDaily > 0 ? vendibleUnits / demandDaily : null; const status = this.predictiveStatus(coverageDays, movementUnits <= 0);
       const targetUnits = demandDaily * this.healthyCoverageDays(); const deficitUnits = Math.max(targetUnits - vendibleUnits, 0); const priority = this.predictivePriority(status.label, deficitUnits);
@@ -2147,9 +2151,14 @@ export class App implements OnInit {
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     // Salud se clasifica por SKU, no por marca: una marca con un artículo activo no
     // puede ocultar otros artículos sin movimiento dentro de la misma marca.
-    const rowsByStatus = grouped(this.predictiveProductHealthRows(), row => row.status); const total = this.predictiveProductHealthRows().reduce((value, row) => value + row.vendibleValue, 0);
-    return order.map(status => { const rows = rowsByStatus.get(status) || []; const value = rows.reduce((sumValue, row) => sumValue + row.vendibleValue, 0);
-      return { status, value, brands: rows.length, share: total ? value / total : 0, color: colors[status] }; });
+    const serverRows = this.stockInsightsData()?.healthRows;
+    const raw = serverRows
+      ? new Map(serverRows.map(row => [row.status, { value: row.value, products: row.products }]))
+      : new Map([...grouped(this.predictiveProductHealthRows(), row => row.status).entries()]
+        .map(([status, rows]) => [status, { value: rows.reduce((value, row) => value + row.vendibleValue, 0), products: rows.length }] as const));
+    const total = [...raw.values()].reduce((value, row) => value + row.value, 0);
+    return order.map(status => { const row = raw.get(status); const value = row?.value || 0;
+      return { status, value, brands: row?.products || 0, share: total ? value / total : 0, color: colors[status] }; });
   });
   predictiveStatusColor(status: string): string {
     return ({ 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' } as Record<string, string>)[status] || C.slate;
@@ -2167,6 +2176,8 @@ export class App implements OnInit {
     const priority: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'SIN ROTACIÓN': 2, 'BAJA ROTACIÓN': 3, 'ÓPTIMO': 4 };
     const days = this.coverageProjectionHorizon();
     const stores = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
+    const serverRows = this.stockInsightsData()?.priorityProducts;
+    if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId }));
     return [...this.predictiveProductHealthRows()]
       .map(row => {
         const coverageDays = row.coverageDays == null ? null : Math.max(0, row.coverageDays - days);
@@ -2203,10 +2214,18 @@ export class App implements OnInit {
     const statuses = ['CRÍTICO', 'ALERTA', 'ÓPTIMO', 'BAJA ROTACIÓN', 'SIN ROTACIÓN'];
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     const buckets = new Map(statuses.map(status => [status, { value: 0, products: 0 }]));
-    this.predictiveProductHealthRows().forEach(row => {
-      const status = row.status === 'SIN ROTACIÓN' || row.coverageDays == null ? 'SIN ROTACIÓN' : this.predictiveStatus(Math.max(0, row.coverageDays - days), false).label;
-      const bucket = buckets.get(status) || buckets.get('SIN ROTACIÓN')!; bucket.value += row.vendibleValue; bucket.products += 1;
-    });
+    const serverRows = this.stockInsightsData()?.projectionRows;
+    if (serverRows) {
+      for (const row of serverRows) {
+        const bucket = buckets.get(row.status) || buckets.get('SIN ROTACIÓN')!;
+        bucket.value += row.value; bucket.products += row.products;
+      }
+    } else {
+      this.predictiveProductHealthRows().forEach(row => {
+        const status = row.status === 'SIN ROTACIÓN' || row.coverageDays == null ? 'SIN ROTACIÓN' : this.predictiveStatus(Math.max(0, row.coverageDays - days), false).label;
+        const bucket = buckets.get(status) || buckets.get('SIN ROTACIÓN')!; bucket.value += row.vendibleValue; bucket.products += 1;
+      });
+    }
     const raw = statuses.map(status => ({ status, ...buckets.get(status)!, color: colors[status] }));
     const total = raw.reduce((value, row) => value + row.value, 0);
     return raw.map(row => ({ ...row, share: total ? row.value / total : 0 }));
@@ -2215,6 +2234,10 @@ export class App implements OnInit {
   readonly predictiveStoreRiskRows = computed(() => {
     const days = this.coverageProjectionHorizon();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
+    const serverRows = this.stockInsightsData()?.riskRows;
+    if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId,
+      share: row.totalValue ? row.riskValue / row.totalValue : 0 }))
+      .sort((a, b) => b.riskValue - a.riskValue).slice(0, 7);
     const byStore = grouped(this.predictiveProductHealthRows(), row => row.storeId);
     return [...byStore.entries()].map(([storeId, storeRows]) => {
       const risky = storeRows.filter(row => {
@@ -3085,6 +3108,45 @@ export class App implements OnInit {
     } as EChartsOption;
   });
 
+  private readonly stockInsightsEffect = effect(onCleanup => {
+    if (!this.cloud.portalEnabled || this.page() !== 2 || !this.stockInsightsActivated()) return;
+    this.stockInsightsRetry();
+    const stores = this.inventoryStoresIgnoringStoreFilter();
+    const allowedStores = new Set(this.cloud.accessProfile()?.allowedStoreIds || []);
+    const selectedStore = this.storeFilterLocked() ? stores[0]?.storeId : this.predictiveStore();
+    const filters = {
+      storeIds: stores.map(store => store.storeId).filter(id => allowedStores.has(id) && (selectedStore === 'TODAS' || id === selectedStore)),
+      rubros: this.predictiveRubros(), lines: this.selectedLines(), sublines: this.selectedSublines(),
+      windowDays: this.demandWindow(), movementDays: Math.max(1, this.noMovementMonths()) * 30,
+      healthyDays: this.healthyCoverageDays(), overstockDays: this.overstockDays(),
+      mermaPct: this.predictiveMermaPct(), horizonDays: this.coverageProjectionHorizon(),
+    };
+    if (!filters.storeIds.length) {
+      this.stockInsightsData.set({ rowCount: 0, brandRows: [], healthRows: [], projectionRows: [], riskRows: [], priorityProducts: [] });
+      this.stockDetailLoading.set(false);
+      return;
+    }
+    const controller = new AbortController();
+    this.stockInsightsData.set(null);
+    this.stockDetailFailed.set(false);
+    this.stockDetailLoading.set(true);
+    this.stockDetailProgress.set(10);
+    const timer = setTimeout(() => {
+      this.cloud.stockInsights(filters, controller.signal).then(result => {
+        if (controller.signal.aborted) return;
+        this.stockInsightsData.set(result);
+        this.stockDetailProgress.set(100);
+      }).catch(error => {
+        if (controller.signal.aborted) return;
+        this.stockDetailFailed.set(true);
+        this.predictiveNote.set(`La analítica de inventario no está disponible: ${error instanceof Error ? error.message : error}`);
+      }).finally(() => {
+        if (!controller.signal.aborted) this.stockDetailLoading.set(false);
+      });
+    }, 120);
+    onCleanup(() => { clearTimeout(timer); controller.abort(); });
+  });
+
   async ngOnInit(): Promise<void> {
     await this.cloud.initialize();
     if (!this.cloud.hasAccess()) return;
@@ -3484,6 +3546,10 @@ export class App implements OnInit {
   }
 
   private scheduleInventoryProductDetail(): void {
+    if (this.cloud.portalEnabled) {
+      this.stockInsightsActivated.set(true);
+      return;
+    }
     if (this.stockDetailLoaded() || this.stockDetailPromise || this.stockDetailFailed()) return;
     const start = (): void => {
       if (this.page() !== 2) return;
@@ -3551,6 +3617,7 @@ export class App implements OnInit {
   }
   private releaseSectionDetails(): void {
     this.cancelPendingSectionLoads();
+    this.stockInsightsActivated.set(false); this.stockInsightsData.set(null);
     this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
     this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);
@@ -3583,6 +3650,10 @@ export class App implements OnInit {
   retryStockDetail(): void {
     this.stockDetailFailed.set(false);
     this.predictiveNote.set('');
+    if (this.cloud.portalEnabled) {
+      this.stockInsightsRetry.update(value => value + 1);
+      return;
+    }
     this.scheduleInventoryProductDetail();
   }
   retryProductCodes(): void {

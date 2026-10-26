@@ -19,7 +19,7 @@ test('los índices de talla excluyen los códigos históricos que no tienen sufi
 });
 
 test('la optimización de tráfico no retira índices sin medir consultas reales', () => {
-  const sql = readMigration('20261023164227_optimize_operational_schema.sql');
+  const sql = readMigration('20261026180000_optimize_operational_schema.sql');
   assert.doesNotMatch(sql, /drop index/);
   assert.match(sql, /autovacuum_vacuum_scale_factor = 0\.05/);
   assert.match(sql, /index advisor/);

@@ -30,6 +30,7 @@ export type DashboardAccessProfile = {
   scopeType: AccessScopeType;
   stores: string[];
   clusters: string[];
+  allowedStoreIds?: string[];
 };
 export type OperationalSummary = {
   courses: string[];
@@ -47,6 +48,20 @@ export type CompanyRankingData = {
 };
 export type StoreGoal = { storeId: string; periodId: number; category?: string; target: number; updatedAt?: string };
 export type AnnualGoal = { year: number; target: number; updatedAt?: string };
+export type StockInsightFilters = {
+  storeIds: string[]; rubros: string[]; lines: string[]; sublines: string[];
+  windowDays: number; movementDays: number; healthyDays: number;
+  overstockDays: number; mermaPct: number; horizonDays: number;
+};
+export type StockInsights = {
+  rowCount: number;
+  brandRows: { name: string; stockUnits: number; stockValue: number; demandUnits: number; movementUnits: number }[];
+  healthRows: { status: string; value: number; products: number }[];
+  projectionRows: { status: string; value: number; products: number }[];
+  riskRows: { storeId: string; totalValue: number; riskValue: number; riskProducts: number; products: number }[];
+  priorityProducts: { storeId: string; product: string; brand: string; stockUnits: number;
+    vendibleValue: number; status: string; coverageDays: number | null }[];
+};
 
 const LOCAL_ACCESS: DashboardAccessProfile = {
   roleCode: 'jefe_comercial',
@@ -116,6 +131,7 @@ export class CloudDataService {
           scopeType: access.scopeType,
           stores: access.scopeType === 'store' ? [access.scopeValue || ''] : [],
           clusters: access.scopeType === 'cluster' ? [access.scopeValue || ''] : [],
+          allowedStoreIds: access.storeIds,
         });
       } catch (error) {
         this.authError.set(error instanceof Error ? error.message : 'No tienes acceso al dashboard comercial.');
@@ -293,6 +309,15 @@ export class CloudDataService {
       }
     }));
     return codes;
+  }
+
+  async stockInsights(filters: StockInsightFilters, signal?: AbortSignal): Promise<StockInsights> {
+    if (!this.portalMode) throw new Error('La consulta de inventario requiere el portal.');
+    return this.portalRequest<StockInsights>('/commercial/stock-insights', {
+      method: 'POST', signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(filters),
+    });
   }
 
   async companyRanking(): Promise<CompanyRankingData | null> {

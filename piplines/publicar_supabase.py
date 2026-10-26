@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,6 @@ STATIC_CORE_FILES = (
     "dashboard-stock-transfers.json",
     "dashboard-stock-sizes-textil.json",
     "dashboard-stock-sizes-calzado.json",
-    "dashboard-stock-products.json",
 )
 YEARLY_DATASETS = (
     "dashboard-sellers",
@@ -494,7 +494,7 @@ def cleanup_release_history(
     }
 
 
-def publish(env_path: Path, *, interactive: bool = False) -> None:
+def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: str | None = None) -> None:
     load_env_file(env_path)
     public_config = load_public_runtime_config()
     base_url = (
@@ -505,7 +505,10 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
     publisher_session = False
     if not base_url:
         raise PublishError("No se encontró la URL pública de Supabase.")
+    if expected_project_ref and urllib.parse.urlparse(base_url).hostname != f"{expected_project_ref}.supabase.co":
+        raise PublishError(f"La URL de Supabase no corresponde al proyecto {expected_project_ref}.")
 
+    service_key = service_key or os.environ.get("SUPABASE_SECRET_KEY", "").strip()
     if service_key:
         api_key = service_key
         access_token = service_key
@@ -537,6 +540,13 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         raise PublishError(f"Faltan archivos del dashboard: {', '.join(missing)}")
 
     metadata = parse_metadata()
+    snapshot = get_postgrest(
+        base_url, api_key, access_token,
+        "dashboard_stock_snapshots?select=stock_cutoff,row_count,status"
+        f"&stock_cutoff=eq.{urllib.parse.quote(metadata['stockCutoff'])}&status=eq.ready&limit=1",
+    ) or []
+    if len(snapshot) != 1 or int(snapshot[0].get("row_count") or 0) <= 0:
+        raise PublishError("El corte de stock no está validado en la base; no se publica un manifiesto sin su consulta por API.")
     catalog_payload = json.loads((DATA_DIR / "dashboard.json").read_text(encoding="utf-8"))
     scopes = scope_catalog(catalog_payload["stores"])
     checksums = {name: sha256_file(DATA_DIR / name) for name in required_files}
@@ -653,7 +663,8 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
             # su tienda o clúster. Ningún filtro del navegador es una frontera
             # de autorización.
             payload = catalog_payload if name == "dashboard.json" else json.loads(path.read_text(encoding="utf-8"))
-            for (scope_type, scope_value), allowed_ids in sorted(scopes.items()):
+            def prepare_scope(item: tuple[tuple[str, str], set[str]]) -> dict[str, Any]:
+                (scope_type, scope_value), allowed_ids = item
                 scoped = json.dumps(
                     scope_payload(payload, allowed_ids), ensure_ascii=False,
                     separators=(",", ":"),
@@ -671,12 +682,19 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
                     object_key=f"scoped/{scope_type}/{scope_value}/{name}",
                     source_bytes=scoped, quiet=True,
                 )
-                scope_rows.append({
+                return {
                     "release_id": release_id, "scope_type": scope_type,
                     "scope_value": scope_value, "logical_name": name,
                     "byte_size": len(scoped), "checksum_sha256": checksum,
                     "content_type": "application/gzip", "parts": scoped_parts,
-                })
+                }
+
+            # Cada objeto de alcance tiene una ruta distinta. Publicarlos en
+            # paralelo evita cientos de esperas de red sin alterar el orden del
+            # manifiesto ni cruzar datos entre tiendas.
+            workers = max(1, min(8, int(os.environ.get("DASHBOARD_UPLOAD_WORKERS", "8"))))
+            with ThreadPoolExecutor(max_workers=min(workers, len(scopes))) as executor:
+                scope_rows.extend(executor.map(prepare_scope, sorted(scopes.items())))
             print(f"  {name}: {len(scopes)} alcances privados preparados")
 
         postgrest(base_url, api_key, access_token, "POST", "dashboard_files", file_rows)
@@ -757,11 +775,16 @@ def main() -> int:
         action="store_true",
         help="Solicita el usuario y la contraseña sin guardarlos en archivos.",
     )
+    parser.add_argument(
+        "--expected-project-ref",
+        help="Verifica el proyecto Supabase antes de publicar.",
+    )
     args = parser.parse_args()
     try:
         publish(
             args.env if args.env.is_absolute() else ROOT / args.env,
             interactive=args.interactive,
+            expected_project_ref=args.expected_project_ref,
         )
         return 0
     except Exception as exc:

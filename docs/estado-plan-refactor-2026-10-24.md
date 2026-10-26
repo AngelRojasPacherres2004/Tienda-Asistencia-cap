@@ -89,13 +89,12 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   en stock es el campo adicional `productCode`; la fecha `generatedAt` cambió
   como corresponde. El manifiesto local incluye 137 archivos, sin faltantes;
   prefiere los detalles compactos a los anuales y mensuales crudos.
-- `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir
-  y falla hasta que se cumplan ambas puertas. Pasan 18 de 19 escenarios:
-  únicamente falla el detalle completo de SKU (64.682 MB). Esa misma matriz
-  aún alimenta búsqueda de SKU y cálculos predictivos; requiere
-  preagregados para los gráficos y consultas específicas para el detalle.
-  La nueva versión no se publicará antes de preservar esas funciones y probar
-  el máximo de 5 MB por panel completo, no solo por archivo.
+- `scripts/check-dashboard-payload-budget.py` mide el peor caso sin comprimir.
+  Antes de la consulta por API pasaban 18 de 19 escenarios: el detalle completo
+  de SKU medía 64.682 MB. Ahora el manifiesto excluye ese archivo y los 18
+  escenarios estáticos pasan: núcleo 14.280 MB y peor panel 4.858 MB.
+  El panel de stock por API se verifica por separado, porque depende de la
+  sesión, el corte publicado y los filtros.
 - Un agregado exacto por tienda/rubro/línea/sublínea/marca ocupa 0.898 MB y
   alimenta cobertura, rotación y totales mientras carga el detalle. Los SKU
   candidatos para traslados ocupan 0.817 MB; las 2,839 recomendaciones
@@ -112,11 +111,36 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `scripts/verify-stock-size-parity.mjs` comparó ventas, stock, traslados y
   conteos exactos de SKU contra las 142,055 filas originales, en USA y EUR:
   cuatro comparaciones conformes. La pantalla mantiene el fallback anterior.
-- El detalle completo de SKU comienza al acercarse a la sección de productos
-  mediante `IntersectionObserver`; salir de Inventario cancela la observación.
+- En modo directo legacy, el detalle completo de SKU comienza al acercarse a
+  la sección de productos mediante `IntersectionObserver`; salir de Inventario
+  cancela la observación.
   Los gráficos generales, tallas y traslados pueden mostrarse con sus archivos
   acotados antes de iniciar esa lectura pesada. Esta carga diferida mejora la
   respuesta visible pero no cierra la puerta de 5 MB del detalle predictivo.
+- En la base principal se aplicó `20261025180000_dashboard_stock_snapshot.sql`
+  y las versiones `20261025181000`–`20261025182000` de la consulta de stock.
+  El corte validado 2026-07-31 contiene 176,756 métricas de tienda/SKU y
+  66,695 SKU de catálogo. La instantánea queda inaccesible para `anon` y
+  `authenticated`; la API aplica el alcance de tiendas del usuario.
+- Las señales de marca, salud, proyección, riesgo y productos prioritarios se
+  calculan ahora en PostgreSQL para el rubro, jerarquía, tienda y parámetros
+  elegidos. La comparación contra los JSON originales dio paridad en el total
+  de 142,055 filas y en una tienda de CALZADO. La consulta API real devolvió
+  24,034 bytes para las 18 tiendas autorizadas. La respuesta completa tardó
+  aproximadamente 7–11 s sin caché; la API conserva el resultado un minuto.
+  No se descargan 64.682 MB para abrir esa sección en modo portal.
+- El build, 160 pruebas Node (156 conformes, cuatro omitidas), 37 pruebas
+  Python, ESLint y el presupuesto de archivos pasaron. La compilación de
+  producción excluye `assets/data/**` del sitio. La inspección visual local
+  mostró el nuevo panel de salud; todavía aparecen respuestas 404 esperadas
+  del manifiesto anterior para los nuevos archivos compactos, por lo que la
+  prueba visual completa se repetirá después de publicar la nueva versión.
+- La versión anterior de Supabase sigue siendo la única publicada. Se
+  detuvieron y limpiaron dos cargas temporales: activar un manifiesto sin el
+  archivo grande antes de desplegar el frontend actualizado podría romper
+  clientes anteriores. Netlify requiere reconectar la integración para
+  comprobar el despliegue de TEST2; la publicación de datos queda pendiente
+  hasta confirmar la compatibilidad del sitio consumidor.
 
 ## Pasos 3–5: no completados
 

@@ -25,6 +25,16 @@ from generar_datos_web import (  # noqa: E402
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_does_not_publish_full_stock_product_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-stock-products.json", "dashboard-daily-2026-01.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2026.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertNotIn("dashboard-stock-products.json", files)
+
     def test_predictive_compaction_keeps_sku_windows_and_store_scope(self) -> None:
         rows = [
             {"storeId": "T001", "productId": "P1", "units60": 0.0, "units90": 0.0, "merma30": 0.0, "merma60": 0.0, "merma90": 0.0},

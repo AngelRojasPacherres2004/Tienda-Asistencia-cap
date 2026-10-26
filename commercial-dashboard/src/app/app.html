@@ -381,7 +381,7 @@
 
         @if (stockDetailFailed()) {
           <div class="detail-loader compact detail-loader--error"><strong>No se pudo abrir la analítica por producto.</strong><button type="button" class="retry-button" (click)="retryStockDetail()">REINTENTAR</button></div>
-        } @else if (!stockDetailLoaded()) {
+        } @else if (!stockDetailLoaded() && !stockInsightsData()) {
           <div class="detail-loader compact stock-product-detail-trigger"><span class="loader"></span><strong>Preparando analítica por producto · {{ stockDetailProgress() }}%</strong></div>
         } @else {
         <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
