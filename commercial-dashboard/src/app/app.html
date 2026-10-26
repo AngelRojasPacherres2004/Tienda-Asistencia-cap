@@ -343,8 +343,10 @@
             <button type="button" class="chart-expand" (click)="toggleChartExpansion('store-value-coverage')" [attr.aria-label]="expandedChart() === 'store-value-coverage' ? 'Cerrar gráfico' : 'Ampliar gráfico'">{{ expandedChart() === 'store-value-coverage' ? '×' : '⛶' }}</button>
             <div class="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#warehouse"></use></svg> VALOR DE INVENTARIO POR TIENDA</h2></div>
             <div class="store-value-coverage-content">
+              @if (!stockHierarchyLoaded() && !stockDetailLoaded()) { <div class="card-inline-loader" role="status"><span class="loader"></span>Preparando cobertura por tienda…</div> }
+              @else {
               <div class="store-value-chart-pane">
-                <dashboard-chart [option]="storeValueCoverageOption()" label="Valor de inventario por tienda, coloreado según estado de cobertura" />
+                <dashboard-chart [option]="storeValueCoverageOption()" chartId="inventory-store-value" label="Valor de inventario por tienda, coloreado según estado de cobertura" />
                 <div class="inventory-health-strip">@for (item of inventoryHealthSummary(); track item.label) { <span [class]="item.tone"><i></i>{{ item.label }}<strong>{{ item.count }}</strong></span> }</div>
               </div>
               @if (expandedChart() === 'store-value-coverage') {
@@ -358,6 +360,7 @@
                     </table>
                   </div>
                 </section>
+              }
               }
             </div>
           </article>

@@ -10,13 +10,14 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
+const expandedInventoryValue = chartId === "inventory-store-value" && process.env.AUDIT_EXPANDED === "1";
 const genderTextil = chartId === "gender-donut" && process.env.AUDIT_GENDER_RUBRO === "TEXTIL";
 const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup"
-  : expandedBrand ? "-expanded" : genderTextil ? "-textil" : "";
+  : expandedBrand || expandedInventoryValue ? "-expanded" : genderTextil ? "-textil" : "";
 const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
 const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
   headers,
@@ -107,7 +108,8 @@ try {
             : chartId === "store-ranking" ? "commercial-ranking-card"
               : chartId === "brand-sales" ? "brand-sales-card"
                 : chartId.startsWith("gender-") ? "gender-card"
-                  : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
+                  : chartId === "inventory-store-value" ? "store-value-coverage-card"
+                    : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
@@ -141,6 +143,10 @@ try {
         await card.locator(".chart-expand").click();
         await card.locator(".brand-detail-table").waitFor({ state: "visible" });
       }
+      if (expandedInventoryValue) {
+        await card.locator(".chart-expand").click();
+        await card.locator(".inventory-matrix-card--embedded").waitFor({ state: "visible" });
+      }
       if (chartId === "gender-bar") {
         await card.locator(".chart-expand").click();
         await card.locator(".gender-bar-chart").waitFor({ state: "visible" });
@@ -149,7 +155,7 @@ try {
         await card.locator(".rotation-switch button").last().click();
         await card.locator(".capacity-donut").waitFor({ state: "visible" });
       }
-      if (chartId === "inventory-rotation") {
+      if (chartId === "inventory-rotation" || chartId === "inventory-store-value") {
         await page.locator('.rotation-card[data-stock-hierarchy-ready="true"]').waitFor({ timeout: 30_000 });
       }
       if (genderTextil) {

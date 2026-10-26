@@ -6,14 +6,14 @@ from PIL import Image, ImageChops
 root = Path(os.environ.get("LOCALAPPDATA", ".")) / "DashBoardGeneral" / "audits"
 chart_id = os.environ.get("AUDIT_CHART_ID", "growth")
 capture_state = os.environ.get("AUDIT_CAPTURE_STATE", "ready")
-if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity"}:
+if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value"}:
     raise SystemExit("Unknown chart")
 if capture_state not in {"ready", "loading"}:
     raise SystemExit("Unknown capture state")
 suffix = "-loading" if capture_state == "loading" else ""
 view_suffix = ("-fallback" if chart_id == "store-ranking" and os.environ.get("AUDIT_RANKING_FALLBACK") == "1"
                else "-markup" if chart_id == "store-ranking" and os.environ.get("AUDIT_RANKING_VIEW") == "MARKUP"
-               else "-expanded" if chart_id == "brand-sales" and os.environ.get("AUDIT_EXPANDED") == "1"
+               else "-expanded" if chart_id in {"brand-sales", "inventory-store-value"} and os.environ.get("AUDIT_EXPANDED") == "1"
                else "-textil" if chart_id == "gender-donut" and os.environ.get("AUDIT_GENDER_RUBRO") == "TEXTIL" else "")
 scenarios = (
     ("gerente_comercial", 1440, 2026),
