@@ -2764,6 +2764,15 @@ export class App implements OnInit {
     const visible = Math.min(10, values.length);
     const endValue = Math.max(0, visible - 1);
     const axisScale = adaptiveValueScale(values.map(v => v.net));
+    const visibleBrandLabels = new Set<number>();
+    values.slice(0, visible).map((row, index) => ({ index, share: row.share }))
+      .filter(row => row.share >= .025)
+      .sort((left, right) => right.share - left.share)
+      .forEach(row => {
+        if (visibleBrandLabels.size < 4 && [...visibleBrandLabels].every(index => Math.abs(index - row.index) > 1)) {
+          visibleBrandLabels.add(row.index);
+        }
+      });
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'max-width:180px;', formatter: (params: any[]) => {
@@ -2784,7 +2793,7 @@ export class App implements OnInit {
         axisLabel: { interval: 0, rotate: 90, align: 'center', verticalAlign: 'middle', margin: 42, hideOverlap: false, fontSize: 9, color: '#475569' } },
       yAxis: { type: 'value', min: 0, ...axisScale, axisLabel: { color: '#64748B', formatter: (v: number) => v === 0 ? 'S/ 0' : `S/ ${this.short(v)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [{ type: 'bar', data: values.map(v => ({ value: v.net, itemStyle: { color: C.purple, borderRadius: [5, 5, 0, 0] } })), barMaxWidth: 28, z: 5,
-        label: { show: true, position: 'top', formatter: (params: any) => this.percent(values[params.dataIndex]?.share ?? null), color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 }, labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } }]
+        label: { show: true, position: 'top', formatter: (params: any) => visibleBrandLabels.has(params.dataIndex) ? this.percent(values[params.dataIndex]?.share ?? null) : '', color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
     } as EChartsOption;
   });
   readonly brandSummary = computed<BrandSummary[]>(() => {

@@ -10,10 +10,11 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
-const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup" : "";
+const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
+const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup" : expandedBrand ? "-expanded" : "";
 const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
 const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
   headers,
@@ -98,7 +99,8 @@ try {
       const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
         : chartId === "category-participation" ? "category-card"
           : chartId === "price-range" ? "price-range-card"
-            : chartId === "store-ranking" ? "commercial-ranking-card" : chartId;
+            : chartId === "store-ranking" ? "commercial-ranking-card"
+              : chartId === "brand-sales" ? "brand-sales-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
@@ -127,6 +129,10 @@ try {
           assert.equal(await buttons.nth(index).getAttribute("aria-pressed"), index === 1 ? "true" : "false",
             `${mode}: selección de markup incorrecta`);
         }
+      }
+      if (expandedBrand) {
+        await card.locator(".chart-expand").click();
+        await card.locator(".brand-detail-table").waitFor({ state: "visible" });
       }
       if (releaseGoals) {
         await card.locator(".card-inline-loader").waitFor({ state: "visible", timeout: 30_000 });
