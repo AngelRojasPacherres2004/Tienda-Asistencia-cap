@@ -302,10 +302,10 @@
             <h2><svg><use href="/comercial/assets/icons.svg#category"></use></svg> PARTICIPACIÓN GÉNERO</h2>
             <div class="gender-chart-content">
               <div class="gender-donut-pane">
-                <dashboard-chart [option]="genderOption()" label="Participación de venta por género" />
+                <dashboard-chart [option]="genderOption()" chartId="gender-donut" label="Participación de venta por género" />
                 <div class="gender-rubro-toggle" aria-label="Rubros incluidos en participación por género"><button type="button" [class.active]="genderRubros().includes('TEXTIL')" (click)="toggleGenderRubro('TEXTIL')">TEXTIL</button><button type="button" [class.active]="genderRubros().includes('CALZADO')" (click)="toggleGenderRubro('CALZADO')">CALZADO</button></div>
               </div>
-              @if (expandedChart() === 'gender') { <dashboard-chart class="gender-bar-chart" [option]="genderBarOption()" label="Comparación de venta por género" /> }
+              @if (expandedChart() === 'gender') { <dashboard-chart class="gender-bar-chart" [option]="genderBarOption()" chartId="gender-bar" label="Comparación de venta por género" /> }
             </div>
           </article>
           <article class="card chart-card growth"><h2><svg><use href="/comercial/assets/icons.svg#trend"></use></svg> TENDENCIA INTERANUAL ACUMULADA VENTAS</h2><dashboard-chart [option]="growthOption()" chartId="growth" label="Venta acumulada del año seleccionado frente al año anterior" /></article>

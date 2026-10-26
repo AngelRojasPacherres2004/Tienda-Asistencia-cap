@@ -10,11 +10,13 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
-const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup" : expandedBrand ? "-expanded" : "";
+const genderTextil = chartId === "gender-donut" && process.env.AUDIT_GENDER_RUBRO === "TEXTIL";
+const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup"
+  : expandedBrand ? "-expanded" : genderTextil ? "-textil" : "";
 const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
 const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
   headers,
@@ -100,7 +102,8 @@ try {
         : chartId === "category-participation" ? "category-card"
           : chartId === "price-range" ? "price-range-card"
             : chartId === "store-ranking" ? "commercial-ranking-card"
-              : chartId === "brand-sales" ? "brand-sales-card" : chartId;
+              : chartId === "brand-sales" ? "brand-sales-card"
+                : chartId.startsWith("gender-") ? "gender-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
@@ -134,6 +137,15 @@ try {
         await card.locator(".chart-expand").click();
         await card.locator(".brand-detail-table").waitFor({ state: "visible" });
       }
+      if (chartId === "gender-bar") {
+        await card.locator(".chart-expand").click();
+        await card.locator(".gender-bar-chart").waitFor({ state: "visible" });
+      }
+      if (genderTextil) {
+        await card.locator(".gender-rubro-toggle button").last().click();
+        await card.locator(".gender-rubro-toggle button:nth-child(2).active").waitFor({ state: "hidden" });
+        assert.match(await card.locator(".gender-rubro-toggle button").first().getAttribute("class") || "", /active/);
+      }
       if (releaseGoals) {
         await card.locator(".card-inline-loader").waitFor({ state: "visible", timeout: 30_000 });
         assert.equal(await card.locator("canvas").count(), 0, "El gráfico apareció antes de cargar las metas");
@@ -141,7 +153,8 @@ try {
           `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}-loading.png`) });
         releaseGoals();
       }
-      const canvas = card.locator("canvas");
+      const canvas = chartId === "gender-bar" ? card.locator(".gender-bar-chart canvas")
+        : chartId === "gender-donut" ? card.locator(".gender-donut-pane canvas") : card.locator("canvas");
       if (goalsRequest) {
         const goalsResponse = await goalsRequest;
         assert.equal(goalsResponse.status(), 200, `${mode}: faltan metas comerciales`);
