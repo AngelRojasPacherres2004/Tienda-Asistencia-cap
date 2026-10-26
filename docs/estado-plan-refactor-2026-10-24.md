@@ -163,18 +163,47 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   La activación pública espera la validación del despliegue Netlify, conforme
   a la indicación de trabajar localmente por ahora.
 
-## Pasos 3–5: no completados
+## Paso 3: backend modularizado y auditado en local
 
-- **Backend:** `api.js` sigue concentrando los dominios. La carga de Excel se
-  hizo diferida, pero la división por dominios y las consultas por gráfica
-  todavía no están completas. Ningún índice se retirará sin `EXPLAIN`, métricas
-  de consultas e Index Advisor; la migración local de tráfico ya no los borra.
-- **React:** Angular sigue siendo el dashboard. No hay migración panel por
-  panel, feature flags ni paridad visual/funcional comprobada por rol.
-- **Tablas:** hay candidatas legacy documentadas, pero no hay periodo de
-  observación, archivo, respaldo probado ni eliminación.
+- `netlify/functions/api.js` pasó de 5,272 a 1,013 líneas. La lógica reside en
+  módulos de autenticación, personal, tiendas, comercial, seguridad, marketing,
+  reportes, archivos, operaciones, dashboard, capacitaciones, supervisión
+  zonal, Mi tienda y Excel. El archivo principal conserva la composición y el
+  enrutamiento. La extracción conservó el cuerpo de las funciones y aisló las
+  dependencias de cada dominio mediante fábricas.
+- Las lecturas de reportes usan `netlify/lib/report-queries.js`; la carga de
+  Excel sigue siendo diferida. Cada gráfica comercial lee su archivo agregado
+  específico por año, mes, tienda y rubro según los filtros. Inventario usa
+  `/commercial/stock-insights`, que consulta por tienda y agrega las respuestas
+  sin enviar el detalle completo de SKU.
+- La auditoría de integración de solo lectura recorrió 140 rutas y roles contra
+  la base principal, sin fallos. Otra auditoría comprobó seis rutas de comercial
+  y seguridad, todas HTTP 200. Pasaron 161 pruebas Node (157 conformes,
+  cuatro omitidas), 37 Python, ESLint, build y los 18 límites de carga.
+- Medición en la base principal: `productos` tiene 265,612 filas y 78 MB;
+  `dashboard_stock_metrics`, 176,756 filas y 51 MB; `trafico_tienda`, 58,546
+  filas vivas, 8,720 muertas y 19 MB. `pg_stat_statements` está instalado;
+  la consulta más acumulada sobre stock registró 76 ejecuciones, media de
+  1,528.6 ms y máximo de 6,351.7 ms. Un `EXPLAIN (ANALYZE, BUFFERS)` del
+  agregado CALZADO/T001 usó los índices de catálogo y métricas, leyó 3,545
+  filas coincidentes y tardó 758.546 ms. No hubo escaneo secuencial de esas
+  tablas en ese plan.
+- `index_advisor` no está instalado. Se revisó el uso de índices existente:
+  `dashboard_stock_metrics_product_idx` registra 4,697,228 búsquedas y el
+  índice de jerarquía del catálogo 172; los índices nuevos de código base y
+  talla de `productos` todavía registran cero. **No se retiró ningún índice.**
+  Antes de una retirada futura se requiere instalar y ejecutar Index Advisor,
+  revisar planes representativos y observar uso durante un periodo suficiente.
+  La migración local `20261026180000_optimize_operational_schema.sql` sigue
+  pendiente en producción; ajusta autovacuum de tráfico, sin borrar índices.
 
-El paso 2 cumple sus puertas locales y permite iniciar el paso 3 localmente.
-Antes de activar la versión pública, verificar el frontend desplegado en
-Netlify para que ningún cliente antiguo solicite el archivo de SKU retirado.
-Tampoco retirar Angular ni tablas antes de sus puertas respectivas.
+## Pasos 4–5: pendientes
+
+- **React:** Angular sigue siendo el dashboard. Falta migrar panel por panel,
+  activar flags y comprobar paridad visual y funcional por rol.
+- **Tablas:** hay candidatas legacy documentadas, pero faltan periodo de
+  observación, consolidación, archivo, restauración probada y eliminación.
+
+La versión optimizada del paso 2 sigue preparada para validación local; la
+publicación pública espera comprobar la compatibilidad de Netlify. No retirar
+Angular ni tablas antes de cumplir sus puertas de paridad y restauración.
