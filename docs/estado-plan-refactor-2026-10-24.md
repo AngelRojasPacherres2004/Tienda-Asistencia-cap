@@ -208,13 +208,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27/10 se añadieron veintiséis módulos de interfaz con flags independientes:
+- El 27/10 se añadieron treinta módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
   tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
   tarjetas completas de tendencia, Meta vs real, desempeño por hora, siete
   gráficos de Talento, tallas, valor de inventario, participación por categoría,
-  venta por marca y ranking de tiendas. El puente conserva los mismos
+  venta por marca, ranking de tiendas, participación por género, rango de
+  precios, rotación/capacidad y antigüedad del stock. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
@@ -223,7 +224,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `talent-team-card`, `talent-area-card`, `talent-store-card`,
   `talent-exit-card`, `talent-incidents-card`, `talent-training-card`,
   `size-card`, `store-value-card`, `category-card`, `brand-card` o
-  `ranking-card`;
+  `ranking-card`, `gender-card`, `price-range-card`, `rotation-card` o
+  `antiquity-card`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
@@ -242,6 +244,12 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   1440 px, incluyendo sus acciones. Tallas, categoría, marca y ranking
   coincidieron píxel por píxel; inventario difirió 69 de 1,183,396 píxeles
   en el borde derecho de la vista ampliada.
+  Género, precios, rotación y antigüedad pasaron una prueba local de acciones
+  y comparación con Angular. Rotación y antigüedad coincidieron píxel por
+  píxel; precios difirió 18 píxeles en el icono de ampliar y género 314 píxeles
+  en una etiqueta exterior del gráfico circular. La prueba de antigüedad esperó
+  la carga efectiva de sus datos; ciertos archivos opcionales devolvieron 404
+  y el cliente utilizó su ruta de respaldo.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o

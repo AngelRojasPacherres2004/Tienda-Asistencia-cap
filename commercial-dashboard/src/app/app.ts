@@ -1408,6 +1408,66 @@ export class App implements OnInit {
     if (type === 'metric' && (value === 'ROTATION' || value === 'MARKUP' || value === 'TICKET' || value === 'SALE_M2')) this.toggleRankingMetric(value);
   }
 
+  readonly genderCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'gender', rubros: this.genderRubros(),
+    donut: blackChartText(this.genderOption()), bar: blackChartText(this.genderBarOption()),
+  }));
+
+  onReactGenderAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('gender');
+    else if (type === 'rubro' && (value === 'TEXTIL' || value === 'CALZADO')) this.toggleGenderRubro(value);
+  }
+
+  readonly priceRangeCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'price-range', year: this.year(),
+    years: this.priceRangeComparisonYears(), comparisonYear: this.effectivePriceRangeComparisonYear(),
+    ready: this.priceRangeDetailLoaded(), option: this.priceRangeDetailLoaded() ? blackChartText(this.priceRangeOption()) : null,
+    rows: this.priceRangeSummary().map(row => ({ label: row.label, year: row.year,
+      net: this.money(row.net, true), share: this.percent(row.share),
+      units: this.number(row.units), averagePrice: this.money(row.averagePrice) })),
+  }));
+
+  onReactPriceRangeAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('price-range');
+    else if (type === 'year' && value != null) this.setPriceRangeComparisonYear(value);
+  }
+
+  readonly rotationCardModel = computed<Record<string, unknown>>(() => {
+    const totals = this.inventoryOverviewTotals();
+    return {
+      view: this.rotationView(), hierarchyReady: this.stockHierarchyLoaded() && this.stockHierarchyData().length > 0,
+      ready: this.stockHierarchyLoaded() || this.stockDetailLoaded(),
+      rotationOption: this.rotationView() === 'rotation' && (this.stockHierarchyLoaded() || this.stockDetailLoaded()) ? blackChartText(this.rotationOption()) : null,
+      capacityOption: this.rotationView() === 'inventory' ? blackChartText(this.inventoryOverviewOption()) : null,
+      occupancy: this.percent(totals.capacity ? totals.units / totals.capacity : null),
+      areas: this.inventoryAreaSummary().map(area => ({ area: area.area, color: area.color, share: this.percent(area.share) })),
+      stockValue: this.money(totals.value, true), overCapacity: totals.capacity - totals.units < 0,
+      capacityDifference: this.number(Math.abs(totals.capacity - totals.units), ' und'),
+    };
+  });
+
+  onReactRotationAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'view' && (value === 'rotation' || value === 'inventory')) this.rotationView.set(value);
+  }
+
+  readonly antiquityCardModel = computed<Record<string, unknown>>(() => {
+    const summary = this.stockHistorySummary(); const selected = this.stockHistoryBucketsSelected();
+    return {
+      expanded: this.expandedChart() === 'antiquity', ready: this.stockOriginLoaded(),
+      detailLoading: this.detailLoading(), label: this.stockHistoryLabel(),
+      buckets: this.stockHistoryBuckets.map(bucket => ({ ...bucket,
+        active: bucket.value === 'ALL' ? selected.length === 0 : selected.includes(bucket.value) })),
+      option: blackChartText(this.antiquityOption()),
+      summary: { units: this.number(summary.units, ' und'), value: this.money(summary.value, true), share: this.percent(summary.share) },
+    };
+  });
+
+  onReactAntiquityAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('antiquity');
+    else if (type === 'bucket' && typeof value === 'string') this.toggleStockHistoryBucket(value as StockHistoryBucket);
+    else if (type === 'detail' && typeof value === 'number') this.openStockOriginDetail({ data: { period: value } });
+  }
+
   onReactStoreValueAction({ type }: { type: string }): void {
     if (type === 'expand') this.toggleChartExpansion('store-value-coverage');
   }
