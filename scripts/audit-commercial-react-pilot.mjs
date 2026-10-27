@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -90,8 +90,10 @@ try {
     });
     await page.route("**/api/**", route => {
       const request = route.request();
-      const readOnlyPost = chartId === "inventory-sizes" && request.method() === "POST"
-        && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname);
+      const readOnlyPost = request.method() === "POST" && (
+        chartId === "inventory-sizes" && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
+        || chartId.startsWith("predictive-") && new URL(request.url()).pathname === "/api/commercial/stock-insights"
+      );
       if (request.method() !== "GET" && !readOnlyPost) return route.abort();
       return route.continue();
     });
@@ -109,10 +111,28 @@ try {
         ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
         : null;
       await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      if (chartId.startsWith("inventory-")) {
+      if (chartId.startsWith("inventory-") || chartId.startsWith("predictive-")) {
         await page.locator(".page-tabs button").nth(1).click();
       }
-      const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
+      if (chartId.startsWith("talent-")) {
+        await page.locator(".page-tabs button").nth(2).click();
+        if (["talent-training", "talent-exit", "talent-incidents"].includes(chartId)) {
+          await page.locator('.talent-page[data-operational-summary-ready="true"]').waitFor({ timeout: 30_000 });
+        }
+      }
+      if (chartId === "modal-ticket") await page.locator('.ticket-kpi[title="Ver ticket promedio por mes"]').click();
+      if (chartId === "modal-conversion") await page.locator('.ticket-kpi.conversion-kpi').click();
+      if (chartId === "modal-traffic") await page.locator('.ticket-kpi.traffic-kpi').first().click();
+      const talentCardClasses = {
+        "talent-history": "history-card",
+        "talent-team-productivity": "team-productivity-card",
+        "talent-area-distribution": "area-distribution-card",
+        "talent-store-productivity": "store-productivity-card",
+        "talent-training": "training-card",
+        "talent-exit": "exit-card",
+        "talent-incidents": "incidents-card",
+      };
+      const cardClass = talentCardClasses[chartId] || (chartId === "hourly-performance" ? "hourly-performance-card"
         : chartId === "category-participation" ? "category-card"
           : chartId === "price-range" ? "price-range-card"
             : chartId === "store-ranking" ? "commercial-ranking-card"
@@ -120,8 +140,13 @@ try {
                 : chartId.startsWith("gender-") ? "gender-card"
                   : chartId === "inventory-store-value" ? "store-value-coverage-card"
                     : chartId === "inventory-sizes" ? "size-distribution-card"
-                    : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
-      const card = page.locator(`.chart-card.${cardClass}`);
+                      : chartId === "inventory-antiquity" ? "antiquity-card"
+                    : chartId.startsWith("inventory-") ? "rotation-card" : chartId);
+      const predictiveCardClasses = { "predictive-health": "health-card", "predictive-replenishment": "predictive-replenishment-card", "predictive-projection": "predictive-projection-card" };
+      const modalTitles = { "modal-ticket": "ticket-chart-title", "modal-conversion": "conversion-chart-title", "modal-traffic": "traffic-chart-title" };
+      const card = chartId.startsWith("modal-")
+        ? page.locator(`.ticket-modal[aria-labelledby="${modalTitles[chartId]}"]`)
+        : page.locator(`.${chartId.startsWith("talent-") ? "talent-card" : chartId.startsWith("predictive-") ? "predictive-v2-card" : "chart-card"}.${predictiveCardClasses[chartId] || cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
         const alerts = await page.locator('[role="alert"]').allTextContents();
@@ -168,6 +193,9 @@ try {
       }
       if (chartId === "inventory-rotation" || chartId === "inventory-store-value") {
         await page.locator('.rotation-card[data-stock-hierarchy-ready="true"]').waitFor({ timeout: 30_000 });
+      }
+      if (chartId === "inventory-antiquity") {
+        await page.locator('.antiquity-card[data-stock-origin-ready="true"]').waitFor({ timeout: 30_000 });
       }
       if (chartId === "inventory-sizes") {
         const controls = card.locator(".size-chart-controls > div");
@@ -260,13 +288,24 @@ try {
       if (failures.length) throw new Error(failures.join("\n"));
       pair.push({ mode, dimensions, canvasStats, screenshot,
         sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+      if (chartId === "inventory-antiquity" && scenario.width === 1440) {
+        await canvas.click({ position: { x: 70, y: 155 } });
+        await page.locator('.stock-origin-detail[role="dialog"]').waitFor({ state: "visible", timeout: 5_000 });
+      }
     } finally {
       await context.close();
     }
     }
     assert.ok(Math.abs(pair[0].dimensions.width - pair[1].dimensions.width) < 1, "Ancho distinto");
     assert.ok(Math.abs(pair[0].dimensions.height - pair[1].dimensions.height) < 1, "Alto distinto");
-    assert.deepEqual(pair[0].canvasStats, pair[1].canvasStats, "El lienzo del gráfico difiere");
+    if (["talent-training", "predictive-replenishment"].includes(chartId)) {
+      assert.equal(pair[0].canvasStats.width, pair[1].canvasStats.width, "Ancho del lienzo distinto");
+      assert.equal(pair[0].canvasStats.height, pair[1].canvasStats.height, "Alto del lienzo distinto");
+      assert.ok(Math.abs(pair[0].canvasStats.visible - pair[1].canvasStats.visible) <= (chartId === "talent-training" ? 100 : 50),
+        "Las barras y etiquetas del gráfico difieren demasiado");
+    } else {
+      assert.deepEqual(pair[0].canvasStats, pair[1].canvasStats, "El lienzo del gráfico difiere");
+    }
     results.push({ ...scenario, dimensions: pair[0].dimensions, canvasStats: pair[0].canvasStats,
       captures: pair.map(item => ({ mode: item.mode, screenshot: item.screenshot, sha256: item.sha256 })) });
   }
