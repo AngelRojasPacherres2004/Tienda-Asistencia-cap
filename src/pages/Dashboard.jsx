@@ -8,7 +8,7 @@ import AttendanceOverviewMatrix from "../components/AttendanceOverviewMatrix";
 import GeneralManagementOverview from "../components/GeneralManagementOverview";
 
 const palette = { presente: "#2f9e78", tardanza: "#c9932f", medio_turno: "#df9f39", apoyo: "#4f8dc9", falta: "#d9635f", permiso: "#7668ba", descanso_medico: "#8d96a3", suspension: "#a54f4f" };
-const tooltipStyle = { color: "#f3eee5", background: "#171719", border: "1px solid rgba(206,169,92,.3)", borderRadius: 12, fontSize: 12 };
+const tooltipStyle = { color: "var(--text, #f3eee5)", background: "var(--surface, #171719)", border: "1px solid var(--border, rgba(206,169,92,.3))", borderRadius: 12, fontSize: 12 };
 
 function Metric({ icon: Icon, label, value, note, tone }) {
   return <article className={`metric-card metric-card--${tone}`}><div className="metric-card__top"><span><Icon size={20} /></span><small>{label}</small></div><strong>{value ?? 0}</strong><p>{note}</p></article>;

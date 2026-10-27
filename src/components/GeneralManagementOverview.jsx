@@ -21,7 +21,7 @@ export default function GeneralManagementOverview({ data, periodLabel }) {
     otros: Math.max(0, cluster.marcas - cluster.asistentes - cluster.faltas),
   }));
   const chartHeight = Math.max(220, clusters.length * 56);
-  const chartTooltip = { background: "#171719", border: "1px solid #78613c", color: "#f3eee5", borderRadius: 10 };
+  const chartTooltip = { background: "var(--surface, #171719)", border: "1px solid var(--border, #78613c)", color: "var(--text, #f3eee5)", borderRadius: 10 };
 
   return <section className="general-comparison" aria-label="Comparación general de clústeres y tiendas">
     <header className="general-comparison__header"><div><span className="eyebrow">Vista nacional · {periodLabel}</span><h2>Clústeres y tiendas</h2><p>Las cifras usan el mismo período. La asistencia se calcula sobre marcas registradas. «Pendientes» son días laborables (lunes a sábado) del vínculo sin marca; no equivalen a faltas.</p></div><span className="general-comparison__scope">{clusters.length} clústeres · {totals.tiendas} tiendas activas</span></header>

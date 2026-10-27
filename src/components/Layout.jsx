@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import "../role-themes.css";
 import "../marketing-light.css";
 import "../dashboard-light.css";
+import "../theme-consistency.css";
 import "../store-support.css";
 import { isOperationalDemo } from "../lib/operationalDemo";
 
