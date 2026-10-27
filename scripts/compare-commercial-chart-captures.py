@@ -6,7 +6,7 @@ from PIL import Image, ImageChops
 root = Path(os.environ.get("LOCALAPPDATA", ".")) / "DashBoardGeneral" / "audits"
 chart_id = os.environ.get("AUDIT_CHART_ID", "growth")
 capture_state = os.environ.get("AUDIT_CAPTURE_STATE", "ready")
-if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress"}:
+if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls"}:
     raise SystemExit("Unknown chart")
 if capture_state not in {"ready", "loading"}:
     raise SystemExit("Unknown capture state")

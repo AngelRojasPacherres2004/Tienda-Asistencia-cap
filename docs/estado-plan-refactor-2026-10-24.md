@@ -208,16 +208,20 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27/10 se añadieron seis módulos de interfaz con flags independientes:
+- El 27/10 se añadieron ocho módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
-  indicadores clave y tarjetas de avance. El puente conserva los mismos
+  indicadores clave, tarjetas de avance, indicadores de talento y controles de
+  tallas. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
-  `primary-kpis`, `key-kpis` o `progress`; en un despliegue se controlan con
+  `primary-kpis`, `key-kpis`, `progress`, `talent-kpis` o `size-controls`;
+  en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
   navegación, filtros de mes y día, restablecimiento y apertura del detalle de
-  ticket. Cabecera, navegación, filtros y los dos grupos de indicadores tuvieron
+  ticket y de cumpleaños. Los controles de tallas cambiaron entre CALZADO,
+  TEXTIL, stock y EUR y abrieron la matriz. Cabecera, navegación, filtros,
+  indicadores y controles de tallas tuvieron
   cero píxeles distintos; las tarjetas de avance variaron 26 de 366,490
   píxeles en un área de 8 × 10 px.
 
@@ -235,7 +239,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   mismos filtros que Angular; las tarjetas, sus controles y los demás paneles
   continúan en Angular.
 - La activación es por ID mediante `VITE_COMMERCIAL_REACT_CHARTS` (lista
-  separada por comas). Por defecto los doce siguen en Angular. Solo en Vite
+  separada por comas). Por defecto los gráficos siguen en Angular. Solo en Vite
   local puede probarse una gráfica con `?reactChart=growth`,
   `?reactChart=meta-vs-real`, `?reactChart=hourly-performance`,
   `?reactChart=category-participation`, `?reactChart=price-range` o

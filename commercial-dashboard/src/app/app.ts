@@ -9,6 +9,7 @@ import { DashboardTabsComponent } from './dashboard-tabs';
 import { DashboardHeaderComponent, type DashboardHeaderModel } from './dashboard-header';
 import { DashboardFiltersComponent, type DashboardFilterAction, type DashboardFiltersModel } from './dashboard-filters';
 import { DashboardReactModuleComponent } from './dashboard-react-module';
+import { readRuntimeConfig } from './runtime-config';
 import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
@@ -496,6 +497,8 @@ export class App implements OnInit {
   readonly selectedSublines = signal<string[]>([]);
   readonly openFilter = signal<FilterKey | null>(null);
   readonly filtersOpen = signal(false);
+  readonly reactFiltersEnabled = !!readRuntimeConfig().reactModules?.includes('filters')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialFilters === 'function';
   readonly filterSearch = signal<Record<FilterKey, string>>({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' });
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
@@ -1251,6 +1254,35 @@ export class App implements OnInit {
       ],
     };
   });
+
+  readonly talentKpiModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const profile = this.talentProfileSummary();
+    const personnel = metrics.personnel == null ? 'N/A' : this.number(Math.round(metrics.personnel));
+    return {
+      personnel, personnelMissing: metrics.personnel == null,
+      saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
+      gender: `${this.number(profile.male)} / ${this.number(profile.female)}`,
+      averageAge: this.number(profile.averageAge, ' años'), salesStaff: this.number(profile.salesStaff),
+      administrativeStaff: this.number(profile.administrativeStaff),
+      topStore: this.talentStoreRows()[0]?.alias || 'N/A', birthdays: this.number(this.birthdayMonthRows().length),
+    };
+  });
+
+  onReactTalentKpiAction({ type }: { type: string }): void {
+    if (type === 'birthdays') this.toggleChartExpansion('birthday-list');
+  }
+
+  readonly sizeControlsModel = computed<Record<string, unknown>>(() => ({
+    rubro: this.sizeRubro(), metric: this.sizeMetric(), system: this.shoeSizeSystem(),
+  }));
+
+  onReactSizeAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'rubro' && (value === 'CALZADO' || value === 'TEXTIL')) this.selectSizeRubro(value);
+    else if (type === 'metric' && (value === 'SALES' || value === 'STOCK' || value === 'TRANSFERS')) this.selectSizeMetric(value);
+    else if (type === 'system' && (value === 'USA' || value === 'EUR')) this.shoeSizeSystem.set(value);
+    else if (type === 'matrix') this.openSizeTransfers();
+  }
 
   onReactKeyKpiAction({ type }: { type: string }): void {
     if (type === 'trafficMetro') this.openTrafficChart('METRO');

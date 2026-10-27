@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -75,7 +75,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -91,7 +91,7 @@ try {
     await page.route("**/api/**", route => {
       const request = route.request();
       const readOnlyPost = request.method() === "POST" && (
-        chartId === "inventory-sizes" && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
+        ["inventory-sizes", "size-controls"].includes(chartId) && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
         || chartId.startsWith("predictive-") && new URL(request.url()).pathname === "/api/commercial/stock-insights"
       );
       if (request.method() !== "GET" && !readOnlyPost) return route.abort();
@@ -206,6 +206,40 @@ try {
         const dimensions = await grid.boundingBox();
         const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         const screenshotBytes = await grid.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "talent-kpis") {
+        await page.locator(".page-tabs button").nth(2).click();
+        const strip = page.locator(".talent-kpis:visible");
+        await strip.waitFor({ timeout: 30_000 });
+        assert.equal(await strip.getAttribute("data-react-commercial-module"), mode === "react" ? "talent-kpis" : null);
+        const dimensions = await strip.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await strip.screenshot({ path: screenshot });
+        await strip.locator(".birthday-kpi").click();
+        await page.locator(".birthday-modal").waitFor();
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "size-controls") {
+        await page.locator(".page-tabs button").nth(1).click();
+        const controls = page.locator(".size-distribution-card .size-chart-controls:visible");
+        await controls.waitFor({ timeout: 30_000 });
+        assert.equal(await controls.getAttribute("data-react-commercial-module"), mode === "react" ? "size-controls" : null);
+        const dimensions = await controls.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await controls.screenshot({ path: screenshot });
+        await controls.getByRole("button", { name: "TEXTIL" }).click();
+        await controls.getByRole("button", { name: "STOCK", exact: true }).click();
+        await controls.getByRole("button", { name: "CALZADO" }).click();
+        await controls.getByRole("button", { name: "EUR" }).click();
+        await controls.getByRole("button", { name: "MATRIZ" }).click();
+        await page.locator(".transfer-modal").waitFor();
         if (failures.length) throw new Error(failures.join("\n"));
         pair.push({ mode, dimensions, canvasStats: null, screenshot,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
