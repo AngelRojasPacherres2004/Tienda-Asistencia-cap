@@ -1353,6 +1353,70 @@ export class App implements OnInit {
   readonly sizeControlsModel = computed<Record<string, unknown>>(() => ({
     rubro: this.sizeRubro(), metric: this.sizeMetric(), system: this.shoeSizeSystem(),
   }));
+  readonly sizeCardModel = computed<Record<string, unknown>>(() => {
+    const rubro = this.sizeRubro(); const metric = this.sizeMetric();
+    const loading = !this.stockDetailLoaded() && (!this.sizeDetailLoaded()[rubro] || (metric === 'TRANSFERS' && !this.stockTransfersLoaded()));
+    const coverage = this.sizeChartCoverage(); const noRows = !this.sizeChartRows().length;
+    return {
+      expanded: this.expandedChart() === 'size-distribution', rubro, metric,
+      controls: this.sizeControlsModel(), loading, productCodeLoading: this.productCodeLoading(),
+      textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
+      label: `${this.sizeMetricLabel()} por talla ${rubro.toLowerCase()}`,
+      option: loading ? null : blackChartText(this.sizeDistributionOption()),
+      coverage: { total: this.number(coverage.total), mapped: this.number(coverage.mapped),
+        pending: this.number(coverage.pending), pendingRaw: coverage.pending },
+    };
+  });
+
+  readonly storeValueCardModel = computed<Record<string, unknown>>(() => {
+    const ready = this.stockHierarchyLoaded() || this.stockDetailLoaded();
+    return {
+      ready, expanded: this.expandedChart() === 'store-value-coverage',
+      option: ready ? blackChartText(this.storeValueCoverageOption()) : null,
+      health: this.inventoryHealthSummary(), matrix: this.stockMatrixModel(),
+    };
+  });
+
+  readonly categoryCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'category', view: this.categoryView(),
+    option: blackChartText(this.categoryOption()),
+    rows: this.categorySummary().map(row => ({ name: row.name, net: this.money(row.net, true),
+      share: this.percent(row.share), units: this.number(row.units), topLine: row.topLine, color: row.color })),
+  }));
+
+  onReactCategoryAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('category');
+    else if (type === 'view' && (value === 'RUBRO' || value === 'LINEA')) this.categoryView.set(value);
+  }
+
+  readonly brandCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'brand', option: blackChartText(this.brandOption()),
+    rows: this.brandSummary().map(row => ({ name: row.name, net: this.money(row.net, true),
+      share: this.percent(row.share), units: this.number(row.units) })),
+  }));
+
+  onReactBrandAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('brand');
+  }
+
+  readonly rankingCardModel = computed<Record<string, unknown>>(() => ({
+    countLabel: this.rankingStoreCountLabel(), metrics: this.rankingMetrics(),
+    option: blackChartText(this.rankingOption()),
+  }));
+
+  onReactRankingAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'metric' && (value === 'ROTATION' || value === 'MARKUP' || value === 'TICKET' || value === 'SALE_M2')) this.toggleRankingMetric(value);
+  }
+
+  onReactStoreValueAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('store-value-coverage');
+  }
+
+  onReactSizeCardAction(action: { type: string; value?: string | number }): void {
+    if (action.type === 'expand') this.toggleChartExpansion('size-distribution');
+    else if (action.type === 'retry') this.retryProductCodes();
+    else this.onReactSizeAction(action);
+  }
 
   readonly stockMatrixModel = computed<Record<string, unknown>>(() => ({
     rows: this.inventoryMatrixRows().map(row => ({

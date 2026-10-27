@@ -11,8 +11,13 @@ import CommercialReactBirthdayModal from "./CommercialReactBirthdayModal";
 import CommercialReactGrowthCard from "./CommercialReactGrowthCard";
 import CommercialReactSimpleChartCard from "./CommercialReactSimpleChartCard";
 import CommercialReactTrainingCard from "./CommercialReactTrainingCard";
+import CommercialReactSizeCard from "./CommercialReactSizeCard";
+import CommercialReactStoreValueCard from "./CommercialReactStoreValueCard";
+import CommercialReactCategoryCard from "./CommercialReactCategoryCard";
+import CommercialReactBrandCard from "./CommercialReactBrandCard";
+import CommercialReactRankingCard from "./CommercialReactRankingCard";
 
-const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls, "talent-capacity": CommercialReactTalentCapacity, "stock-matrix": CommercialReactStockMatrix, "birthday-modal": CommercialReactBirthdayModal, "growth-card": CommercialReactGrowthCard, "meta-vs-real-card": CommercialReactSimpleChartCard, "hourly-card": CommercialReactSimpleChartCard, "talent-history-card": CommercialReactSimpleChartCard, "talent-team-card": CommercialReactSimpleChartCard, "talent-area-card": CommercialReactSimpleChartCard, "talent-store-card": CommercialReactSimpleChartCard, "talent-exit-card": CommercialReactSimpleChartCard, "talent-incidents-card": CommercialReactSimpleChartCard, "talent-training-card": CommercialReactTrainingCard };
+const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls, "talent-capacity": CommercialReactTalentCapacity, "stock-matrix": CommercialReactStockMatrix, "birthday-modal": CommercialReactBirthdayModal, "growth-card": CommercialReactGrowthCard, "meta-vs-real-card": CommercialReactSimpleChartCard, "hourly-card": CommercialReactSimpleChartCard, "talent-history-card": CommercialReactSimpleChartCard, "talent-team-card": CommercialReactSimpleChartCard, "talent-area-card": CommercialReactSimpleChartCard, "talent-store-card": CommercialReactSimpleChartCard, "talent-exit-card": CommercialReactSimpleChartCard, "talent-incidents-card": CommercialReactSimpleChartCard, "talent-training-card": CommercialReactTrainingCard, "size-card": CommercialReactSizeCard, "store-value-card": CommercialReactStoreValueCard, "category-card": CommercialReactCategoryCard, "brand-card": CommercialReactBrandCard, "ranking-card": CommercialReactRankingCard };
 
 export function mountReactCommercialModule(host, moduleId, onAction) {
   const root = createRoot(host);
