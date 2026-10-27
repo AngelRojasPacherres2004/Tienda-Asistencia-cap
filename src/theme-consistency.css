@@ -1,0 +1,130 @@
+/* Shared light surfaces for store administration, supervision and audit dialogs. */
+.app-shell.app-light {
+  --surface: #fffdf8;
+  --surface-strong: #fff;
+  --text: #203b56;
+  --muted: #4b5563;
+  --border: #d9dfe3;
+  --line: #d9dfe3;
+  color: var(--text);
+  color-scheme: light;
+}
+
+.app-shell.app-light .sidebar--readable { color: #203b56; background: #fffdf8; border-color: #d9dfe3; }
+.app-light .sidebar--readable nav button,
+.app-light .sidebar--readable .logout-button { color: #41566a; }
+.app-light .sidebar--readable nav button:hover,
+.app-light .sidebar--readable .logout-button:hover { color: #173c65; background: #e8f0f8; }
+.app-light .sidebar--readable nav button.active { color: #fff; background: #245b91; }
+.app-light .sidebar--readable nav button.active svg { color: #fff; }
+.app-light .sidebar--readable .sidebar__footer { border-color: #d9dfe3; }
+.app-light .sidebar--readable .user-chip strong { color: #203b56; }
+.app-light .sidebar--readable .user-chip small { color: #4b5563; }
+.app-light .sidebar--readable .user-chip > span { color: #245b91; background: #e8f0f8; }
+
+.app-light :is(.audit-summary__sections article, .audit-section-results > div, .audit-observation-list aside,
+  .audit-score button, .supervision-metrics article, .supervision-panel, .supervision-toolbar,
+  .supervision-toolbar label, .supervision-toolbar select, .store-main-data dl > div, .store-user-row) {
+  color: #203b56; background: #fffdf8; border-color: #d9dfe3;
+}
+.app-light :is(.supervision-metrics article, .supervision-panel) { box-shadow: 0 8px 26px rgba(36,61,86,.06); }
+.app-light :is(.supervision-panel > header, .audit-observation-list aside) { background: #edf2f7; border-color: #d9dfe3; }
+.app-light :is(.audit-section-results strong, .supervision-metrics strong, .supervision-panel > header h2,
+  .supervision-visit strong, .supervision-finding strong, .supervision-visit h3,
+  .supervision-finding h3, .store-user-row strong) { color: #203b56; }
+.app-light :is(.supervision-metrics small, .supervision-visit small, .supervision-finding small,
+  .supervision-finding p, .store-user-row small, .audit-observation-list article > p,
+  .store-main-data dt, .supervision-finding footer) { color: #4b5563; }
+.app-light .supervision-visit p { color: #245b91; }
+.app-light .supervision-date { color: #245b91; background: #e8f0f8; }
+.app-light .store-main-data dd { color: #203b56; }
+.app-light :is(.supervision-metrics article > span, .supervision-panel > header b, .supervision-panel > header span,
+  .audit-center__metrics svg, .audit-score button b) { color: #245b91; background: #e8f0f8; }
+.app-light .audit-score button.selected,
+.app-light .audit-center__tabs > button.active { color: #fff; background: #245b91; border-color: #245b91; }
+.app-light .audit-score button.selected b { color: #245b91; background: #fff; }
+.app-light .audit-score button:not(.selected):hover { color: #173c65; background: #e8f0f8; border-color: #9db4c9; }
+.app-light .supervision-toolbar input { color: #203b56; color-scheme: light; }
+.app-light .supervision-toolbar input::placeholder { color: #7b8793; }
+.app-light .supervision-toolbar select { color-scheme: light; }
+.app-light .supervision-list > article:hover { background: #edf2f7; border-color: #d9dfe3; }
+.app-light .audit-waiting { color: #8a601a; }
+.app-light .audit-rejected { color: #a3322d; background: #fbeceb; }
+.app-light .audit-center__metrics article.danger :is(svg, strong) { color: #b1433d; }
+.app-light .supervision-observation-table article .button--primary { color: #fff; }
+
+/* Keep readonly controls legible; the browser must use the selected theme too. */
+.app-light :is(input, select, textarea) { color-scheme: light; }
+
+/* Personnel eye-button: every section of the employee file follows the modal theme. */
+.app-light .worker-file-modal .modal__header h2 { color: #173c65; }
+.app-light .worker-file-modal .modal__header p { color: #4b5563; }
+.app-light .worker-file-modal .worker-file section {
+  color: #203b56; background: #fffdf8; border-color: #d9dfe3;
+}
+.app-light .worker-file-modal .worker-file :is(dl > div, .worker-schedule > div, .worker-file__list > div) {
+  color: #203b56; background: #edf2f7; border-color: #d9dfe3;
+}
+.app-light .worker-file-modal .worker-file :is(h3, dd, .worker-file__list strong, .worker-schedule strong) { color: #203b56; }
+.app-light .worker-file-modal .worker-file :is(dt, section > p, .worker-file__list span, .worker-file__list p, .worker-file__list small, .worker-schedule span) { color: #4b5563; }
+.app-light .worker-file-modal :is(.worker-warning-form, .worker-error-form) :is(input, select) {
+  color: #203b56; background: #fff; border-color: #b8cede; color-scheme: light;
+}
+.app-light .worker-file-modal :is(.worker-warning-form, .worker-error-form) input::placeholder { color: #62788c; opacity: 1; }
+.app-light .worker-file-modal :is(.worker-warning-form, .worker-error-form) :is(input, select):focus-visible {
+  outline: 2px solid #245b91; outline-offset: 2px;
+}
+
+/* Period and PDF schedule import controls are also used outside store management. */
+.app-shell.app-light :is(.period-filter-tabs, .schedule-tabs, .pdf-help, .pdf-preview__head) {
+  color: #41566a; background: #edf2f7; border-color: #d9dfe3;
+}
+.app-shell.app-light :is(.period-filter-tabs, .schedule-tabs) button { color: #41566a; }
+.app-shell.app-light :is(.period-filter-tabs, .schedule-tabs) button.active,
+.app-shell.app-light .month-picker button.selected { color: #fff; background: #245b91; border-color: #245b91; }
+.app-shell.app-light :is(.period-filter-tabs, .schedule-tabs) button:not(.active):hover,
+.app-shell.app-light .month-picker button:not(.selected):hover { color: #173c65; background: #e8f0f8; border-color: #9db4c9; }
+.app-shell.app-light .pdf-importer__hero { color: #203b56; background: #fffdf8; border-color: #d9dfe3; }
+.app-shell.app-light .pdf-importer__hero h2 { color: #173c65; }
+.app-shell.app-light :is(.pdf-importer__hero p, .pdf-dropzone small, .pdf-preview__row, .pdf-preview__row div small) { color: #4b5563; }
+.app-shell.app-light :is(.pdf-importer__hero > span, .pdf-dropzone > span, .imported-tasks span) { color: #245b91; background: #e8f0f8; border-color: #c5d6e5; }
+.app-shell.app-light :is(.pdf-importer__hero small, .pdf-help svg) { color: #245b91; }
+.app-shell.app-light :is(.month-picker button, .pdf-dropzone > button) { color: #365570; background: #fff; border-color: #d9dfe3; }
+.app-shell.app-light .pdf-dropzone { color: #41566a; background: #f8fbfd; border-color: #b8cede; }
+.app-shell.app-light .pdf-dropzone:hover,
+.app-shell.app-light .pdf-dropzone.has-file { background: #edf2f7; border-color: #6f99be; }
+.app-shell.app-light :is(.pdf-dropzone strong, .pdf-preview__row > strong, .pdf-preview__row div strong) { color: #203b56; }
+.app-shell.app-light :is(.pdf-preview__row, .pdf-preview__table) { border-color: #d9dfe3; }
+.app-shell.app-light .preview-counts span:last-child { color: #245b91; background: #e8f0f8; }
+
+/* Floating panels keep their normal geometry; only their palette changes. */
+.app-shell.app-light :is(.dashboard-card--expanded, .attendance-matrix-panel--expanded, .personnel-chart-panel--expanded) {
+  color: #203b56; background: #fffdf8; border-color: #b8cede;
+  box-shadow: 0 0 0 100vmax rgba(22,46,70,.45), 0 28px 80px rgba(22,46,70,.18);
+}
+.app-shell.app-light :is(.dashboard-filter-fab.open, .attendance-filter-fab.open) { color: #fff; background: #245b91; }
+.app-shell.app-light :is(.personnel-detail-row, .personnel-detail-empty) { color: #4b5563; border-color: #d9dfe3; }
+.app-shell.app-light .personnel-detail-row strong { color: #203b56; }
+.app-shell.app-light .personnel-detail-row .positive { color: #237c5d; }
+.app-shell.app-light .personnel-detail-row .negative { color: #b1433d; }
+.app-shell.app-light .attendance-report-settings .panel { color: #203b56; background: #fffdf8; border-color: #d9dfe3; }
+
+/* Hourly traffic is blue in the light palette; heat intensity still uses --heat. */
+.app-shell.app-light .traffic-matrix-card { color: #203b56; background: #fffdf8; border-color: #d9dfe3; }
+.app-shell.app-light :is(.traffic-matrix-grid, .traffic-matrix-date) { background: #f8fbfd; }
+.app-shell.app-light :is(.traffic-matrix-corner, .traffic-matrix-hour) { color: #365570; background: #edf2f7; }
+.app-shell.app-light .traffic-matrix-date strong { color: #203b56; }
+.app-shell.app-light :is(.traffic-matrix-date small, .traffic-matrix-legend) { color: #4b5563; }
+.app-shell.app-light .traffic-matrix-cell { color: #62788c; background: rgba(36,91,145,calc(.03 + var(--heat) * .4)); }
+.app-shell.app-light .traffic-matrix-cell.has-value { color: #173c65; }
+.app-shell.app-light .traffic-matrix-cell:hover { outline-color: #245b91; }
+.app-shell.app-light .traffic-matrix-total { color: #173c65; background: #e8f0f8; }
+.app-shell.app-light .traffic-matrix-legend-ranges i { background: rgba(36,91,145,calc(.03 + var(--legend-heat) * .4)); }
+.app-shell.app-light .traffic-matrix-actions :is(select, button) { color: #365570; background: #fff; border-color: #d9dfe3; }
+
+/* The base chart tooltip has !important declarations, so its theme override must too. */
+.app-shell.app-light .recharts-default-tooltip {
+  color: #203b56 !important; background: #fffdf8 !important; border-color: #d9dfe3 !important;
+  box-shadow: 0 8px 26px rgba(36,61,86,.12) !important;
+}
+.app-shell.app-light .recharts-tooltip-label { color: #203b56 !important; }

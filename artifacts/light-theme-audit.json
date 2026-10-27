@@ -1,0 +1,513 @@
+{
+  "source": "rendered component style fixtures, no account data",
+  "before": [
+    {
+      "selector": ".sidebar",
+      "background": "rgb(17, 25, 35)",
+      "image": "none",
+      "color": "rgb(246, 242, 232)"
+    },
+    {
+      "selector": ".audit-score button:not(.selected)",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(158, 150, 138)"
+    },
+    {
+      "selector": ".audit-summary__sections article",
+      "background": "rgb(21, 21, 23)",
+      "image": "none",
+      "color": "rgb(23, 23, 23)"
+    },
+    {
+      "selector": ".audit-section-results > div",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(23, 23, 23)"
+    },
+    {
+      "selector": ".audit-observation-list aside",
+      "background": "rgb(240, 238, 230)",
+      "image": "none",
+      "color": "rgb(23, 23, 23)"
+    },
+    {
+      "selector": ".supervision-metrics article",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgb(23, 23, 25), rgb(18, 18, 20))",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".supervision-toolbar",
+      "background": "rgb(18, 18, 20)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".supervision-toolbar select",
+      "background": "rgb(14, 14, 16)",
+      "image": "none",
+      "color": "rgb(197, 187, 170)"
+    },
+    {
+      "selector": ".supervision-panel",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgb(23, 23, 25), rgb(18, 18, 20))",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".store-main-data dl > div",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".store-user-row",
+      "background": "rgb(247, 250, 252)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".schedule-tabs",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".period-filter-tabs",
+      "background": "rgb(13, 13, 15)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".pdf-importer__hero",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "radial-gradient(circle at 90% 10%, rgba(205, 169, 95, 0.15), rgba(0, 0, 0, 0) 30%), linear-gradient(135deg, rgb(23, 22, 23), rgb(16, 16, 17))",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".month-picker button:not(.selected)",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(143, 135, 123)"
+    },
+    {
+      "selector": ".pdf-dropzone",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".pdf-dropzone > button",
+      "background": "rgb(23, 23, 25)",
+      "image": "none",
+      "color": "rgb(163, 153, 138)"
+    },
+    {
+      "selector": ".pdf-help",
+      "background": "rgb(27, 25, 22)",
+      "image": "none",
+      "color": "rgb(164, 154, 140)"
+    },
+    {
+      "selector": ".pdf-preview__head",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(143, 135, 123)"
+    },
+    {
+      "selector": ".traffic-matrix-card",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgba(25, 25, 27, 0.98), rgba(15, 15, 16, 0.98))",
+      "color": "rgb(245, 241, 233)"
+    },
+    {
+      "selector": ".traffic-matrix-grid",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(245, 241, 233)"
+    },
+    {
+      "selector": ".traffic-matrix-date",
+      "background": "rgb(23, 23, 25)",
+      "image": "none",
+      "color": "rgb(245, 241, 233)"
+    },
+    {
+      "selector": ".traffic-matrix-hour",
+      "background": "rgb(28, 27, 27)",
+      "image": "none",
+      "color": "rgb(169, 161, 150)"
+    },
+    {
+      "selector": ".recharts-default-tooltip",
+      "background": "rgb(23, 23, 25)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".attendance-report-settings .panel",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".dashboard-card--expanded",
+      "background": "rgb(21, 21, 22)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".attendance-matrix-panel--expanded",
+      "background": "rgb(21, 21, 22)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".personnel-chart-panel--expanded",
+      "background": "rgb(21, 21, 22)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    }
+  ],
+  "after": [
+    {
+      "selector": ".sidebar",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".audit-score button:not(.selected)",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".audit-summary__sections article",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".audit-section-results > div",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".audit-observation-list aside",
+      "background": "rgb(240, 238, 230)",
+      "image": "none",
+      "color": "rgb(23, 23, 23)"
+    },
+    {
+      "selector": ".supervision-metrics article",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".supervision-toolbar",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".supervision-toolbar select",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".supervision-panel",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".store-main-data dl > div",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".store-user-row",
+      "background": "rgb(247, 250, 252)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".schedule-tabs",
+      "background": "rgb(237, 242, 247)",
+      "image": "none",
+      "color": "rgb(65, 86, 106)"
+    },
+    {
+      "selector": ".period-filter-tabs",
+      "background": "rgb(237, 242, 247)",
+      "image": "none",
+      "color": "rgb(65, 86, 106)"
+    },
+    {
+      "selector": ".pdf-importer__hero",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".month-picker button:not(.selected)",
+      "background": "rgb(255, 255, 255)",
+      "image": "none",
+      "color": "rgb(54, 85, 112)"
+    },
+    {
+      "selector": ".pdf-dropzone",
+      "background": "rgba(248, 251, 253, 0.07)",
+      "image": "none",
+      "color": "rgb(5, 6, 8)"
+    },
+    {
+      "selector": ".pdf-dropzone > button",
+      "background": "rgb(255, 255, 255)",
+      "image": "none",
+      "color": "rgb(54, 85, 112)"
+    },
+    {
+      "selector": ".pdf-help",
+      "background": "rgb(237, 242, 247)",
+      "image": "none",
+      "color": "rgb(65, 86, 106)"
+    },
+    {
+      "selector": ".pdf-preview__head",
+      "background": "rgb(237, 242, 247)",
+      "image": "none",
+      "color": "rgb(65, 86, 106)"
+    },
+    {
+      "selector": ".traffic-matrix-card",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".traffic-matrix-grid",
+      "background": "rgb(248, 251, 253)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".traffic-matrix-date",
+      "background": "rgb(248, 251, 253)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".traffic-matrix-hour",
+      "background": "rgb(237, 242, 247)",
+      "image": "none",
+      "color": "rgb(54, 85, 112)"
+    },
+    {
+      "selector": ".recharts-default-tooltip",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".attendance-report-settings .panel",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".dashboard-card--expanded",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".attendance-matrix-panel--expanded",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    },
+    {
+      "selector": ".personnel-chart-panel--expanded",
+      "background": "rgb(255, 253, 248)",
+      "image": "none",
+      "color": "rgb(32, 59, 86)"
+    }
+  ],
+  "dark": [
+    {
+      "selector": ".sidebar",
+      "background": "rgb(17, 25, 35)",
+      "image": "none",
+      "color": "rgb(246, 242, 232)"
+    },
+    {
+      "selector": ".audit-score button:not(.selected)",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(158, 150, 138)"
+    },
+    {
+      "selector": ".audit-summary__sections article",
+      "background": "rgb(21, 21, 23)",
+      "image": "none",
+      "color": "rgb(238, 233, 223)"
+    },
+    {
+      "selector": ".audit-section-results > div",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(238, 233, 223)"
+    },
+    {
+      "selector": ".audit-observation-list aside",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(183, 173, 158)"
+    },
+    {
+      "selector": ".supervision-metrics article",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgb(23, 23, 25), rgb(18, 18, 20))",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".supervision-toolbar",
+      "background": "rgb(18, 18, 20)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".supervision-toolbar select",
+      "background": "rgb(14, 14, 16)",
+      "image": "none",
+      "color": "rgb(197, 187, 170)"
+    },
+    {
+      "selector": ".supervision-panel",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgb(23, 23, 25), rgb(18, 18, 20))",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".store-main-data dl > div",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".store-user-row",
+      "background": "rgb(247, 250, 252)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".schedule-tabs",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".period-filter-tabs",
+      "background": "rgb(13, 13, 15)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".pdf-importer__hero",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "radial-gradient(circle at 90% 10%, rgba(205, 169, 95, 0.15), rgba(0, 0, 0, 0) 30%), linear-gradient(135deg, rgb(23, 22, 23), rgb(16, 16, 17))",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".month-picker button:not(.selected)",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(143, 135, 123)"
+    },
+    {
+      "selector": ".pdf-dropzone",
+      "background": "rgb(248, 251, 253)",
+      "image": "none",
+      "color": "rgb(65, 86, 106)"
+    },
+    {
+      "selector": ".pdf-dropzone > button",
+      "background": "rgb(23, 23, 25)",
+      "image": "none",
+      "color": "rgb(163, 153, 138)"
+    },
+    {
+      "selector": ".pdf-help",
+      "background": "rgb(27, 25, 22)",
+      "image": "none",
+      "color": "rgb(164, 154, 140)"
+    },
+    {
+      "selector": ".pdf-preview__head",
+      "background": "rgb(16, 16, 18)",
+      "image": "none",
+      "color": "rgb(143, 135, 123)"
+    },
+    {
+      "selector": ".traffic-matrix-card",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgba(25, 25, 27, 0.98), rgba(15, 15, 16, 0.98))",
+      "color": "rgb(245, 241, 233)"
+    },
+    {
+      "selector": ".traffic-matrix-grid",
+      "background": "rgb(17, 17, 19)",
+      "image": "none",
+      "color": "rgb(245, 241, 233)"
+    },
+    {
+      "selector": ".traffic-matrix-date",
+      "background": "rgb(23, 23, 25)",
+      "image": "none",
+      "color": "rgb(245, 241, 233)"
+    },
+    {
+      "selector": ".traffic-matrix-hour",
+      "background": "rgb(28, 27, 27)",
+      "image": "none",
+      "color": "rgb(169, 161, 150)"
+    },
+    {
+      "selector": ".recharts-default-tooltip",
+      "background": "rgb(23, 23, 25)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".attendance-report-settings .panel",
+      "background": "rgba(0, 0, 0, 0)",
+      "image": "linear-gradient(145deg, rgb(22, 22, 24), rgb(18, 18, 20))",
+      "color": "rgb(238, 233, 223)"
+    },
+    {
+      "selector": ".dashboard-card--expanded",
+      "background": "rgb(21, 21, 22)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".attendance-matrix-panel--expanded",
+      "background": "rgb(21, 21, 22)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "selector": ".personnel-chart-panel--expanded",
+      "background": "rgb(21, 21, 22)",
+      "image": "none",
+      "color": "rgb(0, 0, 0)"
+    }
+  ]
+}
