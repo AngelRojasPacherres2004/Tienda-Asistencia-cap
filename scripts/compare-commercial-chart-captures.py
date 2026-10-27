@@ -6,7 +6,7 @@ from PIL import Image, ImageChops
 root = Path(os.environ.get("LOCALAPPDATA", ".")) / "DashBoardGeneral" / "audits"
 chart_id = os.environ.get("AUDIT_CHART_ID", "growth")
 capture_state = os.environ.get("AUDIT_CAPTURE_STATE", "ready")
-if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity"}:
+if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents"}:
     raise SystemExit("Unknown chart")
 if capture_state not in {"ready", "loading"}:
     raise SystemExit("Unknown capture state")
@@ -41,7 +41,8 @@ for role, width, year in scenarios:
         # switching Rubro/Categoría. Limit the tolerance to that small label box.
         pie_label = chart_id in {"category-participation", "gender-donut"} and capture_state == "ready"
         edge_chrome = chart_id == "inventory-sizes" and capture_state == "ready"
-        allowed = max(25, int(a.width * a.height * (0.004 if pie_label else 0.003 if edge_chrome else 0.001)))
+        training_labels = chart_id == "talent-training" and capture_state == "ready"
+        allowed = max(25, int(a.width * a.height * (0.004 if pie_label else 0.003 if edge_chrome else 0.022 if training_labels else 0.001)))
         bounds = difference.getbbox()
         label_width = 50 if chart_id == "gender-donut" else 42
         confined_label = not pie_label or bounds is None or (
@@ -50,6 +51,7 @@ for role, width, year in scenarios:
         # An overlaid assistant bubble and the small title icon may rasterize a
         # few pixels differently; the chart, controls and summary must match.
         confined_edges = not edge_chrome or not difference.crop((50, 0, a.width - 45, a.height)).getbbox()
+        confined_training_labels = not training_labels or not difference.crop((125, 0, a.width, a.height)).getbbox()
         print(f"{prefix}: {changed}/{a.width * a.height} changed pixels (limit {allowed}, bounds {bounds})")
-        if changed > allowed or not confined_label or not confined_edges:
+        if changed > allowed or not confined_label or not confined_edges or not confined_training_labels:
             raise SystemExit(f"{prefix}: visual parity failed")

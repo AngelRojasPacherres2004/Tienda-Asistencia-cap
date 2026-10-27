@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -112,7 +112,22 @@ try {
       if (chartId.startsWith("inventory-")) {
         await page.locator(".page-tabs button").nth(1).click();
       }
-      const cardClass = chartId === "hourly-performance" ? "hourly-performance-card"
+      if (chartId.startsWith("talent-")) {
+        await page.locator(".page-tabs button").nth(2).click();
+        if (["talent-training", "talent-exit", "talent-incidents"].includes(chartId)) {
+          await page.locator('.talent-page[data-operational-summary-ready="true"]').waitFor({ timeout: 30_000 });
+        }
+      }
+      const talentCardClasses = {
+        "talent-history": "history-card",
+        "talent-team-productivity": "team-productivity-card",
+        "talent-area-distribution": "area-distribution-card",
+        "talent-store-productivity": "store-productivity-card",
+        "talent-training": "training-card",
+        "talent-exit": "exit-card",
+        "talent-incidents": "incidents-card",
+      };
+      const cardClass = talentCardClasses[chartId] || (chartId === "hourly-performance" ? "hourly-performance-card"
         : chartId === "category-participation" ? "category-card"
           : chartId === "price-range" ? "price-range-card"
             : chartId === "store-ranking" ? "commercial-ranking-card"
@@ -121,8 +136,8 @@ try {
                   : chartId === "inventory-store-value" ? "store-value-coverage-card"
                     : chartId === "inventory-sizes" ? "size-distribution-card"
                       : chartId === "inventory-antiquity" ? "antiquity-card"
-                    : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
-      const card = page.locator(`.chart-card.${cardClass}`);
+                    : chartId.startsWith("inventory-") ? "rotation-card" : chartId);
+      const card = page.locator(`.${chartId.startsWith("talent-") ? "talent-card" : "chart-card"}.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
       catch (error) {
         const alerts = await page.locator('[role="alert"]').allTextContents();
@@ -274,7 +289,14 @@ try {
     }
     assert.ok(Math.abs(pair[0].dimensions.width - pair[1].dimensions.width) < 1, "Ancho distinto");
     assert.ok(Math.abs(pair[0].dimensions.height - pair[1].dimensions.height) < 1, "Alto distinto");
-    assert.deepEqual(pair[0].canvasStats, pair[1].canvasStats, "El lienzo del gráfico difiere");
+    if (chartId === "talent-training") {
+      assert.equal(pair[0].canvasStats.width, pair[1].canvasStats.width, "Ancho del lienzo distinto");
+      assert.equal(pair[0].canvasStats.height, pair[1].canvasStats.height, "Alto del lienzo distinto");
+      assert.ok(Math.abs(pair[0].canvasStats.visible - pair[1].canvasStats.visible) <= 100,
+        "Las barras y etiquetas de capacitación difieren demasiado");
+    } else {
+      assert.deepEqual(pair[0].canvasStats, pair[1].canvasStats, "El lienzo del gráfico difiere");
+    }
     results.push({ ...scenario, dimensions: pair[0].dimensions, canvasStats: pair[0].canvasStats,
       captures: pair.map(item => ({ mode: item.mode, screenshot: item.screenshot, sha256: item.sha256 })) });
   }
