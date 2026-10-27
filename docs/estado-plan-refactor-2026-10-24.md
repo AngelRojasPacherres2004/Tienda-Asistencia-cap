@@ -208,11 +208,11 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- Se añadió un puente React/ECharts para doce gráficas: Tendencia interanual,
+- Se añadió un puente React/ECharts para trece gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
   categoría, Rango de precios vendidos, Ranking tiendas, Venta por marca y
   los dos gráficos de Participación género, Rotación de inventario, Capacidad
-  y Valor de inventario por tienda.
+  Valor de inventario por tienda y Venta, stock y traslados por talla.
   Reciben la misma opción ECharts y los
   mismos filtros que Angular; las tarjetas, sus controles y los demás paneles
   continúan en Angular.
@@ -224,7 +224,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `?reactChart=store-ranking`, `?reactChart=brand-sales`,
   `?reactChart=gender-donut`, `?reactChart=gender-bar`,
   `?reactChart=inventory-rotation`, `?reactChart=inventory-capacity` o
-  `?reactChart=inventory-store-value`.
+  `?reactChart=inventory-store-value` o `?reactChart=inventory-sizes`.
 - `scripts/audit-commercial-react-pilot.mjs` comparó Angular y React para
   gerencia comercial, jefatura zonal y jefatura de tienda, a 1440/820 px y
   en 2026/2025. Tendencia, Meta vs real, Desempeño por hora y la vista Rubro
@@ -264,11 +264,20 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   normal y la vista ampliada con matriz, seis escenarios cada una. Antes de
   completar la carga, los colores y la cobertura podían cambiar entre una
   lectura y otra; ahora se espera al agregado de stock para mostrar ambos.
+- La gráfica de tallas de CALZADO pasó una comprobación local de gerente
+  comercial con 2026 y 1440 px, usando 24,934 píxeles visibles en el mismo
+  lienzo de 512 × 302 px. El detalle TEXTIL del corte actual contiene 37,582
+  SKU del rubro pero cero tallas mapeadas; el estado vacío lo indica
+  explícitamente y conserva la opción de reintentar si falló la consulta de
+  códigos. En una comprobación de TEXTIL/STOCK con ese mismo rol y ancho,
+  Angular y React tuvieron cero píxeles distintos en la tarjeta. La importación
+  de tallas textiles reales sigue pendiente de datos
+  con la codificación descrita por el negocio.
 - La respuesta de metas retenida artificialmente mostró el mismo estado
   “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
-- Quedan por migrar 20 de las 32 instancias de gráfico y la interfaz
+- Quedan por migrar 19 de las 32 instancias de gráfico y la interfaz
   Angular que coordina filtros, secciones y controles. No se ha activado ningún
   flag en Netlify ni se ha retirado Angular.
 

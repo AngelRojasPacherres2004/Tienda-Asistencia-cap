@@ -1,13 +1,13 @@
 import { AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, OnChanges, OnDestroy, SimpleChanges, ViewChild } from '@angular/core';
 import { BarChart, LineChart, PieChart } from 'echarts/charts';
-import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from 'echarts/components';
+import { DataZoomComponent, GraphicComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from 'echarts/components';
 import { init, use } from 'echarts/core';
 import type { ECharts, EChartsOption } from 'echarts';
 import { CanvasRenderer } from 'echarts/renderers';
 import { viewportTooltipPosition } from './tooltip-position';
 import { readRuntimeConfig, type ReactChartBridge } from './runtime-config';
 
-use([BarChart, LineChart, PieChart, DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, CanvasRenderer]);
+use([BarChart, LineChart, PieChart, DataZoomComponent, GraphicComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, CanvasRenderer]);
 
 function blackChartText<T>(value: T): T {
   const visit = (node: unknown, key = ''): unknown => {

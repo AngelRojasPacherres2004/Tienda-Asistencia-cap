@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
-import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from "echarts/components";
+import { DataZoomComponent, GraphicComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from "echarts/components";
 import { init, use as registerCharts } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
-registerCharts([BarChart, LineChart, PieChart, DataZoomComponent, GridComponent,
+registerCharts([BarChart, LineChart, PieChart, DataZoomComponent, GraphicComponent, GridComponent,
   LegendComponent, MarkLineComponent, TooltipComponent, CanvasRenderer]);
 
 export default function CommercialReactChart({ chartId, label, onClick, option }) {
