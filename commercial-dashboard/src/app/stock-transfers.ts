@@ -2,7 +2,8 @@ export type TransferProduct = {
   productId: string; productCode?: string; product: string; storeId: string; category: string; line: string; brand?: string;
   stockUnits: number; goodUnits?: number; units30: number;
 };
-export function stockTransfers(rows: TransferProduct[], healthyDays = 30, excessDays = 90) {
+/** With allocate=false, routes are independent alternatives, never an additive dispatch plan. */
+export function stockTransfers(rows: TransferProduct[], healthyDays = 30, excessDays = 90, allocate = true) {
   const products = new Map<string, Map<string, TransferProduct>>();
   for (const row of rows) {
     if (!row.productId.trim()) continue;
@@ -36,7 +37,7 @@ export function stockTransfers(rows: TransferProduct[], healthyDays = 30, excess
       for (const donor of donors) {
         if (donor.row.storeId === receiver.row.storeId || donor.available <= 0 || receiver.need <= 0) continue;
         const suggested = Math.min(donor.available, receiver.need);
-        donor.available -= suggested; receiver.need -= suggested;
+        if (allocate) { donor.available -= suggested; receiver.need -= suggested; }
         result.push({ productId, productCode: donor.row.productCode || receiver.row.productCode,
           product: donor.row.product, category: donor.row.category, line: donor.row.line, brand: donor.row.brand || '',
           source: donor.row.storeId, destination: receiver.row.storeId, sourceStock: donor.stock, destinationStock: receiver.stock,

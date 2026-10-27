@@ -40,44 +40,99 @@
     @if (expandedChart() === 'stock-transfers') {
       <section class="card chart-card chart-expanded ticket-modal transfer-modal" role="dialog" aria-modal="true" aria-labelledby="transfer-title" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
         <button type="button" class="chart-expand" aria-label="Cerrar oportunidades de traslado" (click)="closeExpandedChart()">×</button>
-        <h2 id="transfer-title">SOBRESTOCK Y QUIEBRE · TRASLADOS ENTRE TIENDAS</h2>
+        <h2 id="transfer-title">{{ transferSizeMode() ? 'VENTA, STOCK Y TRASLADOS POR TALLA' : 'SOBRESTOCK Y QUIEBRE · TRASLADOS ENTRE TIENDAS' }}</h2>
+        @if (transferSizeMode()) {
+          <div class="size-chart-controls size-matrix-navigation">
+            <div class="size-view-switch" role="group" aria-label="Vista de tallas">
+              <button type="button" [attr.aria-pressed]="false" (click)="openSizeChart()">GRÁFICO</button>
+              <button type="button" class="active" [attr.aria-pressed]="true">MATRIZ</button>
+            </div>
+          </div>
+        }
         <div class="transfer-intro">
-          <p>Encuentra productos con exceso de stock y tiendas que necesitan reposición.</p>
           <div class="transfer-inline-totals" aria-live="polite" aria-atomic="true">
             <span>Stock total: <strong>{{ stockDetailLoaded() || stockTransfersLoaded() ? number(transferSummary().stockUnits) : '—' }} und</strong></span>
             <span>Ventas totales · 30 días: <strong>{{ stockDetailLoaded() || stockTransfersLoaded() ? number(transferSummary().salesUnits) : '—' }} und</strong></span>
           </div>
         </div>
-        <div class="transfer-filters">
-          <label>Rubro <select [ngModel]="transferRubro()" (ngModelChange)="transferRubro.set($event); transferLine.set(''); transferBrand.set(''); transferPage.set(0)"><option value="">Todos los rubros</option>@for (rubro of transferRubros(); track rubro) { <option [value]="rubro">{{ rubro }}</option> }</select></label>
-          <label>Línea <select [ngModel]="transferLine()" (ngModelChange)="transferLine.set($event); transferBrand.set(''); transferPage.set(0)"><option value="">Todas las líneas</option>@for (line of transferLines(); track line) { <option [value]="line">{{ line }}</option> }</select></label>
-          <label>Marca <select [ngModel]="transferBrand()" (ngModelChange)="transferBrand.set($event); transferPage.set(0)"><option value="">Todas las marcas</option>@for (brand of transferBrands(); track brand) { <option [value]="brand">{{ brand }}</option> }</select></label>
+        <div class="transfer-workspace">
+        <aside class="transfer-filters" aria-label="Filtros de traslados">
+          <div class="transfer-filter-heading"><strong>Filtros</strong></div>
+          <label>Rubro <select [ngModel]="transferRubro()" (ngModelChange)="transferRubro.set($event); transferLine.set(''); transferBrand.set(''); transferSize.set(''); transferPage.set(0)"><option value="">Selecciona un rubro</option>@for (rubro of transferRubros(); track rubro) { <option [value]="rubro">{{ rubro }}</option> }</select></label>
+          @if (transferRubro() === 'CALZADO' || transferRubro() === 'TEXTIL') {
+            @if (transferRubro() === 'CALZADO') {
+              <label>Sistema de talla <select [ngModel]="transferSizeSystem()" (ngModelChange)="transferSizeSystem.set($event); transferSize.set(''); transferPage.set(0)"><option value="USA">USA</option><option value="EUR">EUR</option></select></label>
+            }
+            <label>Talla <select [ngModel]="transferSize()" (ngModelChange)="transferSize.set($event); transferExpandedRow.set(''); transferPage.set(0)"><option value="">Todas las tallas</option>@for (size of transferSizes(); track size) { <option [value]="size">{{ size }}</option> }</select></label>
+          }
+          <label>Línea <select [ngModel]="transferLine()" (ngModelChange)="transferLine.set($event); transferBrand.set(''); transferSize.set(''); transferPage.set(0)"><option value="">Todas las líneas</option>@for (line of transferLines(); track line) { <option [value]="line">{{ line }}</option> }</select></label>
+          <label>Marca <select [ngModel]="transferBrand()" (ngModelChange)="transferBrand.set($event); transferSize.set(''); transferPage.set(0)"><option value="">Todas las marcas</option>@for (brand of transferBrands(); track brand) { <option [value]="brand">{{ brand }}</option> }</select></label>
           <label>Tienda · origen o destino <select [ngModel]="transferStore()" (ngModelChange)="transferStore.set($event); transferPage.set(0)"><option value="">Todas las tiendas</option>@for (store of transferStores(); track store.storeId) { <option [value]="store.storeId">{{ store.alias || store.store }} · {{ store.store }}</option> }</select></label>
           <label>Prioridad <select [ngModel]="transferPriority()" (ngModelChange)="transferPriority.set($event); transferPage.set(0)"><option value="">Todas</option><option value="CRITICAL">Crítico</option><option value="ALERT">Alerta</option></select></label>
           <label class="transfer-search">Buscar producto <input type="search" placeholder="Código o nombre" [ngModel]="transferSearch()" (ngModelChange)="transferSearch.set($event); transferPage.set(0)" /></label>
           <button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button>
-        </div>
+        </aside>
+        <div class="transfer-results">
         <div class="transfer-context">
           @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei. <button type="button" class="transfer-reset" (click)="retryProductCodes()">Reintentar códigos</button></p> }
           <p>Stock: {{ formatDate(data()!.metadata.stockCutoff) }} · Ventas 30D: {{ formatDate(data()!.metadata.salesCutoff) }}</p>
-          <div class="transfer-rules"><span>Exceso: &gt;90 días o sin ventas</span><span>Falta: &lt;30 días</span><span>Crítico: ≤15 días</span></div>
-          <p class="transfer-totals-note">Totales de las oportunidades filtradas, sin repetir productos por tienda.@if (transferStore()) { Solo se suman las unidades de la tienda seleccionada. }</p>
         </div>
-        @if (stockDetailFailed() && !stockTransfersLoaded()) { <p role="alert">No se pudo cargar el detalle de productos.</p> } @else if (!stockDetailLoaded() && !stockTransfersLoaded()) { <p role="status">Cargando oportunidades de traslado…</p> } @else if (!transferRecommendations().length) {
-          <div class="transfer-empty" role="status"><strong>No hay oportunidades para estos filtros</strong><p>Prueba con otra tienda, marca o prioridad. Solo se comparan productos y tiendas con datos registrados.</p><button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button></div>
+        @if (!transferRubro()) {
+          <div class="transfer-empty" role="status"><strong>Selecciona un rubro</strong></div>
+        } @else if (transferBusy()) {
+          <div class="transfer-empty" role="status" aria-live="polite"><span class="loader"></span><strong>Calculando destinos...</strong></div>
+        } @else if (transferCalculationError()) {
+          <div class="transfer-empty" role="alert"><strong>{{ transferCalculationError() }}</strong></div>
+        } @else if (stockDetailFailed() && !stockTransfersLoaded()) { <p role="alert">No se pudo cargar el detalle de productos.</p> } @else if (!stockDetailLoaded() && !stockTransfersLoaded()) { <p role="status">Cargando oportunidades de traslado…</p> } @else if (!transferRecommendations().length) {
+          <div class="transfer-empty" role="status"><strong>Sin resultados</strong><button type="button" class="transfer-reset" (click)="resetTransferFilters()">Limpiar filtros</button></div>
         } @else {
           <div class="transfer-pagination" aria-label="Paginación de oportunidades">
-            <p aria-live="polite"><strong>{{ number(transferRecommendations().length) }} oportunidades</strong><span>Mostrando {{ transferCurrentPage() * transferPageSize + 1 }}–{{ Math.min((transferCurrentPage() + 1) * transferPageSize, transferRecommendations().length) }}</span></p>
+            <p aria-live="polite"><strong>{{ number(transferMatrixRows().length) }} productos / origen · {{ number(transferRecommendations().length) }} rutas posibles</strong><span>Mostrando {{ transferCurrentPage() * transferPageSize + 1 }}–{{ Math.min((transferCurrentPage() + 1) * transferPageSize, transferMatrixRows().length) }}</span></p>
             <div><span>Página {{ transferCurrentPage() + 1 }} de {{ transferPageCount() }}</span>
             <button type="button" [disabled]="transferCurrentPage() === 0" (click)="transferPage.set(transferCurrentPage() - 1)">Anterior</button>
             <button type="button" [disabled]="transferCurrentPage() + 1 >= transferPageCount()" (click)="transferPage.set(transferCurrentPage() + 1)">Siguiente</button></div>
           </div>
-          <div class="transfer-chart-legend" aria-label="Colores del gráfico"><span><i class="origin"></i>Stock origen</span><span><i class="destination"></i>Stock destino</span><span><i class="suggestion"></i>Traslado sugerido</span></div>
-          <div class="transfer-list" tabindex="0" role="region" aria-label="Listado de barras de oportunidades de traslado">
-            <dashboard-chart class="transfer-bars" [viewportTooltip]="true" [style.height.px]="transferPageRows().length * 110 + 70" [option]="transferChartOption()" label="Barras de stock origen, stock destino y traslado sugerido por producto y ruta" />
+          <div class="transfer-list" tabindex="0" role="region" aria-label="Destinos recomendados y comparación de tiendas">
+            <table class="transfer-matrix">
+              <thead><tr><th scope="col">Producto</th><th scope="col">Origen</th><th scope="col">Destino recomendado</th><th scope="col">Cantidad</th><th scope="col">Comparar</th></tr></thead>
+              <tbody>@for (row of transferPageRows(); track row.key) {
+                <tr class="transfer-product-row" [class.is-open]="transferExpandedRow() === row.key" (click)="toggleTransferRow(row.key)">
+                  <th scope="row" class="transfer-product" [title]="'Código: ' + (row.origin.productCode || 'No disponible') + '\n' + row.origin.brand + ' / ' + row.origin.category"><strong>{{ row.origin.product }}</strong>@if (row.origin.category === 'CALZADO' || row.origin.category === 'TEXTIL') { <span class="transfer-size-inline">Talla {{ transferSizeLabel(row.origin) }}</span> }</th>
+                  <td><strong>{{ row.origin.sourceName }}</strong>
+                    <dl class="transfer-store-metrics" aria-label="Datos de la tienda origen">
+                      <div><dt>Stock vendible</dt><dd>{{ number(row.origin.sourceStock) }} und</dd></div>
+                      <div><dt>Venta 30 días</dt><dd>{{ number(row.origin.sourceSales) }} und</dd></div>
+                      <div><dt>Cobertura</dt><dd>{{ row.origin.sourceDays == null ? 'Sin ventas' : number(row.origin.sourceDays) + ' días' }}</dd></div>
+                    </dl>
+                  </td>
+                  <td><button type="button" class="transfer-best-trigger" [title]="transferRouteDescription(row.best)" [attr.aria-label]="transferRouteDescription(row.best)" (click)="$event.stopPropagation(); toggleTransferRow(row.key)"><span class="transfer-best-dot" aria-hidden="true"></span>{{ row.best.destinationName }}<span class="transfer-info" aria-hidden="true">i</span></button>
+                    <dl class="transfer-store-metrics" aria-label="Datos de la tienda destino recomendada">
+                      <div><dt>Stock vendible</dt><dd>{{ number(row.best.destinationStock) }} und</dd></div>
+                      <div><dt>Venta 30 días</dt><dd>{{ number(row.best.destinationSales) }} und</dd></div>
+                      <div><dt>Cobertura</dt><dd>{{ number(row.best.destinationDays) }} días</dd></div>
+                    </dl>
+                  </td>
+                  <td><strong class="transfer-quantity">{{ number(row.best.suggested) }} <small>und</small></strong></td>
+                  <td><button type="button" class="transfer-compare" [attr.aria-expanded]="transferExpandedRow() === row.key" [attr.aria-controls]="'transfer-detail-' + $index" (click)="$event.stopPropagation(); toggleTransferRow(row.key)"><span>{{ transferExpandedRow() === row.key ? 'Cerrar' : 'Ver opciones' }}</span><span class="transfer-option-count">{{ row.options.length }}</span><span aria-hidden="true">{{ transferExpandedRow() === row.key ? '−' : '+' }}</span></button></td>
+                </tr>
+                @if (transferExpandedRow() === row.key) {
+                  <tr class="transfer-detail-row" [id]="'transfer-detail-' + $index"><td colspan="5">
+                    <div class="transfer-comparison-header"><div><strong>Otros destinos</strong></div><span>{{ row.origin.sourceName }} → {{ row.options.length }} opciones</span></div>
+                    <div class="transfer-comparison-scroll"><table class="transfer-comparison"><thead><tr><th scope="col">Tienda destino</th><th scope="col">Stock vendible</th><th scope="col">Ventas 30D</th><th scope="col">Cobertura</th><th scope="col">Prioridad</th><th scope="col">Traslado posible</th></tr></thead><tbody>
+                      @for (route of row.options; track route.destination) {
+                        <tr [class.is-best]="route.destination === row.best.destination"><th scope="row">{{ route.destinationName }} @if (route.destination === row.best.destination) { <span class="transfer-best-label">MEJOR OPCIÓN</span> }</th><td>{{ number(route.destinationStock) }} und</td><td>{{ number(route.destinationSales) }} und</td><td>{{ number(route.destinationDays) }} días</td><td><span class="transfer-priority" [class.is-critical]="route.critical">{{ route.critical ? 'Crítico' : 'Alerta' }}</span></td><td><strong>Hasta {{ number(route.suggested) }} und</strong></td></tr>
+                      }
+                    </tbody></table></div>
+                    <p class="transfer-comparison-note">Las cantidades son alternativas; no se suman.</p>
+                  </td></tr>
+                }
+              }</tbody>
+            </table>
           </div>
         }
-        <p class="transfer-footnote">Pasa el cursor por las barras para ver ventas y cobertura. Valida tallas y existencias antes de trasladar.@if (transferHasEstimates()) { En productos sin desglose de estado, el stock vendible se estima al 82%. }</p>
+        @if (transferHasEstimates()) { <p class="transfer-footnote">Stock vendible estimado al 82% cuando no hay desglose de estado.</p> }
+        </div>
+        </div>
       </section>
     }
     @if (expandedChart() === 'antiquity-detail') {
@@ -369,11 +424,15 @@
             <div class="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> VENTA, STOCK Y TRASLADOS POR TALLA</h2></div>
             <div class="size-chart-controls">
               <div role="group" aria-label="Rubro de tallas"><button type="button" [class.active]="sizeRubro() === 'CALZADO'" (click)="selectSizeRubro('CALZADO')">CALZADO</button><button type="button" [class.active]="sizeRubro() === 'TEXTIL'" (click)="selectSizeRubro('TEXTIL')">TEXTIL</button></div>
-              <div role="group" aria-label="Métrica de tallas"><button type="button" [class.active]="sizeMetric() === 'SALES'" (click)="sizeMetric.set('SALES')">VENTA 30D</button><button type="button" [class.active]="sizeMetric() === 'STOCK'" (click)="sizeMetric.set('STOCK')">STOCK</button><button type="button" [class.active]="sizeMetric() === 'TRANSFERS'" (click)="sizeMetric.set('TRANSFERS')">TRASLADOS</button></div>
+              <div role="group" aria-label="Métrica de tallas"><button type="button" [class.active]="sizeMetric() === 'SALES'" (click)="selectSizeMetric('SALES')">VENTA 30D</button><button type="button" [class.active]="sizeMetric() === 'STOCK'" (click)="selectSizeMetric('STOCK')">STOCK</button><button type="button" [class.active]="sizeMetric() === 'TRANSFERS'" (click)="selectSizeMetric('TRANSFERS')">TRASLADOS</button></div>
               @if (sizeRubro() === 'CALZADO') { <div role="group" aria-label="Sistema de talla"><button type="button" [class.active]="shoeSizeSystem() === 'USA'" (click)="shoeSizeSystem.set('USA')">USA</button><button type="button" [class.active]="shoeSizeSystem() === 'EUR'" (click)="shoeSizeSystem.set('EUR')">EUR</button></div> }
+              <div class="size-view-switch" role="group" aria-label="Vista de tallas">
+                <button type="button" class="active" [attr.aria-pressed]="true">GRÁFICO</button>
+                <button type="button" [attr.aria-pressed]="false" (click)="openSizeTransfers()">MATRIZ</button>
+              </div>
             </div>
-            @if (!stockDetailLoaded() && (!sizeDetailLoaded()[sizeRubro()] || !stockTransfersLoaded())) {
-              <div class="card-inline-loader"><span class="loader"></span>Preparando tallas · {{ stockDetailProgress() }}%</div>
+            @if (!stockDetailLoaded() && (!sizeDetailLoaded()[sizeRubro()] || (sizeMetric() === 'TRANSFERS' && !stockTransfersLoaded()))) {
+              <div class="card-inline-loader"><span class="loader"></span>{{ sizeMetric() === 'TRANSFERS' ? 'Preparando traslados por talla…' : 'Preparando gráfico de tallas…' }}</div>
             } @else {
               @if (productCodeLoading()) { <div class="card-inline-loader card-inline-loader--overlay" role="status" aria-label="Cargando tallas"><span class="loader"></span></div> }
               @else if (transferCodeError() && !sizeChartRows().length) { <div class="card-inline-loader card-inline-loader--overlay"><strong>No se pudieron identificar las tallas.</strong><button type="button" class="retry-button" (click)="retryProductCodes()">REINTENTAR</button></div> }

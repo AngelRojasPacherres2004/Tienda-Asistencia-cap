@@ -9,6 +9,7 @@ import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
+import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat } from './inventory-performance';
 import { SectionLoads } from './section-loads';
 import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
 import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact,
@@ -1462,11 +1463,7 @@ export class App implements OnInit {
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = this.sellerPerformanceData().filter(row =>
       ids.has(row.storeId) && periods.has(row.periodId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
-    const bySeller = grouped(rows, row => row.seller || 'SIN VENDEDOR');
-    const ranking = [...bySeller.entries()].map(([seller, sellerRows]) => ({
-      seller, net: sum(sellerRows, 'net'), units: sum(sellerRows, 'units'), transactions: sum(sellerRows, 'transactions'),
-    })).filter(row => row.net !== 0);
-    return ranking.sort((a, b) => b.net - a.net);
+    return aggregateSellerRanking(rows);
   });
   readonly talentClientRows = computed(() => {
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
@@ -1928,24 +1925,54 @@ export class App implements OnInit {
   });
   readonly predictiveStoreOptions = computed(() => this.inventoryStoresIgnoringStoreFilter());
   readonly transferRubro = signal('');
+  readonly transferSizeMode = signal(false);
+  readonly transferSize = signal('');
+  readonly transferSizeSystem = signal<ShoeSizeSystem>('USA');
+  readonly transferBusy = signal(false);
+  readonly transferCalculationError = signal('');
+  readonly transferWorkerRoutes = signal<ReturnType<typeof stockTransfers> | null>(null);
+  transferRouteDescription(route: ReturnType<typeof this.transferRecommendations>[number]): string {
+    return [
+      route.destinationName,
+      `Stock vendible destino: ${this.number(route.destinationStock)} und`,
+      `Ventas destino 30D: ${this.number(route.destinationSales)} und`,
+      `Cobertura destino: ${this.number(route.destinationDays)} días`,
+      `Prioridad: ${route.critical ? 'Crítico' : 'Alerta'}`,
+      'Se prioriza menor cobertura y luego mayores ventas en 30 días.',
+    ].join('\n');
+  }
+  transferSizeLabel(row: { productCode?: string; category?: string; line?: string; product?: string }): string {
+    if (row.category !== 'TEXTIL' && row.category !== 'CALZADO') return 'Sin talla';
+    const size = resolveProductSize(row, row.category, this.transferSizeSystem());
+    return size ? `${size.label}${row.category === 'CALZADO' ? ' ' + this.transferSizeSystem() : ''}` : 'Sin talla';
+  }
   readonly transferLine = signal('');
   readonly transferBrand = signal('');
   readonly transferStore = signal('');
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
   readonly transferPage = signal(0);
+  readonly transferExpandedRow = signal('');
+  toggleTransferRow(key: string): void {
+    this.transferExpandedRow.set(this.transferExpandedRow() === key ? '' : key);
+  }
   readonly transferCodeError = signal(false);
   readonly sizeRubro = signal<SizeRubro>('CALZADO');
   selectSizeRubro(rubro: SizeRubro): void {
     this.sizeRubro.set(rubro);
-    if (this.page() === 2 && !this.stockDetailLoaded()) void this.ensureSizeDetail(rubro);
+    if (this.page() === 2) void this.ensureSizeDetail(rubro);
   }
   readonly shoeSizeSystem = signal<ShoeSizeSystem>('USA');
   readonly sizeMetric = signal<SizeMetric>('SALES');
+  selectSizeMetric(metric: SizeMetric): void {
+    this.sizeMetric.set(metric);
+    if (metric === 'TRANSFERS') void this.ensureStockTransfers();
+  }
   readonly transferPageSize = 10;
   readonly transferProducts = computed(() => {
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
-    const products = this.stockDetailLoaded() ? this.stockProductsData() : this.stockTransferProductsData();
+    const products = this.stockTransfersLoaded() ? this.stockTransferProductsData()
+      : this.stockDetailLoaded() ? this.stockProductsData() : this.stockTransferProductsData();
     return products.filter(row => ids.has(row.storeId));
   });
   readonly transferRubros = computed(() => [...new Set(this.transferProducts()
@@ -1957,36 +1984,117 @@ export class App implements OnInit {
       && (!this.transferLine() || row.line === this.transferLine()))
     .map(row => row.brand).filter(Boolean))].sort());
   readonly transferStores = computed(() => this.predictiveStoreOptions().filter(store => store.isStore));
+  readonly transferSizeLabels = computed(() => {
+    const labels = new Map<string, string>();
+    if (!this.transferRubro()) return labels;
+    for (const row of this.transferProducts()) {
+      if (row.category === this.transferRubro() && !labels.has(row.productId)) {
+        labels.set(row.productId, this.transferSizeLabel(row));
+      }
+    }
+    return labels;
+  });
+  readonly transferSizes = computed(() => {
+    const labels = this.transferSizeLabels();
+    const options = new Set<string>();
+    for (const row of this.transferProducts()) {
+      if (row.category === this.transferRubro() && (!this.transferLine() || row.line === this.transferLine())
+        && (!this.transferBrand() || row.brand === this.transferBrand())) {
+        options.add(labels.get(row.productId) || 'Sin talla');
+      }
+    }
+    return [...options].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  });
   readonly transferFilteredProducts = computed(() => {
     const query = this.normalized(this.transferSearch());
+    const sizeLabels = this.transferSize() ? this.transferSizeLabels() : null;
     return this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine())
       && (!this.transferBrand() || row.brand === this.transferBrand())
+      && (!this.transferSize() || sizeLabels?.get(row.productId) === this.transferSize())
       && (!query || this.normalized(`${row.productCode || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
   });
   readonly transferAllRecommendations = computed(() => {
     const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
-    return stockTransfers(this.transferFilteredProducts()).map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
+    const routes = typeof Worker === 'undefined' ? stockTransfers(this.transferFilteredProducts(), 30, 90, false)
+      : this.transferWorkerRoutes() || [];
+    return routes.map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
       destinationName: names.get(row.destination) || row.destination }));
+  });
+  private readonly stockTransferCalculationEffect = effect(onCleanup => {
+    if (this.expandedChart() !== 'stock-transfers') return;
+    this.transferWorkerRoutes.set(null);
+    this.transferCalculationError.set('');
+    if (!this.transferRubro()) { this.transferBusy.set(false); return; }
+    const products = this.transferFilteredProducts();
+    this.transferBusy.set(true);
+    let worker: Worker | undefined;
+    // Let the loading state paint before cloning the filtered payload.
+    const timer = setTimeout(() => {
+      try {
+        worker = new Worker(new URL('./stock-transfers.worker', import.meta.url), { type: 'module' });
+        worker.onmessage = ({ data }) => {
+          this.transferWorkerRoutes.set(data.routes || []);
+          this.transferCalculationError.set(data.error || '');
+          this.transferBusy.set(false);
+          worker?.terminate();
+        };
+        worker.onerror = () => {
+          this.transferCalculationError.set('No se pudieron calcular los traslados. Cambia de rubro para reintentar.');
+          this.transferBusy.set(false);
+          worker?.terminate();
+        };
+        worker.postMessage(products.map(({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30 }) =>
+          ({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30 })));
+      } catch {
+        this.transferCalculationError.set('No se pudo iniciar el cálculo de traslados. Recarga la página para reintentar.');
+        this.transferBusy.set(false);
+        worker?.terminate();
+      }
+    }, 100);
+    onCleanup(() => { clearTimeout(timer); worker?.terminate(); });
   });
   readonly transferRecommendations = computed(() => this.transferAllRecommendations().filter(row =>
     (!this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical))
     && (!this.transferStore() || row.source === this.transferStore() || row.destination === this.transferStore())));
   readonly transferSummary = computed(() => transferTotals(this.transferFilteredProducts(), this.transferRecommendations(), this.transferStore()));
   readonly transferHasEstimates = computed(() => this.transferRecommendations().some(row => row.estimated));
-  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / this.transferPageSize)));
+  readonly transferMatrixRows = computed(() => {
+    type Route = ReturnType<typeof this.transferRecommendations>[number];
+    const groups = new Map<string, { key: string; origin: Route; destinations: Map<string, Route> }>();
+    for (const route of this.transferRecommendations()) {
+      const key = JSON.stringify([route.productId, route.source]);
+      const group = groups.get(key) || { key, origin: route, destinations: new Map<string, Route>() };
+      group.destinations.set(route.destination, route);
+      groups.set(key, group);
+    }
+    return [...groups.values()].map(group => {
+      const options = [...group.destinations.values()].sort((a, b) =>
+        a.destinationDays - b.destinationDays || b.destinationSales - a.destinationSales
+        || b.suggested - a.suggested || a.destination.localeCompare(b.destination));
+      return { ...group, best: options[0], options };
+    });
+  });
+  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferMatrixRows().length / this.transferPageSize)));
   readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
-  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
+  readonly transferPageRows = computed(() => this.transferMatrixRows().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
+  readonly transferMatrixStores = computed(() => {
+    const destinations = new Map<string, string>();
+    for (const row of this.transferPageRows()) {
+      for (const route of row.destinations.values()) destinations.set(route.destination, route.destinationName);
+    }
+    return [...destinations].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  });
 
   private sizeProductsForChart(rubro: SizeRubro): Array<ProductRow | SizeProductRow> {
-    if (this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    if (!this.sizeDetailLoaded()[rubro] && this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
     const ids = this.inventoryStoreIdsIgnoringStoreFilter();
     return this.sizeProductsData()[rubro].filter(row => ids.has(row.storeId) &&
       this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
   }
 
   private sizeTransfersForChart(rubro: SizeRubro): ProductRow[] {
-    if (this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    if (!this.stockTransfersLoaded() && this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
     const ids = this.inventoryStoreIdsIgnoringStoreFilter();
     return this.stockTransferProductsData().filter(row => ids.has(row.storeId) && row.category === rubro &&
       this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
@@ -2007,7 +2115,9 @@ export class App implements OnInit {
       add(row, 'sales', row.units30);
       add(row, 'stock', row.stockUnits);
     }
-    for (const transfer of stockTransfers(this.sizeTransfersForChart(rubro))) add(transfer, 'transfers', transfer.suggested);
+    if (this.sizeMetric() === 'TRANSFERS') {
+      for (const transfer of stockTransfers(this.sizeTransfersForChart(rubro))) add(transfer, 'transfers', transfer.suggested);
+    }
     return [...rows.values()].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label, 'es'));
   });
 
@@ -2051,70 +2161,35 @@ export class App implements OnInit {
     } as EChartsOption;
   });
 
-  readonly transferChartOption = computed<EChartsOption>(() => {
-    const rows = this.transferPageRows();
-    return {
-      animation: false,
-      grid: { left: 310, right: 80, top: 42, bottom: 20 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any) => {
-        const row = rows[params[0]?.dataIndex ?? 0];
-        return this.tooltip(row?.product || '', [
-          { label: 'Código Nissei', value: row?.productCode || 'No disponible' },
-          { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
-          { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
-          { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
-          { label: 'Ventas origen / 30 días', value: this.number(row?.sourceSales ?? null, ' und') },
-          { label: 'Ventas destino / 30 días', value: this.number(row?.destinationSales ?? null, ' und') },
-          { label: 'Cobertura destino', value: this.number(row?.destinationDays ?? null, ' días') },
-          { label: 'Cobertura origen', value: row?.sourceDays == null ? 'Sin ventas en 30 días' : this.number(row.sourceDays, ' días') },
-          { label: 'Traslado sugerido', value: this.number(row?.suggested ?? null, ' und') },
-          { label: 'Prioridad', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
-          { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' },
-        ], true);
-      } },
-      xAxis: { type: 'value', position: 'top', name: 'Unidades', nameLocation: 'middle', nameGap: 26,
-        minInterval: 1, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#e4eaf3', type: 'dashed' } } },
-      yAxis: { type: 'category', inverse: true, data: rows.map((_, index) => String(index)),
-        axisTick: { show: false }, axisLine: { show: false },
-        splitArea: { show: true, areaStyle: { color: ['#ffffff', '#f7f9fd'] } },
-        axisLabel: { margin: 20, formatter: (value: string) => {
-          const row = rows[Number(value)];
-          if (!row) return '';
-          const words = row.product.split(/\s+/); const lines: string[] = []; let line = '';
-          for (const word of words) {
-            if (line && (line + ' ' + word).length > 38) { lines.push(line); line = word; } else line += (line ? ' ' : '') + word;
-          }
-          if (line) lines.push(line);
-          const product = lines.slice(0, 2).join('\n') + (lines.length > 2 ? '…' : '');
-          // Escape ECharts rich-text delimiters in product/store names.
-          const safe = (text: string) => text.replace(/[{}|]/g, ' ');
-          const codeLine = row.productCode ? `\n{code|Código: ${safe(row.productCode)}}` : '';
-          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}${codeLine}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
-        }, rich: {
-          route: { fontSize: 12, fontWeight: 800, lineHeight: 22 },
-          product: { fontSize: 11, lineHeight: 17, width: 270, overflow: 'truncate' },
-          code: { fontSize: 11, fontWeight: 700, lineHeight: 18, width: 270, overflow: 'break' },
-          critical: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
-          alert: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
-        } } },
-      series: [
-        { name: 'Stock origen', type: 'bar', data: rows.map(row => row.sourceStock), itemStyle: { color: '#f4b400', borderRadius: [0, 4, 4, 0] } },
-        { name: 'Stock destino', type: 'bar', data: rows.map(row => row.destinationStock), itemStyle: { color: '#e11d2e', borderRadius: [0, 4, 4, 0] } },
-        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), itemStyle: { color: '#123a8c', borderRadius: [0, 4, 4, 0] } },
-      ].map(series => ({ ...series, barWidth: 9, barGap: '45%',
-        label: { show: true, position: 'right', distance: 8, fontSize: 11, formatter: (params: any) => `${this.number(params.value)} und` },
-        emphasis: { focus: 'series' },
-      })) as EChartsOption['series'],
-    };
-  });
   resetTransferFilters(): void {
+    this.transferExpandedRow.set('');
+    this.transferSize.set('');
     this.transferRubro.set(''); this.transferLine.set(''); this.transferBrand.set(''); this.transferStore.set('');
     this.transferSearch.set(''); this.transferPriority.set(''); this.transferPage.set(0);
   }
+  openSizeTransfers(): void {
+    const resume = this.transferSizeMode();
+    this.transferSizeMode.set(true);
+    if (!resume) {
+      this.transferSizeSystem.set(this.shoeSizeSystem());
+      this.resetTransferFilters();
+      this.transferRubro.set(this.sizeRubro());
+    }
+    if (this.expandedChart()) this.closeExpandedChart();
+    this.toggleChartExpansion('stock-transfers');
+    void this.ensureStockTransfers();
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
+  }
+  openSizeChart(): void {
+    this.closeExpandedChart();
+    this.toggleChartExpansion('size-distribution');
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLButtonElement>('.size-distribution-card .size-view-switch button')?.focus());
+  }
   openTransfers(): void {
+    this.transferSizeMode.set(false);
     this.resetTransferFilters();
     this.toggleChartExpansion('stock-transfers');
-    if (!this.stockDetailLoaded()) void this.ensureStockTransfers();
+    void this.ensureStockTransfers();
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
   }
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
@@ -2275,10 +2350,7 @@ export class App implements OnInit {
     } as EChartsOption;
   });
   readonly productExtremes = computed<{ high: { name: string; units: number; value: number }[]; low: { name: string; units: number; value: number }[] }>(() => {
-    const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => `${row.productId}|${row.product}`);
-    const values = [...groups.entries()].map(([key, rows]) => ({ name: key.split('|').slice(1).join('|'), units: sum(rows, 'stockUnits'), value: sum(rows, 'stockValue') }))
-      .filter(x => x.units > 0).sort((a, b) => b.units - a.units);
-    return { high: values.slice(0, 3), low: [...values].sort((a, b) => a.units - b.units).slice(0, 3) };
+    return stockExtremes(this.inventoryProductsIgnoringStoreFilter());
   });
 
   readonly inventoryHierarchyRowsIgnoringStoreFilter = computed(() => {
@@ -2389,25 +2461,26 @@ export class App implements OnInit {
     const match = this.data()?.metadata.coverageRanges.find(r => days >= r.min && days <= r.max);
     return match ? { label: match.label, color: match.color } : { label: 'OBSERVACIÓN', color: C.slate };
   }
+  readonly inventoryStoreMetrics = computed(() => aggregateStoreMetrics(this.stockDetailLoaded()
+    ? this.inventoryProductsIgnoringStoreFilter() : this.inventoryHierarchyRowsIgnoringStoreFilter()));
   readonly coverageRows = computed<CoverageRow[]>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store]));
-    const products: Array<ProductRow | StockHierarchyRow> = this.stockDetailLoaded()
-      ? this.inventoryProductsIgnoringStoreFilter() : this.inventoryHierarchyRowsIgnoringStoreFilter();
-    const groups = grouped(products, row => row.storeId);
+    const groups = this.inventoryStoreMetrics();
     const predictiveByStore = new Map((this.data()?.predictiveStore || []).map(row => [row.storeId, row]));
     const stockByStore = new Map((this.data()?.stockStore || []).map(row => [row.storeId, row]));
     return [...storeMap.keys()].map(storeId => {
-      const rows = groups.get(storeId) || [];
+      const aggregate = groups.get(storeId);
+      const hasRows = !!aggregate?.count;
       const predictive = predictiveByStore.get(storeId); const stock = stockByStore.get(storeId);
-      const stockUnits = rows.length ? sum(rows, 'stockUnits') : Number(predictive?.stockUnits ?? stock?.units) || 0;
-      const stockValue = rows.length ? sum(rows, 'stockValue') : Number(predictive?.stockValue ?? stock?.value) || 0;
-      const units30 = rows.length ? sum(rows, 'units30') : Number(predictive?.units30) || 0;
-      const sales30 = rows.length ? sum(rows, 'sales30') : Number(predictive?.sales30) || 0;
-      const goodUnits = rows.reduce((total, row) => total + (row.goodUnits || 0), 0);
-      const hasStateBreakdown = rows.some(row => row.goodUnits != null || row.mermaStockUnits != null || row.desmedroStockUnits != null);
+      const stockUnits = hasRows ? aggregate!.stockUnits : Number(predictive?.stockUnits ?? stock?.units) || 0;
+      const stockValue = hasRows ? aggregate!.stockValue : Number(predictive?.stockValue ?? stock?.value) || 0;
+      const units30 = hasRows ? aggregate!.units30 : Number(predictive?.units30) || 0;
+      const sales30 = hasRows ? aggregate!.sales30 : Number(predictive?.sales30) || 0;
+      const goodUnits = aggregate?.goodUnits || 0;
+      const hasStateBreakdown = aggregate?.hasStateBreakdown || false;
       const effectiveUnits = hasStateBreakdown ? goodUnits : stockUnits * (1 - (this.data()?.metadata.nonSellableRate ?? .18));
       const calculatedDays = units30 > 0 ? effectiveUnits * 30 / units30 : null;
-      const days = rows.length ? calculatedDays : (predictive?.coverageDays ?? calculatedDays);
+      const days = hasRows ? calculatedDays : (predictive?.coverageDays ?? calculatedDays);
       const status = this.coverageStatus(days);
       return { storeId, alias: storeMap.get(storeId)?.alias || storeId, stockUnits, effectiveUnits, stockValue, units30, sales30, days, status: status.label, color: status.color };
     }).sort((a, b) => (b.days ?? -1) - (a.days ?? -1));
@@ -2894,8 +2967,8 @@ export class App implements OnInit {
     return values.map(value => ({ ...value, year, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
   }
   readonly priceRangeSummary = computed(() => [
-    ...this.priceRangeSummaryFor(this.year(), true),
-    ...this.priceRangeSummaryFor(this.effectivePriceRangeComparisonYear()),
+    ...this.priceRangeSeries().base,
+    ...this.priceRangeSeries().comparison,
   ]);
   readonly priceRangeSeries = computed(() => ({
     base: this.priceRangeSummaryFor(this.year(), true),
@@ -3002,13 +3075,11 @@ export class App implements OnInit {
   });
   readonly rotationOption = computed<EChartsOption>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
-    const products: Array<ProductRow | StockHierarchyRow> = this.stockDetailLoaded()
-      ? this.inventoryProductsIgnoringStoreFilter() : this.inventoryHierarchyRowsIgnoringStoreFilter();
-    const groups = grouped(products, row => row.storeId);
+    const groups = this.inventoryStoreMetrics();
     const rows = [...storeMap.entries()].map(([storeId, label]) => {
-      const products = groups.get(storeId) || [];
-      const sales = sum(products, 'sales30'); const value = sum(products, 'stockValue');
-      const units = sum(products, 'stockUnits'); const sold = sum(products, 'units30');
+      const aggregate = groups.get(storeId);
+      const sales = aggregate?.sales30 || 0; const value = aggregate?.stockValue || 0;
+      const units = aggregate?.stockUnits || 0; const sold = aggregate?.units30 || 0;
       return { label, sales, value, units, sold, rotation: units > 0 ? sold / units : 0 };
     }).sort((a, b) => b.rotation - a.rotation);
     const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.rotation));
@@ -3579,7 +3650,7 @@ export class App implements OnInit {
     void this.ensureStockOrigin();
     void this.ensureStockHierarchy();
     void this.ensureSizeDetail(this.sizeRubro());
-    void this.ensureStockTransfers();
+    if (this.sizeMetric() === 'TRANSFERS') void this.ensureStockTransfers();
     this.scheduleInventoryProductDetail();
   }
 
@@ -3648,7 +3719,7 @@ export class App implements OnInit {
       if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
       if (!this.stockHierarchyLoaded()) void this.ensureStockHierarchy();
       if (!this.sizeDetailLoaded()[this.sizeRubro()]) void this.ensureSizeDetail(this.sizeRubro());
-      if (!this.stockTransfersLoaded()) void this.ensureStockTransfers();
+      if (this.sizeMetric() === 'TRANSFERS' && !this.stockTransfersLoaded()) void this.ensureStockTransfers();
       this.scheduleInventoryProductDetail();
     }
     if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
@@ -3678,7 +3749,7 @@ export class App implements OnInit {
     // Evaluate product-level caches against the cleared source to release old rows.
     this.filteredProducts(); this.staticPredictiveProducts(); this.predictiveProducts(); this.activeProductRows();
     this.predictiveScopedProducts(); this.transferProducts(); this.transferLines(); this.transferBrands();
-    this.transferFilteredProducts(); this.transferAllRecommendations(); this.transferPageRows(); this.transferSummary(); this.transferChartOption();
+    this.transferFilteredProducts(); this.transferAllRecommendations(); this.transferPageRows(); this.transferSummary(); this.transferMatrixRows(); this.transferMatrixStores();
     this.predictiveHealthOption(); this.predictiveBreakageOption(); this.predictiveReplenishmentOption();
     this.predictiveProjectionOption(); this.predictivePriorityProducts(); this.productExtremes();
     this.inventoryProductsIgnoringStoreFilter(); this.stockOriginDetailRows(); this.stockOrigins(); this.selectedStockOrigins();
@@ -3745,13 +3816,13 @@ export class App implements OnInit {
     if (value == null || !Number.isFinite(value)) return 'N/A';
     if (compact && Math.abs(value) >= 1_000_000) return `S/ ${(value / 1_000_000).toFixed(2)} mill.`;
     if (compact && Math.abs(value) >= 1_000) return `S/ ${(value / 1_000).toFixed(1)} mil`;
-    return new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN', maximumFractionDigits: 0 }).format(value);
+    return dashboardMoneyFormat.format(value);
   }
-  number(value: number | null, suffix = ''): string { return value == null || !Number.isFinite(value) ? 'N/A' : `${new Intl.NumberFormat('es-PE', { maximumFractionDigits: 1 }).format(value)}${suffix}`; }
+  number(value: number | null, suffix = ''): string { return value == null || !Number.isFinite(value) ? 'N/A' : `${dashboardNumberFormat.format(value)}${suffix}`; }
   timeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 365 : 30))); }
   monthTimeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 12 : 1))); }
   leadTimeValue(): number { return Number((this.internalLeadTime() / (this.leadTimeUnit() === 'MONTHS' ? 30 : 1)).toFixed(2)); }
-  percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : new Intl.NumberFormat('es-PE', { style: 'percent', maximumFractionDigits: 2 }).format(value); }
+  percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : dashboardPercentFormat.format(value); }
   trend(value: number | null): string { return value == null ? 'N/A' : `${value >= 0 ? '▲' : '▼'} ${this.percent(Math.abs(value))}`; }
 
   private async loadDetail<T>(file: string, signal?: AbortSignal, onProgress?: (progress: number) => void): Promise<T> {
@@ -4130,7 +4201,7 @@ export class App implements OnInit {
   }
 
   private async ensureStockTransfers(): Promise<void> {
-    if (this.stockDetailLoaded() || this.stockTransfersLoaded() || this.stockTransfersPromise) return this.stockTransfersPromise;
+    if (this.stockTransfersLoaded() || this.stockTransfersPromise) return this.stockTransfersPromise;
     const signal = this.sectionLoads.signal;
     let promise!: Promise<void>;
     promise = (async () => {
@@ -4152,7 +4223,7 @@ export class App implements OnInit {
   }
 
   private async ensureSizeDetail(rubro: SizeRubro): Promise<void> {
-    if (this.stockDetailLoaded() || this.sizeDetailLoaded()[rubro]) return;
+    if (this.sizeDetailLoaded()[rubro]) return;
     const pending = this.sizeDetailPromises.get(rubro);
     if (pending) return pending;
     const signal = this.sectionLoads.signal;
