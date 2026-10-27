@@ -208,23 +208,33 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27/10 se añadieron diez módulos de interfaz con flags independientes:
+- El 27/10 se añadieron veintiún módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
-  tallas, dotación por tienda y matriz ampliada de stock. El puente conserva los mismos
+  tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
+  tarjetas completas de tendencia, Meta vs real, desempeño por hora y siete
+  gráficos de Talento. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
-  `talent-capacity` o `stock-matrix`;
+  `talent-capacity`, `stock-matrix`, `birthday-modal`, `growth-card`,
+  `meta-vs-real-card`, `hourly-card`, `talent-history-card`,
+  `talent-team-card`, `talent-area-card`, `talent-store-card`,
+  `talent-exit-card`, `talent-incidents-card` o `talent-training-card`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
   navegación, filtros de mes y día, restablecimiento y apertura del detalle de
   ticket y de cumpleaños. Los controles de tallas cambiaron entre CALZADO,
   TEXTIL, stock y EUR y abrieron la matriz. Cabecera, navegación, filtros,
-  indicadores, controles de tallas, dotación y matriz de stock tuvieron
+  indicadores, controles de tallas, dotación, matriz de stock, modal de
+  cumpleaños y la mayoría de tarjetas completas tuvieron
   cero píxeles distintos; las tarjetas de avance variaron 26 de 366,490
-  píxeles en un área de 8 × 10 px.
+  píxeles en un área de 8 × 10 px. La tarjeta de equipos varió 24 píxeles
+  en el icono del título. Capacitación conserva una diferencia acotada a las
+  etiquetas del lado izquierdo (1,578 de 78,540 píxeles), ya observada en la
+  comparación previa del gráfico. Las acciones de cambiar audiencia y ampliar
+  la tarjeta respondieron en ambos motores.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o

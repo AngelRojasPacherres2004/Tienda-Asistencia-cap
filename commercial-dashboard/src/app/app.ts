@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import type { EChartsOption } from 'echarts';
 import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
-import { DashboardChartComponent } from './chart';
+import { DashboardChartComponent, blackChartText } from './chart';
 import { DashboardTabsComponent } from './dashboard-tabs';
 import { DashboardHeaderComponent, type DashboardHeaderModel } from './dashboard-header';
 import { DashboardFiltersComponent, type DashboardFilterAction, type DashboardFiltersModel } from './dashboard-filters';
@@ -1277,6 +1277,74 @@ export class App implements OnInit {
       gapPositive: row.gap >= 0, productivity: this.money(row.productivity, true),
     })),
   }));
+
+  readonly birthdayModalModel = computed<Record<string, unknown>>(() => ({
+    month: this.monthNamesFull[this.selectedMonth() - 1]?.toUpperCase() || '',
+    rows: this.birthdayMonthRows(),
+  }));
+
+  readonly growthCardModel = computed<Record<string, unknown>>(() => ({ option: blackChartText(this.growthOption()) }));
+  readonly metaVsRealCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'meta-vs-real-card', cardClass: 'meta-vs-real', icon: 'comparison', title: 'AVANCE META VS REAL',
+    chartId: 'meta-vs-real', label: 'Venta real y meta por mes', ready: this.storeGoalsReady(),
+    loadingText: 'Cargando metas…', option: this.storeGoalsReady() ? blackChartText(this.metaVsRealOption()) : null,
+  }));
+  readonly hourlyCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'hourly-card', cardClass: 'hourly-performance-card', icon: 'trend', title: 'DESEMPEÑO COMERCIAL POR HORA',
+    chartId: 'hourly-performance', label: 'Afluencia de tickets y venta neta por hora', ready: true,
+    option: blackChartText(this.hourlyPerformanceOption()),
+  }));
+  readonly talentHistoryCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-history-card', baseClasses: 'card talent-card', cardClass: 'history-card',
+    icon: 'calendar', title: `EVOLUCIÓN MENSUAL DE PERSONAL · ${this.year()}`,
+    chartId: 'talent-history', label: 'Cantidad real y esperada de personal por mes', ready: true,
+    option: blackChartText(this.talentHistoryOption()),
+  }));
+  readonly talentTeamCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-team-card', baseClasses: 'card talent-card', cardClass: 'team-productivity-card',
+    icon: 'comparison', title: 'VENTA PROM. × COLAB. POR EQUIPO',
+    chartId: 'talent-team-productivity', label: 'Venta mensual promedio por colaborador de cada equipo comercial', ready: true,
+    option: blackChartText(this.talentTeamProductivityOption()),
+  }));
+  readonly talentAreaCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-area-card', baseClasses: 'card talent-card', cardClass: 'area-distribution-card',
+    icon: 'category', title: 'DISTRIBUCIÓN DEL EQUIPO POR ÁREA',
+    chartId: 'talent-area-distribution', label: 'Distribución de colaboradores por área', ready: true,
+    option: blackChartText(this.talentAreaOption()),
+  }));
+  readonly talentStoreCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-store-card', baseClasses: 'card talent-card', cardClass: 'store-productivity-card',
+    icon: 'gauge', title: 'PRODUCTIVIDAD POR TIENDA',
+    chartId: 'talent-store-productivity', label: 'Venta por colaborador de las tiendas con mayor productividad', ready: true,
+    option: blackChartText(this.talentStoreProductivityOption()),
+  }));
+  readonly talentExitCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-exit-card', baseClasses: 'card talent-card', cardClass: 'exit-card',
+    icon: 'rotate', title: 'RETIROS POR MOTIVO',
+    chartId: 'talent-exit', label: 'Retiros por motivo registrado', ready: true,
+    option: blackChartText(this.talentExitOption()),
+  }));
+  readonly talentIncidentsCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-incidents-card', baseClasses: 'card talent-card', cardClass: 'incidents-card',
+    icon: 'alert', title: 'INCIDENCIAS EXTERNAS Y TERCEROS',
+    chartId: 'talent-incidents', label: 'Distribución de problemas externos', ready: true,
+    option: blackChartText(this.talentIncidentsOption()),
+  }));
+  readonly talentTrainingCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'training-progress', storeLocked: this.storeFilterLocked(),
+    audience: this.trainingAudience(),
+    label: this.storeFilterLocked() ? 'Cursos pendientes de vendedores' : this.trainingAudience() === 'SELLERS' ? 'Avance de cursos para vendedores' : 'Avance de cursos para administradores',
+    option: blackChartText(this.selectedTrainingOption()),
+  }));
+
+  onReactTrainingAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('training-progress');
+    else if (type === 'audience' && !this.storeFilterLocked() && (value === 'SELLERS' || value === 'ADMINISTRATORS')) this.trainingAudience.set(value);
+  }
+
+  onReactBirthdayAction({ type }: { type: string }): void {
+    if (type === 'close') this.closeExpandedChart();
+  }
 
   onReactTalentKpiAction({ type }: { type: string }): void {
     if (type === 'birthdays') this.toggleChartExpansion('birthday-list');

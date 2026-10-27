@@ -7,8 +7,12 @@ import CommercialReactTalentKpis from "./CommercialReactTalentKpis";
 import CommercialReactSizeControls from "./CommercialReactSizeControls";
 import CommercialReactTalentCapacity from "./CommercialReactTalentCapacity";
 import CommercialReactStockMatrix from "./CommercialReactStockMatrix";
+import CommercialReactBirthdayModal from "./CommercialReactBirthdayModal";
+import CommercialReactGrowthCard from "./CommercialReactGrowthCard";
+import CommercialReactSimpleChartCard from "./CommercialReactSimpleChartCard";
+import CommercialReactTrainingCard from "./CommercialReactTrainingCard";
 
-const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls, "talent-capacity": CommercialReactTalentCapacity, "stock-matrix": CommercialReactStockMatrix };
+const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls, "talent-capacity": CommercialReactTalentCapacity, "stock-matrix": CommercialReactStockMatrix, "birthday-modal": CommercialReactBirthdayModal, "growth-card": CommercialReactGrowthCard, "meta-vs-real-card": CommercialReactSimpleChartCard, "hourly-card": CommercialReactSimpleChartCard, "talent-history-card": CommercialReactSimpleChartCard, "talent-team-card": CommercialReactSimpleChartCard, "talent-area-card": CommercialReactSimpleChartCard, "talent-store-card": CommercialReactSimpleChartCard, "talent-exit-card": CommercialReactSimpleChartCard, "talent-incidents-card": CommercialReactSimpleChartCard, "talent-training-card": CommercialReactTrainingCard };
 
 export function mountReactCommercialModule(host, moduleId, onAction) {
   const root = createRoot(host);

@@ -9,7 +9,7 @@ import { readRuntimeConfig, type ReactChartBridge } from './runtime-config';
 
 use([BarChart, LineChart, PieChart, DataZoomComponent, GraphicComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, CanvasRenderer]);
 
-function blackChartText<T>(value: T): T {
+export function blackChartText<T>(value: T): T {
   const visit = (node: unknown, key = ''): unknown => {
     if (Array.isArray(node)) return node.map(item => visit(item));
     if (!node || typeof node !== 'object') return node;
