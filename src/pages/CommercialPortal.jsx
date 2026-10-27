@@ -40,19 +40,46 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
       try {
         const bundle = await loadCommercialBundle();
         if (!active) return;
-        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"]);
+        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"]);
         const reactCharts = (import.meta.env.VITE_COMMERCIAL_REACT_CHARTS || "")
           .split(",").map(value => value.trim()).filter(value => supportedReactCharts.has(value));
         const previewChart = new URLSearchParams(location.search).get("reactChart");
         if (import.meta.env.DEV && supportedReactCharts.has(previewChart)) reactCharts.push(previewChart);
+        const supportedReactModules = new Set(["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress"]);
+        const reactModules = (import.meta.env.VITE_COMMERCIAL_REACT_MODULES || "")
+          .split(",").map(value => value.trim()).filter(value => supportedReactModules.has(value));
+        const previewModule = new URLSearchParams(location.search).get("reactModule");
+        if (import.meta.env.DEV && supportedReactModules.has(previewModule)) reactModules.push(previewModule);
         if (reactCharts.length) {
           const renderer = await import("../components/mount-commercial-react-chart");
           if (!active) return;
           window.mountReactCommercialChart = renderer.mountReactCommercialChart;
         }
+        if (reactModules.length) {
+          if (reactModules.includes("page-tabs")) {
+            const renderer = await import("../components/mount-commercial-react-tabs");
+            if (!active) return;
+            window.mountReactCommercialTabs = renderer.mountReactCommercialTabs;
+          }
+          if (reactModules.includes("header")) {
+            const renderer = await import("../components/mount-commercial-react-header");
+            if (!active) return;
+            window.mountReactCommercialHeader = renderer.mountReactCommercialHeader;
+          }
+          if (reactModules.includes("filters")) {
+            const renderer = await import("../components/mount-commercial-react-filters");
+            if (!active) return;
+            window.mountReactCommercialFilters = renderer.mountReactCommercialFilters;
+          }
+          if (reactModules.some(moduleId => ["primary-kpis", "key-kpis", "progress"].includes(moduleId))) {
+            const renderer = await import("../components/mount-commercial-react-module");
+            if (!active) return;
+            window.mountReactCommercialModule = renderer.mountReactCommercialModule;
+          }
+        }
         window.__DASHBOARD_CONFIG__ = {
           dataMode: "portal", groqAssistantEnabled: true, storeContextId,
-          reactCharts,
+          reactCharts, reactModules,
           portalUser: { nombres: user?.nombres, apellidos: user?.apellidos },
         };
         dispose = await window.mountCommercialDashboard(host.current, bundle.stylesheet);

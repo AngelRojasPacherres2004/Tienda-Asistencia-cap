@@ -192,17 +192,9 @@
         </div>
       </section>
     }
-    <header class="brand-header">
-      <div class="brand-block"><img src="/comercial/logo-almacen-remates.png" alt="Almacén de Remates" />@if (cloud.accessProfile()?.scopeType === 'all') { <p class="store-summary"><strong>{{ annualStoreSummary().total }} TIENDAS</strong><span>{{ annualStoreSummary().metro }} METRO</span><span>{{ annualStoreSummary().outside }} NO METRO</span></p> }</div>
-      <div>
-        <h1>DASHBOARD EJECUTIVO COMERCIAL {{ year() }} · {{ selectedMonths().length ? 'PERÍODO ' + monthFilterLabel() : 'CIERRE ' + monthNamesFull[selectedMonth() - 1] }}</h1>
-      </div>
-      <div class="header-actions">
-        <div class="cutoff"><span>CORTE COMERCIAL</span><strong>{{ formatDate(data()!.metadata.salesCutoff) }}</strong><small>{{ cloud.dataVersion() }}</small></div>
-        @if (cloud.remoteEnabled() && !cloud.portalEnabled) { <button type="button" class="logout" (click)="signOut()" [title]="cloud.userName()">SALIR</button> }
-      </div>
-    </header>
+    <dashboard-header [model]="headerModel()" (logout)="signOut()" />
 
+    <dashboard-filters [model]="filtersModel()" (action)="onReactFilterAction($event)">
     <div class="dashboard-filter-toolbar" [class.is-open]="filtersOpen()"><button type="button" class="dashboard-filter-trigger" aria-label="Abrir filtros y listas" title="Filtros y listas" [attr.aria-expanded]="filtersOpen()" aria-controls="dashboard-filter-drawer" (click)="filtersOpen.set(!filtersOpen())"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><path d="M8 4v4M16 10v4M10 16v4"/></svg></button></div>
     <aside id="dashboard-filter-drawer" class="dashboard-filter-drawer" [class.is-open]="filtersOpen()" [attr.inert]="filtersOpen() ? null : ''" aria-label="Filtros del dashboard" (keydown.escape)="filtersOpen.set(false)">
     <header class="dashboard-filter-heading"><h2>Filtros del dashboard</h2></header>
@@ -281,16 +273,14 @@
       </div>
     </section>
     </aside>
+    </dashboard-filters>
 
-    <nav class="page-tabs" aria-label="Páginas del dashboard">
-      <button type="button" [class.active]="page() === 1" (click)="goPage(1)"><span>01</span> GESTIÓN COMERCIAL</button>
-      <button type="button" [class.active]="page() === 2" (click)="goPage(2)"><span>02</span> INVENTARIO Y PREDICTIVO</button>
-      <button type="button" [class.active]="page() === 3" (click)="goPage(3)"><span>03</span> GESTIÓN DE TALENTO</button>
-    </nav>
+    <dashboard-tabs [page]="page()" (navigate)="goPage($event)" />
 
     @if (page() === 1) {
       <section class="page page-one" aria-label="Gestión y comercial">
         <div class="section-heading"><span>01</span><div><h2>RESUMEN COMERCIAL</h2></div></div>
+        <dashboard-react-module moduleId="primary-kpis" [model]="primaryKpiModel()">
         <div class="flow-growth-row primary-kpis" aria-label="Indicadores comerciales principales">
           <div class="flow-row" aria-label="Composición de venta neta">
             <article class="metric-card meta-kpi" title="Fórmula: suma de las metas mensuales del año para las tiendas, rubros y demás filtros aplicables."><span>META</span><strong>{{ money(metrics().annualTarget, true) }}</strong></article><span class="operator">→</span>
@@ -305,8 +295,10 @@
             </article>
           </div>
         </div>
+        </dashboard-react-module>
 
         <div class="block-heading"><span>A</span><h2>INDICADORES CLAVE</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('commercial-a', '01.A Indicadores clave')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('commercial-a'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }
+        <dashboard-react-module moduleId="key-kpis" [model]="keyKpiModel()" (action)="onReactKeyKpiAction($event)">
         <div class="kpi-strip">
           @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() === 'METRO') { <article class="ticket-kpi traffic-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver evolución mensual del tráfico de tiendas METRO" (click)="openTrafficChart('METRO')" (keydown.enter)="openTrafficChart('METRO')" (keydown.space)="$event.preventDefault(); openTrafficChart('METRO')"><span>TRÁFICO METRO</span><strong [class.missing]="metrics().trafficMetro == null">{{ number(metrics().trafficMetro) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article> }
           @if (!storeFilterLocked() || filteredStores()[0]?.format?.toUpperCase() !== 'METRO') { <article class="ticket-kpi traffic-kpi" role="button" tabindex="0" aria-haspopup="dialog" title="Ver evolución mensual del tráfico de otras tiendas" (click)="openTrafficChart('OTHER')" (keydown.enter)="openTrafficChart('OTHER')" (keydown.space)="$event.preventDefault(); openTrafficChart('OTHER')"><span>TRÁFICO OTRAS TDS.</span><strong [class.missing]="metrics().trafficOther == null">{{ number(metrics().trafficOther) }}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small></article> }
@@ -317,7 +309,10 @@
           <article title="Fórmula: (venta real positiva − venta bruta a precio sugerido) ÷ venta bruta a precio sugerido × 100. No es margen contable."><span>MARKUP</span><strong [class.positive]="(metrics().priceVariation || 0) >= 0" [class.negative]="(metrics().priceVariation || 0) < 0">{{ trend(metrics().priceVariation) }}</strong></article>
           <article title="Fórmula: unidades vendidas ÷ (stock actual + unidades recibidas) × 100."><span>SELL-THROUGH@if (metrics().sellThroughStock) { <em>{{ number(metrics().sellThroughStock, ' und') }}</em> }</span><strong [class.missing]="metrics().sellThrough == null">{{ percent(metrics().sellThrough) }}</strong></article>
         </div>
-        <div class="block-heading"><span>B</span><h2>CUMPLIMIENTO Y AVANCE</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('commercial-b', '01.B Cumplimiento y avance')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('commercial-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }<div class="executive-grid">
+        </dashboard-react-module>
+        <div class="block-heading"><span>B</span><h2>CUMPLIMIENTO Y AVANCE</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('commercial-b', '01.B Cumplimiento y avance')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('commercial-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }
+        <dashboard-react-module moduleId="progress" [model]="progressModel()">
+        <div class="executive-grid">
           <article class="card progress-card annual" title="Fórmula: avance acumulado = venta neta de los meses transcurridos ÷ meta anual × 100. El filtro de día no modifica este avance oficial.">
             <h2><svg><use href="/comercial/assets/icons.svg#target"></use></svg> AVANCE ACUMULADO</h2>
             <div class="split-meter">
@@ -341,6 +336,7 @@
             <dl><div><dt>META {{ monthlyContextLabel() }}</dt><dd>{{ money(metrics().monthTarget, true) }}</dd></div><div><dt>REAL {{ monthlyContextLabel() }}</dt><dd>{{ money(metrics().monthNet, true) }}</dd></div><div><dt>CUMPL. META</dt><dd>{{ percent(metrics().monthlyPct) }}</dd></div><div><dt>{{ monthlyVariationLabel() }}</dt><dd [class.positive]="(metrics().monthVariation || 0) >= 0" [class.negative]="(metrics().monthVariation || 0) < 0">{{ trend(metrics().monthVariation) }}</dd></div></dl>
           </article>
         </div>
+        </dashboard-react-module>
 
         <div class="block-heading"><span>C</span><h2>COMPORTAMIENTO COMERCIAL</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('commercial-c', '01.C Comportamiento comercial')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('commercial-c'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }<div class="charts-four">
           <article class="card chart-card meta-vs-real"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> AVANCE META VS REAL</h2>@if (storeGoalsReady()) { <dashboard-chart [option]="metaVsRealOption()" chartId="meta-vs-real" label="Venta real y meta por mes" /> } @else { <div class="card-inline-loader" role="status"><span class="loader"></span>Cargando metas…</div> }</article>
@@ -586,7 +582,7 @@
 
         <div class="block-heading"><span>B</span><h2>PRODUCTIVIDAD Y DISTRIBUCIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('talent-b', '03.B Productividad y distribución')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('talent-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }
         <div class="talent-performance-grid">
-          <article class="card talent-card seller-performance-card" [class.chart-expanded]="expandedChart() === 'seller-ranking'"><button type="button" class="seller-more-btn" (click)="toggleChartExpansion('seller-ranking')" [attr.aria-label]="expandedChart() === 'seller-ranking' ? 'Cerrar tabla de vendedores' : 'Ampliar ranking de vendedores'">{{ expandedChart() === 'seller-ranking' ? '×' : '⛶' }}</button><h2><svg><use href="/comercial/assets/icons.svg#ranking"></use></svg> RANKING DE VENTAS POR VENDEDOR</h2><div class="seller-ranking-content">@if (sellerDetailLoading()) { <p class="detail-loading">CARGANDO VENDEDORES…</p> } @else { <dashboard-chart [option]="sellerPerformanceOption()" label="Primeros 30 vendedores con desplazamiento vertical" /> }@if (expandedChart() === 'seller-ranking') { <div class="seller-ranking-table" aria-label="Todos los vendedores"><div class="seller-ranking-head"><span>VENDEDOR</span><span>VENTA NETA</span><span>UNIDADES</span><span>TRANSACCIONES</span></div><div class="seller-ranking-body">@for (seller of talentSellerRows(); track seller.seller) { <div><strong>{{ seller.seller }}</strong><span>{{ money(seller.net, true) }}</span><span>{{ number(seller.units) }}</span><span>{{ number(seller.transactions) }}</span></div> } @empty { <p>N/A</p> }</div></div> }</div></article>
+          <article class="card talent-card seller-performance-card" [attr.data-seller-detail-ready]="sellerDetailLoaded() ? 'true' : null" [class.chart-expanded]="expandedChart() === 'seller-ranking'"><button type="button" class="seller-more-btn" (click)="toggleChartExpansion('seller-ranking')" [attr.aria-label]="expandedChart() === 'seller-ranking' ? 'Cerrar tabla de vendedores' : 'Ampliar ranking de vendedores'">{{ expandedChart() === 'seller-ranking' ? '×' : '⛶' }}</button><h2><svg><use href="/comercial/assets/icons.svg#ranking"></use></svg> RANKING DE VENTAS POR VENDEDOR</h2><div class="seller-ranking-content">@if (sellerDetailLoading()) { <p class="detail-loading">CARGANDO VENDEDORES…</p> } @else { <dashboard-chart [option]="sellerPerformanceOption()" chartId="talent-seller-performance" label="Primeros 30 vendedores con desplazamiento vertical" /> }@if (expandedChart() === 'seller-ranking') { <div class="seller-ranking-table" aria-label="Todos los vendedores"><div class="seller-ranking-head"><span>VENDEDOR</span><span>VENTA NETA</span><span>UNIDADES</span><span>TRANSACCIONES</span></div><div class="seller-ranking-body">@for (seller of talentSellerRows(); track seller.seller) { <div><strong>{{ seller.seller }}</strong><span>{{ money(seller.net, true) }}</span><span>{{ number(seller.units) }}</span><span>{{ number(seller.transactions) }}</span></div> } @empty { <p>N/A</p> }</div></div> }</div></article>
           <article class="card talent-card area-distribution-card"><h2><svg><use href="/comercial/assets/icons.svg#category"></use></svg> DISTRIBUCIÓN DEL EQUIPO POR ÁREA</h2><dashboard-chart [option]="talentAreaOption()" chartId="talent-area-distribution" label="Distribución de colaboradores por área" /></article>
           <article class="card talent-card store-productivity-card"><h2><svg><use href="/comercial/assets/icons.svg#gauge"></use></svg> PRODUCTIVIDAD POR TIENDA</h2><dashboard-chart [option]="talentStoreProductivityOption()" chartId="talent-store-productivity" label="Venta por colaborador de las tiendas con mayor productividad" /></article>
         </div>

@@ -208,6 +208,19 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
+- El 27/10 se añadieron seis módulos de interfaz con flags independientes:
+  cabecera, navegación, filtros (incluido calendario), indicadores principales,
+  indicadores clave y tarjetas de avance. El puente conserva los mismos
+  cálculos de Angular y comunica las acciones al controlador existente. En
+  local se activan con `?reactModule=header`, `page-tabs`, `filters`,
+  `primary-kpis`, `key-kpis` o `progress`; en un despliegue se controlan con
+  `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
+  Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
+  navegación, filtros de mes y día, restablecimiento y apertura del detalle de
+  ticket. Cabecera, navegación, filtros y los dos grupos de indicadores tuvieron
+  cero píxeles distintos; las tarjetas de avance variaron 26 de 366,490
+  píxeles en un área de 8 × 10 px.
+
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
   categoría, Rango de precios vendidos, Ranking tiendas, Venta por marca y
@@ -294,9 +307,9 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   capacitación las barras coincidieron y la diferencia quedó dentro del área
   de las etiquetas a la izquierda, 1,578 de 78,540 píxeles. La auditoría
   limita expresamente la excepción a esa zona.
-- El ranking de vendedores sigue en Angular: en la comparación preliminar la
-  barra de desplazamiento vertical apareció solo en React. Conservamos el
-  motor anterior para ese panel hasta resolver la diferencia.
+- El ranking de vendedores tiene puente React de prueba y conserva Angular por
+  defecto: la comparación preliminar mostró la barra de desplazamiento
+  vertical solo en React. Ese panel aún no cumple la paridad visual.
 - Las tres tarjetas predictivas visibles y los tres gráficos emergentes
   pasaron una comprobación local con gerencia comercial, 2026 y 1440 px.
   Salud, valor en riesgo, ticket, conversión y tráfico tuvieron cero píxeles
@@ -306,10 +319,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
-- Quedan por migrar 4 de las 31 instancias de gráfico: el ranking de
-  vendedores y tres gráficos ocultos por la configuración actual. La interfaz
-  Angular todavía coordina filtros, secciones y controles. No se ha activado ningún
-  flag en Netlify ni se ha retirado Angular.
+- Quedan por migrar tres instancias de gráfico ocultas por la configuración
+  actual; el ranking de vendedores aún tiene una diferencia visual. Angular
+  todavía coordina la carga, las secciones, tarjetas de gráficos y varios
+  controles. No se ha activado ningún flag en Netlify ni se ha retirado Angular.
 
 ## Paso 5: pendiente tras la paridad completa del paso 4
 

@@ -5,6 +5,10 @@ import type { EChartsOption } from 'echarts';
 import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
 import { DashboardChartComponent } from './chart';
+import { DashboardTabsComponent } from './dashboard-tabs';
+import { DashboardHeaderComponent, type DashboardHeaderModel } from './dashboard-header';
+import { DashboardFiltersComponent, type DashboardFilterAction, type DashboardFiltersModel } from './dashboard-filters';
+import { DashboardReactModuleComponent } from './dashboard-react-module';
 import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
@@ -145,7 +149,7 @@ function denseRanks(values: Array<number | null>, descending = true): Map<number
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, DashboardChartComponent, DashboardAssistantWidgetComponent],
+  imports: [CommonModule, FormsModule, DashboardChartComponent, DashboardTabsComponent, DashboardHeaderComponent, DashboardFiltersComponent, DashboardReactModuleComponent, DashboardAssistantWidgetComponent],
   templateUrl: './app.html',
   styleUrls: ['./app.scss', './transfer-modal.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1146,6 +1150,148 @@ export class App implements OnInit {
     const metro = stores.filter(store => store.format === 'METRO').length;
     return { total: stores.length, metro, outside: stores.length - metro };
   });
+  readonly headerModel = computed<DashboardHeaderModel>(() => ({
+    title: `DASHBOARD EJECUTIVO COMERCIAL ${this.year()} · ${this.selectedMonths().length ? `PERÍODO ${this.monthFilterLabel()}` : `CIERRE ${this.monthNamesFull[this.selectedMonth() - 1]}`}`,
+    cutoffDate: this.formatDate(this.data()?.metadata.salesCutoff),
+    version: this.cloud.dataVersion(),
+    storeSummary: this.cloud.accessProfile()?.scopeType === 'all' ? this.annualStoreSummary() : null,
+    showLogout: this.cloud.remoteEnabled() && !this.cloud.portalEnabled,
+    userName: this.cloud.userName(),
+  }));
+
+  readonly filtersModel = computed<DashboardFiltersModel>(() => ({
+    open: this.filtersOpen(), year: this.year(), years: (this.data()?.metadata.years ?? []).filter(y => y >= 2024),
+    openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
+    selected: {
+      month: this.selectedMonths(), cluster: this.selectedClusters(), format: this.selectedFormats(),
+      store: this.selectedStores(), category: this.selectedCategories(), gender: this.selectedGenders(),
+      line: this.selectedLines(), subline: this.selectedSublines(),
+    },
+    options: {
+      month: this.searchedMonths(), cluster: this.searchedClusters(), format: this.searchedFormats(),
+      store: this.searchedStores(), category: this.searchedCategories(), gender: this.genderOptions(),
+      line: this.searchedLines(), subline: this.searchedSublines(),
+    },
+    labels: {
+      month: this.monthFilterLabel(), cluster: this.clusterFilterLabel(), format: this.formatFilterLabel(),
+      store: this.storeFilterLabel(), category: this.categoryFilterLabel(), gender: this.genderFilterLabel(),
+      line: this.lineFilterLabel(), subline: this.sublineFilterLabel(),
+    },
+    storeLocked: this.storeFilterLocked(), clusterLocked: this.clusterFilterLocked(), genderEnabled: this.genderFilterEnabled(),
+    dayEnabled: this.dayFilterEnabled(), dateRangeActive: this.dateRangeActive(), dayLabel: this.dayFilterLabel(),
+    calendarOpen: this.calendarOpen(), calendarTitle: this.dayFilterEnabled() ? `${this.monthNamesFull[this.selectedMonths()[0] - 1]} ${this.year()}` : '',
+    calendarDays: this.calendarDays(), fromDate: this.fromDate(), toDate: this.toDate(),
+    dayLoading: this.dayFilterLoading(), dayError: this.dayFilterError(),
+  }));
+
+  readonly primaryKpiModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const gap = this.accumulatedGap();
+    return { cards: [
+      { label: 'META', className: 'meta-kpi', title: 'Fórmula: suma de las metas mensuales del año para las tiendas, rubros y demás filtros aplicables.', value: this.money(metrics.annualTarget, true) },
+      { label: 'VENTA BRUTA', className: 'gross-kpi', title: 'Fórmula: Σ(precio sugerido × cantidad) de las ventas positivas del período filtrado.', value: this.money(metrics.gross, true) },
+      { label: 'NOTAS DE CRÉDITO', title: 'Fórmula: Σ(importe de notas de crédito) del período filtrado.', value: this.money(metrics.notes, true) },
+      { label: 'DESCUENTO TOTAL', title: 'Fórmula: Σ(descuento aplicado) del período filtrado.', value: this.money(metrics.discount, true) },
+      { label: 'VENTA NETA', className: 'net-kpi', title: 'Fórmula: Σ(importe neto de las ventas registradas), incluidas las notas de crédito. No se obtiene restando directamente a la venta bruta sugerida.', value: this.money(metrics.net, true) },
+      { label: 'PROYECCIÓN CIERRE', className: 'projection-kpi', title: 'Fórmula: promedio ponderado del pronóstico YTD, histórico estacional y ritmo diario anualizado; el factor de crecimiento reciente ajusta los meses pendientes.', value: this.money(metrics.projectedClose, true) },
+      { label: 'BRECHA ACUMULADA', className: 'projection-meta-kpi', title: 'Fórmula: meta anual − proyección de cierre. Una brecha positiva indica venta proyectada por debajo de la meta.', value: `${gap != null && gap <= 0 ? '▲ ' : '▼ '}${this.money(Math.abs(gap || 0), true)}`, valueClass: (gap || 0) <= 0 ? 'positive' : 'negative' },
+      { label: 'VENTA PROMEDIO DIARIA', className: 'featured-kpi daily-average-kpi', title: 'Fórmula: venta neta del período filtrado ÷ días calendario correspondientes (hasta el día de corte en un mes parcial).', value: this.money(metrics.dailyAverage, true) },
+    ] };
+  });
+
+  readonly keyKpiModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const locked = this.storeFilterLocked();
+    const format = this.filteredStores()[0]?.format?.toUpperCase();
+    const actions = [];
+    if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de tiendas METRO', action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
+    if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de otras tiendas', action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
+    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Fórmula: transacciones ÷ tráfico × 100. Ver evolución mensual', action: 'conversion', value: this.percent(metrics.conversion), valueClass: '' });
+    actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: 'Ver ticket promedio por mes', action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
+    return {
+      actions, saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
+      saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
+      markup: this.trend(metrics.priceVariation), markupPositive: (metrics.priceVariation || 0) >= 0,
+      sellThroughStock: metrics.sellThroughStock ? this.number(metrics.sellThroughStock, ' und') : '',
+      sellThrough: this.percent(metrics.sellThrough), sellThroughMissing: metrics.sellThrough == null,
+    };
+  });
+
+  readonly progressModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const advance = this.advanceMetrics();
+    const monthlyContext = this.monthlyContextLabel();
+    return {
+      monthlyContext,
+      annual: {
+        actualGrow: Math.max(.12, Math.min(1, advance.annualPct || 0)),
+        actualPct: this.percent(advance.annualPct), actualValue: this.money(advance.net, true),
+        remainingGrow: Math.max(.12, 1 - Math.min(1, advance.annualPct || 0)),
+        remainingPct: this.percent(advance.annualPct == null ? null : Math.max(0, 1 - advance.annualPct)),
+        remainingValue: this.money(advance.annualTarget ? Math.max(0, advance.annualTarget - advance.net) : null, true),
+      },
+      monthly: {
+        actualGrow: Math.max(.12, Math.min(1, metrics.monthlyPct || 0)),
+        actualPct: this.percent(metrics.monthlyPct), actualValue: this.money(metrics.monthNet, true),
+        remainingGrow: Math.max(.12, 1 - Math.min(1, metrics.monthlyPct || 0)),
+        remainingPct: metrics.monthlyPct == null ? 'N/A' : this.percent(Math.min(0, metrics.monthlyPct - 1)),
+        remainingValue: this.money(metrics.monthTarget ? Math.max(0, metrics.monthTarget - metrics.monthNet) : null, true),
+      },
+      annualRows: [
+        { label: `META ANUAL ${this.year()}`, value: this.money(metrics.annualTarget, true) },
+        { label: `REAL ${this.annualContextLabel()}`, value: this.money(metrics.net, true) },
+        { label: 'CUMPL. META ANUAL', value: this.percent(metrics.annualPct) },
+        { label: this.annualVariationLabel(), title: `Compara con ${this.annualPreviousContextLabel()}`, value: this.trend(metrics.annualGrowth), valueClass: (metrics.annualGrowth || 0) >= 0 ? 'positive' : 'negative' },
+      ],
+      monthlyRows: [
+        { label: `META ${monthlyContext}`, value: this.money(metrics.monthTarget, true) },
+        { label: `REAL ${monthlyContext}`, value: this.money(metrics.monthNet, true) },
+        { label: 'CUMPL. META', value: this.percent(metrics.monthlyPct) },
+        { label: this.monthlyVariationLabel(), value: this.trend(metrics.monthVariation), valueClass: (metrics.monthVariation || 0) >= 0 ? 'positive' : 'negative' },
+      ],
+    };
+  });
+
+  onReactKeyKpiAction({ type }: { type: string }): void {
+    if (type === 'trafficMetro') this.openTrafficChart('METRO');
+    else if (type === 'trafficOther') this.openTrafficChart('OTHER');
+    else if (type === 'conversion') this.openConversionChart();
+    else if (type === 'ticket') this.openTicketChart();
+  }
+
+  onReactFilterAction({ type, value }: DashboardFilterAction): void {
+    if (type === 'toggleDrawer') { this.filtersOpen.set(!this.filtersOpen()); return; }
+    if (type === 'closeDrawer') { this.filtersOpen.set(false); return; }
+    if (type === 'year') { this.onYear(Number(value)); return; }
+    if (type === 'toggleCalendar') { this.toggleCalendar(); return; }
+    if (type === 'closeCalendar') { this.closeCalendar(); return; }
+    if (type === 'clearDateRange') { this.clearDateRange(); return; }
+    if (type === 'calendarDay') { void this.onCalendarDayClick(String(value)); return; }
+    if (type === 'reset') { this.resetFilters(); return; }
+    if (type === 'toggleFilter') {
+      const key = String(value) as FilterKey;
+      if ((key === 'store' && this.storeFilterLocked()) || (key === 'cluster' && this.clusterFilterLocked()) || (key === 'gender' && !this.genderFilterEnabled())) return;
+      this.closeCalendar(); this.openFilter.set(this.openFilter() === key ? null : key); return;
+    }
+    if (type === 'search') {
+      const input = String(value); const divider = input.indexOf(':');
+      if (divider >= 0) this.setFilterSearch(input.slice(0, divider) as FilterKey, input.slice(divider + 1));
+      return;
+    }
+    const clear: Record<string, () => void> = {
+      month: () => this.clearMonths(), cluster: () => this.clearClusters(), format: () => this.clearFormats(),
+      store: () => this.clearStores(), category: () => this.clearCategories(), gender: () => this.clearGenders(),
+      line: () => this.clearLines(), subline: () => this.clearSublines(),
+    };
+    const toggle: Record<string, (input: string) => void> = {
+      month: input => this.toggleMonth(Number(input)), cluster: input => this.toggleCluster(input),
+      format: input => this.toggleFormat(input), store: input => this.toggleStore(input),
+      category: input => this.toggleCategory(input), gender: input => this.toggleGender(input),
+      line: input => this.toggleLine(input), subline: input => this.toggleSubline(input),
+    };
+    if (type.startsWith('clear:')) clear[type.slice(6)]?.();
+    if (type.startsWith('toggle:')) toggle[type.slice(7)]?.(String(value));
+  }
 
   readonly previousMonthRows = computed(() => {
     const p = this.selectedPeriod(); const previous = p % 100 === 1 ? (Math.floor(p / 100) - 1) * 100 + 12 : p - 1;

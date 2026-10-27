@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -75,7 +75,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", ""], ["react", `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -111,6 +111,106 @@ try {
         ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
         : null;
       await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      if (chartId === "page-tabs") {
+        const tabs = page.locator('.page-tabs[aria-label="Páginas del dashboard"]');
+        await tabs.waitFor({ timeout: 30_000 });
+        assert.equal(await tabs.getAttribute("data-react-commercial-module"), mode === "react" ? "page-tabs" : null);
+        for (const [index, section] of [[1, ".page-two"], [2, ".talent-page"], [0, ".page-one"]]) {
+          await tabs.locator("button").nth(index).click();
+          await page.locator(section).waitFor({ state: "visible" });
+          assert.match(await tabs.locator("button").nth(index).getAttribute("class") || "", /active/);
+        }
+        await page.evaluate(() => document.fonts.ready);
+        const dimensions = await tabs.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await tabs.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "header") {
+        const header = page.locator('.brand-header');
+        await header.waitFor({ timeout: 30_000 });
+        assert.equal(await header.getAttribute("data-react-commercial-module"), mode === "react" ? "header" : null);
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        await page.locator(".filter-panel label").first().locator("select").selectOption("2025");
+        await header.locator("h1").filter({ hasText: /DASHBOARD EJECUTIVO COMERCIAL 2025/ }).waitFor();
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        await page.locator(".dashboard-filter-drawer").waitFor({ state: "hidden" });
+        await page.evaluate(() => document.fonts.ready);
+        const dimensions = await header.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await header.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "filters") {
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        const drawer = page.locator(".dashboard-filter-drawer:visible");
+        await drawer.waitFor({ timeout: 30_000 });
+        assert.equal(await page.locator('[data-react-commercial-module="filters"]').count(), mode === "react" ? 1 : 0);
+        await drawer.locator("label").first().locator("select").selectOption("2025");
+        await drawer.locator("details").first().locator("summary").click();
+        await drawer.getByRole("button", { name: "ENE", exact: true }).click();
+        await drawer.locator(".day-picker-trigger").click();
+        await drawer.locator(".calendar-day:not([disabled])").first().click();
+        await drawer.locator(".calendar-apply-btn").click();
+        await drawer.locator("details").first().locator("summary").click();
+        await drawer.locator(".reset").click();
+        assert.equal(await drawer.locator("label").first().locator("select option:checked").innerText(), "2026");
+        await page.evaluate(() => document.fonts.ready);
+        const dimensions = await drawer.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await drawer.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "primary-kpis") {
+        const strip = page.locator(".primary-kpis:visible");
+        await strip.waitFor({ timeout: 30_000 });
+        assert.equal(await strip.getAttribute("data-react-commercial-module"), mode === "react" ? "primary-kpis" : null);
+        assert.equal(await strip.locator(".metric-card").count(), 8);
+        await page.evaluate(() => document.fonts.ready);
+        const dimensions = await strip.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await strip.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "key-kpis") {
+        const strip = page.locator(".kpi-strip:visible");
+        await strip.waitFor({ timeout: 30_000 });
+        assert.equal(await strip.getAttribute("data-react-commercial-module"), mode === "react" ? "key-kpis" : null);
+        const dimensions = await strip.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await strip.screenshot({ path: screenshot });
+        await strip.locator('.ticket-kpi[title="Ver ticket promedio por mes"]').click();
+        await page.locator('.ticket-modal[aria-labelledby="ticket-chart-title"]').waitFor();
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "progress") {
+        const grid = page.locator(".executive-grid:visible");
+        await grid.waitFor({ timeout: 30_000 });
+        assert.equal(await grid.getAttribute("data-react-commercial-module"), mode === "react" ? "progress" : null);
+        assert.equal(await grid.locator("article").count(), 4);
+        const dimensions = await grid.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await grid.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
       if (chartId.startsWith("inventory-") || chartId.startsWith("predictive-")) {
         await page.locator(".page-tabs button").nth(1).click();
       }
@@ -126,6 +226,7 @@ try {
       const talentCardClasses = {
         "talent-history": "history-card",
         "talent-team-productivity": "team-productivity-card",
+        "talent-seller-performance": "seller-performance-card",
         "talent-area-distribution": "area-distribution-card",
         "talent-store-productivity": "store-productivity-card",
         "talent-training": "training-card",
@@ -196,6 +297,9 @@ try {
       }
       if (chartId === "inventory-antiquity") {
         await page.locator('.antiquity-card[data-stock-origin-ready="true"]').waitFor({ timeout: 30_000 });
+      }
+      if (chartId === "talent-seller-performance") {
+        await page.locator('.seller-performance-card[data-seller-detail-ready="true"]').waitFor({ timeout: 30_000 });
       }
       if (chartId === "inventory-sizes") {
         const controls = card.locator(".size-chart-controls > div");
