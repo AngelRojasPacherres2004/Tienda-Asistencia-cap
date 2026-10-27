@@ -58,3 +58,13 @@ test('totals include all source quantities when one product/store has several ro
   const products = [row('A', 10, 0), row('A', 15, 0), row('B', 0, 30)];
   assert.deepEqual(transferTotals(products, stockTransfers(products)), { stockUnits: 25, salesUnits: 30 });
 });
+
+test('alternative mode shows destinations even when the first would exhaust the donor', () => {
+  const products = [row('A', 10, 0), row('B', 0, 20), row('C', 1, 30)];
+  assert.equal(stockTransfers(products).length, 1);
+  const alternatives = stockTransfers(products, 30, 90, false);
+  assert.equal(alternatives.length, 2);
+  assert.deepEqual(alternatives.map(route => route.destination), ['B', 'C']);
+  assert.ok(alternatives.every(route => route.suggested === 10));
+  assert.deepEqual(transferTotals(products, alternatives), { stockUnits: 11, salesUnits: 50 });
+});
