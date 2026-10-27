@@ -10,14 +10,21 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
 const expandedInventoryValue = chartId === "inventory-store-value" && process.env.AUDIT_EXPANDED === "1";
 const genderTextil = chartId === "gender-donut" && process.env.AUDIT_GENDER_RUBRO === "TEXTIL";
+const sizeRubro = chartId === "inventory-sizes" ? process.env.AUDIT_SIZE_RUBRO || "CALZADO" : "";
+const sizeMetric = chartId === "inventory-sizes" ? process.env.AUDIT_SIZE_METRIC || "SALES" : "";
+const sizeSystem = chartId === "inventory-sizes" ? process.env.AUDIT_SIZE_SYSTEM || "USA" : "";
+assert.ok(!sizeRubro || ["CALZADO", "TEXTIL"].includes(sizeRubro));
+assert.ok(!sizeMetric || ["SALES", "STOCK", "TRANSFERS"].includes(sizeMetric));
+assert.ok(!sizeSystem || ["USA", "EUR"].includes(sizeSystem));
+const sizeSuffix = chartId === "inventory-sizes" ? [sizeRubro === "TEXTIL" && "textil", sizeMetric !== "SALES" && sizeMetric.toLowerCase(), sizeSystem === "EUR" && "eur"].filter(Boolean).join("-") : "";
 const captureSuffix = rankingFallback ? "-fallback" : rankingMarkupOnly ? "-markup"
-  : expandedBrand || expandedInventoryValue ? "-expanded" : genderTextil ? "-textil" : "";
+  : expandedBrand || expandedInventoryValue ? "-expanded" : genderTextil ? "-textil" : sizeSuffix ? `-${sizeSuffix}` : "";
 const headers = { apikey: process.env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
 const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, {
   headers,
@@ -82,7 +89,10 @@ try {
       if (item.url().includes("/api/commercial/store-goals")) goalEvents.push(item.status());
     });
     await page.route("**/api/**", route => {
-      if (route.request().method() !== "GET") return route.abort();
+      const request = route.request();
+      const readOnlyPost = chartId === "inventory-sizes" && request.method() === "POST"
+        && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname);
+      if (request.method() !== "GET" && !readOnlyPost) return route.abort();
       return route.continue();
     });
     if (rankingFallback) await page.route("**/api/commercial/company-ranking", route => route.abort());
@@ -109,6 +119,7 @@ try {
               : chartId === "brand-sales" ? "brand-sales-card"
                 : chartId.startsWith("gender-") ? "gender-card"
                   : chartId === "inventory-store-value" ? "store-value-coverage-card"
+                    : chartId === "inventory-sizes" ? "size-distribution-card"
                     : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
@@ -157,6 +168,32 @@ try {
       }
       if (chartId === "inventory-rotation" || chartId === "inventory-store-value") {
         await page.locator('.rotation-card[data-stock-hierarchy-ready="true"]').waitFor({ timeout: 30_000 });
+      }
+      if (chartId === "inventory-sizes") {
+        const controls = card.locator(".size-chart-controls > div");
+        if (sizeRubro === "TEXTIL") await controls.nth(0).locator("button").last().click();
+        if (sizeMetric === "STOCK") await controls.nth(1).locator("button").nth(1).click();
+        if (sizeMetric === "TRANSFERS") await controls.nth(1).locator("button").nth(2).click();
+        if (sizeRubro === "CALZADO" && sizeSystem === "EUR") await controls.nth(2).locator("button").last().click();
+        const mapped = card.locator(".size-chart-summary span:nth-child(2) strong");
+        await mapped.waitFor({ timeout: 90_000 });
+        if (sizeRubro === "TEXTIL") {
+          await card.getByText("Sin tallas textiles mapeadas en los códigos actuales.").waitFor({ state: "visible", timeout: 90_000 });
+        } else {
+          await card.locator(".card-inline-loader--overlay").waitFor({ state: "hidden", timeout: 90_000 });
+        }
+        let mappedCount = 0;
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          mappedCount = Number((await mapped.innerText()).replace(/[^\d]/g, ""));
+          if (mappedCount > 0) break;
+          await page.waitForTimeout(250);
+        }
+        if (sizeRubro === "CALZADO") assert.ok(mappedCount > 0, `${mode}: no se mapearon SKU de calzado`);
+        const totalCount = Number((await card.locator(".size-chart-summary span:first-child strong").innerText()).replace(/[^\d]/g, ""));
+        assert.ok(totalCount > 0, `${mode}: no hay SKU del rubro ${sizeRubro}`);
+        if (sizeRubro === "TEXTIL" && mappedCount === 0) {
+          await card.getByText("Sin tallas textiles mapeadas en los códigos actuales.").waitFor({ state: "visible" });
+        }
       }
       if (genderTextil) {
         await card.locator(".gender-rubro-toggle button").last().click();

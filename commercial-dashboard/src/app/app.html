@@ -376,8 +376,9 @@
               <div class="card-inline-loader"><span class="loader"></span>Preparando tallas · {{ stockDetailProgress() }}%</div>
             } @else {
               @if (productCodeLoading()) { <div class="card-inline-loader card-inline-loader--overlay" role="status" aria-label="Cargando tallas"><span class="loader"></span></div> }
+              @else if (sizeRubro() === 'TEXTIL' && !sizeChartRows().length) { <div class="card-inline-loader card-inline-loader--overlay" role="status"><strong>Sin tallas textiles mapeadas en los códigos actuales.</strong>@if (transferCodeError()) { <button type="button" class="retry-button" (click)="retryProductCodes()">REINTENTAR</button> }</div> }
               @else if (transferCodeError() && !sizeChartRows().length) { <div class="card-inline-loader card-inline-loader--overlay"><strong>No se pudieron identificar las tallas.</strong><button type="button" class="retry-button" (click)="retryProductCodes()">REINTENTAR</button></div> }
-              <dashboard-chart [option]="sizeDistributionOption()" [label]="sizeMetricLabel() + ' por talla ' + sizeRubro().toLowerCase()" />
+              <dashboard-chart [option]="sizeDistributionOption()" chartId="inventory-sizes" [label]="sizeMetricLabel() + ' por talla ' + sizeRubro().toLowerCase()" />
               <div class="size-chart-summary"><span><small>SKU DEL RUBRO</small><strong>{{ number(sizeChartCoverage().total) }}</strong></span><span><small>SKU MAPEADOS</small><strong>{{ number(sizeChartCoverage().mapped) }}</strong></span><span [class.pending]="sizeChartCoverage().pending > 0"><small>SKU PENDIENTES</small><strong>{{ number(sizeChartCoverage().pending) }}</strong></span></div>
             }
           </article>
