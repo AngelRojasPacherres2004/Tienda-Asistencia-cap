@@ -40,7 +40,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
       try {
         const bundle = await loadCommercialBundle();
         if (!active) return;
-        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents"]);
+        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"]);
         const reactCharts = (import.meta.env.VITE_COMMERCIAL_REACT_CHARTS || "")
           .split(",").map(value => value.trim()).filter(value => supportedReactCharts.has(value));
         const previewChart = new URLSearchParams(location.search).get("reactChart");

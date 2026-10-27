@@ -208,14 +208,16 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- Se añadió un puente React/ECharts para veintiuna gráficas: Tendencia interanual,
+- Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
   categoría, Rango de precios vendidos, Ranking tiendas, Venta por marca y
   los dos gráficos de Participación género, Rotación de inventario, Capacidad
   Valor de inventario por tienda, Venta, stock y traslados por talla y
   Antigüedad del stock, Evolución mensual de personal, Venta promedio por
   colaborador de cada equipo, Distribución del equipo por área, Productividad
-  por tienda, Avance de capacitación, Retiros por motivo e Incidencias externas.
+  por tienda, Avance de capacitación, Retiros por motivo, Incidencias externas,
+  Salud de inventario, Prioridad de reposición, Valor en riesgo y los tres
+  gráficos emergentes de ticket, conversión y tráfico.
   Reciben la misma opción ECharts y los
   mismos filtros que Angular; las tarjetas, sus controles y los demás paneles
   continúan en Angular.
@@ -231,7 +233,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `?reactChart=inventory-antiquity` o alguno de los siete IDs de talento
   (`talent-history`, `talent-team-productivity`, `talent-area-distribution`,
   `talent-store-productivity`, `talent-training`, `talent-exit`,
-  `talent-incidents`).
+  `talent-incidents`), uno de los tres IDs predictivos
+  (`predictive-health`, `predictive-replenishment`, `predictive-projection`)
+  o uno de los emergentes (`modal-ticket`, `modal-conversion`,
+  `modal-traffic`).
 - `scripts/audit-commercial-react-pilot.mjs` comparó Angular y React para
   gerencia comercial, jefatura zonal y jefatura de tienda, a 1440/820 px y
   en 2026/2025. Tendencia, Meta vs real, Desempeño por hora y la vista Rubro
@@ -292,12 +297,18 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 - El ranking de vendedores sigue en Angular: en la comparación preliminar la
   barra de desplazamiento vertical apareció solo en React. Conservamos el
   motor anterior para ese panel hasta resolver la diferencia.
+- Las tres tarjetas predictivas visibles y los tres gráficos emergentes
+  pasaron una comprobación local con gerencia comercial, 2026 y 1440 px.
+  Salud, valor en riesgo, ticket, conversión y tráfico tuvieron cero píxeles
+  distintos. En reposición, 323 de 128,880 píxeles cambiaron dentro de una
+  sola etiqueta truncada de 88 × 8 px; el comparador limita esa excepción.
 - La respuesta de metas retenida artificialmente mostró el mismo estado
   “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
-- Quedan por migrar 10 de las 31 instancias de gráfico y la interfaz
-  Angular que coordina filtros, secciones y controles. No se ha activado ningún
+- Quedan por migrar 4 de las 31 instancias de gráfico: el ranking de
+  vendedores y tres gráficos ocultos por la configuración actual. La interfaz
+  Angular todavía coordina filtros, secciones y controles. No se ha activado ningún
   flag en Netlify ni se ha retirado Angular.
 
 ## Paso 5: pendiente tras la paridad completa del paso 4
