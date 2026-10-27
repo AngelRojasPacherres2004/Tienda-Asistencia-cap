@@ -401,6 +401,7 @@
                 <div class="inventory-health-strip">@for (item of inventoryHealthSummary(); track item.label) { <span [class]="item.tone"><i></i>{{ item.label }}<strong>{{ item.count }}</strong></span> }</div>
               </div>
               @if (expandedChart() === 'store-value-coverage') {
+                <dashboard-react-module moduleId="stock-matrix" [model]="stockMatrixModel()">
                 <section class="inventory-matrix-card inventory-matrix-card--embedded" aria-label="Resumen de stock por tienda">
                   <div class="inventory-matrix-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> RESUMEN DE STOCK POR TIENDA</h2></div>
                   <div class="inventory-matrix-scroll">
@@ -411,6 +412,7 @@
                     </table>
                   </div>
                 </section>
+                </dashboard-react-module>
               }
               }
             </div>
@@ -579,7 +581,9 @@
         </dashboard-react-module>
         <div class="block-heading"><span>A</span><h2>DOTACIÓN Y EVOLUCIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('talent-a', '03.A Dotación y evolución')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('talent-a'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }
         <div class="talent-overview-grid">
+          <dashboard-react-module moduleId="talent-capacity" [model]="talentCapacityModel()">
           <article class="card talent-card capacity-card" [style.height.px]="storeFilterLocked() ? 180 : null" [style.min-height.px]="storeFilterLocked() ? 180 : null"><div class="talent-chart-title"><h2><svg><use href="/comercial/assets/icons.svg#warehouse"></use></svg> DOTACIÓN POR TIENDA</h2></div><div class="talent-table"><div class="talent-head"><span>TIENDA</span><span>NORMAL</span><span>CAMPAÑA</span><span>REAL</span><span>BRECHA</span><span>VENTA/COLAB.</span></div>@for (row of talentStoreRows().slice(0, 10); track row.alias) { <div><strong>{{ row.alias }}</strong><span>{{ number(row.baseStaff) }}</span><span>{{ number(row.campaignStaff) }}</span><span>{{ number(row.staff) }}</span><span [class.positive]="row.gap >= 0" [class.negative]="row.gap < 0">{{ row.gap > 0 ? '+' : '' }}{{ number(row.gap) }}</span><span>{{ money(row.productivity, true) }}</span></div> }</div></article>
+          </dashboard-react-module>
           <article class="card talent-card history-card"><h2><svg><use href="/comercial/assets/icons.svg#calendar"></use></svg> EVOLUCIÓN MENSUAL DE PERSONAL · {{ year() }}</h2><dashboard-chart [option]="talentHistoryOption()" chartId="talent-history" label="Cantidad real y esperada de personal por mes" /></article>
           <article class="card talent-card team-productivity-card"><h2><svg><use href="/comercial/assets/icons.svg#comparison"></use></svg> VENTA PROM. × COLAB. POR EQUIPO</h2><dashboard-chart [option]="talentTeamProductivityOption()" chartId="talent-team-productivity" label="Venta mensual promedio por colaborador de cada equipo comercial" /></article>
         </div>

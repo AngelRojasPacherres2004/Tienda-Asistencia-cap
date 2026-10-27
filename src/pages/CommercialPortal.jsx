@@ -45,7 +45,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
           .split(",").map(value => value.trim()).filter(value => supportedReactCharts.has(value));
         const previewChart = new URLSearchParams(location.search).get("reactChart");
         if (import.meta.env.DEV && supportedReactCharts.has(previewChart)) reactCharts.push(previewChart);
-        const supportedReactModules = new Set(["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls"]);
+        const supportedReactModules = new Set(["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix"]);
         const reactModules = (import.meta.env.VITE_COMMERCIAL_REACT_MODULES || "")
           .split(",").map(value => value.trim()).filter(value => supportedReactModules.has(value));
         const previewModule = new URLSearchParams(location.search).get("reactModule");
@@ -71,7 +71,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
             if (!active) return;
             window.mountReactCommercialFilters = renderer.mountReactCommercialFilters;
           }
-          if (reactModules.some(moduleId => ["primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls"].includes(moduleId))) {
+          if (reactModules.some(moduleId => ["primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix"].includes(moduleId))) {
             const renderer = await import("../components/mount-commercial-react-module");
             if (!active) return;
             window.mountReactCommercialModule = renderer.mountReactCommercialModule;

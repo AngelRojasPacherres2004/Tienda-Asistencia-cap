@@ -1269,12 +1269,33 @@ export class App implements OnInit {
     };
   });
 
+  readonly talentCapacityModel = computed<Record<string, unknown>>(() => ({
+    storeLocked: this.storeFilterLocked(),
+    rows: this.talentStoreRows().slice(0, 10).map(row => ({
+      alias: row.alias, baseStaff: this.number(row.baseStaff), campaignStaff: this.number(row.campaignStaff),
+      staff: this.number(row.staff), gap: `${row.gap > 0 ? '+' : ''}${this.number(row.gap)}`,
+      gapPositive: row.gap >= 0, productivity: this.money(row.productivity, true),
+    })),
+  }));
+
   onReactTalentKpiAction({ type }: { type: string }): void {
     if (type === 'birthdays') this.toggleChartExpansion('birthday-list');
   }
 
   readonly sizeControlsModel = computed<Record<string, unknown>>(() => ({
     rubro: this.sizeRubro(), metric: this.sizeMetric(), system: this.shoeSizeSystem(),
+  }));
+
+  readonly stockMatrixModel = computed<Record<string, unknown>>(() => ({
+    rows: this.inventoryMatrixRows().map(row => ({
+      storeId: row.storeId, alias: row.alias, tone: row.tone, status: row.status,
+      capacityTitle: this.number(row.capacity, ' unidades'), capacity: this.number(row.capacity, ' und'),
+      stockTitle: this.number(row.stockUnits, ' unidades'), stock: this.number(row.stockUnits, ' und'),
+      receivedTitle: this.number(row.receivedDaily, ' unidades por día'), received: this.number(row.receivedDaily, ' und/día'),
+      salesTitle: this.number(row.dailySales, ' unidades por día'), sales: this.number(row.dailySales, ' und/día'),
+      coverageTitle: row.coverageDays == null ? 'Sin venta reciente' : this.number(row.coverageDays, ' días de cobertura'),
+      coverage: row.coverageDays == null ? 'SIN VENTA' : this.number(row.coverageDays, ' días'),
+    })),
   }));
 
   onReactSizeAction({ type, value }: { type: string; value?: string | number }): void {

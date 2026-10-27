@@ -5,8 +5,10 @@ import CommercialReactKeyKpis from "./CommercialReactKeyKpis";
 import CommercialReactProgress from "./CommercialReactProgress";
 import CommercialReactTalentKpis from "./CommercialReactTalentKpis";
 import CommercialReactSizeControls from "./CommercialReactSizeControls";
+import CommercialReactTalentCapacity from "./CommercialReactTalentCapacity";
+import CommercialReactStockMatrix from "./CommercialReactStockMatrix";
 
-const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls };
+const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls, "talent-capacity": CommercialReactTalentCapacity, "stock-matrix": CommercialReactStockMatrix };
 
 export function mountReactCommercialModule(host, moduleId, onAction) {
   const root = createRoot(host);
