@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -120,6 +120,7 @@ try {
                 : chartId.startsWith("gender-") ? "gender-card"
                   : chartId === "inventory-store-value" ? "store-value-coverage-card"
                     : chartId === "inventory-sizes" ? "size-distribution-card"
+                      : chartId === "inventory-antiquity" ? "antiquity-card"
                     : chartId.startsWith("inventory-") ? "rotation-card" : chartId;
       const card = page.locator(`.chart-card.${cardClass}`);
       try { await card.waitFor({ timeout: 30_000 }); }
@@ -168,6 +169,9 @@ try {
       }
       if (chartId === "inventory-rotation" || chartId === "inventory-store-value") {
         await page.locator('.rotation-card[data-stock-hierarchy-ready="true"]').waitFor({ timeout: 30_000 });
+      }
+      if (chartId === "inventory-antiquity") {
+        await page.locator('.antiquity-card[data-stock-origin-ready="true"]').waitFor({ timeout: 30_000 });
       }
       if (chartId === "inventory-sizes") {
         const controls = card.locator(".size-chart-controls > div");
@@ -260,6 +264,10 @@ try {
       if (failures.length) throw new Error(failures.join("\n"));
       pair.push({ mode, dimensions, canvasStats, screenshot,
         sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+      if (chartId === "inventory-antiquity" && scenario.width === 1440) {
+        await canvas.click({ position: { x: 70, y: 155 } });
+        await page.locator('.stock-origin-detail[role="dialog"]').waitFor({ state: "visible", timeout: 5_000 });
+      }
     } finally {
       await context.close();
     }
