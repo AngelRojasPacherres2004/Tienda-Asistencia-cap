@@ -4,7 +4,7 @@ import { api, todayISO } from "../lib/api";
 import { EmptyState, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
 import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
 
-const blankWorker = () => ({ usuario_id: "", dni: "", manual: true, tienda_id: "", nombre_manual: "", origen_manual: "", area: "", observacion: "", lookup_error: "" });
+const blankWorker = () => ({ usuario_id: "", dni: "", manual: true, tienda_id: "", nombre_manual: "", origen_manual: "", area: "", horas: "", observacion: "", lookup_error: "" });
 
 export default function CoberturasEspeciales() {
   const [rows, setRows] = useState(null);
@@ -36,6 +36,8 @@ export default function CoberturasEspeciales() {
     setError("");
     if (!workers.length) return setError("Agrega al menos un trabajador.");
     for (const row of workers) {
+      const hours = Number(row.horas);
+      if (!Number.isFinite(hours) || hours <= 0 || hours > 24 || Math.round(hours * 100) / 100 !== hours) return setError("Indica las horas de apoyo de cada trabajador: mayor que 0 y hasta 24, con máximo dos decimales.");
       if (row.manual && (!row.nombre_manual.trim() || !row.origen_manual.trim())) return setError("Completa el nombre y la procedencia de cada persona.");
       if (!row.manual && !row.usuario_id) return setError("Ingresa un DNI válido o selecciona un trabajador de la tienda.");
       if (row.dni && !/^\d{8}$/.test(row.dni)) return setError("El DNI debe tener 8 dígitos o quedar vacío.");
@@ -54,7 +56,7 @@ export default function CoberturasEspeciales() {
     {!Array.isArray(rows) && <Notice type="error">{rows.error}</Notice>}
     {Array.isArray(rows) && rows.length ? <div className="coverage-list">{rows.map(row => <section className="panel" key={row.id}>
       <header><div><strong>{row.motivo}</strong><span>{row.fecha_inicio}{row.fecha_fin !== row.fecha_inicio ? " al " + row.fecha_fin : ""}</span></div><StatusBadge value={row.estado} /></header>
-      <div>{row.cobertura_trabajadores.map(person => <p key={person.id}>{person.usuario_id ? [person.usuarios?.nombres, person.usuarios?.apellidos].filter(Boolean).join(" ") : person.nombre_manual} · {person.area || "Sin área"} · {person.origen?.nombre || person.origen_manual} → {person.destino?.nombre}</p>)}</div>
+      <div>{row.cobertura_trabajadores.map(person => <p key={person.id}>{person.usuario_id ? [person.usuarios?.nombres, person.usuarios?.apellidos].filter(Boolean).join(" ") : person.nombre_manual} · {person.area || "Sin área"}{person.horas != null && <> · {new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(Number(person.horas))} h</>} · {person.origen?.nombre || person.origen_manual} → {person.destino?.nombre}</p>)}</div>
     </section>)}</div> : <EmptyState icon={CalendarDays} title="Sin coberturas" text="Registra al personal que está apoyando hoy en tu tienda." />}
     <Modal open={workers !== null} extraWide title="Registrar apoyo del día" subtitle={"Fecha: " + todayISO() + " · Se añadirá a Asistencias con Apoyo (ingreso) seleccionado y bloqueado."} onClose={() => { if (!busy) setWorkers(null); }}>
       {workers && <div className="form-grid">
@@ -62,13 +64,14 @@ export default function CoberturasEspeciales() {
         <div className="form-section-title span-2"><strong>Datos del personal</strong><button type="button" disabled={busy} className="button button--ghost" onClick={() => setWorkers(current => [...current, blankWorker()])}><Plus size={14} /> Agregar persona</button></div>
         <div className="coverage-workers span-2">{workers.map((row, index) => {
           return <div className="coverage-worker" key={index}>
-            <label><span>Tipo de personal</span><select aria-label="Tipo de personal" disabled={busy} value={row.manual ? "nuevo" : "tienda"} onChange={e => updateWorker(index, { ...blankWorker(), manual: e.target.value === "nuevo", observacion: row.observacion })}><option value="nuevo">Nuevo trabajador</option><option value="tienda">Trabajador de una tienda</option></select></label>
+            <label><span>Tipo de personal</span><select aria-label="Tipo de personal" disabled={busy} value={row.manual ? "nuevo" : "tienda"} onChange={e => updateWorker(index, { ...blankWorker(), manual: e.target.value === "nuevo", horas: row.horas, observacion: row.observacion })}><option value="nuevo">Nuevo trabajador</option><option value="tienda">Trabajador de una tienda</option></select></label>
             <label><span>{row.manual ? "DNI (opcional)" : "DNI del trabajador"}</span><input aria-label="DNI del trabajador" disabled={busy} inputMode="numeric" maxLength={8} placeholder={row.manual ? "DNI" : "Escribe el DNI"} value={row.dni} onChange={e => findByDni(index, e.target.value)} />{row.lookup_error && <small className="field-error" role="alert">{row.lookup_error}</small>}</label>
             {!row.manual && <label><span>Tienda de origen</span><select aria-label="Tienda de origen" disabled={busy} value={row.tienda_id} onChange={e => updateWorker(index, { tienda_id: e.target.value, usuario_id: "", dni: "", area: "", lookup_error: "" })}><option value="">Todas las tiendas</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}
             <label><span>Nombres y apellidos</span>{row.manual ? <input disabled={busy} aria-label="Nombres y apellidos" maxLength={200} placeholder="Nombres y apellidos" value={row.nombre_manual} onChange={e => updateWorker(index, { nombre_manual: e.target.value })} /> : <select aria-label="Trabajador de la tienda" disabled={busy} value={row.usuario_id} onChange={e => selectWorker(index, e.target.value)}><option value="">Buscar por DNI o seleccionar</option>{people.filter(person => !row.tienda_id || String(person.tienda_id) === row.tienda_id).map(person => <option value={person.id} key={person.id}>{person.nombres} {person.apellidos}</option>)}</select>}</label>
             <label><span>Área</span><select aria-label="Área del trabajador" disabled={busy || !row.manual} value={row.area} onChange={e => updateWorker(index, { area: e.target.value })}><option value="">Sin área registrada</option>{areas.map(area => <option key={area} value={area}>{area}</option>)}</select></label>
             {row.manual && <label><span>Procedencia / tienda de origen</span><input disabled={busy} maxLength={200} placeholder="Lugar de procedencia" value={row.origen_manual} onChange={e => updateWorker(index, { origen_manual: e.target.value })} /></label>}
             <label><span>Observación</span><input disabled={busy} maxLength={500} placeholder="Opcional" value={row.observacion} onChange={e => updateWorker(index, { observacion: e.target.value })} /></label>
+            <label><span>Horas de apoyo</span><input aria-label="Horas de apoyo" type="number" inputMode="decimal" min="0.01" max="24" step="0.01" required disabled={busy} placeholder="Ej. 8 o 4.5" value={row.horas} onChange={e => updateWorker(index, { horas: e.target.value })} /></label>
             <button type="button" disabled={busy} className="icon-button danger" aria-label="Quitar persona" onClick={() => setWorkers(current => current.filter((_, i) => i !== index))}><Trash2 size={15} /></button>
           </div>;
         })}</div>

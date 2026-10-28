@@ -465,6 +465,10 @@ export function createOperationsDomain({
     const people = candidates.filter((person) => ids.includes(person.id));
     if (people.length !== ids.length || people.some(person => Number(person.tienda_id) === Number(user.tienda_id))) throw httpError("Uno de los trabajadores no está activo o no puede asignarse a la cobertura.", 400);
     for (const row of data.trabajadores) {
+      const hours = Number(row.horas);
+      if (!Number.isFinite(hours) || hours <= 0 || hours > 24 || Math.round(hours * 100) / 100 !== hours) {
+        throw httpError('Indica las horas de apoyo de cada trabajador: mayor que 0 y hasta 24, con máximo dos decimales.', 400);
+      }
       if (!row.usuario_id) {
         const name = cleanText(row.nombre_manual);
         if (!name || name.length > 200) throw httpError("Escribe el nombre del trabajador (máximo 200 caracteres).", 400);
@@ -474,6 +478,7 @@ export function createOperationsDomain({
     }
     const details = data.trabajadores.map(row => ({
       usuario_id: row.usuario_id ? Number(row.usuario_id) : null,
+      horas: Number(row.horas),
       area: normalizeLaborArea(row.area) || null,
       ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) } : {}),
       observacion: cleanText(row.observacion) || null,
