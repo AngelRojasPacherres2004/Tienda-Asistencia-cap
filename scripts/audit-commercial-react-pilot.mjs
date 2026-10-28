@@ -627,7 +627,24 @@ try {
         const card = page.locator(".transfer-modal:visible");
         await card.waitFor({ timeout: 30_000 });
         assert.equal(await card.getAttribute("data-react-commercial-module"), mode === "react" ? chartId : null);
-        await card.locator('select').first().selectOption("CALZADO");
+        await card.locator('select').first().locator('option:not([value=""])')
+          .or(card.getByText("Sin productos disponibles para traslados"))
+          .or(card.locator('.transfer-results [role="alert"]')).first().waitFor({ state: "attached", timeout: 55_000 }).catch(async () => {
+          throw new Error(`El modal no dejó el estado de carga: ${(await card.innerText()).slice(-500)}. ${failures.join('; ')}`);
+        });
+        const rubros = await card.locator('select').first().locator('option').evaluateAll(options => options.map(option => option.value));
+        if (!rubros.some(Boolean)) {
+          const dimensions = await card.boundingBox();
+          const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+          const screenshotBytes = await card.screenshot({ path: screenshot });
+          await card.locator(".chart-expand").click();
+          await card.waitFor({ state: "hidden" });
+          if (failures.length) throw new Error(failures.join("\n"));
+          pair.push({ mode, dimensions, canvasStats: null, screenshot,
+            sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+          continue;
+        }
+        await card.locator('select').first().selectOption(rubros.includes("CALZADO") ? "CALZADO" : rubros.find(Boolean));
         await card.locator(".transfer-pagination").waitFor({ timeout: 90_000 });
         const dimensions = await card.boundingBox();
         const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);

@@ -90,7 +90,11 @@
           @if (transferCodeError()) { <p role="alert">No se pudieron consultar los códigos Nissei. <button type="button" class="transfer-reset" (click)="retryProductCodes()">Reintentar códigos</button></p> }
           <p>Stock: {{ formatDate(data()!.metadata.stockCutoff) }} · Ventas 30D: {{ formatDate(data()!.metadata.salesCutoff) }}</p>
         </div>
-        @if (!transferRubro()) {
+        @if (stockTransfersError()) {
+          <div class="transfer-empty" role="alert"><strong>{{ stockTransfersError() }}</strong><button type="button" class="transfer-reset" (click)="retryStockTransfers()">REINTENTAR</button></div>
+        } @else if ((stockDetailLoaded() || stockTransfersLoaded()) && !transferRubros().length) {
+          <div class="transfer-empty" role="status"><strong>Sin productos disponibles para traslados</strong></div>
+        } @else if (!transferRubro()) {
           <div class="transfer-empty" role="status"><strong>Selecciona un rubro</strong></div>
         } @else if (transferBusy()) {
           <div class="transfer-empty" role="status" aria-live="polite"><span class="loader"></span><strong>Calculando destinos...</strong></div>
@@ -482,7 +486,9 @@
               </div>
             </div>
             </dashboard-react-module>
-            @if (!stockDetailLoaded() && (!sizeDetailLoaded()[sizeRubro()] || (sizeMetric() === 'TRANSFERS' && !stockTransfersLoaded()))) {
+            @if (sizeMetric() === 'TRANSFERS' && stockTransfersError()) {
+              <div class="card-inline-loader" role="alert"><strong>{{ stockTransfersError() }}</strong><button type="button" class="retry-button" (click)="retryStockTransfers()">REINTENTAR</button></div>
+            } @else if (!stockDetailLoaded() && (!sizeDetailLoaded()[sizeRubro()] || (sizeMetric() === 'TRANSFERS' && !stockTransfersLoaded()))) {
               <div class="card-inline-loader"><span class="loader"></span>{{ sizeMetric() === 'TRANSFERS' ? 'Preparando traslados por talla…' : 'Preparando gráfico de tallas…' }}</div>
             } @else {
               @if (productCodeLoading()) { <div class="card-inline-loader card-inline-loader--overlay" role="status" aria-label="Cargando tallas"><span class="loader"></span></div> }

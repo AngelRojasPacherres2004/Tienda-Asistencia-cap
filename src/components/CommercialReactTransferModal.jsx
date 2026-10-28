@@ -25,7 +25,9 @@ export default function CommercialReactTransferModal({ model, onAction }) {
       <label className="transfer-search">Buscar producto <input type="search" placeholder="Código o nombre" value={model.search} onChange={event => emit("search", event.target.value)} /></label>
       <button type="button" className="transfer-reset" onClick={() => emit("reset")}>Limpiar filtros</button>
     </aside><div className="transfer-results"><div className="transfer-context">{model.codeError && <p role="alert">No se pudieron consultar los códigos Nissei. <button type="button" className="transfer-reset" onClick={() => emit("retry-codes")}>Reintentar códigos</button></p>}<p>Stock: {model.stockCutoff} · Ventas 30D: {model.salesCutoff}</p></div>
-      {!model.rubro ? <div className="transfer-empty" role="status"><strong>Selecciona un rubro</strong></div>
+      {model.transferError ? <div className="transfer-empty" role="alert"><strong>{model.transferError}</strong><button type="button" className="transfer-reset" onClick={() => emit("retry-transfers")}>REINTENTAR</button></div>
+        : model.noTransferProducts ? <div className="transfer-empty" role="status"><strong>Sin productos disponibles para traslados</strong></div>
+        : !model.rubro ? <div className="transfer-empty" role="status"><strong>Selecciona un rubro</strong></div>
         : model.busy ? <div className="transfer-empty" role="status" aria-live="polite"><span className="loader" /><strong>Calculando destinos...</strong></div>
           : model.calculationError ? <div className="transfer-empty" role="alert"><strong>{model.calculationError}</strong></div>
             : model.detailFailed ? <p role="alert">No se pudo cargar el detalle de productos.</p>

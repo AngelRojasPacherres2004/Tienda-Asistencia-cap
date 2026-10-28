@@ -10,7 +10,8 @@ export default function CommercialReactSizeCard({ model, onAction }) {
     <button type="button" className="chart-expand" onClick={() => emit("expand")} aria-label={model.expanded ? "Cerrar gráfico" : "Ampliar gráfico"}>{model.expanded ? "×" : "⛶"}</button>
     <div className="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison" /></svg> VENTA, STOCK Y TRASLADOS POR TALLA</h2></div>
     <CommercialReactSizeControls model={model.controls} onAction={onAction} />
-    {model.loading ? <div className="card-inline-loader"><span className="loader" />{model.metric === "TRANSFERS" ? "Preparando traslados por talla…" : "Preparando gráfico de tallas…"}</div> : <>
+    {model.transferError ? <div className="card-inline-loader" role="alert"><strong>{model.transferError}</strong><button type="button" className="retry-button" onClick={() => emit("retry-transfers")}>REINTENTAR</button></div>
+      : model.loading ? <div className="card-inline-loader"><span className="loader" />{model.metric === "TRANSFERS" ? "Preparando traslados por talla…" : "Preparando gráfico de tallas…"}</div> : <>
       {model.productCodeLoading ? <div className="card-inline-loader card-inline-loader--overlay" role="status" aria-label="Cargando tallas"><span className="loader" /></div>
         : model.textilEmpty ? <div className="card-inline-loader card-inline-loader--overlay" role="status"><strong>Sin tallas textiles mapeadas en los códigos actuales.</strong>{model.codeError && <button type="button" className="retry-button" onClick={() => emit("retry")}>REINTENTAR</button>}</div>
           : model.codeError && model.noRows ? <div className="card-inline-loader card-inline-loader--overlay"><strong>No se pudieron identificar las tallas.</strong><button type="button" className="retry-button" onClick={() => emit("retry")}>REINTENTAR</button></div> : null}

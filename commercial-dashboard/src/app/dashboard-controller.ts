@@ -201,6 +201,7 @@ export class CommercialDashboardController implements OnInit {
   readonly stockHierarchyLoaded = signal(false);
   readonly stockTransferProductsData = signal<ProductRow[]>([]);
   readonly stockTransfersLoaded = signal(false);
+  readonly stockTransfersError = signal('');
   readonly sizeProductsData = signal<Record<SizeRubro, SizeProductRow[]>>({ CALZADO: [], TEXTIL: [] });
   readonly sizeDetailLoaded = signal<Record<SizeRubro, boolean>>({ CALZADO: false, TEXTIL: false });
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
@@ -1364,11 +1365,12 @@ export class CommercialDashboardController implements OnInit {
   }));
   readonly sizeCardModel = computed<Record<string, unknown>>(() => {
     const rubro = this.sizeRubro(); const metric = this.sizeMetric();
-    const loading = !this.stockDetailLoaded() && (!this.sizeDetailLoaded()[rubro] || (metric === 'TRANSFERS' && !this.stockTransfersLoaded()));
+    const transferError = metric === 'TRANSFERS' ? this.stockTransfersError() : '';
+    const loading = !transferError && !this.stockDetailLoaded() && (!this.sizeDetailLoaded()[rubro] || (metric === 'TRANSFERS' && !this.stockTransfersLoaded()));
     const coverage = this.sizeChartCoverage(); const noRows = !this.sizeChartRows().length;
     return {
       expanded: this.expandedChart() === 'size-distribution', rubro, metric,
-      controls: this.sizeControlsModel(), loading, productCodeLoading: this.productCodeLoading(),
+      controls: this.sizeControlsModel(), loading, transferError, productCodeLoading: this.productCodeLoading(),
       textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
       label: `${this.sizeMetricLabel()} por talla ${rubro.toLowerCase()}`,
       option: loading ? null : blackChartText(this.sizeDistributionOption()),
@@ -1766,7 +1768,9 @@ export class CommercialDashboardController implements OnInit {
       stockCutoff: this.formatDate(this.data()!.metadata.stockCutoff),
       salesCutoff: this.formatDate(this.data()!.metadata.salesCutoff),
       busy: this.transferBusy(), calculationError: this.transferCalculationError(),
+      transferError: this.stockTransfersError(),
       detailFailed: this.stockDetailFailed() && !this.stockTransfersLoaded(), detailReady: ready,
+      noTransferProducts: ready && !this.transferRubros().length,
       routeCount: this.transferRecommendations().length, productCount: this.number(rows.length),
       from: page * this.transferPageSize + 1, to: Math.min((page + 1) * this.transferPageSize, rows.length),
       page, pageCount: this.transferPageCount(), hasEstimates: this.transferHasEstimates(),
@@ -1794,6 +1798,7 @@ export class CommercialDashboardController implements OnInit {
     else if (type === 'chart') this.openSizeChart();
     else if (type === 'reset') this.resetTransferFilters();
     else if (type === 'retry-codes') this.retryProductCodes();
+    else if (type === 'retry-transfers') this.retryStockTransfers();
     else if (type === 'row' && typeof value === 'string') this.toggleTransferRow(value);
     else if (type === 'page' && value != null) this.transferPage.set(Number(value));
     else if (type === 'rubro' && typeof value === 'string') {
@@ -1818,6 +1823,7 @@ export class CommercialDashboardController implements OnInit {
   onReactSizeCardAction(action: { type: string; value?: string | number }): void {
     if (action.type === 'expand') this.toggleChartExpansion('size-distribution');
     else if (action.type === 'retry') this.retryProductCodes();
+    else if (action.type === 'retry-transfers') this.retryStockTransfers();
     else this.onReactSizeAction(action);
   }
 
@@ -4477,7 +4483,7 @@ export class CommercialDashboardController implements OnInit {
     this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
     this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);
-    this.stockTransferProductsData.set([]); this.stockTransfersLoaded.set(false);
+    this.stockTransferProductsData.set([]); this.stockTransfersLoaded.set(false); this.stockTransfersError.set('');
     this.storeTransferRoutes.set(null); this.storeTransferStores.set([]);
     this.sizeProductsData.set({ CALZADO: [], TEXTIL: [] });
     this.sizeDetailLoaded.set({ CALZADO: false, TEXTIL: false });
@@ -4948,8 +4954,11 @@ export class CommercialDashboardController implements OnInit {
     return promise;
   }
 
+  retryStockTransfers(): void { void this.ensureStockTransfers(); }
+
   private async ensureStockTransfers(): Promise<void> {
     if (this.stockTransfersLoaded() || this.stockTransfersPromise) return this.stockTransfersPromise;
+    this.stockTransfersError.set('');
     const signal = this.sectionLoads.signal;
     let promise!: Promise<void>;
     promise = (async () => {
@@ -4958,6 +4967,9 @@ export class CommercialDashboardController implements OnInit {
           const scoped = await this.cloud.storeTransfers(signal);
           signal.throwIfAborted();
           if (scoped) {
+            if (!Array.isArray(scoped.products) || !Array.isArray(scoped.routes) || !Array.isArray(scoped.stores)) {
+              throw new Error('La respuesta de traslados no tiene el formato esperado.');
+            }
             this.stockTransferProductsData.set(scoped.products as ProductRow[]);
             this.storeTransferStores.set(scoped.stores);
             this.storeTransferRoutes.set(scoped.routes);
@@ -4969,8 +4981,12 @@ export class CommercialDashboardController implements OnInit {
         signal.throwIfAborted();
         this.stockTransferProductsData.set(decodeStockCompact<ProductRow>(payload.stockCompact, signal));
         this.stockTransfersLoaded.set(true);
-      } catch {
+      } catch (error) {
         if (signal.aborted) return;
+        if (this.cloud.accessProfile()?.scopeType === 'store') {
+          this.stockTransfersError.set(error instanceof Error ? error.message : 'No se pudieron cargar los traslados de la tienda.');
+          return;
+        }
         // Una publicación anterior conserva el detalle completo.
         await this.ensureStockDetail();
       } finally {

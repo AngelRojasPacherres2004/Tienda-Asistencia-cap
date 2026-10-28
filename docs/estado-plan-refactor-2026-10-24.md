@@ -445,6 +445,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   controlador y no crea el componente Angular. El controlador y los servicios
   todavía usan señales e inyección de Angular: queda trasladar ese estado a
   React antes de poder retirar el runtime.
+- Tras integrar el cambio de traslados por tienda de `TEST2`, el modal se
+  comprobó en Angular y React con jefatura de tienda: abrió, filtró por rubro,
+  mostró las rutas y permitió comparar y cerrar. Una respuesta incompleta ya
+  no deja el panel cargando sin fin; muestra el error y permite reintentar.
+  Si una tienda no tiene productos candidatos, ambos montajes indican ese
+  estado explícitamente. La consulta HTTP local de una tienda autorizada
+  devolvió 986 rutas y 1,504 posiciones en unos 2.6 segundos; la prueba de
+  navegador completa tardó más por la carga de la página y sus detalles.
 
 ## Paso 5: pendiente tras la paridad completa del paso 4
 
