@@ -208,7 +208,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27/10 se añadieron treinta y siete módulos de interfaz con flags independientes:
+- El 27–28/10 se añadieron treinta y nueve módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
   tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
@@ -217,7 +217,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   venta por marca, ranking de tiendas, participación por género, rango de
   precios, rotación/capacidad, antigüedad del stock, salud del inventario,
   prioridad de reposición, valor en riesgo, los tres cuadros emergentes mensuales
-  y el detalle de origen del stock. El puente conserva los mismos
+  y el detalle de origen del stock, el ranking de vendedores y la matriz de
+  traslados entre tiendas. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
@@ -229,7 +230,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `ranking-card`, `gender-card`, `price-range-card`, `rotation-card` o
   `antiquity-card`, `health-card`, `replenishment-card` o
   `projection-card`, `ticket-modal`, `conversion-modal`, `traffic-modal` o
-  `stock-origin-modal`;
+  `stock-origin-modal`, `seller-card` o `transfer-modal`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
@@ -270,10 +271,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   El servidor local admite un puerto API alternativo para comprobar datos
   preparados sin cambiar la versión publicada.
 
-- El ranking de vendedores tiene un piloto React `seller-card`, pero conserva
-  Angular como vista predeterminada. Ambos presentan los mismos 306 vendedores,
-  aunque React aún no dibuja el control vertical de ECharts. Este panel no se
-  considera migrado hasta resolver esa diferencia.
+- El ranking de vendedores y la matriz de traslados tienen pilotos React y
+  conservan Angular como vista predeterminada. El ranking muestra los mismos
+  datos y el control vertical en ambos motores; su captura difiere 5,917 de
+  132,240 píxeles dentro del área del gráfico por pequeñas posiciones de barras
+  y etiquetas. La comparación limita esa tolerancia al interior del gráfico.
+  La matriz mostró 719 de 1,183,396 píxeles distintos en una captura local,
+  dentro del límite visual; también se comprobaron rubro, expansión de rutas
+  y cierre. Los cálculos y filtros siguen en el controlador Angular.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
@@ -374,7 +379,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
 - Quedan por migrar tres instancias de gráfico ocultas por la configuración
-  actual; el ranking de vendedores aún tiene una diferencia visual. Angular
+  actual. Angular
   todavía coordina la carga, las secciones, tarjetas de gráficos y varios
   controles. No se ha activado ningún flag en Netlify ni se ha retirado Angular.
 

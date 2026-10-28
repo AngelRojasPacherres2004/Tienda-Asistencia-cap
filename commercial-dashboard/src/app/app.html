@@ -40,6 +40,7 @@
       </dashboard-react-module>
     }
     @if (expandedChart() === 'stock-transfers') {
+      <dashboard-react-module moduleId="transfer-modal" [model]="transferModalModel()" (action)="onReactTransferAction($event)">
       <section class="card chart-card chart-expanded ticket-modal transfer-modal" role="dialog" aria-modal="true" aria-labelledby="transfer-title" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
         <button type="button" class="chart-expand" aria-label="Cerrar oportunidades de traslado" (click)="closeExpandedChart()">×</button>
         <h2 id="transfer-title">{{ transferSizeMode() ? 'VENTA, STOCK Y TRASLADOS POR TALLA' : 'SOBRESTOCK Y QUIEBRE · TRASLADOS ENTRE TIENDAS' }}</h2>
@@ -136,6 +137,7 @@
         </div>
         </div>
       </section>
+      </dashboard-react-module>
     }
     @if (expandedChart() === 'antiquity-detail') {
       <dashboard-react-module moduleId="stock-origin-modal" [model]="stockOriginModalModel()" (action)="onReactStockOriginModalAction($event)">

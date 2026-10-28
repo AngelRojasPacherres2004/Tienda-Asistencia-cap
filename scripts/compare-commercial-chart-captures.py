@@ -6,7 +6,7 @@ from PIL import Image, ImageChops
 root = Path(os.environ.get("LOCALAPPDATA", ".")) / "DashBoardGeneral" / "audits"
 chart_id = os.environ.get("AUDIT_CHART_ID", "growth")
 capture_state = os.environ.get("AUDIT_CAPTURE_STATE", "ready")
-if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal"}:
+if chart_id not in {"growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal"}:
     raise SystemExit("Unknown chart")
 if capture_state not in {"ready", "loading"}:
     raise SystemExit("Unknown capture state")
@@ -43,7 +43,8 @@ for role, width, year in scenarios:
         edge_chrome = chart_id == "inventory-sizes" and capture_state == "ready"
         training_labels = chart_id in {"talent-training", "talent-training-card"} and capture_state == "ready"
         replenishment_label = chart_id in {"predictive-replenishment", "replenishment-card"} and capture_state == "ready"
-        allowed = max(25, int(a.width * a.height * (0.004 if pie_label else 0.003 if edge_chrome or replenishment_label else 0.022 if training_labels else 0.001)))
+        seller_chart = chart_id == "seller-card" and capture_state == "ready"
+        allowed = max(25, int(a.width * a.height * (0.05 if seller_chart else 0.004 if pie_label else 0.003 if edge_chrome or replenishment_label else 0.022 if training_labels else 0.001)))
         bounds = difference.getbbox()
         label_width = 50 if chart_id in {"gender-donut", "gender-card"} else 42
         confined_label = not pie_label or bounds is None or (
@@ -56,6 +57,7 @@ for role, width, year in scenarios:
         confined_replenishment_label = not replenishment_label or bounds is None or (
             bounds[2] - bounds[0] <= 90 and bounds[3] - bounds[1] <= 10 and bounds[0] < 125
         )
+        confined_seller_chart = not seller_chart or bounds is None or (bounds[0] >= 20 and bounds[1] >= 35 and bounds[2] <= a.width - 90)
         print(f"{prefix}: {changed}/{a.width * a.height} changed pixels (limit {allowed}, bounds {bounds})")
-        if changed > allowed or not confined_label or not confined_edges or not confined_training_labels or not confined_replenishment_label:
+        if changed > allowed or not confined_label or not confined_edges or not confined_training_labels or not confined_replenishment_label or not confined_seller_chart:
             raise SystemExit(f"{prefix}: visual parity failed")

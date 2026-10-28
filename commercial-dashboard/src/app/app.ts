@@ -1577,6 +1577,68 @@ export class App implements OnInit {
     if (type === 'close') this.closeExpandedChart();
   }
 
+  readonly transferModalModel = computed<Record<string, unknown>>(() => {
+    const ready = this.stockDetailLoaded() || this.stockTransfersLoaded();
+    const rows = this.transferMatrixRows();
+    const page = this.transferCurrentPage();
+    return {
+      sizeMode: this.transferSizeMode(),
+      stockUnits: ready ? this.number(this.transferSummary().stockUnits) : '—',
+      salesUnits: ready ? this.number(this.transferSummary().salesUnits) : '—',
+      rubro: this.transferRubro(), rubros: this.transferRubros().map(value => ({ value, label: value })),
+      sizeSystem: this.transferSizeSystem(), size: this.transferSize(), sizes: this.transferSizes().map(value => ({ value, label: value })),
+      line: this.transferLine(), lines: this.transferLines().map(value => ({ value, label: value })),
+      brand: this.transferBrand(), brands: this.transferBrands().map(value => ({ value, label: value })),
+      store: this.transferStore(), stores: this.transferStores().map(store => ({ value: store.storeId, label: `${store.alias || store.store} · ${store.store}` })),
+      priority: this.transferPriority(), search: this.transferSearch(), codeError: this.transferCodeError(),
+      stockCutoff: this.formatDate(this.data()!.metadata.stockCutoff),
+      salesCutoff: this.formatDate(this.data()!.metadata.salesCutoff),
+      busy: this.transferBusy(), calculationError: this.transferCalculationError(),
+      detailFailed: this.stockDetailFailed() && !this.stockTransfersLoaded(), detailReady: ready,
+      routeCount: this.transferRecommendations().length, productCount: this.number(rows.length),
+      from: page * this.transferPageSize + 1, to: Math.min((page + 1) * this.transferPageSize, rows.length),
+      page, pageCount: this.transferPageCount(), hasEstimates: this.transferHasEstimates(),
+      rows: this.transferPageRows().map(row => ({
+        key: row.key, open: this.transferExpandedRow() === row.key,
+        productTitle: `Código: ${row.origin.productCode || 'No disponible'}\n${row.origin.brand} / ${row.origin.category}`,
+        product: row.origin.product,
+        size: row.origin.category === 'CALZADO' || row.origin.category === 'TEXTIL' ? this.transferSizeLabel(row.origin) : '',
+        sourceName: row.origin.sourceName, sourceStock: this.number(row.origin.sourceStock),
+        sourceSales: this.number(row.origin.sourceSales),
+        sourceDays: row.origin.sourceDays == null ? 'Sin ventas' : `${this.number(row.origin.sourceDays)} días`,
+        bestDescription: this.transferRouteDescription(row.best), bestName: row.best.destinationName,
+        bestStock: this.number(row.best.destinationStock), bestSales: this.number(row.best.destinationSales),
+        bestDays: `${this.number(row.best.destinationDays)} días`, quantity: this.number(row.best.suggested),
+        options: row.options.map(route => ({ destination: route.destination,
+          best: route.destination === row.best.destination, name: route.destinationName,
+          stock: this.number(route.destinationStock), sales: this.number(route.destinationSales),
+          days: this.number(route.destinationDays), critical: route.critical, suggested: this.number(route.suggested) })),
+      })),
+    };
+  });
+
+  onReactTransferAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'close') this.closeExpandedChart();
+    else if (type === 'chart') this.openSizeChart();
+    else if (type === 'reset') this.resetTransferFilters();
+    else if (type === 'retry-codes') this.retryProductCodes();
+    else if (type === 'row' && typeof value === 'string') this.toggleTransferRow(value);
+    else if (type === 'page' && value != null) this.transferPage.set(Number(value));
+    else if (type === 'rubro' && typeof value === 'string') {
+      this.transferRubro.set(value); this.transferLine.set(''); this.transferBrand.set(''); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'size-system' && (value === 'USA' || value === 'EUR')) {
+      this.transferSizeSystem.set(value); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'size' && typeof value === 'string') {
+      this.transferSize.set(value); this.transferExpandedRow.set(''); this.transferPage.set(0);
+    } else if (type === 'line' && typeof value === 'string') {
+      this.transferLine.set(value); this.transferBrand.set(''); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'brand' && typeof value === 'string') {
+      this.transferBrand.set(value); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'store' && typeof value === 'string') { this.transferStore.set(value); this.transferPage.set(0); }
+    else if (type === 'priority' && typeof value === 'string') { this.transferPriority.set(value); this.transferPage.set(0); }
+    else if (type === 'search' && typeof value === 'string') { this.transferSearch.set(value); this.transferPage.set(0); }
+  }
+
   onReactStoreValueAction({ type }: { type: string }): void {
     if (type === 'expand') this.toggleChartExpansion('store-value-coverage');
   }
