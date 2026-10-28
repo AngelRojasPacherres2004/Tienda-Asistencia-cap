@@ -417,6 +417,24 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 - Angular todavía coordina la carga, cálculos, estado y permisos que alimentan
   los modelos React. Retirarlo requiere trasladar ese controlador y completar
   la paridad funcional y visual; no se ha activado ningún flag en Netlify.
+- El 28/10 se añadió un montaje React completo para la vista comercial local.
+  Las tres páginas, cabecera, filtros, navegación, cuadros emergentes y asistente
+  se renderizan en React, sin crear la vista del componente Angular. Se comparte
+  la misma hoja visual de la aplicación. Vite local usa este montaje de forma
+  predeterminada; `?reactModule=angular` o `?reactShell=angular` conservan la
+  vista Angular. La compilación pública mantiene Angular como opción inicial.
+  El controlador `App` y `CloudDataService` aún usan señales e inyección de
+  Angular; esto sigue siendo una migración en curso, no la retirada del runtime.
+- Comprobación local acotada con la versión preparada
+  `20261026T041029Z-fd83aac2ac10`: Comercial, Inventario y Talento pasaron
+  controles básicos frente a Angular con gerencia comercial a 1440 px; los
+  paneles tuvieron el mismo ancho y diferencias de alto de 2, hasta 8 y 0 px.
+  También se recorrieron las tres páginas y el asistente con jefatura de tienda
+  a 820 px. ESLint y ambos builds pasaron. La publicación activa anterior
+  devuelve 404 para el detalle de vendedores; la versión de prueba local sí
+  lo sirve. Faltan migrar el controlador y sus servicios, medir paridad más
+  amplia y activar los flags en un despliegue verificable antes de retirar
+  Angular.
 
 ## Paso 5: pendiente tras la paridad completa del paso 4
 

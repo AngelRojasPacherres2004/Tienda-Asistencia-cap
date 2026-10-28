@@ -121,7 +121,13 @@ try {
       const goalsRequest = chartId === "meta-vs-real"
         ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
         : null;
-      await page.goto(`${origin}/${chartId === "all-modules" && mode === "react" ? "" : query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      const shellQuery = mode === "react" && process.env.AUDIT_REACT_SHELL === "1"
+        ? "?reactShell=react" : chartId === "all-modules" && mode === "react" ? "" : query;
+      await page.goto(`${origin}/${shellQuery}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      if (mode === "react" && process.env.AUDIT_REACT_SHELL === "1") {
+        await page.locator('[data-react-commercial-shell="true"]').waitFor({ timeout: 30_000 });
+        assert.equal(await page.locator('dashboard-react-module').count(), 0, "React montó una vista Angular");
+      }
       if (chartId === "all-modules") {
         const panels = [
           { index: 0, page: ".page-one", selectors: [".primary-kpis", ".kpi-strip", ".category-card", ".section-heading"] },

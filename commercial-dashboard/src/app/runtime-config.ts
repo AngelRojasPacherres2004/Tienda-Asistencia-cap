@@ -11,6 +11,7 @@ export type DashboardRuntimeConfig = {
   groqFallbackModels?: string[];
   reactCharts?: string[];
   reactModules?: string[];
+  reactStandalone?: boolean;
 };
 
 export type ReactChartBridge = {
@@ -38,6 +39,11 @@ export type ReactModuleBridge = {
   dispose: () => void;
 };
 
+export type ReactStandaloneBridge = {
+  update: (model: Record<string, unknown>) => void;
+  dispose: () => void;
+};
+
 declare global {
   interface Window {
     __DASHBOARD_CONFIG__?: Partial<DashboardRuntimeConfig>;
@@ -51,6 +57,7 @@ declare global {
       onAction: (action: import('./dashboard-filters').DashboardFilterAction) => void) => ReactFiltersBridge;
     mountReactCommercialModule?: (host: HTMLElement, moduleId: string,
       onAction: (action: { type: string; value?: string | number; file?: File }) => void) => ReactModuleBridge;
+    mountReactCommercialStandalone?: (host: ShadowRoot, controller: import('./app').App) => ReactStandaloneBridge;
   }
 }
 

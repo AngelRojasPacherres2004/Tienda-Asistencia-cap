@@ -1665,6 +1665,38 @@ export class App implements OnInit {
     else if (source === 'detail' && type === 'retry') this.retryStockDetail();
   }
 
+  readonly reactStandaloneModel = computed<Record<string, unknown>>(() => {
+    if (!this.cloud.authReady()) return { mode: 'validating', access: this.commercialAccessModel('validating') };
+    if (!this.cloud.hasAccess()) return { mode: this.cloud.portalEnabled ? 'denied' : 'login',
+      access: this.commercialAccessModel(this.cloud.portalEnabled ? 'denied' : 'login') };
+    if (this.loadingError()) return { mode: 'error', access: this.commercialAccessModel('error') };
+    if (!this.data()) return { mode: 'loading', access: this.commercialAccessModel('loading') };
+    const page = this.page(); const expanded = this.expandedChart();
+    return {
+      mode: 'ready', page, expanded, header: this.headerModel(), filters: this.filtersModel(),
+      commercial: page === 1 ? this.commercialPageModel() : null,
+      inventory: page === 2 ? this.inventoryPageModel() : null,
+      talent: page === 3 ? this.talentPageModel() : null,
+      modal: expanded === 'birthday-list' ? { type: 'birthday', model: this.birthdayModalModel() }
+        : expanded === 'stock-transfers' ? { type: 'transfer', model: this.transferModalModel() }
+        : expanded === 'antiquity-detail' ? { type: 'stock-origin', model: this.stockOriginModalModel() }
+        : expanded === 'ticket-average' ? { type: 'monthly', model: this.ticketModalModel() }
+        : expanded === 'conversion-average' ? { type: 'monthly', model: this.conversionModalModel() }
+        : expanded === 'traffic-average' ? { type: 'monthly', model: this.trafficModalModel() } : null,
+      assistantEnabled: this.cloud.assistantEnabled,
+      assistantRole: this.cloud.accessProfile()?.roleCode || '',
+      assistantContext: this.assistantContext(),
+    };
+  });
+
+  askReactAssistant(messages: import('./assistant.service').AssistantMessage[], context: string): Promise<string> {
+    return this.assistant.ask(messages, context);
+  }
+
+  transcribeReactAssistant(audio: Blob, name: string): Promise<string> {
+    return this.assistant.transcribe(audio, name);
+  }
+
   private monthlyModalModel(kind: 'ticket' | 'conversion' | 'traffic'): Record<string, unknown> {
     const year = this.ticketChartYear();
     const stores = kind === 'traffic' ? this.trafficChartStores() : this.ticketChartStores();
