@@ -10,11 +10,13 @@ registerCharts([BarChart, LineChart, PieChart, DataZoomComponent, GraphicCompone
 export default function CommercialReactChart({ chartId, label, onClick, option }) {
   const host = useRef(null);
   const chart = useRef(null);
+  const clickHandler = useRef(onClick);
+  clickHandler.current = onClick;
 
   useEffect(() => {
     const instance = init(host.current, undefined, { renderer: "canvas" });
     chart.current = instance;
-    const handleClick = params => onClick(params.data);
+    const handleClick = params => clickHandler.current?.(params.data);
     instance.on("click", handleClick);
     const observer = new ResizeObserver(() => instance.resize({ animation: { duration: 0 } }));
     observer.observe(host.current);
@@ -24,7 +26,7 @@ export default function CommercialReactChart({ chartId, label, onClick, option }
       instance.dispose();
       chart.current = null;
     };
-  }, [onClick]);
+  }, []);
 
   useEffect(() => {
     if (option && chart.current) chart.current.setOption(option, { notMerge: true, lazyUpdate: true });

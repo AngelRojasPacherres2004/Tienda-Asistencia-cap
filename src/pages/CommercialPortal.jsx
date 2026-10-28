@@ -46,6 +46,9 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
         const previewChart = new URLSearchParams(location.search).get("reactChart");
         if (import.meta.env.DEV && supportedReactCharts.has(previewChart)) reactCharts.push(previewChart);
         const supportedReactModules = new Set(["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"]);
+        supportedReactModules.add("talent-page");
+        supportedReactModules.add("commercial-page");
+        supportedReactModules.add("inventory-page");
         const reactModules = (import.meta.env.VITE_COMMERCIAL_REACT_MODULES || "")
           .split(",").map(value => value.trim()).filter(value => supportedReactModules.has(value));
         const previewModule = new URLSearchParams(location.search).get("reactModule");
@@ -72,6 +75,11 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
             const renderer = await import("../components/mount-commercial-react-filters");
             if (!active) return;
             window.mountReactCommercialFilters = renderer.mountReactCommercialFilters;
+          }
+          if (reactModules.includes("talent-page") || reactModules.includes("commercial-page") || reactModules.includes("inventory-page")) {
+            const renderer = await import("../components/mount-commercial-react-module");
+            if (!active) return;
+            window.mountReactCommercialModule = renderer.mountReactCommercialModule;
           }
           if (reactModules.some(moduleId => ["primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(moduleId))) {
             const renderer = await import("../components/mount-commercial-react-module");

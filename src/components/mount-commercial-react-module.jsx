@@ -31,8 +31,15 @@ import CommercialReactPredictiveParameters from "./CommercialReactPredictivePara
 import CommercialReactSectionHeading from "./CommercialReactSectionHeading";
 import CommercialReactAccessState from "./CommercialReactAccessState";
 import CommercialReactAssistantWidget from "./CommercialReactAssistantWidget";
+import CommercialReactTalentPage from "./CommercialReactTalentPage";
+import CommercialReactCommercialPage from "./CommercialReactCommercialPage";
+import CommercialReactInventoryPage from "./CommercialReactInventoryPage";
 
 const MODULES = { "primary-kpis": CommercialReactPrimaryKpis, "key-kpis": CommercialReactKeyKpis, progress: CommercialReactProgress, "talent-kpis": CommercialReactTalentKpis, "size-controls": CommercialReactSizeControls, "talent-capacity": CommercialReactTalentCapacity, "stock-matrix": CommercialReactStockMatrix, "birthday-modal": CommercialReactBirthdayModal, "growth-card": CommercialReactGrowthCard, "meta-vs-real-card": CommercialReactSimpleChartCard, "hourly-card": CommercialReactSimpleChartCard, "talent-history-card": CommercialReactSimpleChartCard, "talent-team-card": CommercialReactSimpleChartCard, "talent-area-card": CommercialReactSimpleChartCard, "talent-store-card": CommercialReactSimpleChartCard, "talent-exit-card": CommercialReactSimpleChartCard, "talent-incidents-card": CommercialReactSimpleChartCard, "talent-training-card": CommercialReactTrainingCard, "size-card": CommercialReactSizeCard, "store-value-card": CommercialReactStoreValueCard, "category-card": CommercialReactCategoryCard, "brand-card": CommercialReactBrandCard, "ranking-card": CommercialReactRankingCard, "gender-card": CommercialReactGenderCard, "price-range-card": CommercialReactPriceRangeCard, "rotation-card": CommercialReactRotationCard, "antiquity-card": CommercialReactAntiquityCard, "health-card": CommercialReactHealthCard, "projection-card": CommercialReactProjectionCard, "replenishment-card": CommercialReactReplenishmentCard, "seller-card": CommercialReactSellerCard, "ticket-modal": CommercialReactMonthlyModal, "conversion-modal": CommercialReactMonthlyModal, "traffic-modal": CommercialReactMonthlyModal, "stock-origin-modal": CommercialReactStockOriginModal, "transfer-modal": CommercialReactTransferModal, "predictive-parameters": CommercialReactPredictiveParameters, "section-heading": CommercialReactSectionHeading, "commercial-access": CommercialReactAccessState, "assistant-widget": CommercialReactAssistantWidget };
+
+MODULES["talent-page"] = CommercialReactTalentPage;
+MODULES["commercial-page"] = CommercialReactCommercialPage;
+MODULES["inventory-page"] = CommercialReactInventoryPage;
 
 export function mountReactCommercialModule(host, moduleId, onAction) {
   const root = createRoot(host);

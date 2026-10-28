@@ -514,6 +514,12 @@ export class App implements OnInit {
   readonly filtersOpen = signal(false);
   readonly reactFiltersEnabled = !!readRuntimeConfig().reactModules?.includes('filters')
     && typeof window !== 'undefined' && typeof window.mountReactCommercialFilters === 'function';
+  readonly reactTalentPageEnabled = !!readRuntimeConfig().reactModules?.includes('talent-page')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialModule === 'function';
+  readonly reactCommercialPageEnabled = !!readRuntimeConfig().reactModules?.includes('commercial-page')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialModule === 'function';
+  readonly reactInventoryPageEnabled = !!readRuntimeConfig().reactModules?.includes('inventory-page')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialModule === 'function';
   readonly filterSearch = signal<Record<FilterKey, string>>({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' });
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
@@ -1582,6 +1588,81 @@ export class App implements OnInit {
 
   onReactSellerAction({ type }: { type: string }): void {
     if (type === 'expand') this.toggleChartExpansion('seller-ranking');
+  }
+
+  readonly talentPageModel = computed<Record<string, unknown>>(() => ({
+    operationalSummaryReady: !!this.operationalSummary(),
+    headings: {
+      talent: this.sectionHeadingModel('talent'), a: this.sectionHeadingModel('talent-a'),
+      b: this.sectionHeadingModel('talent-b'), c: this.sectionHeadingModel('talent-c'),
+    },
+    kpis: this.talentKpiModel(), capacity: this.talentCapacityModel(),
+    history: this.talentHistoryCardModel(), team: this.talentTeamCardModel(),
+    seller: this.sellerCardModel(), area: this.talentAreaCardModel(),
+    store: this.talentStoreCardModel(), training: this.talentTrainingCardModel(),
+    exit: this.talentExitCardModel(), incidents: this.talentIncidentsCardModel(),
+  }));
+
+  onReactTalentPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
+    const action = { type, value };
+    if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'kpis') this.onReactTalentKpiAction(action);
+    else if (source === 'seller') this.onReactSellerAction(action);
+    else if (source === 'training') this.onReactTrainingAction(action);
+  }
+
+  readonly commercialPageModel = computed<Record<string, unknown>>(() => ({
+    headings: {
+      commercial: this.sectionHeadingModel('commercial'), a: this.sectionHeadingModel('commercial-a'),
+      b: this.sectionHeadingModel('commercial-b'), c: this.sectionHeadingModel('commercial-c'),
+      d: this.sectionHeadingModel('commercial-d'),
+    },
+    primary: this.primaryKpiModel(), key: this.keyKpiModel(), progress: this.progressModel(),
+    meta: this.metaVsRealCardModel(), category: this.categoryCardModel(), brand: this.brandCardModel(),
+    hourly: this.hourlyCardModel(), ranking: this.rankingCardModel(), gender: this.genderCardModel(),
+    growth: this.growthCardModel(), price: this.priceRangeCardModel(),
+  }));
+
+  onReactCommercialPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
+    const action = { type, value };
+    if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'key') this.onReactKeyKpiAction(action);
+    else if (source === 'category') this.onReactCategoryAction(action);
+    else if (source === 'brand') this.onReactBrandAction(action);
+    else if (source === 'ranking') this.onReactRankingAction(action);
+    else if (source === 'gender') this.onReactGenderAction(action);
+    else if (source === 'price') this.onReactPriceRangeAction(action);
+  }
+
+  readonly inventoryPageModel = computed<Record<string, unknown>>(() => {
+    const detailState = this.stockDetailFailed() ? 'error'
+      : !this.stockDetailLoaded() && !this.stockInsightsData() ? 'loading' : 'ready';
+    return {
+      headings: {
+        inventory: this.sectionHeadingModel('inventory'), a: this.sectionHeadingModel('inventory-a'),
+        b: this.sectionHeadingModel('inventory-b'), c: this.sectionHeadingModel('inventory-c'),
+      },
+      rotation: this.rotationCardModel(), antiquity: this.antiquityCardModel(),
+      storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
+      detailState, detailProgress: this.stockDetailProgress(),
+      predictive: detailState === 'ready' ? {
+        parameters: this.predictiveParametersModel(), health: this.healthCardModel(),
+        replenishment: this.replenishmentCardModel(), projection: this.projectionCardModel(),
+      } : null,
+    };
+  });
+
+  onReactInventoryPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
+    const action = { type, value };
+    if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'rotation') this.onReactRotationAction(action);
+    else if (source === 'antiquity') this.onReactAntiquityAction(action);
+    else if (source === 'storeValue') this.onReactStoreValueAction(action);
+    else if (source === 'size') this.onReactSizeCardAction(action);
+    else if (source === 'parameters') this.onReactPredictiveParametersAction(action);
+    else if (source === 'replenishment') this.onReactReplenishmentAction(action);
+    else if (source === 'projection') this.onReactProjectionAction(action);
+    else if (source === 'detail' && type === 'retry') this.retryStockDetail();
   }
 
   private monthlyModalModel(kind: 'ticket' | 'conversion' | 'traffic'): Record<string, unknown> {

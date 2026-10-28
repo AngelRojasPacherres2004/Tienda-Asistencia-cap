@@ -397,10 +397,26 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   “Cargando metas…” en Angular y React, cero píxeles distintos en seis pares.
   El gráfico solo se crea después de recibir metas; un token de carga impide
   que una respuesta vieja reemplace las metas de una sesión nueva.
-- Quedan por migrar tres instancias de gráfico ocultas por la configuración
-  actual. Angular
-  todavía coordina la carga, las secciones, tarjetas de gráficos y varios
-  controles. No se ha activado ningún flag en Netlify ni se ha retirado Angular.
+- Las tres páginas visibles (Gestión comercial, Inventario y Talento) ya tienen
+  composición completa en React bajo `commercial-page`, `inventory-page` y
+  `talent-page`. Los controles y tarjetas existentes se reutilizan dentro de
+  cada página. La vista Angular sigue disponible con `?reactModule=angular`.
+  En Vite local React es la opción predeterminada; el build público conserva
+  Angular como predeterminado porque Netlify sigue fuera del alcance acordado.
+- La comparación local de Talento tuvo la misma dimensión y 24 píxeles
+  distintos de 1,374,064 a 1440 px; a 820 px cambió 18 de 2,120,864.
+  Se recorrieron las tres páginas con gerencia comercial, jefatura zonal y
+  jefatura de tienda. Las páginas Comercial e Inventario conservaron el ancho;
+  sus alturas difieren 2 y 8 px respectivamente en el escenario de 1440 px.
+  Se verificaron interacciones básicas de tarjetas y filtros de cada página.
+- Se corrigió el ciclo de vida del gráfico React: el cambio de callback ya no
+  destruye el lienzo ECharts sin volver a aplicarle la opción. Esto eliminó un
+  gráfico de antigüedad que podía quedar blanco tras una actualización.
+  El gráfico de pronóstico de quiebre que ya estaba oculto dejó de instanciarse
+  en Angular; las otras dos vistas ocultas siguen dentro de `@if (false)`.
+- Angular todavía coordina la carga, cálculos, estado y permisos que alimentan
+  los modelos React. Retirarlo requiere trasladar ese controlador y completar
+  la paridad funcional y visual; no se ha activado ningún flag en Netlify.
 
 ## Paso 5: pendiente tras la paridad completa del paso 4
 

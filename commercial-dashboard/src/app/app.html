@@ -300,6 +300,8 @@
     <dashboard-tabs [page]="page()" (navigate)="goPage($event)" />
 
     @if (page() === 1) {
+      <dashboard-react-module moduleId="commercial-page" [model]="reactCommercialPageEnabled ? commercialPageModel() : {}" (action)="onReactCommercialPageAction($event)">
+      @if (!reactCommercialPageEnabled) {
       <section class="page page-one" aria-label="Gestión y comercial">
         <dashboard-react-module moduleId="section-heading" [model]="sectionHeadingModel('commercial')" (action)="onReactSectionHeadingAction($event)"><div class="section-heading"><span>01</span><div><h2>RESUMEN COMERCIAL</h2></div></div></dashboard-react-module>
         <dashboard-react-module moduleId="primary-kpis" [model]="primaryKpiModel()">
@@ -401,7 +403,11 @@
           </dashboard-react-module>
         </div>
       </section>
+      }
+      </dashboard-react-module>
     } @else if (page() === 2) {
+      <dashboard-react-module moduleId="inventory-page" [model]="reactInventoryPageEnabled ? inventoryPageModel() : {}" (action)="onReactInventoryPageAction($event)">
+      @if (!reactInventoryPageEnabled) {
       <section class="page page-two" aria-label="Inventario y analítica predictiva">
         <dashboard-react-module moduleId="section-heading" [model]="sectionHeadingModel('inventory')" (action)="onReactSectionHeadingAction($event)"><div class="section-heading"><span>02</span><div><h2>CONTROL DE INVENTARIO</h2></div></div></dashboard-react-module>
 <dashboard-react-module moduleId="section-heading" [model]="sectionHeadingModel('inventory-a')" (action)="onReactSectionHeadingAction($event)">        <div class="block-heading"><span>A</span><h2>VISIÓN GENERAL DE STOCK</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-a', '02.A Visión general de stock')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('inventory-a'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }</dashboard-react-module><div class="inventory-grid">
@@ -511,6 +517,7 @@
           </div>
           </dashboard-react-module>
           <div class="predictive-overview-grid">
+            @if (false) {
             <article class="card predictive-v2-card predictive-breakage-card feature-hidden" aria-disabled="true" [class.chart-expanded]="expandedChart() === 'predictive-breakage'">
               <button type="button" class="chart-expand" (click)="toggleChartExpansion('predictive-breakage')" [attr.aria-label]="expandedChart() === 'predictive-breakage' ? 'Cerrar gráfico' : 'Ampliar gráfico y ver detalle'">{{ expandedChart() === 'predictive-breakage' ? '×' : '⛶' }}</button>
               <div class="title-row"><span class="card-letter">1</span><h2><svg><use href="/comercial/assets/icons.svg#alert"></use></svg> PRONÓSTICO DE QUIEBRE POR MARCA</h2></div>
@@ -526,6 +533,7 @@
                 }
               </div>
             </article>
+            }
 
           <dashboard-react-module moduleId="health-card" [model]="healthCardModel()">
           <article class="card predictive-v2-card health-card">
@@ -625,9 +633,13 @@
         </div>
         }
       </section>
+      }
+      </dashboard-react-module>
     }
 
     @if (page() === 3) {
+      <dashboard-react-module moduleId="talent-page" [model]="reactTalentPageEnabled ? talentPageModel() : {}" (action)="onReactTalentPageAction($event)">
+      @if (!reactTalentPageEnabled) {
       <section class="page talent-page" aria-label="Talento y tiendas" [attr.data-operational-summary-ready]="operationalSummary() ? 'true' : null">
         <dashboard-react-module moduleId="section-heading" [model]="sectionHeadingModel('talent')" (action)="onReactSectionHeadingAction($event)"><div class="section-heading"><span>03</span><div><h2>GESTIÓN DE TALENTO</h2></div></div></dashboard-react-module>
         <dashboard-react-module moduleId="talent-kpis" [model]="talentKpiModel()" (action)="onReactTalentKpiAction($event)">
@@ -674,6 +686,8 @@
           </dashboard-react-module>
         </div>
       </section>
+      }
+      </dashboard-react-module>
     }
 
     @if (cloud.assistantEnabled) { <dashboard-assistant [context]="assistantContext()" [role]="cloud.accessProfile()?.roleCode || ''" /> }
