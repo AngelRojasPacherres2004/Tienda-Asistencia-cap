@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -75,7 +75,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -86,7 +86,7 @@ try {
     page.on("pageerror", error => failures.push(error.message));
     page.on("response", item => {
       const path = new URL(item.url()).pathname;
-      const optionalFallbackFile = ["antiquity-card", "health-card", "projection-card", "replenishment-card", "stock-origin-modal", "predictive-parameters", "section-heading"].includes(chartId) && item.status() === 404
+      const optionalFallbackFile = ["antiquity-card", "health-card", "projection-card", "replenishment-card", "stock-origin-modal", "predictive-parameters", "section-heading", "assistant-widget"].includes(chartId) && item.status() === 404
         && /\/api\/commercial\/files\/dashboard-(?:price-range-(?:summary|compact)-\d{4}|stock-hierarchy|stock-sizes-calzado)\.json$/.test(path);
       if (item.url().includes("/api/") && item.status() >= 400 && !optionalFallbackFile
         && !(chartId === "commercial-access" && path === "/api/commercial/access" && item.status() === 403)) failures.push(`API ${item.status()}: ${path}`);
@@ -126,6 +126,26 @@ try {
         const dimensions = await panel.boundingBox();
         const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         const screenshotBytes = await panel.screenshot({ path: screenshot });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "assistant-widget") {
+        const launcher = page.locator(".assistant-launcher:visible");
+        await launcher.waitFor({ timeout: 30_000 });
+        await launcher.click();
+        const panel = page.locator(".assistant-panel:visible");
+        await panel.waitFor({ timeout: 10_000 });
+        assert.equal(await page.locator('[data-react-commercial-module="assistant-widget"]:visible').count(), mode === "react" ? 1 : 0);
+        await page.evaluate(() => document.fonts.ready);
+        const dimensions = await panel.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await panel.screenshot({ path: screenshot });
+        await panel.locator("textarea").fill("Consulta de prueba");
+        assert.equal(await panel.locator("textarea").inputValue(), "Consulta de prueba");
+        await panel.getByRole("button", { name: "Cerrar asistente" }).click();
+        await panel.waitFor({ state: "hidden" });
         if (failures.length) throw new Error(failures.join("\n"));
         pair.push({ mode, dimensions, canvasStats: null, screenshot,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });

@@ -13,7 +13,7 @@ import { readRuntimeConfig, type ReactModuleBridge } from './runtime-config';
 export class DashboardReactModuleComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) moduleId = '';
   @Input({ required: true }) model: Record<string, unknown> = {};
-  @Output() action = new EventEmitter<{ type: string; value?: string | number }>();
+  @Output() action = new EventEmitter<{ type: string; value?: string | number; file?: File }>();
   @ViewChild('reactHost') set reactHost(value: ElementRef<HTMLDivElement> | undefined) {
     this.host = value;
     if (value) queueMicrotask(() => this.mountIfReady());

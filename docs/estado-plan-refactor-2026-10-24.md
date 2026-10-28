@@ -208,7 +208,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27–28/10 se añadieron cuarenta y dos módulos de interfaz con flags independientes:
+- El 27–28/10 se añadieron cuarenta y tres módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
   tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
@@ -219,7 +219,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   prioridad de reposición, valor en riesgo, los tres cuadros emergentes mensuales
   y el detalle de origen del stock, el ranking de vendedores y la matriz de
   traslados entre tiendas, los controles de proyección de inventario y los
-  encabezados de página y sección y los estados de acceso y carga. El puente conserva los mismos
+  encabezados de página y sección, los estados de acceso y carga y la interfaz
+  del asistente comercial. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
@@ -232,7 +233,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `antiquity-card`, `health-card`, `replenishment-card` o
   `projection-card`, `ticket-modal`, `conversion-modal`, `traffic-modal` o
   `stock-origin-modal`, `seller-card`, `transfer-modal` o
-  `predictive-parameters`, `section-heading` o `commercial-access`;
+  `predictive-parameters`, `section-heading`, `commercial-access` o
+  `assistant-widget`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
@@ -286,6 +288,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   y abrió el modal de traslados. Los cálculos y filtros siguen en el
   controlador Angular. El estado de acceso denegado de `commercial-access`
   coincidió píxel por píxel al neutralizar el fondo animado de la captura.
+  El asistente coincidió píxel por píxel con Angular en una captura local;
+  apertura, escritura de borrador y cierre funcionaron con el servicio actual.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
@@ -373,9 +377,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   capacitación las barras coincidieron y la diferencia quedó dentro del área
   de las etiquetas a la izquierda, 1,578 de 78,540 píxeles. La auditoría
   limita expresamente la excepción a esa zona.
-- El ranking de vendedores tiene puente React de prueba y conserva Angular por
-  defecto: la comparación preliminar mostró la barra de desplazamiento
-  vertical solo en React. Ese panel aún no cumple la paridad visual.
+- El ranking de vendedores conserva Angular por defecto mientras se completa
+  la comprobación de roles; el piloto React muestra el mismo control de
+  desplazamiento y los mismos datos, con diferencias pequeñas en posiciones
+  dentro del lienzo documentadas arriba.
 - Las tres tarjetas predictivas visibles y los tres gráficos emergentes
   pasaron una comprobación local con gerencia comercial, 2026 y 1440 px.
   Salud, valor en riesgo, ticket, conversión y tráfico tuvieron cero píxeles

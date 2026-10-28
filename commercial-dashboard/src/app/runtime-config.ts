@@ -50,7 +50,7 @@ declare global {
     mountReactCommercialFilters?: (host: HTMLElement,
       onAction: (action: import('./dashboard-filters').DashboardFilterAction) => void) => ReactFiltersBridge;
     mountReactCommercialModule?: (host: HTMLElement, moduleId: string,
-      onAction: (action: { type: string; value?: string | number }) => void) => ReactModuleBridge;
+      onAction: (action: { type: string; value?: string | number; file?: File }) => void) => ReactModuleBridge;
   }
 }
 
