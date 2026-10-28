@@ -61,7 +61,7 @@ test("resumen no suma stock entre fotos ni inventa conversión con filtro de pro
     parseAnnualFilters({ year: "2026", month: "9", rubro: "TEXTIL" }),
     { T012: { name: "AYACUCHO" } }, cutoffs);
   assert.equal(september.stock.unidades, 8); // Última foto conocida antes de septiembre.
-  const workbook = buildAnnualSummaryWorkbook(summary, filters, { T012: { name: "AYACUCHO" } });
+  const workbook = await buildAnnualSummaryWorkbook(summary, filters, { T012: { name: "AYACUCHO" } });
   assert.equal(workbook.worksheets.length, 3);
   assert.equal(workbook.getWorksheet("Resumen").getCell("B8").value, "No disponible");
   assert.equal(workbook.getWorksheet("Resumen").getCell("C5").value, null);

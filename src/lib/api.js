@@ -1,3 +1,4 @@
+import { ATTENDANCE_LABELS } from "../../shared/attendance.js";
 import { businessDate } from "../../shared/metrics.js";
 let activeStoreContext = null;
 let storeContextLocked = false;
@@ -110,10 +111,7 @@ export const formatDate = (value, options = {}) => {
   }).format(date);
 };
 
-export const estadoAsistenciaLabels = {
-  presente: "Asistencia", tardanza: "Tardanza", medio_turno: "Medio Turno", apoyo: "Apoyo",
-  falta: "Falta", permiso: "Permiso", descanso_medico: "Descanso Médico", suspension: "Suspensión",
-};
+export const estadoAsistenciaLabels = ATTENDANCE_LABELS;
 
 export async function downloadFile(url, fallbackName) {
   assertStoreContextOpen();

@@ -80,7 +80,10 @@ function normalized(value: unknown): string {
 
 export function nisseiSizeCode(code?: string): string | null {
   const value = normalized(code).replace(/\s+/g, '').replace(/\.0+$/, '');
-  return value.length >= 3 ? value.slice(-3) : null;
+  // La talla solo forma parte del formato Nissei canonico de 14 caracteres.
+  // Los codigos historicos (principalmente de 11 caracteres) no deben
+  // interpretarse por sufijo porque producirian tallas falsas.
+  return value.length === 14 ? value.slice(-3) : null;
 }
 
 export function normalizeSizeGender(...values: Array<string | undefined>): string {

@@ -2,10 +2,11 @@ import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, input, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AssistantMessage, AssistantService } from './assistant.service';
+import { DashboardReactModuleComponent } from './dashboard-react-module';
 
 @Component({
   selector: 'dashboard-assistant',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DashboardReactModuleComponent],
   templateUrl: './assistant-widget.html',
   styleUrl: './assistant-widget.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,6 +59,20 @@ export class DashboardAssistantWidgetComponent {
       ?? (document as Document & { featurePolicy?: { allowsFeature(name: string): boolean } }).featurePolicy;
     return !policy || policy.allowsFeature('microphone');
   });
+  readonly assistantModel = computed<Record<string, unknown>>(() => ({
+    open: this.open(), title: this.assistantTitle(), suggestions: this.suggestions(),
+    messages: this.messages(), draft: this.draft(), busy: this.busy(),
+    recording: this.recording(), error: this.error(), canRecord: this.canRecord(),
+  }));
+
+  onReactAction({ type, value, file }: { type: string; value?: string | number; file?: File }): void {
+    if (type === 'toggle') this.toggle();
+    else if (type === 'draft' && typeof value === 'string') this.draft.set(value);
+    else if (type === 'send') void this.send();
+    else if (type === 'suggestion' && typeof value === 'string') void this.send(value);
+    else if (type === 'record') void this.toggleRecording();
+    else if (type === 'audio' && file) void this.selectAudioFile(file);
+  }
 
   toggle(): void {
     this.open.update(value => !value);
@@ -111,6 +126,11 @@ export class DashboardAssistantWidgetComponent {
   async selectAudio(event: Event): Promise<void> {
     const inputElement = event.target as HTMLInputElement;
     const file = inputElement.files?.[0];
+    if (file) await this.selectAudioFile(file);
+    inputElement.value = '';
+  }
+
+  private async selectAudioFile(file: File): Promise<void> {
     if (!file || this.busy()) return;
     this.error.set('');
     this.busy.set(true);
@@ -121,7 +141,6 @@ export class DashboardAssistantWidgetComponent {
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : 'No se pudo transcribir el audio.');
     } finally {
-      inputElement.value = '';
       this.busy.set(false);
     }
   }

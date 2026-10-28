@@ -1,16 +1,24 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { EChartsOption } from 'echarts';
 import { DashboardAssistantWidgetComponent } from './assistant-widget';
 import { AssistantService } from './assistant.service';
-import { DashboardChartComponent } from './chart';
+import { DashboardChartComponent, blackChartText } from './chart';
+import { DashboardTabsComponent } from './dashboard-tabs';
+import { DashboardHeaderComponent, type DashboardHeaderModel } from './dashboard-header';
+import { DashboardFiltersComponent, type DashboardFilterAction, type DashboardFiltersModel } from './dashboard-filters';
+import { DashboardReactModuleComponent } from './dashboard-react-module';
+import { readRuntimeConfig } from './runtime-config';
 import { adaptiveValueScale } from './chart-scale';
-import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StoreGoal } from './cloud-data.service';
+import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
+import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat } from './inventory-performance';
 import { SectionLoads } from './section-loads';
 import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact,
+  type CompactRows, type DailyCompact, type PredictiveCompact, type StockCompact, type SizeCompact } from './compact-dashboard';
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -28,7 +36,7 @@ type PersonnelProfile = {
   name: string; storeId: string; gender: 'M' | 'F' | 'N/A'; birthDate?: string; birthdayMonth?: number; birthdayDay?: number;
   role: string; area: string; areaType: string; hireDate?: string; retirementDate?: string; retirementReason?: string; status: string;
 };
-type BrandRow = { periodId: number; storeId: string; category: string; line: string; subline: string; brand: string; net: number; units: number };
+type BrandRow = { periodId: number; storeId: string; category?: string; line?: string; subline?: string; brand: string; net: number; units: number };
 type PriceRangeRow = { periodId: number; storeId: string; category: string; line: string; subline: string; bandOrder: number; priceBand: string; net: number; units: number };
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };
@@ -38,6 +46,11 @@ type ProductRow = {
   units30: number; sales30: number; units12: number; sales12: number;
 };
 type StockOrigin = { storeId: string; category: string; line: string; subline: string; originPeriodId: number; units: number; value: number };
+type StockHierarchyRow = { storeId: string; category: string; line: string; subline: string; brand: string;
+  stockUnits: number; stockValue: number; goodUnits: number; units30: number; sales30: number;
+  mermaStockUnits?: number; desmedroStockUnits?: number };
+type SizeProductRow = { storeId: string; productId: string; productCode: string; product: string;
+  category: SizeRubro; line: string; subline: string; stockUnits: number; units30: number };
 type PredictiveStore = { storeId: string; stockUnits: number; stockValue: number; units30: number; sales30: number; coverageDays: number | null; rotation: number | null };
 type PredictiveCategory = { storeId: string; category: string; stockUnits: number; stockValue: number; units30: number; sales30: number; rotation: number | null };
 type HourlySalesRow = { periodId: number; date?: string; storeId: string; hour: number; transactions: number; net: number };
@@ -114,6 +127,21 @@ const CATEGORY_COLORS = [C.navy, C.red, C.blue, C.gold, C.teal, C.purple, C.oran
 const GENDER_COLORS: Record<string, string> = { DAMA: '#C91482', CABALLERO: '#1428D4', BEBE: '#F97316', JOVENCITA: '#7C3AED', JOVENCITO: '#0F9D8A', 'NIÑO': '#16A34A', 'NIÑA': '#EC4899', UNISEX: '#F4B400' };
 const GENDER_ORDER = ['DAMA', 'CABALLERO', 'BEBE', 'JOVENCITA', 'JOVENCITO', 'NIÑO', 'NIÑA', 'UNISEX'];
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const SECTION_HEADINGS: Record<string, { mark: string; title: string; section?: string }> = {
+  commercial: { mark: '01', title: 'RESUMEN COMERCIAL' },
+  'commercial-a': { mark: 'A', title: 'INDICADORES CLAVE', section: '01.A Indicadores clave' },
+  'commercial-b': { mark: 'B', title: 'CUMPLIMIENTO Y AVANCE', section: '01.B Cumplimiento y avance' },
+  'commercial-c': { mark: 'C', title: 'COMPORTAMIENTO COMERCIAL', section: '01.C Comportamiento comercial' },
+  'commercial-d': { mark: 'D', title: 'COMPOSICIÓN DE LA VENTA', section: '01.D Composición de la venta' },
+  inventory: { mark: '02', title: 'CONTROL DE INVENTARIO' },
+  'inventory-a': { mark: 'A', title: 'VISIÓN GENERAL DE STOCK', section: '02.A Visión general de stock' },
+  'inventory-b': { mark: 'B', title: 'COBERTURA Y DISTRIBUCIÓN', section: '02.B Cobertura y distribución' },
+  'inventory-c': { mark: 'C', title: 'SEÑALES DE REPOSICIÓN', section: '02.C Señales de reposición' },
+  talent: { mark: '03', title: 'GESTIÓN DE TALENTO' },
+  'talent-a': { mark: 'A', title: 'DOTACIÓN Y EVOLUCIÓN', section: '03.A Dotación y evolución' },
+  'talent-b': { mark: 'B', title: 'PRODUCTIVIDAD Y DISTRIBUCIÓN', section: '03.B Productividad y distribución' },
+  'talent-c': { mark: 'C', title: 'DESARROLLO Y CONTINUIDAD', section: '03.C Desarrollo y continuidad' },
+};
 
 function sum<T>(rows: T[], field: keyof T): number {
   return rows.reduce((total, row) => total + (Number(row[field]) || 0), 0);
@@ -137,7 +165,7 @@ function denseRanks(values: Array<number | null>, descending = true): Map<number
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, DashboardChartComponent, DashboardAssistantWidgetComponent],
+  imports: [CommonModule, FormsModule, DashboardChartComponent, DashboardTabsComponent, DashboardHeaderComponent, DashboardFiltersComponent, DashboardReactModuleComponent, DashboardAssistantWidgetComponent],
   templateUrl: './app.html',
   styleUrls: ['./app.scss', './transfer-modal.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -151,6 +179,8 @@ export class App implements OnInit {
   readonly data = signal<DashboardData | null>(null);
   readonly storeGoalOverrides = signal<StoreGoal[]>([]);
   readonly annualGoalOverrides = signal<AnnualGoal[]>([]);
+  readonly storeGoalsReady = signal(false);
+  private goalLoadToken = 0;
   readonly dataWarnings = computed(() => this.data()?.metadata.dataWarnings ?? []);
   readonly salesCutoffYear = computed(() => Number(this.data()?.metadata.salesCutoff?.slice(0, 4)) || new Date().getFullYear());
   readonly loadingError = signal('');
@@ -176,6 +206,15 @@ export class App implements OnInit {
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
   readonly priceRangeComparisonYear = signal(2025);
   readonly stockOriginData = signal<StockOrigin[]>([]);
+  readonly stockHierarchyData = signal<StockHierarchyRow[]>([]);
+  readonly stockInsightsData = signal<StockInsights | null>(null);
+  private readonly stockInsightsActivated = signal(false);
+  private readonly stockInsightsRetry = signal(0);
+  readonly stockHierarchyLoaded = signal(false);
+  readonly stockTransferProductsData = signal<ProductRow[]>([]);
+  readonly stockTransfersLoaded = signal(false);
+  readonly sizeProductsData = signal<Record<SizeRubro, SizeProductRow[]>>({ CALZADO: [], TEXTIL: [] });
+  readonly sizeDetailLoaded = signal<Record<SizeRubro, boolean>>({ CALZADO: false, TEXTIL: false });
   readonly staticPredictiveProductsData = signal<ProductRow[]>([]);
   readonly stockAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
   readonly predictiveAggregateByStore = signal<Map<string, StockAggregate>>(new Map());
@@ -204,13 +243,23 @@ export class App implements OnInit {
   private monthlyBrandIndex = new Map<string, BrandRow[]>();
   private monthlyPriceRangeIndex = new Map<string, PriceRangeRow[]>();
   private brandDetailPromise?: Promise<void>;
+  private brandDetailAbort?: AbortController;
+  private brandDetailGeneration = 0;
   private sublineDetailPromise?: Promise<void>;
   private stockOriginPromise?: Promise<void>;
+  private stockHierarchyPromise?: Promise<void>;
+  private stockTransfersPromise?: Promise<void>;
+  private sizeDetailPromises = new Map<SizeRubro, Promise<void>>();
   private stockDetailPromise?: Promise<void>;
+  private stockDetailObserver?: IntersectionObserver;
   private legacyStockPromise?: Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }>;
   private predictiveDetailPromise?: Promise<void>;
   private priceRangeDetailPromise?: Promise<void>;
+  private priceRangeDetailAbort?: AbortController;
+  private priceRangeDetailGeneration = 0;
   private sellerDetailPromise?: Promise<void>;
+  private sellerDetailAbort?: AbortController;
+  private sellerDetailGeneration = 0;
   private pageOverflowBeforeModal = '';
   private readonly sectionLoads = new SectionLoads();
 
@@ -463,6 +512,14 @@ export class App implements OnInit {
   readonly selectedSublines = signal<string[]>([]);
   readonly openFilter = signal<FilterKey | null>(null);
   readonly filtersOpen = signal(false);
+  readonly reactFiltersEnabled = !!readRuntimeConfig().reactModules?.includes('filters')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialFilters === 'function';
+  readonly reactTalentPageEnabled = !!readRuntimeConfig().reactModules?.includes('talent-page')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialModule === 'function';
+  readonly reactCommercialPageEnabled = !!readRuntimeConfig().reactModules?.includes('commercial-page')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialModule === 'function';
+  readonly reactInventoryPageEnabled = !!readRuntimeConfig().reactModules?.includes('inventory-page')
+    && typeof window !== 'undefined' && typeof window.mountReactCommercialModule === 'function';
   readonly filterSearch = signal<Record<FilterKey, string>>({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' });
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
@@ -600,6 +657,8 @@ export class App implements OnInit {
     }
     this.clearDateRange();
     this.calendarOpen.set(false);
+    this.invalidateSellerDetailForMonth();
+    this.invalidatePriceRangeDetailForMonth();
   }
 
   readonly selectedStoreSingle = computed(() => this.selectedStores().length === 1 ? this.selectedStores()[0] : 'TODAS');
@@ -625,6 +684,9 @@ export class App implements OnInit {
       this.selectedSublines.set([]);
     }
     this.productId.set('AUTO');
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
 
@@ -648,6 +710,9 @@ export class App implements OnInit {
       this.selectedSublines.set([]);
     }
     this.productId.set('AUTO');
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
 
@@ -659,6 +724,9 @@ export class App implements OnInit {
       this.selectedSublines.set([val]);
     }
     this.productId.set('AUTO');
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
 
@@ -910,7 +978,10 @@ export class App implements OnInit {
 
   private currentDimensionIndex(): Map<string, Monthly[]> {
     if (this.selectedGenders().length && this.genderFilterEnabled()) return this.monthlyLineIndex;
-    if (this.selectedSublines().length) return this.monthlySublineIndex;
+    if (this.selectedSublines().length) {
+      this.sublineDetailLoaded();
+      return this.monthlySublineIndex;
+    }
     if (this.selectedLines().length) return this.monthlyLineIndex;
     if (this.selectedCategories().length) return this.monthlyCategoryIndex;
     return this.monthlyStoreIndex;
@@ -967,7 +1038,13 @@ export class App implements OnInit {
     const monthTo = `${key}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`;
     const promise = (async () => {
       let detail: { dailyStore?: Monthly[]; hourlySales?: HourlySalesRow[] } | undefined;
-      if (!this.cloud.remoteEnabled()) {
+      try {
+        const payload = await this.loadDetail<{ dailyCompact: DailyCompact }>(`dashboard-daily-compact-${key}.json`);
+        detail = decodeDailyCompact<Monthly, HourlySalesRow>(payload.dailyCompact);
+      } catch {
+        // Publicaciones anteriores tienen el detalle mensual sin codificar.
+      }
+      if (!detail && !this.cloud.remoteEnabled()) {
         try {
           const response = await fetch(`/api/dashboard/daily?from=${encodeURIComponent(monthFrom)}&to=${encodeURIComponent(monthTo)}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1097,6 +1174,724 @@ export class App implements OnInit {
     const metro = stores.filter(store => store.format === 'METRO').length;
     return { total: stores.length, metro, outside: stores.length - metro };
   });
+  readonly headerModel = computed<DashboardHeaderModel>(() => ({
+    title: `DASHBOARD EJECUTIVO COMERCIAL ${this.year()} · ${this.selectedMonths().length ? `PERÍODO ${this.monthFilterLabel()}` : `CIERRE ${this.monthNamesFull[this.selectedMonth() - 1]}`}`,
+    cutoffDate: this.formatDate(this.data()?.metadata.salesCutoff),
+    version: this.cloud.dataVersion(),
+    storeSummary: this.cloud.accessProfile()?.scopeType === 'all' ? this.annualStoreSummary() : null,
+    showLogout: this.cloud.remoteEnabled() && !this.cloud.portalEnabled,
+    userName: this.cloud.userName(),
+  }));
+
+  readonly filtersModel = computed<DashboardFiltersModel>(() => ({
+    open: this.filtersOpen(), year: this.year(), years: (this.data()?.metadata.years ?? []).filter(y => y >= 2024),
+    openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
+    selected: {
+      month: this.selectedMonths(), cluster: this.selectedClusters(), format: this.selectedFormats(),
+      store: this.selectedStores(), category: this.selectedCategories(), gender: this.selectedGenders(),
+      line: this.selectedLines(), subline: this.selectedSublines(),
+    },
+    options: {
+      month: this.searchedMonths(), cluster: this.searchedClusters(), format: this.searchedFormats(),
+      store: this.searchedStores(), category: this.searchedCategories(), gender: this.genderOptions(),
+      line: this.searchedLines(), subline: this.searchedSublines(),
+    },
+    labels: {
+      month: this.monthFilterLabel(), cluster: this.clusterFilterLabel(), format: this.formatFilterLabel(),
+      store: this.storeFilterLabel(), category: this.categoryFilterLabel(), gender: this.genderFilterLabel(),
+      line: this.lineFilterLabel(), subline: this.sublineFilterLabel(),
+    },
+    storeLocked: this.storeFilterLocked(), clusterLocked: this.clusterFilterLocked(), genderEnabled: this.genderFilterEnabled(),
+    dayEnabled: this.dayFilterEnabled(), dateRangeActive: this.dateRangeActive(), dayLabel: this.dayFilterLabel(),
+    calendarOpen: this.calendarOpen(), calendarTitle: this.dayFilterEnabled() ? `${this.monthNamesFull[this.selectedMonths()[0] - 1]} ${this.year()}` : '',
+    calendarDays: this.calendarDays(), fromDate: this.fromDate(), toDate: this.toDate(),
+    dayLoading: this.dayFilterLoading(), dayError: this.dayFilterError(),
+  }));
+
+  readonly primaryKpiModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const gap = this.accumulatedGap();
+    return { cards: [
+      { label: 'META', className: 'meta-kpi', title: 'Fórmula: suma de las metas mensuales del año para las tiendas, rubros y demás filtros aplicables.', value: this.money(metrics.annualTarget, true) },
+      { label: 'VENTA BRUTA', className: 'gross-kpi', title: 'Fórmula: Σ(precio sugerido × cantidad) de las ventas positivas del período filtrado.', value: this.money(metrics.gross, true) },
+      { label: 'NOTAS DE CRÉDITO', title: 'Fórmula: Σ(importe de notas de crédito) del período filtrado.', value: this.money(metrics.notes, true) },
+      { label: 'DESCUENTO TOTAL', title: 'Fórmula: Σ(descuento aplicado) del período filtrado.', value: this.money(metrics.discount, true) },
+      { label: 'VENTA NETA', className: 'net-kpi', title: 'Fórmula: Σ(importe neto de las ventas registradas), incluidas las notas de crédito. No se obtiene restando directamente a la venta bruta sugerida.', value: this.money(metrics.net, true) },
+      { label: 'PROYECCIÓN CIERRE', className: 'projection-kpi', title: 'Fórmula: promedio ponderado del pronóstico YTD, histórico estacional y ritmo diario anualizado; el factor de crecimiento reciente ajusta los meses pendientes.', value: this.money(metrics.projectedClose, true) },
+      { label: 'BRECHA ACUMULADA', className: 'projection-meta-kpi', title: 'Fórmula: meta anual − proyección de cierre. Una brecha positiva indica venta proyectada por debajo de la meta.', value: `${gap != null && gap <= 0 ? '▲ ' : '▼ '}${this.money(Math.abs(gap || 0), true)}`, valueClass: (gap || 0) <= 0 ? 'positive' : 'negative' },
+      { label: 'VENTA PROMEDIO DIARIA', className: 'featured-kpi daily-average-kpi', title: 'Fórmula: venta neta del período filtrado ÷ días calendario correspondientes (hasta el día de corte en un mes parcial).', value: this.money(metrics.dailyAverage, true) },
+    ] };
+  });
+
+  readonly keyKpiModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const locked = this.storeFilterLocked();
+    const format = this.filteredStores()[0]?.format?.toUpperCase();
+    const actions = [];
+    if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de tiendas METRO', action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
+    if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de otras tiendas', action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
+    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Fórmula: transacciones ÷ tráfico × 100. Ver evolución mensual', action: 'conversion', value: this.percent(metrics.conversion), valueClass: '' });
+    actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: 'Ver ticket promedio por mes', action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
+    return {
+      actions, saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
+      saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
+      markup: this.trend(metrics.priceVariation), markupPositive: (metrics.priceVariation || 0) >= 0,
+      sellThroughStock: metrics.sellThroughStock ? this.number(metrics.sellThroughStock, ' und') : '',
+      sellThrough: this.percent(metrics.sellThrough), sellThroughMissing: metrics.sellThrough == null,
+    };
+  });
+
+  readonly progressModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const advance = this.advanceMetrics();
+    const monthlyContext = this.monthlyContextLabel();
+    return {
+      monthlyContext,
+      annual: {
+        actualGrow: Math.max(.12, Math.min(1, advance.annualPct || 0)),
+        actualPct: this.percent(advance.annualPct), actualValue: this.money(advance.net, true),
+        remainingGrow: Math.max(.12, 1 - Math.min(1, advance.annualPct || 0)),
+        remainingPct: this.percent(advance.annualPct == null ? null : Math.max(0, 1 - advance.annualPct)),
+        remainingValue: this.money(advance.annualTarget ? Math.max(0, advance.annualTarget - advance.net) : null, true),
+      },
+      monthly: {
+        actualGrow: Math.max(.12, Math.min(1, metrics.monthlyPct || 0)),
+        actualPct: this.percent(metrics.monthlyPct), actualValue: this.money(metrics.monthNet, true),
+        remainingGrow: Math.max(.12, 1 - Math.min(1, metrics.monthlyPct || 0)),
+        remainingPct: metrics.monthlyPct == null ? 'N/A' : this.percent(Math.min(0, metrics.monthlyPct - 1)),
+        remainingValue: this.money(metrics.monthTarget ? Math.max(0, metrics.monthTarget - metrics.monthNet) : null, true),
+      },
+      annualRows: [
+        { label: `META ANUAL ${this.year()}`, value: this.money(metrics.annualTarget, true) },
+        { label: `REAL ${this.annualContextLabel()}`, value: this.money(metrics.net, true) },
+        { label: 'CUMPL. META ANUAL', value: this.percent(metrics.annualPct) },
+        { label: this.annualVariationLabel(), title: `Compara con ${this.annualPreviousContextLabel()}`, value: this.trend(metrics.annualGrowth), valueClass: (metrics.annualGrowth || 0) >= 0 ? 'positive' : 'negative' },
+      ],
+      monthlyRows: [
+        { label: `META ${monthlyContext}`, value: this.money(metrics.monthTarget, true) },
+        { label: `REAL ${monthlyContext}`, value: this.money(metrics.monthNet, true) },
+        { label: 'CUMPL. META', value: this.percent(metrics.monthlyPct) },
+        { label: this.monthlyVariationLabel(), value: this.trend(metrics.monthVariation), valueClass: (metrics.monthVariation || 0) >= 0 ? 'positive' : 'negative' },
+      ],
+    };
+  });
+
+  readonly talentKpiModel = computed<Record<string, unknown>>(() => {
+    const metrics = this.metrics();
+    const profile = this.talentProfileSummary();
+    const personnel = metrics.personnel == null ? 'N/A' : this.number(Math.round(metrics.personnel));
+    return {
+      personnel, personnelMissing: metrics.personnel == null,
+      saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
+      gender: `${this.number(profile.male)} / ${this.number(profile.female)}`,
+      averageAge: this.number(profile.averageAge, ' años'), salesStaff: this.number(profile.salesStaff),
+      administrativeStaff: this.number(profile.administrativeStaff),
+      topStore: this.talentStoreRows()[0]?.alias || 'N/A', birthdays: this.number(this.birthdayMonthRows().length),
+    };
+  });
+
+  readonly talentCapacityModel = computed<Record<string, unknown>>(() => ({
+    storeLocked: this.storeFilterLocked(),
+    rows: this.talentStoreRows().slice(0, 10).map(row => ({
+      alias: row.alias, baseStaff: this.number(row.baseStaff), campaignStaff: this.number(row.campaignStaff),
+      staff: this.number(row.staff), gap: `${row.gap > 0 ? '+' : ''}${this.number(row.gap)}`,
+      gapPositive: row.gap >= 0, productivity: this.money(row.productivity, true),
+    })),
+  }));
+
+  readonly birthdayModalModel = computed<Record<string, unknown>>(() => ({
+    month: this.monthNamesFull[this.selectedMonth() - 1]?.toUpperCase() || '',
+    rows: this.birthdayMonthRows(),
+  }));
+
+  readonly growthCardModel = computed<Record<string, unknown>>(() => ({ option: blackChartText(this.growthOption()) }));
+  readonly metaVsRealCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'meta-vs-real-card', cardClass: 'meta-vs-real', icon: 'comparison', title: 'AVANCE META VS REAL',
+    chartId: 'meta-vs-real', label: 'Venta real y meta por mes', ready: this.storeGoalsReady(),
+    loadingText: 'Cargando metas…', option: this.storeGoalsReady() ? blackChartText(this.metaVsRealOption()) : null,
+  }));
+  readonly hourlyCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'hourly-card', cardClass: 'hourly-performance-card', icon: 'trend', title: 'DESEMPEÑO COMERCIAL POR HORA',
+    chartId: 'hourly-performance', label: 'Afluencia de tickets y venta neta por hora', ready: true,
+    option: blackChartText(this.hourlyPerformanceOption()),
+  }));
+  readonly talentHistoryCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-history-card', baseClasses: 'card talent-card', cardClass: 'history-card',
+    icon: 'calendar', title: `EVOLUCIÓN MENSUAL DE PERSONAL · ${this.year()}`,
+    chartId: 'talent-history', label: 'Cantidad real y esperada de personal por mes', ready: true,
+    option: blackChartText(this.talentHistoryOption()),
+  }));
+  readonly talentTeamCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-team-card', baseClasses: 'card talent-card', cardClass: 'team-productivity-card',
+    icon: 'comparison', title: 'VENTA PROM. × COLAB. POR EQUIPO',
+    chartId: 'talent-team-productivity', label: 'Venta mensual promedio por colaborador de cada equipo comercial', ready: true,
+    option: blackChartText(this.talentTeamProductivityOption()),
+  }));
+  readonly talentAreaCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-area-card', baseClasses: 'card talent-card', cardClass: 'area-distribution-card',
+    icon: 'category', title: 'DISTRIBUCIÓN DEL EQUIPO POR ÁREA',
+    chartId: 'talent-area-distribution', label: 'Distribución de colaboradores por área', ready: true,
+    option: blackChartText(this.talentAreaOption()),
+  }));
+  readonly talentStoreCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-store-card', baseClasses: 'card talent-card', cardClass: 'store-productivity-card',
+    icon: 'gauge', title: 'PRODUCTIVIDAD POR TIENDA',
+    chartId: 'talent-store-productivity', label: 'Venta por colaborador de las tiendas con mayor productividad', ready: true,
+    option: blackChartText(this.talentStoreProductivityOption()),
+  }));
+  readonly talentExitCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-exit-card', baseClasses: 'card talent-card', cardClass: 'exit-card',
+    icon: 'rotate', title: 'RETIROS POR MOTIVO',
+    chartId: 'talent-exit', label: 'Retiros por motivo registrado', ready: true,
+    option: blackChartText(this.talentExitOption()),
+  }));
+  readonly talentIncidentsCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-incidents-card', baseClasses: 'card talent-card', cardClass: 'incidents-card',
+    icon: 'alert', title: 'INCIDENCIAS EXTERNAS Y TERCEROS',
+    chartId: 'talent-incidents', label: 'Distribución de problemas externos', ready: true,
+    option: blackChartText(this.talentIncidentsOption()),
+  }));
+  readonly talentTrainingCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'training-progress', storeLocked: this.storeFilterLocked(),
+    audience: this.trainingAudience(),
+    label: this.storeFilterLocked() ? 'Cursos pendientes de vendedores' : this.trainingAudience() === 'SELLERS' ? 'Avance de cursos para vendedores' : 'Avance de cursos para administradores',
+    option: blackChartText(this.selectedTrainingOption()),
+  }));
+
+  onReactTrainingAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('training-progress');
+    else if (type === 'audience' && !this.storeFilterLocked() && (value === 'SELLERS' || value === 'ADMINISTRATORS')) this.trainingAudience.set(value);
+  }
+
+  onReactBirthdayAction({ type }: { type: string }): void {
+    if (type === 'close') this.closeExpandedChart();
+  }
+
+  onReactTalentKpiAction({ type }: { type: string }): void {
+    if (type === 'birthdays') this.toggleChartExpansion('birthday-list');
+  }
+
+  readonly sizeControlsModel = computed<Record<string, unknown>>(() => ({
+    rubro: this.sizeRubro(), metric: this.sizeMetric(), system: this.shoeSizeSystem(),
+  }));
+  readonly sizeCardModel = computed<Record<string, unknown>>(() => {
+    const rubro = this.sizeRubro(); const metric = this.sizeMetric();
+    const loading = !this.stockDetailLoaded() && (!this.sizeDetailLoaded()[rubro] || (metric === 'TRANSFERS' && !this.stockTransfersLoaded()));
+    const coverage = this.sizeChartCoverage(); const noRows = !this.sizeChartRows().length;
+    return {
+      expanded: this.expandedChart() === 'size-distribution', rubro, metric,
+      controls: this.sizeControlsModel(), loading, productCodeLoading: this.productCodeLoading(),
+      textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
+      label: `${this.sizeMetricLabel()} por talla ${rubro.toLowerCase()}`,
+      option: loading ? null : blackChartText(this.sizeDistributionOption()),
+      coverage: { total: this.number(coverage.total), mapped: this.number(coverage.mapped),
+        pending: this.number(coverage.pending), pendingRaw: coverage.pending },
+    };
+  });
+
+  readonly storeValueCardModel = computed<Record<string, unknown>>(() => {
+    const ready = this.stockHierarchyLoaded() || this.stockDetailLoaded();
+    return {
+      ready, expanded: this.expandedChart() === 'store-value-coverage',
+      option: ready ? blackChartText(this.storeValueCoverageOption()) : null,
+      health: this.inventoryHealthSummary(), matrix: this.stockMatrixModel(),
+    };
+  });
+
+  readonly categoryCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'category', view: this.categoryView(),
+    option: blackChartText(this.categoryOption()),
+    rows: this.categorySummary().map(row => ({ name: row.name, net: this.money(row.net, true),
+      share: this.percent(row.share), units: this.number(row.units), topLine: row.topLine, color: row.color })),
+  }));
+
+  onReactCategoryAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('category');
+    else if (type === 'view' && (value === 'RUBRO' || value === 'LINEA')) this.categoryView.set(value);
+  }
+
+  readonly brandCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'brand', option: blackChartText(this.brandOption()),
+    rows: this.brandSummary().map(row => ({ name: row.name, net: this.money(row.net, true),
+      share: this.percent(row.share), units: this.number(row.units) })),
+  }));
+
+  onReactBrandAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('brand');
+  }
+
+  readonly rankingCardModel = computed<Record<string, unknown>>(() => ({
+    countLabel: this.rankingStoreCountLabel(), metrics: this.rankingMetrics(),
+    option: blackChartText(this.rankingOption()),
+  }));
+
+  onReactRankingAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'metric' && (value === 'ROTATION' || value === 'MARKUP' || value === 'TICKET' || value === 'SALE_M2')) this.toggleRankingMetric(value);
+  }
+
+  readonly genderCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'gender', rubros: this.genderRubros(),
+    donut: blackChartText(this.genderOption()), bar: blackChartText(this.genderBarOption()),
+  }));
+
+  onReactGenderAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('gender');
+    else if (type === 'rubro' && (value === 'TEXTIL' || value === 'CALZADO')) this.toggleGenderRubro(value);
+  }
+
+  readonly priceRangeCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'price-range', year: this.year(),
+    years: this.priceRangeComparisonYears(), comparisonYear: this.effectivePriceRangeComparisonYear(),
+    ready: this.priceRangeDetailLoaded(), option: this.priceRangeDetailLoaded() ? blackChartText(this.priceRangeOption()) : null,
+    rows: this.priceRangeSummary().map(row => ({ label: row.label, year: row.year,
+      net: this.money(row.net, true), share: this.percent(row.share),
+      units: this.number(row.units), averagePrice: this.money(row.averagePrice) })),
+  }));
+
+  onReactPriceRangeAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('price-range');
+    else if (type === 'year' && value != null) this.setPriceRangeComparisonYear(value);
+  }
+
+  readonly rotationCardModel = computed<Record<string, unknown>>(() => {
+    const totals = this.inventoryOverviewTotals();
+    return {
+      view: this.rotationView(), hierarchyReady: this.stockHierarchyLoaded() && this.stockHierarchyData().length > 0,
+      ready: this.stockHierarchyLoaded() || this.stockDetailLoaded(),
+      rotationOption: this.rotationView() === 'rotation' && (this.stockHierarchyLoaded() || this.stockDetailLoaded()) ? blackChartText(this.rotationOption()) : null,
+      capacityOption: this.rotationView() === 'inventory' ? blackChartText(this.inventoryOverviewOption()) : null,
+      occupancy: this.percent(totals.capacity ? totals.units / totals.capacity : null),
+      areas: this.inventoryAreaSummary().map(area => ({ area: area.area, color: area.color, share: this.percent(area.share) })),
+      stockValue: this.money(totals.value, true), overCapacity: totals.capacity - totals.units < 0,
+      capacityDifference: this.number(Math.abs(totals.capacity - totals.units), ' und'),
+    };
+  });
+
+  onReactRotationAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'view' && (value === 'rotation' || value === 'inventory')) this.rotationView.set(value);
+  }
+
+  readonly antiquityCardModel = computed<Record<string, unknown>>(() => {
+    const summary = this.stockHistorySummary(); const selected = this.stockHistoryBucketsSelected();
+    return {
+      expanded: this.expandedChart() === 'antiquity', ready: this.stockOriginLoaded(),
+      detailLoading: this.detailLoading(), label: this.stockHistoryLabel(),
+      buckets: this.stockHistoryBuckets.map(bucket => ({ ...bucket,
+        active: bucket.value === 'ALL' ? selected.length === 0 : selected.includes(bucket.value) })),
+      option: blackChartText(this.antiquityOption()),
+      summary: { units: this.number(summary.units, ' und'), value: this.money(summary.value, true), share: this.percent(summary.share) },
+    };
+  });
+
+  onReactAntiquityAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('antiquity');
+    else if (type === 'bucket' && typeof value === 'string') this.toggleStockHistoryBucket(value as StockHistoryBucket);
+    else if (type === 'detail' && typeof value === 'number') this.openStockOriginDetail({ data: { period: value } });
+  }
+
+  readonly healthCardModel = computed<Record<string, unknown>>(() => ({
+    option: blackChartText(this.predictiveHealthOption()),
+    rows: this.predictiveHealthRows().map(row => ({ status: row.status, color: row.color,
+      value: this.money(row.value, true), share: this.percent(row.share) })),
+  }));
+
+  readonly projectionCardModel = computed<Record<string, unknown>>(() => ({
+    horizon: this.coverageProjectionHorizon(), option: blackChartText(this.predictiveProjectionOption()),
+    rows: this.predictiveProjectionRows().map(row => ({ status: row.status, color: row.color,
+      value: this.money(row.value, true), share: this.percent(row.share), products: this.number(row.products) })),
+    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, product: row.product,
+      store: row.store, coverageDays: row.coverageDays, coverage: this.number(row.coverageDays, ' días'),
+      color: this.predictiveStatusColor(row.status) })),
+  }));
+
+  onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'horizon' && (value === 0 || value === 30 || value === 60 || value === 90)) this.coverageProjectionHorizon.set(value);
+  }
+
+  readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'predictive-replenishment',
+    option: blackChartText(this.predictiveReplenishmentOption()),
+    rows: this.predictiveReplenishmentRows().map(row => ({ name: row.name,
+      priority: row.priority, color: row.priorityColor,
+      deficitUnits: this.number(row.deficitUnits, ' und'),
+      coverage: row.coverageDays == null ? 'SIN MOVIMIENTO' : this.number(row.coverageDays, ' días'),
+      vendibleUnits: this.number(row.vendibleUnits, ' und') })),
+  }));
+
+  onReactReplenishmentAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
+  }
+
+  readonly predictiveParametersModel = computed<Record<string, unknown>>(() => ({
+    rubros: this.predictiveRubros(), storeLocked: this.storeFilterLocked(),
+    store: this.predictiveStore(), lockedStore: this.predictiveStoreOptions()[0]?.store,
+    stores: this.predictiveStoreOptions().map(store => ({ id: store.storeId, label: store.alias || store.store })),
+    demand: { value: this.timeValue(this.demandWindow(), this.demandWindowUnit()), unit: this.demandWindowUnit() },
+    healthy: { value: this.timeValue(this.healthyCoverageDays(), this.healthyCoverageUnit()), unit: this.healthyCoverageUnit() },
+    overstock: { value: this.timeValue(this.overstockDays(), this.overstockUnit()), unit: this.overstockUnit() },
+    noMovement: { value: this.monthTimeValue(this.noMovementMonths(), this.noMovementUnit()), unit: this.noMovementUnit() },
+    merma: this.predictiveMermaPct(),
+  }));
+
+  onReactPredictiveParametersAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'rubro' && typeof value === 'string') this.togglePredictiveRubro(value);
+    else if (type === 'store' && typeof value === 'string') this.predictiveStore.set(value);
+    else if (type === 'demand-value') this.setDemandWindowValue(Number(value));
+    else if (type === 'healthy-value') this.setHealthyCoverageValue(Number(value));
+    else if (type === 'overstock-value') this.setOverstockValue(Number(value));
+    else if (type === 'no-movement-value') this.setNoMovementValue(Number(value));
+    else if (type === 'merma') this.setPredictiveMerma(Number(value));
+    else if ((type === 'demand-unit' || type === 'healthy-unit' || type === 'overstock-unit' || type === 'no-movement-unit')
+      && (value === 'MONTHS' || value === 'YEARS')) {
+      if (type === 'demand-unit') this.demandWindowUnit.set(value);
+      else if (type === 'healthy-unit') this.healthyCoverageUnit.set(value);
+      else if (type === 'overstock-unit') this.overstockUnit.set(value);
+      else this.noMovementUnit.set(value);
+    }
+  }
+
+  sectionHeadingModel(id: string): Record<string, unknown> {
+    const heading = SECTION_HEADINGS[id];
+    return { id, kind: heading.section ? 'block' : 'page', mark: heading.mark,
+      title: heading.title, section: heading.section, adviceEnabled: this.sectionAdviceEnabled(),
+      advice: heading.section ? this.sectionAdviceFor(id) : null,
+      transferVisible: id === 'inventory-b', predictive: id === 'inventory-c' };
+  }
+
+  onReactSectionHeadingAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'transfers') this.openTransfers();
+    else if (type === 'advice' && typeof value === 'string') {
+      const section = SECTION_HEADINGS[value]?.section;
+      if (typeof section === 'string') void this.requestSectionAdvice(value, section);
+    }
+  }
+
+  commercialAccessModel(mode: string): Record<string, unknown> {
+    return { mode, error: mode === 'error' ? this.loadingError() : this.cloud.authError(),
+      email: this.loginEmail(), password: this.loginPassword(), busy: this.loginBusy() };
+  }
+
+  onReactCommercialAccessAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'identity' && typeof value === 'string') this.loginEmail.set(value);
+    else if (type === 'password' && typeof value === 'string') this.loginPassword.set(value);
+    else if (type === 'login') void this.signIn();
+    else if (type === 'retry') this.retryDashboardLoad();
+  }
+
+  readonly sellerCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'seller-ranking', ready: this.sellerDetailLoaded(),
+    loading: this.sellerDetailLoading(),
+    option: this.sellerDetailLoading() ? null : blackChartText(this.sellerPerformanceOption()),
+    rows: this.talentSellerRows().map(row => ({ seller: row.seller,
+      net: this.money(row.net, true), units: this.number(row.units), transactions: this.number(row.transactions) })),
+  }));
+
+  onReactSellerAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('seller-ranking');
+  }
+
+  readonly talentPageModel = computed<Record<string, unknown>>(() => ({
+    operationalSummaryReady: !!this.operationalSummary(),
+    headings: {
+      talent: this.sectionHeadingModel('talent'), a: this.sectionHeadingModel('talent-a'),
+      b: this.sectionHeadingModel('talent-b'), c: this.sectionHeadingModel('talent-c'),
+    },
+    kpis: this.talentKpiModel(), capacity: this.talentCapacityModel(),
+    history: this.talentHistoryCardModel(), team: this.talentTeamCardModel(),
+    seller: this.sellerCardModel(), area: this.talentAreaCardModel(),
+    store: this.talentStoreCardModel(), training: this.talentTrainingCardModel(),
+    exit: this.talentExitCardModel(), incidents: this.talentIncidentsCardModel(),
+  }));
+
+  onReactTalentPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
+    const action = { type, value };
+    if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'kpis') this.onReactTalentKpiAction(action);
+    else if (source === 'seller') this.onReactSellerAction(action);
+    else if (source === 'training') this.onReactTrainingAction(action);
+  }
+
+  readonly commercialPageModel = computed<Record<string, unknown>>(() => ({
+    headings: {
+      commercial: this.sectionHeadingModel('commercial'), a: this.sectionHeadingModel('commercial-a'),
+      b: this.sectionHeadingModel('commercial-b'), c: this.sectionHeadingModel('commercial-c'),
+      d: this.sectionHeadingModel('commercial-d'),
+    },
+    primary: this.primaryKpiModel(), key: this.keyKpiModel(), progress: this.progressModel(),
+    meta: this.metaVsRealCardModel(), category: this.categoryCardModel(), brand: this.brandCardModel(),
+    hourly: this.hourlyCardModel(), ranking: this.rankingCardModel(), gender: this.genderCardModel(),
+    growth: this.growthCardModel(), price: this.priceRangeCardModel(),
+  }));
+
+  onReactCommercialPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
+    const action = { type, value };
+    if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'key') this.onReactKeyKpiAction(action);
+    else if (source === 'category') this.onReactCategoryAction(action);
+    else if (source === 'brand') this.onReactBrandAction(action);
+    else if (source === 'ranking') this.onReactRankingAction(action);
+    else if (source === 'gender') this.onReactGenderAction(action);
+    else if (source === 'price') this.onReactPriceRangeAction(action);
+  }
+
+  readonly inventoryPageModel = computed<Record<string, unknown>>(() => {
+    const detailState = this.stockDetailFailed() ? 'error'
+      : !this.stockDetailLoaded() && !this.stockInsightsData() ? 'loading' : 'ready';
+    return {
+      headings: {
+        inventory: this.sectionHeadingModel('inventory'), a: this.sectionHeadingModel('inventory-a'),
+        b: this.sectionHeadingModel('inventory-b'), c: this.sectionHeadingModel('inventory-c'),
+      },
+      rotation: this.rotationCardModel(), antiquity: this.antiquityCardModel(),
+      storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
+      detailState, detailProgress: this.stockDetailProgress(),
+      predictive: detailState === 'ready' ? {
+        parameters: this.predictiveParametersModel(), health: this.healthCardModel(),
+        replenishment: this.replenishmentCardModel(), projection: this.projectionCardModel(),
+      } : null,
+    };
+  });
+
+  onReactInventoryPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
+    const action = { type, value };
+    if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'rotation') this.onReactRotationAction(action);
+    else if (source === 'antiquity') this.onReactAntiquityAction(action);
+    else if (source === 'storeValue') this.onReactStoreValueAction(action);
+    else if (source === 'size') this.onReactSizeCardAction(action);
+    else if (source === 'parameters') this.onReactPredictiveParametersAction(action);
+    else if (source === 'replenishment') this.onReactReplenishmentAction(action);
+    else if (source === 'projection') this.onReactProjectionAction(action);
+    else if (source === 'detail' && type === 'retry') this.retryStockDetail();
+  }
+
+  readonly reactStandaloneModel = computed<Record<string, unknown>>(() => {
+    if (!this.cloud.authReady()) return { mode: 'validating', access: this.commercialAccessModel('validating') };
+    if (!this.cloud.hasAccess()) return { mode: this.cloud.portalEnabled ? 'denied' : 'login',
+      access: this.commercialAccessModel(this.cloud.portalEnabled ? 'denied' : 'login') };
+    if (this.loadingError()) return { mode: 'error', access: this.commercialAccessModel('error') };
+    if (!this.data()) return { mode: 'loading', access: this.commercialAccessModel('loading') };
+    const page = this.page(); const expanded = this.expandedChart();
+    return {
+      mode: 'ready', page, expanded, header: this.headerModel(), filters: this.filtersModel(),
+      commercial: page === 1 ? this.commercialPageModel() : null,
+      inventory: page === 2 ? this.inventoryPageModel() : null,
+      talent: page === 3 ? this.talentPageModel() : null,
+      modal: expanded === 'birthday-list' ? { type: 'birthday', model: this.birthdayModalModel() }
+        : expanded === 'stock-transfers' ? { type: 'transfer', model: this.transferModalModel() }
+        : expanded === 'antiquity-detail' ? { type: 'stock-origin', model: this.stockOriginModalModel() }
+        : expanded === 'ticket-average' ? { type: 'monthly', model: this.ticketModalModel() }
+        : expanded === 'conversion-average' ? { type: 'monthly', model: this.conversionModalModel() }
+        : expanded === 'traffic-average' ? { type: 'monthly', model: this.trafficModalModel() } : null,
+      assistantEnabled: this.cloud.assistantEnabled,
+      assistantRole: this.cloud.accessProfile()?.roleCode || '',
+      assistantContext: this.assistantContext(),
+    };
+  });
+
+  askReactAssistant(messages: import('./assistant.service').AssistantMessage[], context: string): Promise<string> {
+    return this.assistant.ask(messages, context);
+  }
+
+  transcribeReactAssistant(audio: Blob, name: string): Promise<string> {
+    return this.assistant.transcribe(audio, name);
+  }
+
+  private monthlyModalModel(kind: 'ticket' | 'conversion' | 'traffic'): Record<string, unknown> {
+    const year = this.ticketChartYear();
+    const stores = kind === 'traffic' ? this.trafficChartStores() : this.ticketChartStores();
+    const common = {
+      moduleId: `${kind}-modal`, year, years: this.ticketChartYears(),
+      storeLocked: this.storeFilterLocked(), selectedStores: this.ticketChartSelectedStores(),
+      stores: stores.map(store => ({ storeId: store.storeId, label: store.alias || store.store })),
+      allStoresLabel: kind === 'traffic' ? 'Todas las tiendas del formato' : 'Todas las tiendas permitidas',
+    };
+    if (kind === 'ticket') return { ...common, titleId: 'ticket-chart-title', title: 'TICKET PROMEDIO POR MES',
+      closeLabel: 'Cerrar gráfico de ticket promedio', chartId: 'modal-ticket', chartLabel: 'Evolución mensual del ticket promedio',
+      hasData: this.ticketChartHasData(), emptyText: `No hay transacciones disponibles para ${year} con estos filtros.`,
+      option: blackChartText(this.ticketMonthlyOption()), tableLabel: 'Ticket promedio, transacciones y venta neta por mes',
+      headers: ['Mes', 'Ticket promedio', 'Transacciones', 'Venta neta'], legend: true,
+      rows: this.ticketMonthlyRows().map(row => ({ label: row.label, cells: [
+        { text: this.money(row.ticket), className: this.ticketCellHighlight('ticket', row.ticket, row.transactions), title: this.ticketCellDescription('ticket', row.ticket, row.transactions) },
+        { text: this.number(row.transactions), className: this.ticketCellHighlight('transactions', row.transactions, row.transactions), title: this.ticketCellDescription('transactions', row.transactions, row.transactions) },
+        { text: this.money(row.net), className: this.ticketCellHighlight('net', row.net, row.transactions), title: this.ticketCellDescription('net', row.net, row.transactions) },
+      ] })) };
+    if (kind === 'conversion') return { ...common, titleId: 'conversion-chart-title', title: 'CONVERSIÓN POR MES',
+      closeLabel: 'Cerrar gráfico de conversión', chartId: 'modal-conversion', chartLabel: 'Evolución mensual de conversión',
+      hasData: this.conversionChartHasData(), emptyText: `No hay tráfico registrado para calcular la conversión de ${year}.`,
+      option: blackChartText(this.conversionMonthlyOption()), tableLabel: 'Conversión, transacciones y tráfico por mes',
+      headers: ['Mes', 'Conversión', 'Transacciones', 'Tráfico'], legend: false,
+      rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
+        { text: this.percent(row.conversion) }, { text: this.number(row.transactions) }, { text: this.number(row.traffic) },
+      ] })) };
+    return { ...common, titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
+      closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
+      hasData: this.trafficChartHasData(), emptyText: `No hay tráfico registrado para ${year} con estos filtros.`,
+      option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
+      headers: ['Mes', 'Tráfico', 'Transacciones', 'Conversión'], legend: false,
+      rows: this.trafficMonthlyRows().map(row => ({ label: row.label, cells: [
+        { text: this.number(row.traffic) }, { text: this.number(row.transactions) }, { text: this.percent(row.conversion) },
+      ] })) };
+  }
+
+  readonly ticketModalModel = computed(() => this.monthlyModalModel('ticket'));
+  readonly conversionModalModel = computed(() => this.monthlyModalModel('conversion'));
+  readonly trafficModalModel = computed(() => this.monthlyModalModel('traffic'));
+
+  onReactMonthlyModalAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'close') this.closeExpandedChart();
+    else if (type === 'year' && value != null) this.setTicketChartYear(Number(value));
+    else if (type === 'clear-stores') this.ticketChartSelectedStores.set([]);
+    else if (type === 'store' && typeof value === 'string') this.toggleTicketChartStore(value);
+  }
+
+  readonly stockOriginModalModel = computed<Record<string, unknown>>(() => {
+    const totals = this.stockOriginDetailTotals();
+    return {
+      period: this.periodLabel(this.stockOriginDetailPeriod()!),
+      cutoff: this.formatDate(this.data()!.metadata.stockCutoff),
+      units: this.number(totals.units, ' und'), value: this.money(totals.value),
+      rows: this.stockOriginDetailRows().map(row => ({ store: row.store, storeId: row.storeId,
+        category: row.category || 'Sin clasificación', line: row.line || 'Sin clasificación',
+        subline: row.subline || 'Sin clasificación', units: this.number(row.units), value: this.money(row.value) })),
+    };
+  });
+
+  onReactStockOriginModalAction({ type }: { type: string }): void {
+    if (type === 'close') this.closeExpandedChart();
+  }
+
+  readonly transferModalModel = computed<Record<string, unknown>>(() => {
+    const ready = this.stockDetailLoaded() || this.stockTransfersLoaded();
+    const rows = this.transferMatrixRows();
+    const page = this.transferCurrentPage();
+    return {
+      sizeMode: this.transferSizeMode(),
+      stockUnits: ready ? this.number(this.transferSummary().stockUnits) : '—',
+      salesUnits: ready ? this.number(this.transferSummary().salesUnits) : '—',
+      rubro: this.transferRubro(), rubros: this.transferRubros().map(value => ({ value, label: value })),
+      sizeSystem: this.transferSizeSystem(), size: this.transferSize(), sizes: this.transferSizes().map(value => ({ value, label: value })),
+      line: this.transferLine(), lines: this.transferLines().map(value => ({ value, label: value })),
+      brand: this.transferBrand(), brands: this.transferBrands().map(value => ({ value, label: value })),
+      store: this.transferStore(), stores: this.transferStores().map(store => ({ value: store.storeId, label: `${store.alias || store.store} · ${store.store}` })),
+      priority: this.transferPriority(), search: this.transferSearch(), codeError: this.transferCodeError(),
+      stockCutoff: this.formatDate(this.data()!.metadata.stockCutoff),
+      salesCutoff: this.formatDate(this.data()!.metadata.salesCutoff),
+      busy: this.transferBusy(), calculationError: this.transferCalculationError(),
+      detailFailed: this.stockDetailFailed() && !this.stockTransfersLoaded(), detailReady: ready,
+      routeCount: this.transferRecommendations().length, productCount: this.number(rows.length),
+      from: page * this.transferPageSize + 1, to: Math.min((page + 1) * this.transferPageSize, rows.length),
+      page, pageCount: this.transferPageCount(), hasEstimates: this.transferHasEstimates(),
+      rows: this.transferPageRows().map(row => ({
+        key: row.key, open: this.transferExpandedRow() === row.key,
+        productTitle: `Código: ${row.origin.productCode || 'No disponible'}\n${row.origin.brand} / ${row.origin.category}`,
+        product: row.origin.product,
+        size: row.origin.category === 'CALZADO' || row.origin.category === 'TEXTIL' ? this.transferSizeLabel(row.origin) : '',
+        sourceName: row.origin.sourceName, sourceStock: this.number(row.origin.sourceStock),
+        sourceSales: this.number(row.origin.sourceSales),
+        sourceDays: row.origin.sourceDays == null ? 'Sin ventas' : `${this.number(row.origin.sourceDays)} días`,
+        bestDescription: this.transferRouteDescription(row.best), bestName: row.best.destinationName,
+        bestStock: this.number(row.best.destinationStock), bestSales: this.number(row.best.destinationSales),
+        bestDays: `${this.number(row.best.destinationDays)} días`, quantity: this.number(row.best.suggested),
+        options: row.options.map(route => ({ destination: route.destination,
+          best: route.destination === row.best.destination, name: route.destinationName,
+          stock: this.number(route.destinationStock), sales: this.number(route.destinationSales),
+          days: this.number(route.destinationDays), critical: route.critical, suggested: this.number(route.suggested) })),
+      })),
+    };
+  });
+
+  onReactTransferAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'close') this.closeExpandedChart();
+    else if (type === 'chart') this.openSizeChart();
+    else if (type === 'reset') this.resetTransferFilters();
+    else if (type === 'retry-codes') this.retryProductCodes();
+    else if (type === 'row' && typeof value === 'string') this.toggleTransferRow(value);
+    else if (type === 'page' && value != null) this.transferPage.set(Number(value));
+    else if (type === 'rubro' && typeof value === 'string') {
+      this.transferRubro.set(value); this.transferLine.set(''); this.transferBrand.set(''); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'size-system' && (value === 'USA' || value === 'EUR')) {
+      this.transferSizeSystem.set(value); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'size' && typeof value === 'string') {
+      this.transferSize.set(value); this.transferExpandedRow.set(''); this.transferPage.set(0);
+    } else if (type === 'line' && typeof value === 'string') {
+      this.transferLine.set(value); this.transferBrand.set(''); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'brand' && typeof value === 'string') {
+      this.transferBrand.set(value); this.transferSize.set(''); this.transferPage.set(0);
+    } else if (type === 'store' && typeof value === 'string') { this.transferStore.set(value); this.transferPage.set(0); }
+    else if (type === 'priority' && typeof value === 'string') { this.transferPriority.set(value); this.transferPage.set(0); }
+    else if (type === 'search' && typeof value === 'string') { this.transferSearch.set(value); this.transferPage.set(0); }
+  }
+
+  onReactStoreValueAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('store-value-coverage');
+  }
+
+  onReactSizeCardAction(action: { type: string; value?: string | number }): void {
+    if (action.type === 'expand') this.toggleChartExpansion('size-distribution');
+    else if (action.type === 'retry') this.retryProductCodes();
+    else this.onReactSizeAction(action);
+  }
+
+  readonly stockMatrixModel = computed<Record<string, unknown>>(() => ({
+    rows: this.inventoryMatrixRows().map(row => ({
+      storeId: row.storeId, alias: row.alias, tone: row.tone, status: row.status,
+      capacityTitle: this.number(row.capacity, ' unidades'), capacity: this.number(row.capacity, ' und'),
+      stockTitle: this.number(row.stockUnits, ' unidades'), stock: this.number(row.stockUnits, ' und'),
+      receivedTitle: this.number(row.receivedDaily, ' unidades por día'), received: this.number(row.receivedDaily, ' und/día'),
+      salesTitle: this.number(row.dailySales, ' unidades por día'), sales: this.number(row.dailySales, ' und/día'),
+      coverageTitle: row.coverageDays == null ? 'Sin venta reciente' : this.number(row.coverageDays, ' días de cobertura'),
+      coverage: row.coverageDays == null ? 'SIN VENTA' : this.number(row.coverageDays, ' días'),
+    })),
+  }));
+
+  onReactSizeAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'rubro' && (value === 'CALZADO' || value === 'TEXTIL')) this.selectSizeRubro(value);
+    else if (type === 'metric' && (value === 'SALES' || value === 'STOCK' || value === 'TRANSFERS')) this.selectSizeMetric(value);
+    else if (type === 'system' && (value === 'USA' || value === 'EUR')) this.shoeSizeSystem.set(value);
+    else if (type === 'matrix') this.openSizeTransfers();
+  }
+
+  onReactKeyKpiAction({ type }: { type: string }): void {
+    if (type === 'trafficMetro') this.openTrafficChart('METRO');
+    else if (type === 'trafficOther') this.openTrafficChart('OTHER');
+    else if (type === 'conversion') this.openConversionChart();
+    else if (type === 'ticket') this.openTicketChart();
+  }
+
+  onReactFilterAction({ type, value }: DashboardFilterAction): void {
+    if (type === 'toggleDrawer') { this.filtersOpen.set(!this.filtersOpen()); return; }
+    if (type === 'closeDrawer') { this.filtersOpen.set(false); return; }
+    if (type === 'year') { this.onYear(Number(value)); return; }
+    if (type === 'toggleCalendar') { this.toggleCalendar(); return; }
+    if (type === 'closeCalendar') { this.closeCalendar(); return; }
+    if (type === 'clearDateRange') { this.clearDateRange(); return; }
+    if (type === 'calendarDay') { void this.onCalendarDayClick(String(value)); return; }
+    if (type === 'reset') { this.resetFilters(); return; }
+    if (type === 'toggleFilter') {
+      const key = String(value) as FilterKey;
+      if ((key === 'store' && this.storeFilterLocked()) || (key === 'cluster' && this.clusterFilterLocked()) || (key === 'gender' && !this.genderFilterEnabled())) return;
+      this.closeCalendar(); this.openFilter.set(this.openFilter() === key ? null : key); return;
+    }
+    if (type === 'search') {
+      const input = String(value); const divider = input.indexOf(':');
+      if (divider >= 0) this.setFilterSearch(input.slice(0, divider) as FilterKey, input.slice(divider + 1));
+      return;
+    }
+    const clear: Record<string, () => void> = {
+      month: () => this.clearMonths(), cluster: () => this.clearClusters(), format: () => this.clearFormats(),
+      store: () => this.clearStores(), category: () => this.clearCategories(), gender: () => this.clearGenders(),
+      line: () => this.clearLines(), subline: () => this.clearSublines(),
+    };
+    const toggle: Record<string, (input: string) => void> = {
+      month: input => this.toggleMonth(Number(input)), cluster: input => this.toggleCluster(input),
+      format: input => this.toggleFormat(input), store: input => this.toggleStore(input),
+      category: input => this.toggleCategory(input), gender: input => this.toggleGender(input),
+      line: input => this.toggleLine(input), subline: input => this.toggleSubline(input),
+    };
+    if (type.startsWith('clear:')) clear[type.slice(6)]?.();
+    if (type.startsWith('toggle:')) toggle[type.slice(7)]?.(String(value));
+  }
 
   readonly previousMonthRows = computed(() => {
     const p = this.selectedPeriod(); const previous = p % 100 === 1 ? (Math.floor(p / 100) - 1) * 100 + 12 : p - 1;
@@ -1414,11 +2209,7 @@ export class App implements OnInit {
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = this.sellerPerformanceData().filter(row =>
       ids.has(row.storeId) && periods.has(row.periodId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
-    const bySeller = grouped(rows, row => row.seller || 'SIN VENDEDOR');
-    const ranking = [...bySeller.entries()].map(([seller, sellerRows]) => ({
-      seller, net: sum(sellerRows, 'net'), units: sum(sellerRows, 'units'), transactions: sum(sellerRows, 'transactions'),
-    })).filter(row => row.net !== 0);
-    return ranking.sort((a, b) => b.net - a.net);
+    return aggregateSellerRanking(rows);
   });
   readonly talentClientRows = computed(() => {
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
@@ -1880,20 +2671,58 @@ export class App implements OnInit {
   });
   readonly predictiveStoreOptions = computed(() => this.inventoryStoresIgnoringStoreFilter());
   readonly transferRubro = signal('');
+  readonly transferSizeMode = signal(false);
+  readonly transferSize = signal('');
+  readonly transferSizeSystem = signal<ShoeSizeSystem>('USA');
+  readonly transferBusy = signal(false);
+  readonly transferCalculationError = signal('');
+  readonly transferWorkerRoutes = signal<ReturnType<typeof stockTransfers> | null>(null);
+  transferRouteDescription(route: ReturnType<typeof this.transferRecommendations>[number]): string {
+    return [
+      route.destinationName,
+      `Stock vendible destino: ${this.number(route.destinationStock)} und`,
+      `Ventas destino 30D: ${this.number(route.destinationSales)} und`,
+      `Cobertura destino: ${this.number(route.destinationDays)} días`,
+      `Prioridad: ${route.critical ? 'Crítico' : 'Alerta'}`,
+      'Se prioriza menor cobertura y luego mayores ventas en 30 días.',
+    ].join('\n');
+  }
+  transferSizeLabel(row: { productCode?: string; category?: string; line?: string; product?: string }): string {
+    if (row.category !== 'TEXTIL' && row.category !== 'CALZADO') return 'Sin talla';
+    const size = resolveProductSize(row, row.category, this.transferSizeSystem());
+    return size ? `${size.label}${row.category === 'CALZADO' ? ' ' + this.transferSizeSystem() : ''}` : 'Sin talla';
+  }
   readonly transferLine = signal('');
   readonly transferBrand = signal('');
   readonly transferStore = signal('');
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
   readonly transferPage = signal(0);
+  readonly transferExpandedRow = signal('');
+  toggleTransferRow(key: string): void {
+    this.transferExpandedRow.set(this.transferExpandedRow() === key ? '' : key);
+  }
   readonly transferCodeError = signal(false);
   readonly sizeRubro = signal<SizeRubro>('CALZADO');
+  selectSizeRubro(rubro: SizeRubro): void {
+    this.sizeRubro.set(rubro);
+    if (this.page() === 2) void this.ensureSizeDetail(rubro);
+  }
   readonly shoeSizeSystem = signal<ShoeSizeSystem>('USA');
   readonly sizeMetric = signal<SizeMetric>('SALES');
+  selectSizeMetric(metric: SizeMetric): void {
+    this.sizeMetric.set(metric);
+    if (metric === 'TRANSFERS') void this.ensureStockTransfers();
+  }
   readonly transferPageSize = 10;
+  readonly storeTransferRoutes = signal<ReturnType<typeof stockTransfers> | null>(null);
+  readonly storeTransferStores = signal<Store[]>([]);
   readonly transferProducts = computed(() => {
+    if (this.storeTransferRoutes() !== null) return this.stockTransferProductsData();
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
-    return this.stockProductsData().filter(row => ids.has(row.storeId));
+    const products = this.stockTransfersLoaded() ? this.stockTransferProductsData()
+      : this.stockDetailLoaded() ? this.stockProductsData() : this.stockTransferProductsData();
+    return products.filter(row => ids.has(row.storeId));
   });
   readonly transferRubros = computed(() => [...new Set(this.transferProducts()
     .map(row => row.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')));
@@ -1903,31 +2732,133 @@ export class App implements OnInit {
     .filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine()))
     .map(row => row.brand).filter(Boolean))].sort());
-  readonly transferStores = computed(() => this.predictiveStoreOptions().filter(store => store.isStore));
+  readonly transferStores = computed(() => this.storeTransferRoutes() !== null ? this.storeTransferStores() : this.predictiveStoreOptions().filter(store => store.isStore));
+  readonly transferSizeLabels = computed(() => {
+    const labels = new Map<string, string>();
+    if (!this.transferRubro()) return labels;
+    for (const row of this.transferProducts()) {
+      if (row.category === this.transferRubro() && !labels.has(row.productId)) {
+        labels.set(row.productId, this.transferSizeLabel(row));
+      }
+    }
+    return labels;
+  });
+  readonly transferSizes = computed(() => {
+    const labels = this.transferSizeLabels();
+    const options = new Set<string>();
+    for (const row of this.transferProducts()) {
+      if (row.category === this.transferRubro() && (!this.transferLine() || row.line === this.transferLine())
+        && (!this.transferBrand() || row.brand === this.transferBrand())) {
+        options.add(labels.get(row.productId) || 'Sin talla');
+      }
+    }
+    return [...options].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  });
   readonly transferFilteredProducts = computed(() => {
     const query = this.normalized(this.transferSearch());
+    const sizeLabels = this.transferSize() ? this.transferSizeLabels() : null;
     return this.transferProducts().filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine())
       && (!this.transferBrand() || row.brand === this.transferBrand())
+      && (!this.transferSize() || sizeLabels?.get(row.productId) === this.transferSize())
       && (!query || this.normalized(`${row.productCode || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
   });
   readonly transferAllRecommendations = computed(() => {
-    const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
-    return stockTransfers(this.transferFilteredProducts()).map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
+    const names = new Map(this.transferStores().map(store => [store.storeId, store.alias || store.store]));
+    const selected = new Set(this.transferFilteredProducts().map(row => JSON.stringify([row.productId, row.storeId])));
+    const scoped = this.storeTransferRoutes()?.filter(row => selected.has(JSON.stringify([row.productId, row.source])) && selected.has(JSON.stringify([row.productId, row.destination])));
+    const routes = scoped ?? (typeof Worker === 'undefined' ? stockTransfers(this.transferFilteredProducts(), 30, 90, false)
+      : this.transferWorkerRoutes() || []);
+    return routes.map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
       destinationName: names.get(row.destination) || row.destination }));
+  });
+  private readonly stockTransferCalculationEffect = effect(onCleanup => {
+    if (this.expandedChart() !== 'stock-transfers') return;
+    if (this.storeTransferRoutes() !== null) {
+      this.transferBusy.set(false);
+      this.transferCalculationError.set('');
+      return;
+    }
+    this.transferWorkerRoutes.set(null);
+    this.transferCalculationError.set('');
+    if (!this.transferRubro()) { this.transferBusy.set(false); return; }
+    const products = this.transferFilteredProducts();
+    this.transferBusy.set(true);
+    let worker: Worker | undefined;
+    // Let the loading state paint before cloning the filtered payload.
+    const timer = setTimeout(() => {
+      try {
+        worker = new Worker(new URL('./stock-transfers.worker', import.meta.url), { type: 'module' });
+        worker.onmessage = ({ data }) => {
+          this.transferWorkerRoutes.set(data.routes || []);
+          this.transferCalculationError.set(data.error || '');
+          this.transferBusy.set(false);
+          worker?.terminate();
+        };
+        worker.onerror = () => {
+          this.transferCalculationError.set('No se pudieron calcular los traslados. Cambia de rubro para reintentar.');
+          this.transferBusy.set(false);
+          worker?.terminate();
+        };
+        worker.postMessage(products.map(({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30 }) =>
+          ({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30 })));
+      } catch {
+        this.transferCalculationError.set('No se pudo iniciar el cálculo de traslados. Recarga la página para reintentar.');
+        this.transferBusy.set(false);
+        worker?.terminate();
+      }
+    }, 100);
+    onCleanup(() => { clearTimeout(timer); worker?.terminate(); });
   });
   readonly transferRecommendations = computed(() => this.transferAllRecommendations().filter(row =>
     (!this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical))
     && (!this.transferStore() || row.source === this.transferStore() || row.destination === this.transferStore())));
   readonly transferSummary = computed(() => transferTotals(this.transferFilteredProducts(), this.transferRecommendations(), this.transferStore()));
   readonly transferHasEstimates = computed(() => this.transferRecommendations().some(row => row.estimated));
-  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferRecommendations().length / this.transferPageSize)));
+  readonly transferMatrixRows = computed(() => {
+    type Route = ReturnType<typeof this.transferRecommendations>[number];
+    const groups = new Map<string, { key: string; origin: Route; destinations: Map<string, Route> }>();
+    for (const route of this.transferRecommendations()) {
+      const key = JSON.stringify([route.productId, route.source]);
+      const group = groups.get(key) || { key, origin: route, destinations: new Map<string, Route>() };
+      group.destinations.set(route.destination, route);
+      groups.set(key, group);
+    }
+    return [...groups.values()].map(group => {
+      const options = [...group.destinations.values()].sort((a, b) =>
+        a.destinationDays - b.destinationDays || b.destinationSales - a.destinationSales
+        || b.suggested - a.suggested || a.destination.localeCompare(b.destination));
+      return { ...group, best: options[0], options };
+    });
+  });
+  readonly transferPageCount = computed(() => Math.max(1, Math.ceil(this.transferMatrixRows().length / this.transferPageSize)));
   readonly transferCurrentPage = computed(() => Math.min(this.transferPage(), this.transferPageCount() - 1));
-  readonly transferPageRows = computed(() => this.transferRecommendations().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
+  readonly transferPageRows = computed(() => this.transferMatrixRows().slice(this.transferCurrentPage() * this.transferPageSize, (this.transferCurrentPage() + 1) * this.transferPageSize));
+  readonly transferMatrixStores = computed(() => {
+    const destinations = new Map<string, string>();
+    for (const row of this.transferPageRows()) {
+      for (const route of row.destinations.values()) destinations.set(route.destination, route.destinationName);
+    }
+    return [...destinations].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  });
+
+  private sizeProductsForChart(rubro: SizeRubro): Array<ProductRow | SizeProductRow> {
+    if (!this.sizeDetailLoaded()[rubro] && this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const ids = this.inventoryStoreIdsIgnoringStoreFilter();
+    return this.sizeProductsData()[rubro].filter(row => ids.has(row.storeId) &&
+      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+  }
+
+  private sizeTransfersForChart(rubro: SizeRubro): ProductRow[] {
+    if (!this.stockTransfersLoaded() && this.stockDetailLoaded()) return this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const ids = this.inventoryStoreIdsIgnoringStoreFilter();
+    return this.stockTransferProductsData().filter(row => ids.has(row.storeId) && row.category === rubro &&
+      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+  }
 
   readonly sizeChartRows = computed(() => {
     const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
-    const products = this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
+    const products = this.sizeProductsForChart(rubro);
     const rows = new Map<string, SizeChartRow>();
     const add = (row: { productId: string; productCode?: string; category?: string; line?: string; product?: string }, field: 'sales' | 'stock' | 'transfers', value: number) => {
       const size = resolveProductSize(row, rubro, system); if (!size) return;
@@ -1940,14 +2871,19 @@ export class App implements OnInit {
       add(row, 'sales', row.units30);
       add(row, 'stock', row.stockUnits);
     }
-    for (const transfer of stockTransfers(products)) add(transfer, 'transfers', transfer.suggested);
+    if (this.sizeMetric() === 'TRANSFERS') {
+      const eligible = new Set(this.sizeTransfersForChart(rubro).map(row => row.productId));
+      const routes = this.storeTransferRoutes()?.filter(row => row.category === rubro && eligible.has(row.productId))
+        ?? stockTransfers(this.sizeTransfersForChart(rubro));
+      for (const transfer of routes) add(transfer, 'transfers', transfer.suggested);
+    }
     return [...rows.values()].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label, 'es'));
   });
 
   readonly sizeChartCoverage = computed(() => {
     const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
-    const products = this.inventoryProductsIgnoringStoreFilter().filter(row => row.category === rubro);
-    const unique = new Map<string, ProductRow>();
+    const products = this.sizeProductsForChart(rubro);
+    const unique = new Map<string, ProductRow | SizeProductRow>();
     for (const row of products) if (!unique.has(row.productId)) unique.set(row.productId, row);
     const coded = [...unique.values()].filter(row => !!row.productCode);
     const mapped = coded.filter(row => !!resolveProductSize(row, rubro, system));
@@ -1984,80 +2920,46 @@ export class App implements OnInit {
     } as EChartsOption;
   });
 
-  readonly transferChartOption = computed<EChartsOption>(() => {
-    const rows = this.transferPageRows();
-    return {
-      animation: false,
-      grid: { left: 310, right: 80, top: 42, bottom: 20 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any) => {
-        const row = rows[params[0]?.dataIndex ?? 0];
-        return this.tooltip(row?.product || '', [
-          { label: 'Código Nissei', value: row?.productCode || 'No disponible' },
-          { label: 'Origen → destino', value: `${row?.sourceName} → ${row?.destinationName}` },
-          { label: 'Stock vendible origen', value: this.number(row?.sourceStock ?? null, ' und') },
-          { label: 'Stock vendible destino', value: this.number(row?.destinationStock ?? null, ' und') },
-          { label: 'Ventas origen / 30 días', value: this.number(row?.sourceSales ?? null, ' und') },
-          { label: 'Ventas destino / 30 días', value: this.number(row?.destinationSales ?? null, ' und') },
-          { label: 'Cobertura destino', value: this.number(row?.destinationDays ?? null, ' días') },
-          { label: 'Cobertura origen', value: row?.sourceDays == null ? 'Sin ventas en 30 días' : this.number(row.sourceDays, ' días') },
-          { label: 'Traslado sugerido', value: this.number(row?.suggested ?? null, ' und') },
-          { label: 'Prioridad', value: row?.critical ? 'CRÍTICO' : 'ALERTA' },
-          { label: 'Stock vendible', value: row?.estimated ? 'Estimado al 82%' : 'Según estado del producto' },
-        ], true);
-      } },
-      xAxis: { type: 'value', position: 'top', name: 'Unidades', nameLocation: 'middle', nameGap: 26,
-        minInterval: 1, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#e4eaf3', type: 'dashed' } } },
-      yAxis: { type: 'category', inverse: true, data: rows.map((_, index) => String(index)),
-        axisTick: { show: false }, axisLine: { show: false },
-        splitArea: { show: true, areaStyle: { color: ['#ffffff', '#f7f9fd'] } },
-        axisLabel: { margin: 20, formatter: (value: string) => {
-          const row = rows[Number(value)];
-          if (!row) return '';
-          const words = row.product.split(/\s+/); const lines: string[] = []; let line = '';
-          for (const word of words) {
-            if (line && (line + ' ' + word).length > 38) { lines.push(line); line = word; } else line += (line ? ' ' : '') + word;
-          }
-          if (line) lines.push(line);
-          const product = lines.slice(0, 2).join('\n') + (lines.length > 2 ? '…' : '');
-          // Escape ECharts rich-text delimiters in product/store names.
-          const safe = (text: string) => text.replace(/[{}|]/g, ' ');
-          const codeLine = row.productCode ? `\n{code|Código: ${safe(row.productCode)}}` : '';
-          return `{route|${safe(row.sourceName)} → ${safe(row.destinationName)}}\n{product|${safe(product)}}${codeLine}\n{${row.critical ? 'critical' : 'alert'}|${row.critical ? 'CRÍTICO' : 'ALERTA'} · ${this.number(row.destinationDays)} días de cobertura}`;
-        }, rich: {
-          route: { fontSize: 12, fontWeight: 800, lineHeight: 22 },
-          product: { fontSize: 11, lineHeight: 17, width: 270, overflow: 'truncate' },
-          code: { fontSize: 11, fontWeight: 700, lineHeight: 18, width: 270, overflow: 'break' },
-          critical: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
-          alert: { fontSize: 10, lineHeight: 22, fontWeight: 700 },
-        } } },
-      series: [
-        { name: 'Stock origen', type: 'bar', data: rows.map(row => row.sourceStock), itemStyle: { color: '#f4b400', borderRadius: [0, 4, 4, 0] } },
-        { name: 'Stock destino', type: 'bar', data: rows.map(row => row.destinationStock), itemStyle: { color: '#e11d2e', borderRadius: [0, 4, 4, 0] } },
-        { name: 'Traslado sugerido', type: 'bar', data: rows.map(row => row.suggested), itemStyle: { color: '#123a8c', borderRadius: [0, 4, 4, 0] } },
-      ].map(series => ({ ...series, barWidth: 9, barGap: '45%',
-        label: { show: true, position: 'right', distance: 8, fontSize: 11, formatter: (params: any) => `${this.number(params.value)} und` },
-        emphasis: { focus: 'series' },
-      })) as EChartsOption['series'],
-    };
-  });
   resetTransferFilters(): void {
+    this.transferExpandedRow.set('');
+    this.transferSize.set('');
     this.transferRubro.set(''); this.transferLine.set(''); this.transferBrand.set(''); this.transferStore.set('');
     this.transferSearch.set(''); this.transferPriority.set(''); this.transferPage.set(0);
   }
+  openSizeTransfers(): void {
+    const resume = this.transferSizeMode();
+    this.transferSizeMode.set(true);
+    if (!resume) {
+      this.transferSizeSystem.set(this.shoeSizeSystem());
+      this.resetTransferFilters();
+      this.transferRubro.set(this.sizeRubro());
+    }
+    if (this.expandedChart()) this.closeExpandedChart();
+    this.toggleChartExpansion('stock-transfers');
+    void this.ensureStockTransfers();
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
+  }
+  openSizeChart(): void {
+    this.closeExpandedChart();
+    this.toggleChartExpansion('size-distribution');
+    requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLButtonElement>('.size-distribution-card .size-view-switch button')?.focus());
+  }
   openTransfers(): void {
+    this.transferSizeMode.set(false);
     this.resetTransferFilters();
     this.toggleChartExpansion('stock-transfers');
-    void this.ensureStockDetail();
+    void this.ensureStockTransfers();
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
   }
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
-    const byBrand = grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA');
     const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
     const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
-    return [...byBrand.entries()].map(([name, brandRows]) => {
-      const stockUnits = sum(brandRows, 'stockUnits'); const stockValue = sum(brandRows, 'stockValue');
-      const demandUnits = brandRows.reduce((total, row) => total + this.predictiveWindowUnits(row, window), 0);
-      const movementUnits = brandRows.reduce((total, row) => total + this.predictiveWindowUnits(row, movementDays), 0);
+    const serverRows = this.stockInsightsData()?.brandRows;
+    const brands = serverRows || [...grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA').entries()]
+      .map(([name, rows]) => ({ name, stockUnits: sum(rows, 'stockUnits'), stockValue: sum(rows, 'stockValue'),
+        demandUnits: rows.reduce((total, row) => total + this.predictiveWindowUnits(row, window), 0),
+        movementUnits: rows.reduce((total, row) => total + this.predictiveWindowUnits(row, movementDays), 0) }));
+    return brands.map(({ name, stockUnits, stockValue, demandUnits, movementUnits }) => {
       const demandDaily = demandUnits / window; const vendibleUnits = stockUnits * (1 - nonSellableRate); const vendibleValue = stockValue * (1 - nonSellableRate);
       const coverageDays = demandDaily > 0 ? vendibleUnits / demandDaily : null; const status = this.predictiveStatus(coverageDays, movementUnits <= 0);
       const targetUnits = demandDaily * this.healthyCoverageDays(); const deficitUnits = Math.max(targetUnits - vendibleUnits, 0); const priority = this.predictivePriority(status.label, deficitUnits);
@@ -2066,7 +2968,7 @@ export class App implements OnInit {
     }).sort((a, b) => a.coverageDays == null ? 1 : b.coverageDays == null ? -1 : a.coverageDays - b.coverageDays);
   });
   readonly predictiveReplenishmentRows = computed(() => [...this.predictiveBrandRows()]
-    .sort((a, b) => b.priorityIndex - a.priorityIndex));
+    .sort((a, b) => b.priorityIndex - a.priorityIndex || a.name.localeCompare(b.name)));
   readonly predictiveProductHealthRows = computed(() => {
     const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
     const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
@@ -2085,9 +2987,14 @@ export class App implements OnInit {
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     // Salud se clasifica por SKU, no por marca: una marca con un artículo activo no
     // puede ocultar otros artículos sin movimiento dentro de la misma marca.
-    const rowsByStatus = grouped(this.predictiveProductHealthRows(), row => row.status); const total = this.predictiveProductHealthRows().reduce((value, row) => value + row.vendibleValue, 0);
-    return order.map(status => { const rows = rowsByStatus.get(status) || []; const value = rows.reduce((sumValue, row) => sumValue + row.vendibleValue, 0);
-      return { status, value, brands: rows.length, share: total ? value / total : 0, color: colors[status] }; });
+    const serverRows = this.stockInsightsData()?.healthRows;
+    const raw = serverRows
+      ? new Map(serverRows.map(row => [row.status, { value: row.value, products: row.products }]))
+      : new Map([...grouped(this.predictiveProductHealthRows(), row => row.status).entries()]
+        .map(([status, rows]) => [status, { value: rows.reduce((value, row) => value + row.vendibleValue, 0), products: rows.length }] as const));
+    const total = [...raw.values()].reduce((value, row) => value + row.value, 0);
+    return order.map(status => { const row = raw.get(status); const value = row?.value || 0;
+      return { status, value, brands: row?.products || 0, share: total ? value / total : 0, color: colors[status] }; });
   });
   predictiveStatusColor(status: string): string {
     return ({ 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' } as Record<string, string>)[status] || C.slate;
@@ -2105,6 +3012,8 @@ export class App implements OnInit {
     const priority: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'SIN ROTACIÓN': 2, 'BAJA ROTACIÓN': 3, 'ÓPTIMO': 4 };
     const days = this.coverageProjectionHorizon();
     const stores = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
+    const serverRows = this.stockInsightsData()?.priorityProducts;
+    if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId }));
     return [...this.predictiveProductHealthRows()]
       .map(row => {
         const coverageDays = row.coverageDays == null ? null : Math.max(0, row.coverageDays - days);
@@ -2141,10 +3050,18 @@ export class App implements OnInit {
     const statuses = ['CRÍTICO', 'ALERTA', 'ÓPTIMO', 'BAJA ROTACIÓN', 'SIN ROTACIÓN'];
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     const buckets = new Map(statuses.map(status => [status, { value: 0, products: 0 }]));
-    this.predictiveProductHealthRows().forEach(row => {
-      const status = row.status === 'SIN ROTACIÓN' || row.coverageDays == null ? 'SIN ROTACIÓN' : this.predictiveStatus(Math.max(0, row.coverageDays - days), false).label;
-      const bucket = buckets.get(status) || buckets.get('SIN ROTACIÓN')!; bucket.value += row.vendibleValue; bucket.products += 1;
-    });
+    const serverRows = this.stockInsightsData()?.projectionRows;
+    if (serverRows) {
+      for (const row of serverRows) {
+        const bucket = buckets.get(row.status) || buckets.get('SIN ROTACIÓN')!;
+        bucket.value += row.value; bucket.products += row.products;
+      }
+    } else {
+      this.predictiveProductHealthRows().forEach(row => {
+        const status = row.status === 'SIN ROTACIÓN' || row.coverageDays == null ? 'SIN ROTACIÓN' : this.predictiveStatus(Math.max(0, row.coverageDays - days), false).label;
+        const bucket = buckets.get(status) || buckets.get('SIN ROTACIÓN')!; bucket.value += row.vendibleValue; bucket.products += 1;
+      });
+    }
     const raw = statuses.map(status => ({ status, ...buckets.get(status)!, color: colors[status] }));
     const total = raw.reduce((value, row) => value + row.value, 0);
     return raw.map(row => ({ ...row, share: total ? row.value / total : 0 }));
@@ -2153,6 +3070,10 @@ export class App implements OnInit {
   readonly predictiveStoreRiskRows = computed(() => {
     const days = this.coverageProjectionHorizon();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
+    const serverRows = this.stockInsightsData()?.riskRows;
+    if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId,
+      share: row.totalValue ? row.riskValue / row.totalValue : 0 }))
+      .sort((a, b) => b.riskValue - a.riskValue).slice(0, 7);
     const byStore = grouped(this.predictiveProductHealthRows(), row => row.storeId);
     return [...byStore.entries()].map(([storeId, storeRows]) => {
       const risky = storeRows.filter(row => {
@@ -2188,12 +3109,14 @@ export class App implements OnInit {
     } as EChartsOption;
   });
   readonly productExtremes = computed<{ high: { name: string; units: number; value: number }[]; low: { name: string; units: number; value: number }[] }>(() => {
-    const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => `${row.productId}|${row.product}`);
-    const values = [...groups.entries()].map(([key, rows]) => ({ name: key.split('|').slice(1).join('|'), units: sum(rows, 'stockUnits'), value: sum(rows, 'stockValue') }))
-      .filter(x => x.units > 0).sort((a, b) => b.units - a.units);
-    return { high: values.slice(0, 3), low: [...values].sort((a, b) => a.units - b.units).slice(0, 3) };
+    return stockExtremes(this.inventoryProductsIgnoringStoreFilter());
   });
 
+  readonly inventoryHierarchyRowsIgnoringStoreFilter = computed(() => {
+    const ids = this.inventoryStoreIdsIgnoringStoreFilter();
+    return this.stockHierarchyData().filter(row => ids.has(row.storeId) &&
+      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+  });
   readonly stockTotals = computed(() => {
     const hierarchyActive = this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length;
     const selectedIds = this.filteredStoreIds();
@@ -2208,7 +3131,10 @@ export class App implements OnInit {
       baseStockByStore.set(row.storeId, current);
     }
     const readyAggregates = aggregates.size ? aggregates : baseStockByStore;
-    const stockRows = hierarchyActive ? this.filteredProducts() : [];
+    const stockRows: Array<ProductRow | StockHierarchyRow> = hierarchyActive
+      ? this.stockDetailLoaded() ? this.filteredProducts()
+        : this.inventoryHierarchyRowsIgnoringStoreFilter().filter(row => selectedIds.has(row.storeId))
+      : [];
     return {
       capacity: this.filteredStores().reduce((t, s) => t + (s.capacity || 0), 0),
       units: hierarchyActive ? sum(stockRows, 'stockUnits') : [...selectedIds].reduce((total, id) => total + (readyAggregates.get(id)?.stockUnits || 0), 0),
@@ -2294,23 +3220,26 @@ export class App implements OnInit {
     const match = this.data()?.metadata.coverageRanges.find(r => days >= r.min && days <= r.max);
     return match ? { label: match.label, color: match.color } : { label: 'OBSERVACIÓN', color: C.slate };
   }
+  readonly inventoryStoreMetrics = computed(() => aggregateStoreMetrics(this.stockDetailLoaded()
+    ? this.inventoryProductsIgnoringStoreFilter() : this.inventoryHierarchyRowsIgnoringStoreFilter()));
   readonly coverageRows = computed<CoverageRow[]>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store]));
-    const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => row.storeId);
+    const groups = this.inventoryStoreMetrics();
     const predictiveByStore = new Map((this.data()?.predictiveStore || []).map(row => [row.storeId, row]));
     const stockByStore = new Map((this.data()?.stockStore || []).map(row => [row.storeId, row]));
     return [...storeMap.keys()].map(storeId => {
-      const rows = groups.get(storeId) || [];
+      const aggregate = groups.get(storeId);
+      const hasRows = !!aggregate?.count;
       const predictive = predictiveByStore.get(storeId); const stock = stockByStore.get(storeId);
-      const stockUnits = rows.length ? sum(rows, 'stockUnits') : Number(predictive?.stockUnits ?? stock?.units) || 0;
-      const stockValue = rows.length ? sum(rows, 'stockValue') : Number(predictive?.stockValue ?? stock?.value) || 0;
-      const units30 = rows.length ? sum(rows, 'units30') : Number(predictive?.units30) || 0;
-      const sales30 = rows.length ? sum(rows, 'sales30') : Number(predictive?.sales30) || 0;
-      const goodUnits = rows.reduce((total, row) => total + (row.goodUnits || 0), 0);
-      const hasStateBreakdown = rows.some(row => row.goodUnits != null || row.mermaStockUnits != null || row.desmedroStockUnits != null);
+      const stockUnits = hasRows ? aggregate!.stockUnits : Number(predictive?.stockUnits ?? stock?.units) || 0;
+      const stockValue = hasRows ? aggregate!.stockValue : Number(predictive?.stockValue ?? stock?.value) || 0;
+      const units30 = hasRows ? aggregate!.units30 : Number(predictive?.units30) || 0;
+      const sales30 = hasRows ? aggregate!.sales30 : Number(predictive?.sales30) || 0;
+      const goodUnits = aggregate?.goodUnits || 0;
+      const hasStateBreakdown = aggregate?.hasStateBreakdown || false;
       const effectiveUnits = hasStateBreakdown ? goodUnits : stockUnits * (1 - (this.data()?.metadata.nonSellableRate ?? .18));
       const calculatedDays = units30 > 0 ? effectiveUnits * 30 / units30 : null;
-      const days = rows.length ? calculatedDays : (predictive?.coverageDays ?? calculatedDays);
+      const days = hasRows ? calculatedDays : (predictive?.coverageDays ?? calculatedDays);
       const status = this.coverageStatus(days);
       return { storeId, alias: storeMap.get(storeId)?.alias || storeId, stockUnits, effectiveUnits, stockValue, units30, sales30, days, status: status.label, color: status.color };
     }).sort((a, b) => (b.days ?? -1) - (a.days ?? -1));
@@ -2359,10 +3288,11 @@ export class App implements OnInit {
   });
   readonly rankingStoreCountLabel = computed(() => {
     const stores = (this.companyRankingData()?.stores || this.data()?.stores || []).filter(store => store.isStore)
+      .filter(store => this.storeAllowedByAccess(store))
       .filter(store => this.storeOverlapsPeriod(store, this.year() * 100 + 1, this.year() * 100 + 12));
     const closed = stores.filter(store => store.closingDate?.startsWith(`${this.year()}-`)).length;
     const active = Math.max(0, stores.length - closed);
-    return `${stores.length} TIENDAS · ${active} ACTIVAS${closed ? ` + ${closed} CERRADA${closed === 1 ? '' : 'S'}` : ''}`;
+    return `${stores.length} TIENDA${stores.length === 1 ? '' : 'S'} · ${active} ACTIVA${active === 1 ? '' : 'S'}${closed ? ` + ${closed} CERRADA${closed === 1 ? '' : 'S'}` : ''}`;
   });
   readonly growthOption = computed<EChartsOption>(() => {
     const selectedYear = this.year(); const previousYear = selectedYear - 1; const monthLimit = this.yearOnlyMonthLimit(selectedYear);
@@ -2406,6 +3336,7 @@ export class App implements OnInit {
     // algún momento del año, incluso si una cerró durante ese ejercicio.
     const candidates = (company?.stores || d.stores)
       .filter(store => store.isStore)
+      .filter(store => this.storeAllowedByAccess(store))
       .filter(store => this.storeOverlapsPeriod(store, selectedYear * 100 + 1, selectedYear * 100 + 12));
     const candidateIds = new Set(candidates.map(store => store.storeId));
     const factRows = company
@@ -2665,6 +3596,15 @@ export class App implements OnInit {
     const visible = Math.min(10, values.length);
     const endValue = Math.max(0, visible - 1);
     const axisScale = adaptiveValueScale(values.map(v => v.net));
+    const visibleBrandLabels = new Set<number>();
+    values.slice(0, visible).map((row, index) => ({ index, share: row.share }))
+      .filter(row => row.share >= .025)
+      .sort((left, right) => right.share - left.share)
+      .forEach(row => {
+        if (visibleBrandLabels.size < 4 && [...visibleBrandLabels].every(index => Math.abs(index - row.index) > 1)) {
+          visibleBrandLabels.add(row.index);
+        }
+      });
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'max-width:180px;', formatter: (params: any[]) => {
@@ -2685,10 +3625,11 @@ export class App implements OnInit {
         axisLabel: { interval: 0, rotate: 90, align: 'center', verticalAlign: 'middle', margin: 42, hideOverlap: false, fontSize: 9, color: '#475569' } },
       yAxis: { type: 'value', min: 0, ...axisScale, axisLabel: { color: '#64748B', formatter: (v: number) => v === 0 ? 'S/ 0' : `S/ ${this.short(v)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [{ type: 'bar', data: values.map(v => ({ value: v.net, itemStyle: { color: C.purple, borderRadius: [5, 5, 0, 0] } })), barMaxWidth: 28, z: 5,
-        label: { show: true, position: 'top', formatter: (params: any) => this.percent(values[params.dataIndex]?.share ?? null), color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 }, labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } }]
+        label: { show: true, position: 'top', formatter: (params: any) => visibleBrandLabels.has(params.dataIndex) ? this.percent(values[params.dataIndex]?.share ?? null) : '', color: '#172033', fontSize: 10, fontWeight: 700, distance: 5, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
     } as EChartsOption;
   });
   readonly brandSummary = computed<BrandSummary[]>(() => {
+    this.brandDetailLoaded();
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyBrandIndex, periods, ids)).filter(row =>
       this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
@@ -2785,8 +3726,8 @@ export class App implements OnInit {
     return values.map(value => ({ ...value, year, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
   }
   readonly priceRangeSummary = computed(() => [
-    ...this.priceRangeSummaryFor(this.year(), true),
-    ...this.priceRangeSummaryFor(this.effectivePriceRangeComparisonYear()),
+    ...this.priceRangeSeries().base,
+    ...this.priceRangeSeries().comparison,
   ]);
   readonly priceRangeSeries = computed(() => ({
     base: this.priceRangeSummaryFor(this.year(), true),
@@ -2794,7 +3735,14 @@ export class App implements OnInit {
   }));
   setPriceRangeComparisonYear(value: number | string): void {
     const year = Number(value);
-    if (this.priceRangeComparisonYears().includes(year)) this.priceRangeComparisonYear.set(year);
+    if (!this.priceRangeComparisonYears().includes(year) || year === this.priceRangeComparisonYear()) return;
+    this.cancelPendingSectionLoads();
+    this.priceRangeComparisonYear.set(year);
+    this.priceRangeData.set([]);
+    this.monthlyPriceRangeIndex.clear();
+    this.priceRangeDetailLoaded.set(false);
+    void this.ensurePriceRangeDetail();
+    if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
   }
   readonly priceRangeOption = computed<EChartsOption>(() => {
     const { base, comparison } = this.priceRangeSeries();
@@ -2802,9 +3750,19 @@ export class App implements OnInit {
     const totals = { base: base.reduce((value, row) => value + row.net, 0), comparison: comparison.reduce((value, row) => value + row.net, 0) };
     const priceScale = adaptiveValueScale([...base, ...comparison].map(value => value.net), 3);
     const valueName = (year: number) => `VENTA ${year}`; const unitsName = (year: number) => `UNIDADES ${year}`;
+    // Selección estable de porcentajes destacados, separados al menos por una
+    // banda. Evita el amontonamiento y decisiones de ocultación dependientes
+    // del momento en que ECharts mide el lienzo.
+    const visibleShares = new Set<number>();
+    base.map((row, index) => ({ index, share: totals.base ? row.net / totals.base : 0 }))
+      .filter(row => row.share >= .02)
+      .sort((left, right) => right.share - left.share)
+      .forEach(row => {
+        if (visibleShares.size < 4 && [...visibleShares].every(index => Math.abs(index - row.index) > 1)) visibleShares.add(row.index);
+      });
     const shareLabel = (total: number) => ({ show: true, position: 'top' as const, formatter: (params: any) => {
       const share = total ? Number(params.value) / total : 0;
-      return share >= .02 ? this.percent(share) : '';
+      return visibleShares.has(params.dataIndex) ? this.percent(share) : '';
     }, color: '#172033', fontSize: 8, fontWeight: 700, distance: 3, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [1, 3], borderRadius: 3 });
     return {
       animation: false,
@@ -2823,7 +3781,7 @@ export class App implements OnInit {
         { type: 'value', min: 0, splitNumber: 3, axisLabel: { formatter: (value: number) => this.short(value), color: C.slate, fontSize: 9 }, splitLine: { show: false } }
       ],
       series: [
-        { name: valueName(baseYear), type: 'bar', data: base.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#BFD4F3', borderColor: C.navy, borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.base), labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' } },
+        { name: valueName(baseYear), type: 'bar', data: base.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#BFD4F3', borderColor: C.navy, borderWidth: 1, borderRadius: [3, 3, 0, 0] }, label: shareLabel(totals.base) },
         { name: valueName(comparisonYear), type: 'bar', data: comparison.map(row => row.net), barMaxWidth: 24, z: 5, itemStyle: { color: '#E2E8F0', borderColor: C.slate, borderWidth: 1, borderRadius: [3, 3, 0, 0] } },
         { name: unitsName(baseYear), type: 'line', yAxisIndex: 1, data: base.map(row => row.units), symbol: 'circle', symbolSize: 6, z: 20, lineStyle: { width: 3, color: C.navy }, itemStyle: { color: C.navy, borderColor: '#FFFFFF', borderWidth: 1 } },
         { name: unitsName(comparisonYear), type: 'line', yAxisIndex: 1, data: comparison.map(row => row.units), symbol: 'diamond', symbolSize: 7, z: 20, lineStyle: { width: 3, type: 'dashed', color: C.slate }, itemStyle: { color: C.slate, borderColor: '#FFFFFF', borderWidth: 1 } },
@@ -2876,11 +3834,11 @@ export class App implements OnInit {
   });
   readonly rotationOption = computed<EChartsOption>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
-    const groups = grouped(this.inventoryProductsIgnoringStoreFilter(), row => row.storeId);
+    const groups = this.inventoryStoreMetrics();
     const rows = [...storeMap.entries()].map(([storeId, label]) => {
-      const products = groups.get(storeId) || [];
-      const sales = sum(products, 'sales30'); const value = sum(products, 'stockValue');
-      const units = sum(products, 'stockUnits'); const sold = sum(products, 'units30');
+      const aggregate = groups.get(storeId);
+      const sales = aggregate?.sales30 || 0; const value = aggregate?.stockValue || 0;
+      const units = aggregate?.stockUnits || 0; const sold = aggregate?.units30 || 0;
       return { label, sales, value, units, sold, rotation: units > 0 ? sold / units : 0 };
     }).sort((a, b) => b.rotation - a.rotation);
     const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.rotation));
@@ -3003,6 +3961,45 @@ export class App implements OnInit {
     } as EChartsOption;
   });
 
+  private readonly stockInsightsEffect = effect(onCleanup => {
+    if (!this.cloud.portalEnabled || this.page() !== 2 || !this.stockInsightsActivated()) return;
+    this.stockInsightsRetry();
+    const stores = this.inventoryStoresIgnoringStoreFilter();
+    const allowedStores = new Set(this.cloud.accessProfile()?.allowedStoreIds || []);
+    const selectedStore = this.storeFilterLocked() ? stores[0]?.storeId : this.predictiveStore();
+    const filters = {
+      storeIds: stores.map(store => store.storeId).filter(id => allowedStores.has(id) && (selectedStore === 'TODAS' || id === selectedStore)),
+      rubros: this.predictiveRubros(), lines: this.selectedLines(), sublines: this.selectedSublines(),
+      windowDays: this.demandWindow(), movementDays: Math.max(1, this.noMovementMonths()) * 30,
+      healthyDays: this.healthyCoverageDays(), overstockDays: this.overstockDays(),
+      mermaPct: this.predictiveMermaPct(), horizonDays: this.coverageProjectionHorizon(),
+    };
+    if (!filters.storeIds.length) {
+      this.stockInsightsData.set({ rowCount: 0, brandRows: [], healthRows: [], projectionRows: [], riskRows: [], priorityProducts: [] });
+      this.stockDetailLoading.set(false);
+      return;
+    }
+    const controller = new AbortController();
+    this.stockInsightsData.set(null);
+    this.stockDetailFailed.set(false);
+    this.stockDetailLoading.set(true);
+    this.stockDetailProgress.set(10);
+    const timer = setTimeout(() => {
+      this.cloud.stockInsights(filters, controller.signal).then(result => {
+        if (controller.signal.aborted) return;
+        this.stockInsightsData.set(result);
+        this.stockDetailProgress.set(100);
+      }).catch(error => {
+        if (controller.signal.aborted) return;
+        this.stockDetailFailed.set(true);
+        this.predictiveNote.set(`La analítica de inventario no está disponible: ${error instanceof Error ? error.message : error}`);
+      }).finally(() => {
+        if (!controller.signal.aborted) this.stockDetailLoading.set(false);
+      });
+    }, 120);
+    onCleanup(() => { clearTimeout(timer); controller.abort(); });
+  });
+
   async ngOnInit(): Promise<void> {
     await this.cloud.initialize();
     if (!this.cloud.hasAccess()) return;
@@ -3024,6 +4021,7 @@ export class App implements OnInit {
   }
 
   async signOut(): Promise<void> {
+    this.goalLoadToken += 1;
     await this.cloud.signOut();
     this.releaseSectionDetails();
     this.data.set(null);
@@ -3031,6 +4029,7 @@ export class App implements OnInit {
     this.companyRankingData.set(null);
     this.storeGoalOverrides.set([]);
     this.annualGoalOverrides.set([]);
+    this.storeGoalsReady.set(false);
     this.sellerPerformanceData.set([]);
     this.sellerDetailLoaded.set(false);
     this.loadingError.set('');
@@ -3042,6 +4041,9 @@ export class App implements OnInit {
   }
 
   private async loadDashboardBase(): Promise<void> {
+    const goalLoadToken = ++this.goalLoadToken;
+    this.storeGoalsReady.set(false);
+    this.companyRankingData.set(null);
     try {
       const loaded = await this.loadDetail<DashboardData>('dashboard.json');
       // T014 conserva su ID histórico, pero su nombre comercial visible es AGU.
@@ -3062,10 +4064,20 @@ export class App implements OnInit {
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
       this.data.set(loaded);
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
-      this.cloud.companyRanking().then(ranking => this.companyRankingData.set(ranking)).catch(() => this.companyRankingData.set(null));
+      this.cloud.companyRanking().then(ranking => {
+        if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(ranking);
+      }).catch(() => {
+        if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(null);
+      });
       this.cloud.storeGoals().then(result => {
+        if (goalLoadToken !== this.goalLoadToken) return;
         this.storeGoalOverrides.set(result.goals); this.annualGoalOverrides.set(result.annualTargets);
-      }).catch(() => { this.storeGoalOverrides.set([]); this.annualGoalOverrides.set([]); });
+      }).catch(() => {
+        if (goalLoadToken !== this.goalLoadToken) return;
+        this.storeGoalOverrides.set([]); this.annualGoalOverrides.set([]);
+      }).finally(() => {
+        if (goalLoadToken === this.goalLoadToken) this.storeGoalsReady.set(true);
+      });
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();
@@ -3188,12 +4200,16 @@ export class App implements OnInit {
   clearMonths(): void {
     // MES es estrictamente temporal. No toca Tienda, Clúster, Formato, Rubro, Línea ni Sublínea.
     this.selectedMonths.set([]);
+    this.invalidateSellerDetailForMonth();
+    this.invalidatePriceRangeDetailForMonth();
   }
   toggleMonth(value: number): void {
     const month = Number(value); if (!this.availableMonths().includes(month)) return;
     // ÚNICA mutación de este evento: selectedMonths.
     this.selectedMonths.set(this.toggleValue(this.selectedMonths(), month).sort((a, b) => a - b));
     this.clearDateRange();
+    this.invalidateSellerDetailForMonth();
+    this.invalidatePriceRangeDetailForMonth();
   }
   clearStores(): void {
     if (this.storeFilterLocked()) return;
@@ -3205,10 +4221,13 @@ export class App implements OnInit {
     this.selectedStores.set(this.toggleValue(this.selectedStores(), value));
     this.productId.set('AUTO');
   }
-  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); }
+  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); }
   toggleCategory(value: string): void {
     if (!this.categories().includes(value)) return;
     this.selectedCategories.set(this.toggleValue(this.selectedCategories(), value)); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO');
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
   clearGenders(): void { this.selectedGenders.set([]); this.productId.set('AUTO'); }
@@ -3216,27 +4235,81 @@ export class App implements OnInit {
     if (!this.genderFilterEnabled() || !GENDER_ORDER.includes(value)) return;
     this.selectedGenders.set(this.toggleValue(this.selectedGenders(), value)); this.productId.set('AUTO');
   }
-  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); }
+  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); this.deferHierarchyDetails(); }
   toggleLine(value: string): void {
     if (!this.lines().includes(value)) return;
     this.selectedLines.set(this.toggleValue(this.selectedLines(), value)); this.selectedSublines.set([]); this.productId.set('AUTO');
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
-  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); }
+  clearSublines(): void { this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); this.deferHierarchyDetails(); }
   toggleSubline(value: string): void {
     if (!this.sublines().includes(value)) return;
     this.selectedSublines.set(this.toggleValue(this.selectedSublines(), value)); this.productId.set('AUTO');
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
   private hierarchyDetailTimer?: ReturnType<typeof setTimeout>;
   private deferHierarchyDetails(): void {
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
     this.hierarchyDetailTimer = setTimeout(() => {
-      // Primero deja que la UI pinte el filtro. Los JSON grandes se cargan una sola vez
-      // y ya indexados, evitando que Firefox parezca congelado en cada clic.
-      void this.ensureSublineDetail();
-      void this.ensureBrandDetail();
+      // Solo la sublínea requiere el detalle completo; rubro y línea usan
+      // agregados más livianos o índices presentes en el núcleo.
+      if (this.selectedSublines().length) void this.ensureSublineDetail();
+      if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
+        void this.ensureBrandDetail();
+      }
     }, 250);
+  }
+
+  private invalidateBrandDetail(): void {
+    this.brandDetailGeneration += 1;
+    this.brandDetailAbort?.abort();
+    this.brandDetailAbort = undefined;
+    this.brandDetailPromise = undefined;
+    this.monthlyBrandIndex = this.indexPeriodStore(this.data()?.monthlyBrand || []);
+    this.brandDetailLoaded.set(false);
+  }
+
+  private invalidateSellerDetail(): void {
+    this.sellerDetailGeneration += 1;
+    this.sellerDetailAbort?.abort();
+    this.sellerDetailAbort = undefined;
+    this.sellerDetailPromise = undefined;
+    this.sellerDetailLoading.set(false);
+    this.sellerDetailLoaded.set(false);
+    this.sellerPerformanceData.set([]);
+    if (this.page() === 3) void this.ensureSellerDetail();
+  }
+
+  private invalidateSellerDetailForMonth(): void {
+    if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
+      this.invalidateSellerDetail();
+    }
+  }
+
+  private invalidatePriceRangeDetail(): void {
+    this.priceRangeDetailGeneration += 1;
+    this.priceRangeDetailAbort?.abort();
+    this.priceRangeDetailAbort = undefined;
+    this.brandDetailGeneration += 1;
+    this.brandDetailAbort?.abort();
+    this.brandDetailAbort = undefined;
+    this.priceRangeDetailPromise = undefined;
+    this.priceRangeDetailLoaded.set(false);
+    this.monthlyPriceRangeIndex.clear();
+    this.priceRangeData.set([]);
+    if (this.page() === 1) void this.ensurePriceRangeDetail();
+  }
+
+  private invalidatePriceRangeDetailForMonth(): void {
+    if (this.selectedCategories().length || this.selectedLines().length || this.selectedSublines().length) {
+      this.invalidatePriceRangeDetail();
+    }
   }
 
   onYear(value: number): void {
@@ -3248,6 +4321,7 @@ export class App implements OnInit {
     this.clearDateRange();
     const available = new Set(this.availableMonths());
     this.selectedMonths.set(months.filter(month => available.has(month)));
+    this.resetYearScopedDetails();
   }
   setDemandWindow(value: number): void { this.demandWindow.set(Math.max(1, Math.round(Number(value) || 30))); }
   setDemandWindowValue(value: number): void { this.setDemandWindow((Number(value) || 1) * (this.demandWindowUnit() === 'YEARS' ? 365 : 30)); }
@@ -3333,10 +4407,17 @@ export class App implements OnInit {
     // La parte superior usa agregados de dashboard.json y aparece de inmediato.
     // Antigüedad pesa ~4 MB; el detalle por producto (~54 MB) se prepara en tiempo ocioso.
     void this.ensureStockOrigin();
+    void this.ensureStockHierarchy();
+    void this.ensureSizeDetail(this.sizeRubro());
+    if (this.sizeMetric() === 'TRANSFERS') void this.ensureStockTransfers();
     this.scheduleInventoryProductDetail();
   }
 
   private scheduleInventoryProductDetail(): void {
+    if (this.cloud.portalEnabled) {
+      this.stockInsightsActivated.set(true);
+      return;
+    }
     if (this.stockDetailLoaded() || this.stockDetailPromise || this.stockDetailFailed()) return;
     const start = (): void => {
       if (this.page() !== 2) return;
@@ -3347,24 +4428,71 @@ export class App implements OnInit {
     const idleWindow = typeof window === 'undefined' ? undefined : window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
     };
-    // La descarga y el parseo se ejecutan en un Worker, por lo que pueden comenzar
-    // apenas pinta la sección sin bloquear la interacción del dashboard.
-    if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(start, { timeout: 250 });
-    else setTimeout(start, 0);
+    const observe = (): void => {
+      if (this.page() !== 2 || this.stockDetailLoaded() || this.stockDetailPromise) return;
+      if (typeof document === 'undefined') { start(); return; }
+      const target = document.querySelector('app-root')?.shadowRoot?.querySelector('.stock-product-detail-trigger');
+      if (!target || typeof IntersectionObserver === 'undefined') { start(); return; }
+      this.stockDetailObserver?.disconnect();
+      this.stockDetailObserver = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)) return;
+        this.stockDetailObserver?.disconnect();
+        this.stockDetailObserver = undefined;
+        start();
+      }, { rootMargin: '400px 0px' });
+      this.stockDetailObserver.observe(target);
+    };
+    if (idleWindow?.requestIdleCallback) idleWindow.requestIdleCallback(observe, { timeout: 250 });
+    else setTimeout(observe, 0);
   }
   private cancelPendingSectionLoads(): void {
     this.sectionLoads.release();
+    this.stockDetailObserver?.disconnect(); this.stockDetailObserver = undefined;
+    this.sellerDetailGeneration += 1;
+    this.sellerDetailAbort?.abort();
+    this.sellerDetailAbort = undefined;
+    this.priceRangeDetailGeneration += 1;
+    this.priceRangeDetailAbort?.abort();
+    this.priceRangeDetailAbort = undefined;
     if (this.hierarchyDetailTimer) clearTimeout(this.hierarchyDetailTimer);
-    this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.legacyStockPromise = undefined;
+    this.stockDetailPromise = undefined; this.stockOriginPromise = undefined; this.stockHierarchyPromise = undefined;
+    this.stockTransfersPromise = undefined; this.legacyStockPromise = undefined;
+    this.sizeDetailPromises.clear();
     this.predictiveDetailPromise = undefined; this.sellerDetailPromise = undefined;
     this.brandDetailPromise = undefined; this.sublineDetailPromise = undefined; this.priceRangeDetailPromise = undefined;
     this.detailLoading.set(false); this.stockDetailLoading.set(false); this.stockDetailProgress.set(0); this.productCodeLoading.set(false);
     this.predictiveDetailLoading.set(false); this.sellerDetailLoading.set(false);
   }
+  private resetYearScopedDetails(): void {
+    this.cancelPendingSectionLoads();
+    this.sellerPerformanceData.set([]); this.sellerDetailLoaded.set(false);
+    this.priceRangeData.set([]); this.monthlyPriceRangeIndex.clear(); this.priceRangeDetailLoaded.set(false);
+    this.monthlyBrandIndex = this.indexPeriodStore(this.data()?.monthlyBrand || []);
+    this.monthlySublineIndex = this.indexPeriodStore(this.data()?.monthlySubline || []);
+    this.brandDetailLoaded.set(false); this.sublineDetailLoaded.set(false);
+    this.data.update(data => data ? { ...data } : data);
+
+    if (this.page() === 1) void this.ensurePriceRangeDetail();
+    if (this.page() === 3) void this.ensureSellerDetail();
+    if (this.page() === 2) {
+      if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
+      if (!this.stockHierarchyLoaded()) void this.ensureStockHierarchy();
+      if (!this.sizeDetailLoaded()[this.sizeRubro()]) void this.ensureSizeDetail(this.sizeRubro());
+      if (this.sizeMetric() === 'TRANSFERS' && !this.stockTransfersLoaded()) void this.ensureStockTransfers();
+      this.scheduleInventoryProductDetail();
+    }
+    if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();
+  }
   private releaseSectionDetails(): void {
     this.cancelPendingSectionLoads();
+    this.stockInsightsActivated.set(false); this.stockInsightsData.set(null);
     this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
+    this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);
+    this.stockTransferProductsData.set([]); this.stockTransfersLoaded.set(false);
+    this.storeTransferRoutes.set(null); this.storeTransferStores.set([]);
+    this.sizeProductsData.set({ CALZADO: [], TEXTIL: [] });
+    this.sizeDetailLoaded.set({ CALZADO: false, TEXTIL: false });
     this.stockAggregateByStore.set(new Map()); this.predictiveAggregateByStore.set(new Map());
     this.predictiveAggregateByProduct.set(new Map()); this.predictiveIndex.set(new Map());
     this.stockDetailLoaded.set(false); this.stockOriginLoaded.set(false); this.stockDetailFailed.set(false);
@@ -3381,7 +4509,7 @@ export class App implements OnInit {
     // Evaluate product-level caches against the cleared source to release old rows.
     this.filteredProducts(); this.staticPredictiveProducts(); this.predictiveProducts(); this.activeProductRows();
     this.predictiveScopedProducts(); this.transferProducts(); this.transferLines(); this.transferBrands();
-    this.transferFilteredProducts(); this.transferAllRecommendations(); this.transferPageRows(); this.transferSummary(); this.transferChartOption();
+    this.transferFilteredProducts(); this.transferAllRecommendations(); this.transferPageRows(); this.transferSummary(); this.transferMatrixRows(); this.transferMatrixStores();
     this.predictiveHealthOption(); this.predictiveBreakageOption(); this.predictiveReplenishmentOption();
     this.predictiveProjectionOption(); this.predictivePriorityProducts(); this.productExtremes();
     this.inventoryProductsIgnoringStoreFilter(); this.stockOriginDetailRows(); this.stockOrigins(); this.selectedStockOrigins();
@@ -3391,6 +4519,10 @@ export class App implements OnInit {
   retryStockDetail(): void {
     this.stockDetailFailed.set(false);
     this.predictiveNote.set('');
+    if (this.cloud.portalEnabled) {
+      this.stockInsightsRetry.update(value => value + 1);
+      return;
+    }
     this.scheduleInventoryProductDetail();
   }
   retryProductCodes(): void {
@@ -3412,6 +4544,9 @@ export class App implements OnInit {
     this.openFilter.set(null); this.filterSearch.set({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' }); this.stockHistoryBucketsSelected.set([]);
     this.calendarOpen.set(false);
     this.applyAccessScope();
+    this.invalidateSellerDetail();
+    this.invalidatePriceRangeDetail();
+    this.invalidateBrandDetail();
   }
 
   private applyAccessScope(): void {
@@ -3441,13 +4576,13 @@ export class App implements OnInit {
     if (value == null || !Number.isFinite(value)) return 'N/A';
     if (compact && Math.abs(value) >= 1_000_000) return `S/ ${(value / 1_000_000).toFixed(2)} mill.`;
     if (compact && Math.abs(value) >= 1_000) return `S/ ${(value / 1_000).toFixed(1)} mil`;
-    return new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN', maximumFractionDigits: 0 }).format(value);
+    return dashboardMoneyFormat.format(value);
   }
-  number(value: number | null, suffix = ''): string { return value == null || !Number.isFinite(value) ? 'N/A' : `${new Intl.NumberFormat('es-PE', { maximumFractionDigits: 1 }).format(value)}${suffix}`; }
+  number(value: number | null, suffix = ''): string { return value == null || !Number.isFinite(value) ? 'N/A' : `${dashboardNumberFormat.format(value)}${suffix}`; }
   timeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 365 : 30))); }
   monthTimeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 12 : 1))); }
   leadTimeValue(): number { return Number((this.internalLeadTime() / (this.leadTimeUnit() === 'MONTHS' ? 30 : 1)).toFixed(2)); }
-  percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : new Intl.NumberFormat('es-PE', { style: 'percent', maximumFractionDigits: 2 }).format(value); }
+  percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : dashboardPercentFormat.format(value); }
   trend(value: number | null): string { return value == null ? 'N/A' : `${value >= 0 ? '▲' : '▼'} ${this.percent(Math.abs(value))}`; }
 
   private async loadDetail<T>(file: string, signal?: AbortSignal, onProgress?: (progress: number) => void): Promise<T> {
@@ -3526,6 +4661,48 @@ export class App implements OnInit {
     });
   }
 
+  private async loadYearDetail<T extends { periodId: number }>(
+    legacyFile: string,
+    key: string,
+    years: number[],
+    signal?: AbortSignal,
+    onProgress?: (progress: number) => void,
+  ): Promise<T[]> {
+    const selectedYears = [...new Set(years.filter(year => Number.isInteger(year) && year > 0))].sort((a, b) => a - b);
+    if (!selectedYears.length) return [];
+    const partitionName = (year: number) => legacyFile.replace(/\.json$/i, `-${year}.json`);
+    if (['sellerPerformance', 'monthlyBrand', 'monthlySubline', 'monthlyPriceRange'].includes(key)) {
+      try {
+        const payloads = await Promise.all(selectedYears.map(year => this.loadDetail<Record<string, CompactRows>>(
+          legacyFile.replace(/\.json$/i, `-compact-${year}.json`), signal,
+        )));
+        signal?.throwIfAborted();
+        const rows = payloads.flatMap(payload => decodeCompactRows<T>(payload[key], signal));
+        signal?.throwIfAborted();
+        return rows;
+      } catch {
+        signal?.throwIfAborted();
+        // Las publicaciones antiguas contienen los detalles anuales sin codificar.
+      }
+    }
+    try {
+      const payloads = await Promise.all(selectedYears.map((year, index) => this.loadDetail<Record<string, T[]>>(
+        partitionName(year),
+        signal,
+        progress => onProgress?.(Math.round(((index + progress / 100) / selectedYears.length) * 100)),
+      )));
+      signal?.throwIfAborted();
+      return payloads.flatMap(payload => Array.isArray(payload[key]) ? payload[key] : []);
+    } catch (error) {
+      signal?.throwIfAborted();
+      // Las publicaciones anteriores a la partición anual siguen siendo válidas.
+      const payload = await this.loadDetail<Record<string, T[]>>(legacyFile, signal, onProgress);
+      const allowed = new Set(selectedYears);
+      return (Array.isArray(payload[key]) ? payload[key] : [])
+        .filter(row => allowed.has(Math.floor(Number(row.periodId) / 100)));
+    }
+  }
+
   private loadLegacyStock(signal = this.sectionLoads.signal): Promise<{ stockOrigin: StockOrigin[]; stockProducts: ProductRow[] }> {
     signal.throwIfAborted();
     if (!this.legacyStockPromise) {
@@ -3536,19 +4713,38 @@ export class App implements OnInit {
   private async ensureBrandDetail(): Promise<void> {
     if (this.brandDetailLoaded()) return;
     if (this.brandDetailPromise) return this.brandDetailPromise;
-    const signal = this.sectionLoads.signal;
+    const controller = new AbortController();
+    this.brandDetailAbort = controller;
+    const signal = controller.signal;
+    const generation = this.brandDetailGeneration;
+    const categoryOnly = this.selectedCategories().length > 0 && !this.selectedLines().length && !this.selectedSublines().length;
     this.brandDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlyBrand: BrandRow[] }>('dashboard-brand.json', signal);
+        let rows: BrandRow[];
+        if (categoryOnly) {
+          try {
+            const payload = await this.loadDetail<{ monthlyBrand: BrandRow[] }>(`dashboard-brand-category-${this.year()}.json`, signal);
+            rows = payload.monthlyBrand || [];
+          } catch {
+            signal.throwIfAborted();
+            rows = await this.loadYearDetail<BrandRow>('dashboard-brand.json', 'monthlyBrand', [this.year()], signal);
+          }
+        } else {
+          rows = await this.loadYearDetail<BrandRow>('dashboard-brand.json', 'monthlyBrand', [this.year()], signal);
+        }
         signal.throwIfAborted();
-        this.monthlyBrandIndex = await this.indexPeriodStoreAsync(payload.monthlyBrand || [], signal);
+        const index = await this.indexPeriodStoreAsync(rows, signal);
+        signal.throwIfAborted();
+        if (generation !== this.brandDetailGeneration) return;
+        this.monthlyBrandIndex = index;
         this.brandDetailLoaded.set(true);
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.brandDetailGeneration) return;
         this.loadingError.set(`No se pudo abrir el detalle de marcas: ${error instanceof Error ? error.message : error}`);
       } finally {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.brandDetailGeneration) return;
         this.brandDetailPromise = undefined;
+        this.brandDetailAbort = undefined;
       }
     })();
     return this.brandDetailPromise;
@@ -3559,9 +4755,9 @@ export class App implements OnInit {
     const signal = this.sectionLoads.signal;
     this.sublineDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlySubline: Monthly[] }>('dashboard-subline.json', signal);
+        const rows = await this.loadYearDetail<Monthly>('dashboard-subline.json', 'monthlySubline', [this.year()], signal);
         signal.throwIfAborted();
-        this.monthlySublineIndex = await this.indexPeriodStoreAsync(payload.monthlySubline || [], signal);
+        this.monthlySublineIndex = await this.indexPeriodStoreAsync(rows, signal);
         this.sublineDetailLoaded.set(true);
       } catch (error) {
         if (signal.aborted) return;
@@ -3576,23 +4772,68 @@ export class App implements OnInit {
   private async ensurePriceRangeDetail(): Promise<void> {
     if (this.priceRangeDetailLoaded()) return;
     if (this.priceRangeDetailPromise) return this.priceRangeDetailPromise;
-    const signal = this.sectionLoads.signal;
+    const controller = new AbortController();
+    this.priceRangeDetailAbort = controller;
+    const signal = controller.signal;
+    const generation = this.priceRangeDetailGeneration;
+    const years = [...new Set([this.year(), this.effectivePriceRangeComparisonYear()])];
+    const hierarchyActive = this.selectedCategories().length > 0 || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
+    const categoryOnly = this.selectedCategories().length > 0 && !this.selectedLines().length && !this.selectedSublines().length;
     this.priceRangeDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>('dashboard-price-range.json', signal);
+        let rows: PriceRangeRow[];
+        if (categoryOnly) {
+          try {
+            const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(
+              `dashboard-price-range-category-${year}.json`, signal,
+            )));
+            rows = payloads.flatMap(payload => payload.monthlyPriceRange || []);
+          } catch {
+            signal.throwIfAborted();
+            rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          }
+        } else if (hierarchyActive) {
+          const month = this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0;
+          if (month) {
+            try {
+              const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(
+                `dashboard-price-range-${year}-${String(month).padStart(2, '0')}.json`, signal,
+              )));
+              rows = payloads.flatMap(payload => payload.monthlyPriceRange || []);
+            } catch {
+              signal.throwIfAborted();
+              const yearly = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+              rows = yearly.filter(row => row.periodId % 100 === month);
+            }
+          } else {
+            rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          }
+        } else {
+          try {
+            const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(
+              `dashboard-price-range-summary-${year}.json`, signal,
+            )));
+            rows = payloads.flatMap(payload => payload.monthlyPriceRange || []);
+          } catch {
+            signal.throwIfAborted();
+            // El manifiesto anterior al resumen aún usa los años completos.
+            rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
+          }
+        }
         signal.throwIfAborted();
-        const rows = payload.monthlyPriceRange || [];
+        const index = await this.indexPeriodStoreAsync(rows, signal);
         signal.throwIfAborted();
-        this.monthlyPriceRangeIndex = await this.indexPeriodStoreAsync(rows, signal);
-        signal.throwIfAborted();
+        if (generation !== this.priceRangeDetailGeneration) return;
+        this.monthlyPriceRangeIndex = index;
         this.priceRangeData.set(rows);
         this.priceRangeDetailLoaded.set(true);
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.priceRangeDetailGeneration) return;
         this.loadingError.set(`No se pudo abrir el detalle de rangos de precio: ${error instanceof Error ? error.message : error}`);
       } finally {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.priceRangeDetailGeneration) return;
         this.priceRangeDetailPromise = undefined;
+        this.priceRangeDetailAbort = undefined;
       }
     })();
     return this.priceRangeDetailPromise;
@@ -3600,23 +4841,65 @@ export class App implements OnInit {
   private async ensureSellerDetail(): Promise<void> {
     if (this.sellerDetailLoaded()) return;
     if (this.sellerDetailPromise) return this.sellerDetailPromise;
-    const signal = this.sectionLoads.signal;
+    const controller = new AbortController();
+    this.sellerDetailAbort = controller;
+    const signal = controller.signal;
+    const generation = this.sellerDetailGeneration;
+    const hierarchyActive = this.selectedCategories().length > 0 || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
+    const categoryOnly = this.selectedCategories().length > 0 && !this.selectedLines().length && !this.selectedSublines().length;
     this.sellerDetailLoading.set(true);
     this.sellerDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>('dashboard-sellers.json', signal);
+        let rows: SellerPerformanceRow[];
+        if (categoryOnly) {
+          try {
+            const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>(`dashboard-sellers-category-${this.year()}.json`, signal);
+            rows = payload.sellerPerformance || [];
+          } catch {
+            signal.throwIfAborted();
+            // Publicaciones anteriores no incluyen el resumen por rubro.
+            rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+          }
+        } else if (hierarchyActive) {
+          const month = this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0;
+          if (month) {
+            try {
+              const name = `dashboard-sellers-${this.year()}-${String(month).padStart(2, '0')}.json`;
+              const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>(name, signal);
+              rows = payload.sellerPerformance || [];
+            } catch {
+              signal.throwIfAborted();
+              // Compatibilidad con publicaciones anteriores sin particiones mensuales.
+              const yearly = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+              rows = yearly.filter(row => row.periodId % 100 === month);
+            }
+          } else {
+            rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+          }
+        } else {
+          try {
+            const payload = await this.loadDetail<{ sellerPerformance: SellerPerformanceRow[] }>(`dashboard-sellers-summary-${this.year()}.json`, signal);
+            rows = payload.sellerPerformance || [];
+          } catch {
+            signal.throwIfAborted();
+            // Una publicación anterior no contiene el resumen; conserva el ranking original.
+            rows = await this.loadYearDetail<SellerPerformanceRow>('dashboard-sellers.json', 'sellerPerformance', [this.year()], signal);
+          }
+        }
         signal.throwIfAborted();
-        this.sellerPerformanceData.set(payload.sellerPerformance || []);
+        if (generation !== this.sellerDetailGeneration) return;
+        this.sellerPerformanceData.set(rows);
         this.sellerDetailLoaded.set(true);
       } catch {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.sellerDetailGeneration) return;
         // Las demás métricas de Talento deben seguir disponibles si falla este detalle.
         signal.throwIfAborted();
         this.sellerPerformanceData.set([]);
       } finally {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== this.sellerDetailGeneration) return;
         this.sellerDetailLoading.set(false);
         this.sellerDetailPromise = undefined;
+        this.sellerDetailAbort = undefined;
       }
     })();
     return this.sellerDetailPromise;
@@ -3653,6 +4936,89 @@ export class App implements OnInit {
       }
     })();
     return this.stockOriginPromise;
+  }
+
+  private async ensureStockHierarchy(): Promise<void> {
+    if (this.stockHierarchyLoaded() || this.stockHierarchyPromise) return this.stockHierarchyPromise;
+    const signal = this.sectionLoads.signal;
+    let promise!: Promise<void>;
+    promise = (async () => {
+      try {
+        const payload = await this.loadDetail<{ stockHierarchy: CompactRows }>('dashboard-stock-hierarchy.json', signal);
+        signal.throwIfAborted();
+        this.stockHierarchyData.set(decodeCompactRows<StockHierarchyRow>(payload.stockHierarchy, signal));
+      } catch {
+        if (signal.aborted) return;
+        // Las versiones previas siguen utilizando el detalle por producto.
+        this.stockHierarchyData.set([]);
+      } finally {
+        if (this.stockHierarchyPromise === promise) this.stockHierarchyPromise = undefined;
+        if (!signal.aborted) this.stockHierarchyLoaded.set(true);
+      }
+    })();
+    this.stockHierarchyPromise = promise;
+    return promise;
+  }
+
+  private async ensureStockTransfers(): Promise<void> {
+    if (this.stockTransfersLoaded() || this.stockTransfersPromise) return this.stockTransfersPromise;
+    const signal = this.sectionLoads.signal;
+    let promise!: Promise<void>;
+    promise = (async () => {
+      try {
+        if (this.cloud.accessProfile()?.scopeType === 'store') {
+          const scoped = await this.cloud.storeTransfers(signal);
+          signal.throwIfAborted();
+          if (scoped) {
+            this.stockTransferProductsData.set(scoped.products as ProductRow[]);
+            this.storeTransferStores.set(scoped.stores);
+            this.storeTransferRoutes.set(scoped.routes);
+            this.stockTransfersLoaded.set(true);
+            return;
+          }
+        }
+        const payload = await this.loadDetail<{ stockCompact: StockCompact }>('dashboard-stock-transfers.json', signal);
+        signal.throwIfAborted();
+        this.stockTransferProductsData.set(decodeStockCompact<ProductRow>(payload.stockCompact, signal));
+        this.stockTransfersLoaded.set(true);
+      } catch {
+        if (signal.aborted) return;
+        // Una publicación anterior conserva el detalle completo.
+        await this.ensureStockDetail();
+      } finally {
+        if (this.stockTransfersPromise === promise) this.stockTransfersPromise = undefined;
+      }
+    })();
+    this.stockTransfersPromise = promise;
+    return promise;
+  }
+
+  private async ensureSizeDetail(rubro: SizeRubro): Promise<void> {
+    if (this.sizeDetailLoaded()[rubro]) return;
+    const pending = this.sizeDetailPromises.get(rubro);
+    if (pending) return pending;
+    const signal = this.sectionLoads.signal;
+    let promise!: Promise<void>;
+    promise = (async () => {
+      try {
+        const payload = await this.loadDetail<{ sizeCompact: SizeCompact }>(
+          `dashboard-stock-sizes-${rubro.toLowerCase()}.json`, signal,
+        );
+        signal.throwIfAborted();
+        if (payload.sizeCompact.category !== rubro) throw new Error('Rubro de tallas incorrecto.');
+        const rows = decodeSizeCompact<SizeProductRow>(payload.sizeCompact, signal);
+        this.sizeProductsData.update(current => ({ ...current, [rubro]: rows }));
+        this.sizeDetailLoaded.update(current => ({ ...current, [rubro]: true }));
+      } catch {
+        if (signal.aborted) return;
+        // La publicación anterior mantiene el detalle por SKU completo.
+        await this.ensureStockDetail();
+      } finally {
+        if (this.sizeDetailPromises.get(rubro) === promise) this.sizeDetailPromises.delete(rubro);
+      }
+    })();
+    this.sizeDetailPromises.set(rubro, promise);
+    return promise;
   }
 
   private async ensureStockDetail(): Promise<void> {
@@ -3764,7 +5130,14 @@ export class App implements OnInit {
     this.predictiveDetailLoading.set(true);
     this.predictiveDetailPromise = (async () => {
       try {
-        const payload = await this.loadDetail<{ note: string; rows: PredictiveRow[] }>('dashboard-predictive.json', signal);
+        let payload: { note: string; rows: PredictiveRow[] };
+        try {
+          const compact = await this.loadDetail<{ predictiveCompact: PredictiveCompact }>('dashboard-predictive-compact.json', signal);
+          payload = decodePredictiveCompact<PredictiveRow>(compact.predictiveCompact, signal);
+        } catch {
+          signal.throwIfAborted();
+          payload = await this.loadDetail<{ note: string; rows: PredictiveRow[] }>('dashboard-predictive.json', signal);
+        }
         signal.throwIfAborted();
         const rows = payload.rows || [];
         signal.throwIfAborted();

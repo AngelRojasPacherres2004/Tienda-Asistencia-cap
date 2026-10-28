@@ -1,6 +1,7 @@
+import { PRESENT_STATES } from "../../shared/attendance.js";
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const RETAIL_DAY_WEIGHTS = [0.12, 0.13, 0.13, 0.14, 0.14, 0.16, 0.18];
-const PRESENT_STATES = new Set(["presente", "tardanza", "medio_turno", "apoyo"]);
+
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;

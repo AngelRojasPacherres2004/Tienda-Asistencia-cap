@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,15 +31,20 @@ from particionar_dashboard import scope_catalog, scope_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "commercial-dashboard" / "public" / "assets" / "data"
-CORE_FILES = (
+STATIC_CORE_FILES = (
     "dashboard.json",
-    "dashboard-sellers.json",
-    "dashboard-brand.json",
     "dashboard-predictive.json",
-    "dashboard-price-range.json",
     "dashboard-stock-origin.json",
-    "dashboard-stock-products.json",
-    "dashboard-subline.json",
+    "dashboard-stock-hierarchy.json",
+    "dashboard-stock-transfers.json",
+    "dashboard-stock-sizes-textil.json",
+    "dashboard-stock-sizes-calzado.json",
+)
+YEARLY_DATASETS = (
+    "dashboard-sellers",
+    "dashboard-brand",
+    "dashboard-price-range",
+    "dashboard-subline",
 )
 # La carga estándar de Storage es más estable por debajo de 6 MB.
 CHUNK_BYTES = 5 * 1024 * 1024
@@ -46,6 +52,99 @@ DEFAULT_RELEASES_TO_KEEP = 2
 RUNTIME_CONFIG = ROOT / "commercial-dashboard" / "public" / "runtime-config.js"
 class PublishError(RuntimeError):
     pass
+
+
+def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]]:
+    """Prefiere particiones anuales y acepta monolitos de una versión antigua."""
+
+    files = list(STATIC_CORE_FILES)
+    missing = [name for name in STATIC_CORE_FILES if not (data_dir / name).is_file()]
+    if (data_dir / "dashboard-predictive-compact.json").is_file():
+        files.remove("dashboard-predictive.json")
+        missing = [name for name in missing if name != "dashboard-predictive.json"]
+        files.append("dashboard-predictive-compact.json")
+    for dataset in YEARLY_DATASETS:
+        partitions = tuple(sorted(path.name for path in data_dir.glob(f"{dataset}-????.json")))
+        compact = tuple(sorted(path.name for path in data_dir.glob(f"{dataset}-compact-????.json")))
+        legacy = f"{dataset}.json"
+        if compact:
+            raw_years = {name.removeprefix(f"{dataset}-").removesuffix(".json") for name in partitions}
+            compact_years = {name.removeprefix(f"{dataset}-compact-").removesuffix(".json") for name in compact}
+            missing.extend(f"{dataset}-compact-{year}.json" for year in sorted(raw_years - compact_years))
+            files.extend(compact)
+        elif partitions:
+            files.extend(partitions)
+        elif (data_dir / legacy).is_file():
+            files.append(legacy)
+        else:
+            missing.append(f"{dataset}-AAAA.json")
+    seller_years = {
+        name.rsplit("-", 1)[-1].removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-sellers-(?:compact-)?\d{4}\.json", name)
+    }
+    seller_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-sellers-summary-????.json")))
+    if seller_summaries:
+        summary_years = {
+            name.removeprefix("dashboard-sellers-summary-").removesuffix(".json")
+            for name in seller_summaries
+        }
+        missing.extend(f"dashboard-sellers-summary-{year}.json" for year in sorted(seller_years - summary_years))
+        files.extend(seller_summaries)
+    seller_categories = tuple(sorted(path.name for path in data_dir.glob("dashboard-sellers-category-????.json")))
+    if seller_categories:
+        category_years = {
+            name.removeprefix("dashboard-sellers-category-").removesuffix(".json")
+            for name in seller_categories
+        }
+        missing.extend(f"dashboard-sellers-category-{year}.json" for year in sorted(seller_years - category_years))
+        files.extend(seller_categories)
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-sellers-????-??.json")))
+    price_years = {
+        name.rsplit("-", 1)[-1].removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-price-range-(?:compact-)?\d{4}\.json", name)
+    }
+    price_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-price-range-summary-????.json")))
+    if price_summaries:
+        summary_years = {
+            name.removeprefix("dashboard-price-range-summary-").removesuffix(".json")
+            for name in price_summaries
+        }
+        missing.extend(f"dashboard-price-range-summary-{year}.json" for year in sorted(price_years - summary_years))
+        files.extend(price_summaries)
+    price_categories = tuple(sorted(path.name for path in data_dir.glob("dashboard-price-range-category-????.json")))
+    if price_categories:
+        category_years = {
+            name.removeprefix("dashboard-price-range-category-").removesuffix(".json")
+            for name in price_categories
+        }
+        missing.extend(f"dashboard-price-range-category-{year}.json" for year in sorted(price_years - category_years))
+        files.extend(price_categories)
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-price-range-????-??.json")))
+    brand_years = {
+        name.rsplit("-", 1)[-1].removesuffix(".json")
+        for name in files if re.fullmatch(r"dashboard-brand-(?:compact-)?\d{4}\.json", name)
+    }
+    brand_summaries = tuple(sorted(path.name for path in data_dir.glob("dashboard-brand-category-????.json")))
+    if brand_summaries:
+        summary_years = {
+            name.removeprefix("dashboard-brand-category-").removesuffix(".json")
+            for name in brand_summaries
+        }
+        missing.extend(f"dashboard-brand-category-{year}.json" for year in sorted(brand_years - summary_years))
+        files.extend(brand_summaries)
+    daily_raw = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-????-??.json")))
+    daily_compact = tuple(sorted(path.name for path in data_dir.glob("dashboard-daily-compact-????-??.json")))
+    if daily_compact:
+        raw_periods = {name.removeprefix("dashboard-daily-") for name in daily_raw}
+        compact_periods = {name.removeprefix("dashboard-daily-compact-") for name in daily_compact}
+        missing.extend(f"dashboard-daily-compact-{period}" for period in sorted(raw_periods - compact_periods))
+    daily_files = daily_compact or daily_raw
+    if not daily_files and (data_dir / "dashboard-daily.json").is_file():
+        daily_files = ("dashboard-daily.json",)
+    if not daily_files:
+        missing.append("dashboard-daily-AAAA-MM.json")
+    files.extend(daily_files)
+    return tuple(files), missing
 
 
 def load_env_file(path: Path) -> None:
@@ -395,7 +494,8 @@ def cleanup_release_history(
     }
 
 
-def publish(env_path: Path, *, interactive: bool = False) -> None:
+def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: str | None = None,
+            stage_only: bool = False) -> None:
     load_env_file(env_path)
     public_config = load_public_runtime_config()
     base_url = (
@@ -406,7 +506,10 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
     publisher_session = False
     if not base_url:
         raise PublishError("No se encontró la URL pública de Supabase.")
+    if expected_project_ref and urllib.parse.urlparse(base_url).hostname != f"{expected_project_ref}.supabase.co":
+        raise PublishError(f"La URL de Supabase no corresponde al proyecto {expected_project_ref}.")
 
+    service_key = service_key or os.environ.get("SUPABASE_SECRET_KEY", "").strip()
     if service_key:
         api_key = service_key
         access_token = service_key
@@ -433,19 +536,18 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
         control_session(base_url, api_key, access_token, "claim")
         publisher_session = True
 
-    daily_files = tuple(sorted(path.name for path in DATA_DIR.glob("dashboard-daily-????-??.json")))
-    # Compatibilidad de publicación con una salida antigua mientras se regenera
-    # por primera vez. Las nuevas versiones siempre prefieren las particiones.
-    if not daily_files and (DATA_DIR / "dashboard-daily.json").is_file():
-        daily_files = ("dashboard-daily.json",)
-    required_files = (*CORE_FILES, *daily_files)
-    missing = [name for name in CORE_FILES if not (DATA_DIR / name).is_file()]
-    if not daily_files:
-        missing.append("dashboard-daily-AAAA-MM.json")
+    required_files, missing = discover_dashboard_files(DATA_DIR)
     if missing:
         raise PublishError(f"Faltan archivos del dashboard: {', '.join(missing)}")
 
     metadata = parse_metadata()
+    snapshot = get_postgrest(
+        base_url, api_key, access_token,
+        "dashboard_stock_snapshots?select=stock_cutoff,row_count,status"
+        f"&stock_cutoff=eq.{urllib.parse.quote(metadata['stockCutoff'])}&status=eq.ready&limit=1",
+    ) or []
+    if len(snapshot) != 1 or int(snapshot[0].get("row_count") or 0) <= 0:
+        raise PublishError("El corte de stock no está validado en la base; no se publica un manifiesto sin su consulta por API.")
     catalog_payload = json.loads((DATA_DIR / "dashboard.json").read_text(encoding="utf-8"))
     scopes = scope_catalog(catalog_payload["stores"])
     checksums = {name: sha256_file(DATA_DIR / name) for name in required_files}
@@ -562,7 +664,8 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
             # su tienda o clúster. Ningún filtro del navegador es una frontera
             # de autorización.
             payload = catalog_payload if name == "dashboard.json" else json.loads(path.read_text(encoding="utf-8"))
-            for (scope_type, scope_value), allowed_ids in sorted(scopes.items()):
+            def prepare_scope(item: tuple[tuple[str, str], set[str]]) -> dict[str, Any]:
+                (scope_type, scope_value), allowed_ids = item
                 scoped = json.dumps(
                     scope_payload(payload, allowed_ids), ensure_ascii=False,
                     separators=(",", ":"),
@@ -580,17 +683,35 @@ def publish(env_path: Path, *, interactive: bool = False) -> None:
                     object_key=f"scoped/{scope_type}/{scope_value}/{name}",
                     source_bytes=scoped, quiet=True,
                 )
-                scope_rows.append({
+                return {
                     "release_id": release_id, "scope_type": scope_type,
                     "scope_value": scope_value, "logical_name": name,
                     "byte_size": len(scoped), "checksum_sha256": checksum,
                     "content_type": "application/gzip", "parts": scoped_parts,
-                })
+                }
+
+            # Cada objeto de alcance tiene una ruta distinta. Publicarlos en
+            # paralelo evita cientos de esperas de red sin alterar el orden del
+            # manifiesto ni cruzar datos entre tiendas.
+            workers = max(1, min(8, int(os.environ.get("DASHBOARD_UPLOAD_WORKERS", "8"))))
+            with ThreadPoolExecutor(max_workers=min(workers, len(scopes))) as executor:
+                scope_rows.extend(executor.map(prepare_scope, sorted(scopes.items())))
             print(f"  {name}: {len(scopes)} alcances privados preparados")
 
         postgrest(base_url, api_key, access_token, "POST", "dashboard_files", file_rows)
         for start in range(0, len(scope_rows), 500):
             postgrest(base_url, api_key, access_token, "POST", "dashboard_scope_files", scope_rows[start:start + 500])
+        if stage_only:
+            postgrest(
+                base_url, api_key, access_token, "PATCH",
+                f"dashboard_releases?id=eq.{urllib.parse.quote(release_id)}",
+                {"manifest": manifest},
+            )
+            if publisher_session:
+                control_session(base_url, api_key, access_token, "release")
+            print(f"Versión preparada sin activar: {version}")
+            print(f"Archivos: {len(file_rows)}; alcances privados: {len(scope_rows)}")
+            return
         published_at = datetime.now(timezone.utc).isoformat()
         query = f"dashboard_releases?id=eq.{urllib.parse.quote(release_id)}"
         postgrest(
@@ -666,11 +787,22 @@ def main() -> int:
         action="store_true",
         help="Solicita el usuario y la contraseña sin guardarlos en archivos.",
     )
+    parser.add_argument(
+        "--expected-project-ref",
+        help="Verifica el proyecto Supabase antes de publicar.",
+    )
+    parser.add_argument(
+        "--stage-only",
+        action="store_true",
+        help="Prepara y verifica los objetos sin cambiar la versión publicada.",
+    )
     args = parser.parse_args()
     try:
         publish(
             args.env if args.env.is_absolute() else ROOT / args.env,
             interactive=args.interactive,
+            expected_project_ref=args.expected_project_ref,
+            stage_only=args.stage_only,
         )
         return 0
     except Exception as exc:

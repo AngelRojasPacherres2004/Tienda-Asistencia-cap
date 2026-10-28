@@ -7,9 +7,16 @@ test("Lima conserva el día operativo después de medianoche UTC", () => {
   assert.equal(businessDate("2026-10-06T05:00:00Z"), "2026-10-06");
   assert.equal(addDays("2026-03-01", -1), "2026-02-28");
 });
-test("los ocho estados se contabilizan sin tratar permisos como faltas", () => {
-  const counts = attendanceCounts(["presente", "tardanza", "medio_turno", "apoyo", "falta", "permiso", "descanso_medico", "suspension"].map(estado => ({ estado })));
-  assert.deepEqual(counts, { presente: 3, tardanza: 1, ausencia: 1, otros: 3, total: 8 });
+test("descanso y apoyo de salida no cuentan como presencia; apoyo de ingreso sí", () => {
+  const counts = attendanceCounts(["presente", "tardanza", "medio_turno", "apoyo", "apoyo_ingreso", "descanso", "falta", "permiso", "descanso_medico", "suspension"].map(estado => ({ estado })));
+  assert.deepEqual(counts, { presente: 3, tardanza: 1, ausencia: 5, otros: 1, total: 10 });
+});
+
+test('el gráfico suma permiso, descanso, suspensión y apoyo de salida como faltas', () => {
+  for (const estado of ['falta', 'permiso', 'descanso', 'suspension', 'apoyo']) {
+    assert.equal(attendanceCounts([{ estado }]).ausencia, 1, estado);
+  }
+  assert.equal(attendanceCounts([{ estado: 'descanso_medico' }]).otros, 1);
 });
 test("el pico de tráfico funciona aunque falte el primer horario y conserva cero registrado", () => {
   assert.equal(trafficPeak(new Map([["12:00-13:00", 35], ["14:00-15:00", 82]])), "14:00-15:00");

@@ -13,6 +13,10 @@ from project_paths import PROJECT_ROOT, CAPA2_DIR
 from runtime_config import finalizar_proceso
 from maestros import homologar_tienda_python, tienda_id_python
 from xlsx_staging import origen_xlsx_csv
+from compactar_dashboard import (
+    candidatos_traslado, compactar_diario, compactar_predictivo, compactar_registros,
+    compactar_stock, compactar_tallas, resumir_stock_jerarquia,
+)
 
 
 WEB_DIR = PROJECT_ROOT / "commercial-dashboard"
@@ -28,6 +32,185 @@ def normalizar(valor):
     if isinstance(valor, (date, datetime)):
         return valor.isoformat()
     return valor
+
+
+def particionar_registros_anuales(registros: list[dict], nombre: str, clave: str) -> dict[str, dict]:
+    """Divide detalles temporales sin alterar filas ni dimensiones."""
+
+    filas_por_anio: dict[int, list[dict]] = {}
+    for registro in registros:
+        periodo = int(registro.get("periodId") or 0)
+        if periodo <= 0:
+            raise ValueError(f"{clave} contiene una fila sin periodId válido")
+        filas_por_anio.setdefault(periodo // 100, []).append(registro)
+    return {
+        f"{nombre}-{anio:04d}.json": {clave: filas}
+        for anio, filas in sorted(filas_por_anio.items())
+    }
+
+
+def particionar_registros_mensuales(registros: list[dict], nombre: str, clave: str) -> dict[str, dict]:
+    """Conserva exactamente las filas y el orden dentro de cada mes."""
+
+    filas_por_periodo: dict[int, list[dict]] = {}
+    for registro in registros:
+        periodo = int(registro.get("periodId") or 0)
+        if periodo <= 0 or not 1 <= periodo % 100 <= 12:
+            raise ValueError(f"{clave} contiene una fila sin periodId mensual válido")
+        filas_por_periodo.setdefault(periodo, []).append(registro)
+    return {
+        f"{nombre}-{periodo // 100:04d}-{periodo % 100:02d}.json": {clave: filas}
+        for periodo, filas in sorted(filas_por_periodo.items())
+    }
+
+
+def particionar_registros_compactos_anuales(registros: list[dict], nombre: str, clave: str) -> dict[str, dict]:
+    return {
+        archivo: {clave: compactar_registros(datos[clave], clave)}
+        for archivo, datos in particionar_registros_anuales(registros, f"{nombre}-compact", clave).items()
+    }
+
+
+def resumir_marcas(registros: list[dict]) -> list[dict]:
+    """Conserva los totales visibles sin repetir dimensiones vacías por marca."""
+
+    resumen: dict[tuple[int, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["brand"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "brand": registro["brand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
+def resumir_marcas_por_rubro(registros: list[dict]) -> list[dict]:
+    """Mantiene rubro y marca para filtros de categoría sin cargar línea/sublínea."""
+
+    resumen: dict[tuple[int, str, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["category"], registro["brand"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": registro["category"],
+                "brand": registro["brand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
+def resumir_vendedores(registros: list[dict]) -> list[dict]:
+    """Preagrupa el ranking sin perder el detalle jerárquico opcional."""
+
+    resumen: dict[tuple[int, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["seller"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": "",
+                "line": "",
+                "subline": "",
+                "seller": registro["seller"],
+                "net": 0.0,
+                "units": 0.0,
+                "transactions": 0.0,
+            },
+        )
+        for campo in ("net", "units", "transactions"):
+            agregado[campo] += registro[campo]
+    return list(resumen.values())
+
+
+def resumir_vendedores_por_rubro(registros: list[dict]) -> list[dict]:
+    """Agrupa el ranking por rubro sin perder la selección de tienda y mes."""
+
+    resumen: dict[tuple[int, str, str, str], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["category"], registro["seller"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": registro["category"],
+                "line": "",
+                "subline": "",
+                "seller": registro["seller"],
+                "net": 0.0,
+                "units": 0.0,
+                "transactions": 0.0,
+            },
+        )
+        for campo in ("net", "units", "transactions"):
+            agregado[campo] += registro[campo]
+    return list(resumen.values())
+
+
+def resumir_rangos_precio(registros: list[dict]) -> list[dict]:
+    """Mantiene ventas/unidades por banda para la gráfica sin filtros jerárquicos."""
+
+    resumen: dict[tuple[int, str, int], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["bandOrder"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": "",
+                "line": "",
+                "subline": "",
+                "bandOrder": registro["bandOrder"],
+                "priceBand": registro["priceBand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
+
+
+def resumir_rangos_precio_por_rubro(registros: list[dict]) -> list[dict]:
+    """Agrupa bandas por rubro para comparar años sin descargar línea/sublínea."""
+    resumen: dict[tuple[int, str, str, int], dict] = {}
+    for registro in registros:
+        llave = (registro["periodId"], registro["storeId"], registro["category"], registro["bandOrder"])
+        agregado = resumen.setdefault(
+            llave,
+            {
+                "periodId": registro["periodId"],
+                "storeId": registro["storeId"],
+                "category": registro["category"],
+                "line": "",
+                "subline": "",
+                "bandOrder": registro["bandOrder"],
+                "priceBand": registro["priceBand"],
+                "net": 0.0,
+                "units": 0.0,
+            },
+        )
+        agregado["net"] += registro["net"]
+        agregado["units"] += registro["units"]
+    return list(resumen.values())
 
 
 def filas(conexion: duckdb.DuckDBPyConnection, consulta: str) -> list[dict]:
@@ -948,27 +1131,55 @@ def escribir(resultado: dict) -> None:
     obsoletos = [
         SALIDA_PUBLICA.parent / "dashboard-stock.json",
         SALIDA_COMPILADA.parent / "dashboard-stock.json",
+        SALIDA_PUBLICA.parent / "dashboard-predictive-compact.json",
+        SALIDA_COMPILADA.parent / "dashboard-predictive-compact.json",
         SALIDA_PUBLICA.parent / "dashboard-daily.json",
         SALIDA_COMPILADA.parent / "dashboard-daily.json",
+        SALIDA_PUBLICA.parent / "dashboard-sellers.json",
+        SALIDA_COMPILADA.parent / "dashboard-sellers.json",
+        SALIDA_PUBLICA.parent / "dashboard-brand.json",
+        SALIDA_COMPILADA.parent / "dashboard-brand.json",
+        SALIDA_PUBLICA.parent / "dashboard-subline.json",
+        SALIDA_COMPILADA.parent / "dashboard-subline.json",
+        SALIDA_PUBLICA.parent / "dashboard-price-range.json",
+        SALIDA_COMPILADA.parent / "dashboard-price-range.json",
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-daily-compact-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-daily-compact-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-compact-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-summary-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-summary-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-sellers-category-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-sellers-category-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-brand-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-brand-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-brand-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-brand-compact-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-brand-category-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-brand-category-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-subline-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-subline-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-subline-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-subline-compact-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-compact-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-compact-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-summary-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-summary-????.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-price-range-category-????.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-price-range-category-????.json"),
     ]
     for obsoleto in obsoletos:
         obsoleto.unlink(missing_ok=True)
-    resumen_marca: dict[tuple[int, str, str], dict] = {}
-    for registro in resultado["monthlyBrand"]:
-        llave = (registro["periodId"], registro["storeId"], registro["brand"])
-        agregado = resumen_marca.setdefault(
-            llave,
-            {
-                "periodId": registro["periodId"], "storeId": registro["storeId"],
-                "category": "", "line": "", "subline": "", "brand": registro["brand"],
-                "net": 0.0, "units": 0.0,
-            },
-        )
-        agregado["net"] += registro["net"]
-        agregado["units"] += registro["units"]
-
     catalogo = sorted(
         {
             (registro["category"], registro["line"], registro["subline"])
@@ -991,14 +1202,46 @@ def escribir(resultado: dict) -> None:
             nombre: {"dailyStore": filas_mes, "hourlySales": horas_por_mes.get(nombre, [])}
             for nombre, filas_mes in sorted(diario_por_mes.items())
         },
-        # El detalle por vendedor se descarga únicamente al abrir Talento.
-        "dashboard-sellers.json": {"sellerPerformance": resultado["sellerPerformance"]},
-        "dashboard-brand.json": {"monthlyBrand": resultado["monthlyBrand"]},
-        "dashboard-subline.json": {"monthlySubline": resultado["monthlySubline"]},
-        "dashboard-price-range.json": {"monthlyPriceRange": resultado["monthlyPriceRange"]},
+        **{
+            nombre.replace("dashboard-daily-", "dashboard-daily-compact-"): {
+                "dailyCompact": compactar_diario(filas_mes, horas_por_mes.get(nombre, [])),
+            }
+            for nombre, filas_mes in sorted(diario_por_mes.items())
+        },
+        # Los detalles temporales se descargan por año. La interfaz conserva un
+        # fallback a los monolitos antiguos para abrir publicaciones previas.
+        **particionar_registros_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_compactos_anuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_mensuales(resultado["sellerPerformance"], "dashboard-sellers", "sellerPerformance"),
+        **particionar_registros_anuales(resumir_vendedores(resultado["sellerPerformance"]), "dashboard-sellers-summary", "sellerPerformance"),
+        **particionar_registros_anuales(resumir_vendedores_por_rubro(resultado["sellerPerformance"]), "dashboard-sellers-category", "sellerPerformance"),
+        **particionar_registros_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
+        **particionar_registros_compactos_anuales(resultado["monthlyBrand"], "dashboard-brand", "monthlyBrand"),
+        **particionar_registros_anuales(resumir_marcas_por_rubro(resultado["monthlyBrand"]), "dashboard-brand-category", "monthlyBrand"),
+        **particionar_registros_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
+        **particionar_registros_compactos_anuales(resultado["monthlySubline"], "dashboard-subline", "monthlySubline"),
+        **particionar_registros_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
+        **particionar_registros_compactos_anuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
+        **particionar_registros_mensuales(resultado["monthlyPriceRange"], "dashboard-price-range", "monthlyPriceRange"),
+        **particionar_registros_anuales(resumir_rangos_precio(resultado["monthlyPriceRange"]), "dashboard-price-range-summary", "monthlyPriceRange"),
+        **particionar_registros_anuales(resumir_rangos_precio_por_rubro(resultado["monthlyPriceRange"]), "dashboard-price-range-category", "monthlyPriceRange"),
         # Separar el resumen de antigüedad del detalle por producto evita que la
         # pestaña de Inventario tenga que descargar ~60 MB antes de poder pintar.
         "dashboard-stock-origin.json": {"stockOrigin": resultado["stockOrigin"]},
+        "dashboard-stock-hierarchy.json": {
+            "stockHierarchy": compactar_registros(
+                resumir_stock_jerarquia(resultado["stockProducts"]), "stockHierarchy",
+            ),
+        },
+        "dashboard-stock-transfers.json": {
+            "stockCompact": compactar_stock(candidatos_traslado(resultado["stockProducts"])),
+        },
+        **{
+            f"dashboard-stock-sizes-{rubro.lower()}.json": {
+                "sizeCompact": compactar_tallas(resultado["stockProducts"], rubro),
+            }
+            for rubro in ("TEXTIL", "CALZADO")
+        },
         "dashboard-stock-products.json": {"stockProducts": resultado["stockProducts"]},
         "dashboard-predictive.json": {
             "note": (
@@ -1010,6 +1253,11 @@ def escribir(resultado: dict) -> None:
             ),
             "rows": resultado["predictiveRows"],
         },
+    }
+    archivos["dashboard-predictive-compact.json"] = {
+        "predictiveCompact": compactar_predictivo(
+            resultado["predictiveRows"], archivos["dashboard-predictive.json"]["note"],
+        ),
     }
     principal = {
         **{
@@ -1024,7 +1272,7 @@ def escribir(resultado: dict) -> None:
             for rubro, linea, sublinea in catalogo
         ],
         "monthlySubline": [],
-        "monthlyBrand": list(resumen_marca.values()),
+        "monthlyBrand": resumir_marcas(resultado["monthlyBrand"]),
         "monthlyPriceRange": [],
         "sellerPerformance": [],
         "clientPerformance": [],

@@ -40,8 +40,66 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
       try {
         const bundle = await loadCommercialBundle();
         if (!active) return;
+        const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"]);
+        const reactCharts = (import.meta.env.VITE_COMMERCIAL_REACT_CHARTS || "")
+          .split(",").map(value => value.trim()).filter(value => supportedReactCharts.has(value));
+        const previewChart = new URLSearchParams(location.search).get("reactChart");
+        if (import.meta.env.DEV && supportedReactCharts.has(previewChart)) reactCharts.push(previewChart);
+        const supportedReactModules = new Set(["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"]);
+        supportedReactModules.add("talent-page");
+        supportedReactModules.add("commercial-page");
+        supportedReactModules.add("inventory-page");
+        const reactModules = (import.meta.env.VITE_COMMERCIAL_REACT_MODULES || "")
+          .split(",").map(value => value.trim()).filter(value => supportedReactModules.has(value));
+        const previewModule = new URLSearchParams(location.search).get("reactModule");
+        const previewShell = new URLSearchParams(location.search).get("reactShell");
+        const reactStandalone = previewModule !== "angular" && previewShell !== "angular"
+          && (import.meta.env.VITE_COMMERCIAL_REACT_SHELL === "true"
+            || (import.meta.env.DEV && (previewShell === "react" || (!previewModule && !previewChart))));
+        if (import.meta.env.DEV && supportedReactModules.has(previewModule)) reactModules.push(previewModule);
+        if (import.meta.env.DEV && (previewModule === "all" || (!previewModule && !previewChart))) reactModules.push(...supportedReactModules);
+        if (import.meta.env.DEV && previewModule === "angular") { reactModules.length = 0; reactCharts.length = 0; }
+        if (reactStandalone) { reactModules.length = 0; reactCharts.length = 0; }
+        if (reactCharts.length) {
+          const renderer = await import("../components/mount-commercial-react-chart");
+          if (!active) return;
+          window.mountReactCommercialChart = renderer.mountReactCommercialChart;
+        }
+        if (reactModules.length) {
+          if (reactModules.includes("page-tabs")) {
+            const renderer = await import("../components/mount-commercial-react-tabs");
+            if (!active) return;
+            window.mountReactCommercialTabs = renderer.mountReactCommercialTabs;
+          }
+          if (reactModules.includes("header")) {
+            const renderer = await import("../components/mount-commercial-react-header");
+            if (!active) return;
+            window.mountReactCommercialHeader = renderer.mountReactCommercialHeader;
+          }
+          if (reactModules.includes("filters")) {
+            const renderer = await import("../components/mount-commercial-react-filters");
+            if (!active) return;
+            window.mountReactCommercialFilters = renderer.mountReactCommercialFilters;
+          }
+          if (reactModules.includes("talent-page") || reactModules.includes("commercial-page") || reactModules.includes("inventory-page")) {
+            const renderer = await import("../components/mount-commercial-react-module");
+            if (!active) return;
+            window.mountReactCommercialModule = renderer.mountReactCommercialModule;
+          }
+          if (reactModules.some(moduleId => ["primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(moduleId))) {
+            const renderer = await import("../components/mount-commercial-react-module");
+            if (!active) return;
+            window.mountReactCommercialModule = renderer.mountReactCommercialModule;
+          }
+        }
+        if (reactStandalone) {
+          const renderer = await import("../components/mount-commercial-react-standalone");
+          if (!active) return;
+          window.mountReactCommercialStandalone = renderer.mountReactCommercialStandalone;
+        }
         window.__DASHBOARD_CONFIG__ = {
           dataMode: "portal", groqAssistantEnabled: true, storeContextId,
+          reactCharts, reactModules, reactStandalone,
           portalUser: { nombres: user?.nombres, apellidos: user?.apellidos },
         };
         dispose = await window.mountCommercialDashboard(host.current, bundle.stylesheet);

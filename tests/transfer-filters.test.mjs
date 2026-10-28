@@ -5,12 +5,15 @@ import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import { stockTransfers, transferTotals } from '../commercial-dashboard/src/app/stock-transfers.ts';
 
+import { dashboardNumberFormat } from '../commercial-dashboard/src/app/inventory-performance.ts';
+import { resolveProductSize } from '../commercial-dashboard/src/app/product-sizes.ts';
+
 const require = createRequire(new URL('../commercial-dashboard/package.json', import.meta.url));
 const ts = require('typescript');
 const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
 const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
 const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
-const members = app.members.filter(member => member.name?.getText(tree).startsWith('transfer') || ['resetTransferFilters', 'normalized', 'number'].includes(member.name?.getText(tree)));
+const members = app.members.filter(member => member.name?.getText(tree).startsWith('transfer') || ['storeTransferRoutes', 'storeTransferStores', 'resetTransferFilters', 'toggleTransferRow', 'normalized', 'number'].includes(member.name?.getText(tree)));
 const code = ts.transpileModule(`export class Subject {${members.map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const signal = initial => {
   let value = initial;
@@ -19,15 +22,33 @@ const signal = initial => {
   return get;
 };
 const exports = {};
-vm.runInNewContext(code, { exports, signal, computed: fn => fn, stockTransfers, transferTotals });
+vm.runInNewContext(code, { exports, signal, computed: fn => fn, stockTransfers, transferTotals, resolveProductSize, dashboardNumberFormat });
 const product = (storeId, stockUnits, units30, productId = 'P1', brand = 'ADIDAS', category = 'TEXTIL') => ({ storeId, stockUnits, goodUnits: stockUnits, units30, productId, product: productId === 'P1' ? 'Polo caballero' : 'Zapatilla', brand, category, line: category === 'TEXTIL' ? 'ROPA CABALLERO' : 'CALZADO CABALLERO' });
 function fixture() {
   const subject = new exports.Subject();
   subject.predictiveStoreOptions = () => ['A', 'B', 'C'].map(storeId => ({ storeId, alias: storeId, isStore: true }));
+  subject.stockDetailLoaded = signal(true);
+  subject.stockTransfersLoaded = signal(false);
+  subject.stockTransferProductsData = signal([]);
   subject.stockProductsData = () => [product('A', 100, 10), product('B', 0, 10), product('C', 12, 20), product('A', 80, 0, 'P2', 'NIKE', 'CALZADO'), product('B', 0, 20, 'P2', 'NIKE', 'CALZADO'), product('OUTSIDE', 1000, 1000)];
   return subject;
 }
 const totals = subject => ({ ...subject.transferSummary() });
+
+test('store scope retains the opposite store of a server-authorized transfer and applies filters', () => {
+  const subject = fixture();
+  const products = [product('A', 100, 10), product('B', 0, 20)];
+  subject.predictiveStoreOptions = () => [{ storeId: 'B', alias: 'Mi tienda', isStore: true }];
+  subject.stockTransfersLoaded.set(true);
+  subject.stockTransferProductsData.set(products);
+  subject.storeTransferRoutes.set(stockTransfers(products, 30, 90, false));
+  subject.storeTransferStores.set([{ storeId: 'A', alias: 'Origen', isStore: true }, { storeId: 'B', alias: 'Mi tienda', isStore: true }]);
+  assert.equal(subject.transferProducts().length, 2);
+  assert.equal(subject.transferRecommendations()[0].sourceName, 'Origen');
+  assert.equal(subject.transferRecommendations()[0].destinationName, 'Mi tienda');
+  subject.transferBrand.set('NIKE');
+  assert.equal(subject.transferRecommendations().length, 0);
+});
 
 test('brand, line, category, product search and reset update both routes and totals', () => {
   const subject = fixture();
@@ -67,33 +88,28 @@ test('summary covers all filtered pages and page is clamped when filters reduce 
   assert.deepEqual(totals(subject), { stockUnits: 100, salesUnits: 20 });
 });
 
-test('the three original bar series follow the filtered opportunities', () => {
+test('matrix groups a product and origin with all eligible destinations', () => {
   const subject = fixture();
   subject.transferBrand.set('ADIDAS');
-  const options = subject.transferChartOption();
-  assert.deepEqual(Array.from(options.series, series => series.name), ['Stock origen', 'Stock destino', 'Traslado sugerido']);
-  assert.deepEqual(Array.from(options.series[0].data), [100, 100]);
-  assert.deepEqual(Array.from(options.series[1].data), [0, 12]);
+  assert.equal(subject.transferMatrixRows().length, 1);
+  const matrix = subject.transferPageRows()[0];
+  assert.equal(matrix.origin.source, 'A');
+  assert.deepEqual(Array.from(matrix.destinations.keys()), ['B', 'C']);
+  assert.deepEqual(Array.from(subject.transferMatrixStores(), store => store.id), ['B', 'C']);
   subject.transferPriority.set('CRITICAL');
-  assert.deepEqual(Array.from(subject.transferChartOption().series[0].data), [100]);
+  assert.deepEqual(Array.from(subject.transferPageRows()[0].destinations.keys()), ['B']);
 });
 
-test('footwear displays and searches its Nissei code with leading zeros, without mixing identical names', () => {
+test('matrix retains Nissei codes and keeps identical product names separate', () => {
   const subject = fixture();
-  const shoe = (store, stock, sales, id, code) => ({ ...product(store, stock, sales, id, 'SKECHERS', 'CALZADO'), product: 'CROCS NIÑO SKECHERS - 402020L-BLLM', productCode: code });
-  subject.stockProductsData = () => [
-    shoe('A', 20, 0, 'P_7F5B21313D48A558', '00023C7003'), shoe('B', 0, 15, 'P_7F5B21313D48A558', '00023C7003'),
-    shoe('A', 30, 0, 'P_1111111111111111', '00023C7004'), shoe('B', 0, 15, 'P_1111111111111111', '00023C7004'),
-  ];
-  subject.transferSearch.set('00023c7003');
-  assert.equal(subject.transferRecommendations().length, 1);
-  assert.equal(subject.transferRecommendations()[0].productCode, '00023C7003');
-  const chart = subject.transferChartOption();
-  assert.match(chart.yAxis.axisLabel.formatter('0'), /Código: 00023C7003/);
-  subject.tooltip = (title, rows) => ({ title, rows });
-  const tooltip = chart.tooltip.formatter([{ dataIndex: 0 }]);
-  assert.equal(tooltip.rows.find(row => row.label === 'Código Nissei').value, '00023C7003');
-  assert.ok(!tooltip.rows.some(row => row.value === 'P_7F5B21313D48A558'));
+  subject.stockProductsData = () => ['P1', 'P2'].flatMap(id => [
+    { ...product('A', 20, 0, id), product: 'Same name', productCode: id === 'P1' ? '000123' : '000124' },
+    { ...product('B', 0, 30, id), product: 'Same name', productCode: id === 'P1' ? '000123' : '000124' },
+  ]);
+  assert.equal(subject.transferMatrixRows().length, 2);
+  subject.transferSearch.set('000123');
+  assert.equal(subject.transferMatrixRows().length, 1);
+  assert.equal(subject.transferMatrixRows()[0].origin.productCode, '000123');
 });
 
 test('all inventory categories can be selected with their own lines, brands and transfer totals', () => {
@@ -118,15 +134,74 @@ test('all inventory categories can be selected with their own lines, brands and 
   assert.equal(subject.transferRecommendations().length, 6);
 });
 
-test('hardware shows its real Nissei code and never falls back to an internal ID', () => {
+test('best destination prioritizes coverage then demand and expansion can be toggled', () => {
   const subject = fixture();
-  const rows = [product('A', 50, 0, 'P_7D1CA146F7466B31', 'Marca', 'FERRETERÍA'), product('B', 0, 10, 'P_7D1CA146F7466B31', 'Marca', 'FERRETERÍA')];
-  subject.stockProductsData = () => rows;
-  subject.tooltip = (_title, details) => details;
-  assert.equal(subject.transferChartOption().tooltip.formatter([{ dataIndex: 0 }])[0].value, 'No disponible');
-  assert.doesNotMatch(subject.transferChartOption().yAxis.axisLabel.formatter('0'), /P_7D1CA146F7466B31/);
-  for (const row of rows) row.productCode = '0001234567';
-  const chart = subject.transferChartOption();
-  assert.equal(chart.tooltip.formatter([{ dataIndex: 0 }])[0].value, '0001234567');
-  assert.match(chart.yAxis.axisLabel.formatter('0'), /Código: 0001234567/);
+  subject.stockProductsData = () => [product('A', 100, 0), product('B', 0, 10), product('C', 0, 30)];
+  const row = subject.transferMatrixRows()[0];
+  assert.equal(row.best.destination, 'C');
+  assert.deepEqual(Array.from(row.options, option => option.destination), ['C', 'B']);
+  subject.toggleTransferRow(row.key);
+  assert.equal(subject.transferExpandedRow(), row.key);
+  subject.toggleTransferRow(row.key);
+  assert.equal(subject.transferExpandedRow(), '');
+  subject.toggleTransferRow(row.key);
+  subject.resetTransferFilters();
+  assert.equal(subject.transferExpandedRow(), '');
+});
+
+test('size filter matches canonical sizes and keeps missing sizes explicit', () => {
+  const subject = fixture();
+  subject.transferRubro.set('TEXTIL');
+  subject.stockProductsData = () => [
+    ...['A', 'B'].map(store => ({ ...product(store, store === 'A' ? 100 : 0, store === 'A' ? 0 : 20, 'P1'), productCode: '1234567890100M' })),
+    ...['A', 'B'].map(store => ({ ...product(store, store === 'A' ? 100 : 0, store === 'A' ? 0 : 20, 'P2', 'ADIDAS', 'TEXTIL'), productCode: '1234567890100L' })),
+    ...['A', 'B'].map(store => product(store, store === 'A' ? 100 : 0, store === 'A' ? 0 : 20, 'P3')),
+  ];
+  assert.deepEqual(Array.from(subject.transferSizes()), ['L', 'M', 'Sin talla']);
+  subject.transferSize.set('M');
+  assert.equal(subject.transferMatrixRows().length, 1);
+  assert.equal(subject.transferMatrixRows()[0].origin.productId, 'P1');
+  subject.transferSize.set('Sin talla');
+  assert.equal(subject.transferMatrixRows()[0].origin.productId, 'P3');
+  subject.resetTransferFilters();
+  assert.equal(subject.transferSize(), '');
+});
+
+test('matrix reset starts without a selected rubro and prefers compact transfer candidates', () => {
+  const subject = fixture();
+  subject.transferSizeMode.set(true);
+  subject.transferRubro.set('CALZADO');
+  subject.resetTransferFilters();
+  assert.equal(subject.transferRubro(), '');
+  const candidates = [product('A', 20, 0), product('B', 0, 10)];
+  subject.stockTransfersLoaded.set(true);
+  subject.stockTransferProductsData.set(candidates);
+  assert.equal(subject.transferProducts().length, 2);
+  assert.equal(subject.transferRecommendations()[0].suggested, 10);
+});
+
+test('sales and stock chart do not read or calculate transfer data', () => {
+  const names = new Set(['storeTransferRoutes', 'sizeRubro', 'shoeSizeSystem', 'sizeMetric', 'selectSizeMetric', 'sizeChartRows']);
+  const selected = app.members.filter(member => names.has(member.name?.getText(tree)));
+  const compiled = ts.transpileModule(`export class SizeSubject {${selected.map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const isolated = {};
+  let calls = 0;
+  vm.runInNewContext(compiled, { exports: isolated, signal, computed: fn => fn, resolveProductSize,
+    stockTransfers: () => { calls++; return []; } });
+  const subject = new isolated.SizeSubject();
+  subject.sizeRubro.set('TEXTIL');
+  subject.sizeProductsForChart = () => [{ productId: 'P1', productCode: '1234567890100M', line: 'DAMA', units30: 5, stockUnits: 20 }];
+  subject.sizeTransfersForChart = () => { throw new Error('Transfer data must remain unloaded'); };
+  let loads = 0;
+  subject.ensureStockTransfers = async () => { loads++; };
+  assert.equal(subject.sizeChartRows()[0].sales, 5);
+  subject.selectSizeMetric('STOCK');
+  assert.equal(subject.sizeChartRows()[0].stock, 20);
+  assert.equal(calls, 0);
+  assert.equal(loads, 0);
+  subject.sizeTransfersForChart = () => [];
+  subject.selectSizeMetric('TRANSFERS');
+  subject.sizeChartRows();
+  assert.equal(loads, 1);
+  assert.equal(calls, 1);
 });

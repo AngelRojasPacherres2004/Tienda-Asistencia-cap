@@ -1,4 +1,5 @@
-export const PRESENT_STATES = new Set(["presente", "tardanza", "medio_turno", "apoyo"]);
+import { PRESENT_STATES } from './attendance.js';
+export { PRESENT_STATES } from './attendance.js';
 export const TRAFFIC_HOURS = Array.from({ length: 14 }, (_, i) => `${String(i + 9).padStart(2, "0")}:00-${String(i + 10).padStart(2, "0")}:00`);
 export const NORMAL_TRAFFIC_HOURS = TRAFFIC_HOURS.slice(0, 13);
 
@@ -31,11 +32,12 @@ export function trafficPeak(hours) {
 }
 
 export function attendanceCounts(rows) {
+  const absenceStates = new Set(['falta', 'permiso', 'descanso', 'suspension', 'apoyo']);
   const counts = { presente: 0, tardanza: 0, ausencia: 0, otros: 0, total: rows.length };
   for (const row of rows) {
     if (row.estado === "tardanza") counts.tardanza += 1;
     else if (PRESENT_STATES.has(row.estado)) counts.presente += 1;
-    else if (row.estado === "falta") counts.ausencia += 1;
+    else if (absenceStates.has(row.estado)) counts.ausencia += 1;
     else counts.otros += 1;
   }
   return counts;

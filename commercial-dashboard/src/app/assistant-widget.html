@@ -1,3 +1,4 @@
+<dashboard-react-module moduleId="assistant-widget" [model]="assistantModel()" (action)="onReactAction($event)">
 <button type="button" class="assistant-launcher" (click)="toggle()" [attr.aria-expanded]="open()" aria-label="Abrir asistente comercial">
   <span>IA</span>
 </button>
@@ -35,3 +36,4 @@
     </form>
   </section>
 }
+</dashboard-react-module>

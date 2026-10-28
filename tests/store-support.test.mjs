@@ -106,7 +106,8 @@ test("HTTP session selector scopes reads, writes and commercial access; disablin
     assert.equal((await request("/reportes/personal?tienda_id=10", selectedToken)).statusCode, 403, "A report cannot override the active support store");
     const users = await request("/usuarios", selectedToken);
     assert.equal(users.statusCode, 200, users.body);
-    assert.deepEqual(JSON.parse(users.body).map(person => person.id), [6]);
+    assert.deepEqual(JSON.parse(users.body).map(person => person.id), [3, 6], 'The selected store includes its administrator and worker, without staff from the principal store');
+    assert.equal(JSON.parse(users.body).find(person => person.id === 3).rol, 'jefe_tienda');
     const profile = await request("/perfil", selectedToken);
     assert.equal(JSON.parse(profile.body).tienda_nombre, "MARISCAL");
     const commercial = await request("/commercial/access", selectedToken);

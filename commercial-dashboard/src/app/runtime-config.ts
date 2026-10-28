@@ -9,11 +9,55 @@ export type DashboardRuntimeConfig = {
   portalUser?: { nombres?: string; apellidos?: string } | null;
   groqChatModel?: string;
   groqFallbackModels?: string[];
+  reactCharts?: string[];
+  reactModules?: string[];
+  reactStandalone?: boolean;
+};
+
+export type ReactChartBridge = {
+  update: (option: import('echarts').EChartsOption) => void;
+  dispose: () => void;
+};
+
+export type ReactTabsBridge = {
+  update: (page: 1 | 2 | 3) => void;
+  dispose: () => void;
+};
+
+export type ReactHeaderBridge = {
+  update: (model: import('./dashboard-header').DashboardHeaderModel) => void;
+  dispose: () => void;
+};
+
+export type ReactFiltersBridge = {
+  update: (model: import('./dashboard-filters').DashboardFiltersModel) => void;
+  dispose: () => void;
+};
+
+export type ReactModuleBridge = {
+  update: (model: Record<string, unknown>) => void;
+  dispose: () => void;
+};
+
+export type ReactStandaloneBridge = {
+  update: (model: Record<string, unknown>) => void;
+  dispose: () => void;
 };
 
 declare global {
   interface Window {
     __DASHBOARD_CONFIG__?: Partial<DashboardRuntimeConfig>;
+    mountReactCommercialChart?: (host: HTMLElement, chartId: string, label: string,
+      onClick: (data: unknown) => void) => ReactChartBridge;
+    mountReactCommercialTabs?: (host: HTMLElement,
+      onNavigate: (page: 1 | 2 | 3) => void) => ReactTabsBridge;
+    mountReactCommercialHeader?: (host: HTMLElement,
+      onLogout: () => void) => ReactHeaderBridge;
+    mountReactCommercialFilters?: (host: HTMLElement,
+      onAction: (action: import('./dashboard-filters').DashboardFilterAction) => void) => ReactFiltersBridge;
+    mountReactCommercialModule?: (host: HTMLElement, moduleId: string,
+      onAction: (action: { type: string; value?: string | number; file?: File }) => void) => ReactModuleBridge;
+    mountReactCommercialStandalone?: (host: ShadowRoot, controller: import('./app').App) => ReactStandaloneBridge;
   }
 }
 

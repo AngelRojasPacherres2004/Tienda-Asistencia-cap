@@ -7,10 +7,14 @@ import {
   resolveProductSize,
 } from '../commercial-dashboard/src/app/product-sizes.ts';
 
-test('extracts the final three Nissei characters without losing leading zeroes', () => {
+const canonicalCode = suffix => `${'0'.repeat(11)}${suffix}`;
+
+test('extracts the final three characters only from canonical 14-character Nissei codes', () => {
   assert.equal(nisseiSizeCode('00000000000007'), '007');
-  assert.equal(nisseiSizeCode('ABC0000000000XL'), '0XL');
+  assert.equal(nisseiSizeCode(canonicalCode('0XL')), '0XL');
   assert.equal(nisseiSizeCode('AB'), null);
+  assert.equal(nisseiSizeCode('00023C7003'), null);
+  assert.equal(nisseiSizeCode('12345678901'), null);
 });
 
 test('maps the same USA suffix to the correct EUR size by footwear gender', () => {
@@ -31,7 +35,7 @@ test('supports the planned textile convention by audience', () => {
   assert.equal(resolveProductSize({ productCode: '00000000000010', line: 'NIÑA' }, 'TEXTIL')?.label, '10');
   assert.equal(resolveProductSize({ productCode: '00000000000014', line: 'JOVENCITO' }, 'TEXTIL')?.label, '14');
   assert.equal(resolveProductSize({ productCode: '0000000000000M', line: 'DAMA' }, 'TEXTIL')?.label, 'M');
-  assert.equal(resolveProductSize({ productCode: '0000000000002XL', line: 'CABALLERO' }, 'TEXTIL')?.label, '2XL');
+  assert.equal(resolveProductSize({ productCode: canonicalCode('2XL'), line: 'CABALLERO' }, 'TEXTIL')?.label, '2XL');
   assert.equal(resolveProductSize({ productCode: '00000000000010', line: 'DAMA' }, 'TEXTIL'), null);
 });
 

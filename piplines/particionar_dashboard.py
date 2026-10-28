@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from compactar_dashboard import (
+    SCHEMAS, compactar_diario, compactar_predictivo, compactar_registros, compactar_stock, compactar_tallas,
+    descompactar_diario, descompactar_predictivo, descompactar_registros, descompactar_stock, descompactar_tallas,
+)
+
 
 GLOBAL_FIELDS = frozenset({"note"})
 PRIVATE_METADATA_FIELDS = frozenset({"sourceCoverage", "dataWarnings"})
@@ -26,6 +31,43 @@ def scope_payload(payload: dict[str, Any], allowed_store_ids: set[str]) -> dict[
             result[name] = {key: item for key, item in value.items() if key not in PRIVATE_METADATA_FIELDS}
         elif name in GLOBAL_FIELDS:
             result[name] = value
+        elif name == "dailyCompact" and isinstance(value, dict) and value.get("encoding") == "daily-v1":
+            decoded = descompactar_diario(value)
+            if any(not isinstance(row.get("storeId"), str) for rows in decoded.values() for row in rows):
+                raise ValueError("dailyCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_diario(
+                [row for row in decoded["dailyStore"] if row["storeId"] in allowed_store_ids],
+                [row for row in decoded["hourlySales"] if row["storeId"] in allowed_store_ids],
+            )
+        elif name == "predictiveCompact" and isinstance(value, dict) and value.get("encoding") == "predictive-v1":
+            decoded = descompactar_predictivo(value)
+            if any(not isinstance(row.get("storeId"), str) for row in decoded["rows"]):
+                raise ValueError("predictiveCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_predictivo(
+                [row for row in decoded["rows"] if row["storeId"] in allowed_store_ids],
+                decoded["note"],
+            )
+        elif name == "stockCompact" and isinstance(value, dict) and value.get("encoding") == "stock-v1":
+            decoded = descompactar_stock(value)
+            if any(not isinstance(row.get("storeId"), str) for row in decoded):
+                raise ValueError("stockCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_stock([row for row in decoded if row["storeId"] in allowed_store_ids])
+        elif name == "sizeCompact" and isinstance(value, dict) and value.get("encoding") == "sizes-v1":
+            decoded = descompactar_tallas(value)
+            if any(not isinstance(row.get("storeId"), str) for row in decoded):
+                raise ValueError("sizeCompact no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_tallas(
+                [row for row in decoded if row["storeId"] in allowed_store_ids], value["category"],
+            )
+        elif name in SCHEMAS and isinstance(value, dict) and value.get("encoding") in {"dictionary-v1", "seller-grouped-v1"}:
+            if value["encoding"] == "seller-grouped-v1" and name != "sellerPerformance":
+                raise ValueError(f"Codificación de vendedores inesperada para {name}")
+            rows = descompactar_registros(value)
+            if any(not isinstance(row.get("storeId"), str) for row in rows):
+                raise ValueError(f"{name} no tiene storeId; no se puede publicar con seguridad")
+            result[name] = compactar_registros(
+                [row for row in rows if row["storeId"] in allowed_store_ids], name,
+            )
         elif isinstance(value, list):
             if name == "hierarchyCatalog":
                 source_lines = payload.get("monthlyLine", [])

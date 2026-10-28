@@ -56,7 +56,7 @@ const reportDefinitions = {
 
 const statusOptions = {
   personal: [["activo", "Activo"], ["inactivo", "Inactivo"]],
-  asistencias: [["presente", "Asistencia"], ["tardanza", "Tardanza"], ["medio_turno", "Medio turno"], ["apoyo", "Apoyo"], ["falta", "Falta"], ["permiso", "Permiso"], ["descanso_medico", "Descanso médico"], ["suspension", "Suspensión"]],
+  asistencias: [["presente", "Asistencia"], ["tardanza", "Tardanza"], ["medio_turno", "Medio turno"], ["apoyo", "Apoyo (salida)"], ["apoyo_ingreso", "Apoyo (ingreso)"], ["descanso", "Descanso"], ["falta", "Falta"], ["permiso", "Permiso"], ["descanso_medico", "Descanso médico"], ["suspension", "Suspensión"]],
   documentos: [["vigente", "Vigente"], ["por_vencer", "Por vencer"], ["vencido", "Vencido"], ["en_renovacion", "En renovación"]],
   incidencias: [["abierta", "Abierta"], ["en_seguimiento", "En seguimiento"], ["cerrada", "Cerrada"], ["registrado", "Registrada"], ["en_revision", "En revisión"], ["resuelto", "Resuelta"]],
   reclamaciones: [["registrado", "Registrado"], ["en_atencion", "En atención"], ["respondido", "Respondido"], ["cerrado", "Cerrado"]],

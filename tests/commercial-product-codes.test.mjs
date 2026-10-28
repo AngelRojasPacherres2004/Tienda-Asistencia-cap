@@ -1,27 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_PRODUCT_CODE_IDS, catalogProductId, createProductCodeLookup } from '../netlify/lib/commercial-product-codes.js';
+import { MAX_PRODUCT_CODE_IDS, PRODUCT_CODE_QUERY_BATCH, catalogProductId, createProductCodeLookup } from '../netlify/lib/commercial-product-codes.js';
 
 function fixture(failFirst = false) {
   let calls = 0;
+  const tables = [];
+  const codes = ['00023C7003', '00023C7004'];
   const query = {
-    select() { return this; }, order() { return this; },
-    async range() {
+    select() { return this; },
+    async in(_column, ids) {
       calls++;
       if (failFirst && calls === 1) return { error: new Error('offline') };
-      return { data: [{ codigo_nissei: '00023C7003' }, { codigo_nissei: '00023C7004' }] };
+      return { data: codes.map(codigo_nissei => ({ codigo_nissei, codigo_portal_id: catalogProductId(codigo_nissei) }))
+        .filter(row => ids.includes(row.codigo_portal_id)) };
     },
   };
-  return { lookup: createProductCodeLookup({ from: () => query }), calls: () => calls };
+  return { lookup: createProductCodeLookup({ from: table => { tables.push(table); return query; } }), calls: () => calls, tables };
 }
 
 test('resolves only requested exact product IDs and preserves leading zeros', async () => {
-  const { lookup, calls } = fixture();
+  const { lookup, calls, tables } = fixture();
   const first = catalogProductId('00023C7003');
   const second = catalogProductId('00023C7004');
   assert.deepEqual(await lookup([first, first, 'P_FFFFFFFFFFFFFFFF']), { [first]: '00023C7003' });
   assert.deepEqual(await lookup([second]), { [second]: '00023C7004' });
-  assert.equal(calls(), 1);
+  assert.equal(calls(), 2);
+  assert.deepEqual(tables, ['productos_codigos_portal', 'productos_codigos_portal']);
   assert.equal(catalogProductId(' 00023c7003.0 '), first);
 });
 
@@ -40,13 +44,49 @@ test('a failed catalog read can be retried', async () => {
   assert.deepEqual(await lookup([id]), { [id]: '00023C7003' });
 });
 
-test('looks up codes from every category across all catalog pages', async () => {
-  const rows = Array.from({ length: 3501 }, (_, index) => ({ codigo_nissei: `000${index}ABC`, rubro: index > 999 ? 'FERRETERÍA' : 'CALZADO' }));
+test('uses the legacy catalog only while the indexed view is not deployed', async () => {
+  const code = '00023C7003';
+  const tables = [];
+  let legacyReads = 0;
+  const db = { from(table) {
+    tables.push(table);
+    if (table === 'productos_codigos_portal') return {
+      select() { return this; },
+      async in() { return { error: { code: 'PGRST205' } }; },
+    };
+    return {
+      select() { return this; },
+      order() { return this; },
+      async range() { legacyReads++; return { data: [{ codigo_nissei: code }] }; },
+    };
+  } };
+  const lookup = createProductCodeLookup(db);
+  const id = catalogProductId(code);
+  assert.deepEqual(await lookup([id]), { [id]: code });
+  assert.deepEqual(await lookup([id]), { [id]: code });
+  assert.deepEqual(tables, ['productos_codigos_portal', 'productos']);
+  assert.equal(legacyReads, 1);
+});
+
+test('queries only the requested hashes in bounded batches', async () => {
+  const rows = Array.from({ length: PRODUCT_CODE_QUERY_BATCH + 3 }, (_, index) => {
+    const codigo_nissei = String(index).padStart(14, '0');
+    return { codigo_nissei, codigo_portal_id: catalogProductId(codigo_nissei) };
+  });
+  const batches = [];
   const query = {
-    select() { return this; }, order() { return this; },
-    async range(from, to) { return { data: rows.slice(from, to + 1) }; },
+    select() { return this; },
+    async in(column, ids) {
+      batches.push({ column, ids });
+      return { data: rows.filter(row => ids.includes(row.codigo_portal_id)) };
+    },
   };
-  const lookup = createProductCodeLookup({ from: () => query });
-  const codes = [rows[0].codigo_nissei, rows[1000].codigo_nissei, rows[3500].codigo_nissei];
-  assert.deepEqual(await lookup(codes.map(catalogProductId)), Object.fromEntries(codes.map(code => [catalogProductId(code), code])));
+  const tables = [];
+  const lookup = createProductCodeLookup({ from: table => { tables.push(table); return query; } });
+  const ids = rows.map(row => row.codigo_portal_id);
+  const result = await lookup(ids);
+  assert.equal(Object.keys(result).length, rows.length);
+  assert.equal(batches.length, 2);
+  assert.ok(tables.every(table => table === 'productos_codigos_portal'));
+  assert.ok(batches.every(batch => batch.column === 'codigo_portal_id' && batch.ids.length <= PRODUCT_CODE_QUERY_BATCH));
 });

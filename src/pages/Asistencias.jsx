@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ATTENDANCE_OPTIONS } from "../../shared/attendance.js";
 import { Check, RefreshCw, Users } from "lucide-react";
 import { api, todayISO } from "../lib/api";
 import { EmptyState, Loading, Notice, PageHeader, SearchInput, SuccessDialog } from "../components/UI";
+import AttendanceScroller from "../components/AttendanceScroller";
 
-const estados = [
-  { value: "presente", label: "Asistencia" },
-  { value: "tardanza", label: "Tardanza" },
-  { value: "medio_turno", label: "Medio turno" },
-  { value: "apoyo", label: "Apoyo" },
-  { value: "falta", label: "Falta" },
-  { value: "permiso", label: "Permiso" },
-  { value: "descanso_medico", label: "Descanso médico" },
-  { value: "suspension", label: "Suspensión" },
-];
+const estados = ATTENDANCE_OPTIONS;
 
 export default function Asistencias() {
   const [fecha, setFecha] = useState(todayISO());
@@ -49,15 +42,15 @@ export default function Asistencias() {
   ), [empleados, search]);
   const marcadosCount = empleados.filter((employee) => employee.registro).length;
 
-  const marcar = (employee, estado) => setPending((current) => ({
+  const marcar = (employee, estado) => { if (employee.bloqueado || estado === "apoyo_ingreso") return; setPending((current) => ({
     ...current,
     [employee.usuario_id]: { estado, observaciones: current[employee.usuario_id]?.observaciones ?? employee.registro?.observaciones ?? "" },
-  }));
+  })); };
   const setObservacion = (employee, observaciones) => setPending((current) => ({
     ...current,
     [employee.usuario_id]: { estado: current[employee.usuario_id]?.estado ?? employee.registro?.estado, observaciones },
   }));
-  const onSearchKeyDown = (event) => { if (event.key === "Enter" && visibles.length === 1) marcar(visibles[0], "presente"); };
+  const onSearchKeyDown = (event) => { if (event.key === "Enter" && visibles.length === 1) marcar(visibles[0], visibles[0].apoyo_ingreso ? "apoyo_ingreso" : "presente"); };
 
   const guardarTodo = async () => {
     const marcas = Object.entries(pending).map(([usuarioId, draft]) => ({ usuario_id: Number(usuarioId), estado: draft.estado, observaciones: draft.observaciones || null }));
@@ -85,14 +78,14 @@ export default function Asistencias() {
       <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={loadRoster}><RefreshCw size={14}/>Actualizar</button>
     </div>
     <div className="toolbar toolbar--filters"><SearchInput value={search} onChange={setSearch} onKeyDown={onSearchKeyDown} placeholder="Buscar trabajador… (Enter marca Asistencia si queda solo uno)"/></div>
-    {!roster ? <Loading/> : visibles.length ? <div className="attendance-scroll"><div className="attendance-table">
+    {!roster ? <Loading/> : visibles.length ? <AttendanceScroller><div className="attendance-table attendance-table--store">
       <div className="attendance-head"><span>Trabajador</span>{estados.map((state) => <span key={state.value}>{state.label}</span>)}<span>Observación</span></div>
-      {visibles.map((employee) => <div className="attendance-row" key={employee.usuario_id}>
-        <div className="person-cell"><span className="avatar">{employee.nombre.charAt(0).toUpperCase()}</span><div><strong>{employee.nombre}</strong><small>{employee.dni}{employee.rol === "jefe_tienda" ? " · Administrador de tienda" : ""}{employee.estado === "inactivo" ? " · Inactivo" : ""}</small></div></div>
-        {estados.map((state) => <button key={state.value} type="button" className={`attendance-check attendance-check--${state.value} ${employee.registro?.estado === state.value ? "checked" : ""}`} aria-label={`${state.label} para ${employee.nombre}`} onClick={() => marcar(employee, state.value)}>{employee.registro?.estado === state.value && <Check size={13}/>}</button>)}
-        <input className="attendance-obs" maxLength={500} disabled={!employee.registro} placeholder={employee.registro ? "Observación (opcional)" : "Marca un estado primero"} value={employee.registro?.observaciones || ""} onChange={(event) => setObservacion(employee, event.target.value)}/>
+      {visibles.map((employee) => <div className="attendance-row" key={employee.persona_id ?? employee.usuario_id}>
+        <div className="person-cell"><span className="avatar">{employee.nombre.charAt(0).toUpperCase()}</span><div><strong>{employee.nombre}</strong><small>{employee.dni}{employee.rol === "jefe_tienda" ? " \u00b7 Administrador de tienda" : ""}{employee.apoyo_ingreso ? " \u00b7 Apoyo de otra tienda" : ""}{employee.estado === "inactivo" ? " · Inactivo" : ""}</small></div></div>
+        {estados.map((state) => <button key={state.value} type="button" className={`attendance-check attendance-check--${state.value} ${employee.registro?.estado === state.value ? "checked" : ""}`} aria-label={`${state.label} para ${employee.nombre}`} aria-pressed={employee.registro?.estado === state.value} title={state.description || state.label} disabled={employee.bloqueado || state.value === "apoyo_ingreso"} onClick={() => marcar(employee, state.value)}>{employee.registro?.estado === state.value && <Check size={13}/>}</button>)}
+        <input className="attendance-obs" maxLength={500} disabled={!employee.registro || employee.bloqueado} placeholder={employee.registro ? "Observación (opcional)" : "Marca un estado primero"} value={employee.registro?.observaciones || ""} onChange={(event) => setObservacion(employee, event.target.value)}/>
       </div>)}
-    </div></div> : <EmptyState icon={Users} title="Sin trabajadores" text="No hay trabajadores para mostrar con ese filtro."/>}
+    </div></AttendanceScroller> : <EmptyState icon={Users} title="Sin trabajadores" text="No hay trabajadores para mostrar con ese filtro."/>}
     <div className="form-actions"><button className="button button--primary" disabled={saving || !Object.keys(pending).length} onClick={guardarTodo}>{saving ? "Guardando…" : "Guardar asistencia"}</button></div>
     <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)}/>
   </>;

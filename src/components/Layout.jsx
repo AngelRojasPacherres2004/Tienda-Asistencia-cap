@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import "../role-themes.css";
 import "../marketing-light.css";
 import "../dashboard-light.css";
+import "../theme-consistency.css";
 import "../store-support.css";
 import { isOperationalDemo } from "../lib/operationalDemo";
+import StoreMailbox from "./StoreMailbox";
 
 const navByRole = {
   gerencia_general: [
@@ -187,6 +189,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
           {children}
         </div>
       </main>
+      {["jefe_zonal", "jefe_tienda"].includes(user.rol) && <StoreMailbox user={user} hidden={isCommercialDashboard} />}
     </div>
   );
 }

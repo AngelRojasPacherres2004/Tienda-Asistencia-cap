@@ -1,3 +1,4 @@
+import { attendanceDayIndex, attendancePersonId } from "../../shared/attendance.js";
 import { useEffect, useMemo, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { api, todayISO } from "../lib/api";
@@ -5,7 +6,7 @@ import { Loading, Notice } from "./UI";
 
 const states = {
   presente: ["A", "Asistencia"], tardanza: ["T", "Tardanza"], medio_turno: ["M", "Medio turno"],
-  apoyo: ["AP", "Apoyo"], falta: ["F", "Falta"], permiso: ["P", "Permiso"],
+  apoyo: ["AS", "Apoyo (salida)"], apoyo_ingreso: ["AI", "Apoyo (ingreso)"], descanso: ["D", "Descanso"], falta: ["F", "Falta"], permiso: ["P", "Permiso"],
   descanso_medico: ["DM", "Descanso médico"], suspension: ["S", "Suspensión"],
 };
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -41,12 +42,12 @@ export default function AttendanceOverviewMatrix({ tiendaId = "", scopeName = ""
   }, [expanded]);
 
   const people = useMemo(() => [...(records || []).reduce((map, row) => {
-    if (!map.has(row.usuario_id)) map.set(row.usuario_id, { id: row.usuario_id, nombre: row.nombre || row.usuario || `Usuario ${row.usuario_id}` });
+    if (!map.has(attendancePersonId(row))) map.set(attendancePersonId(row), { id: attendancePersonId(row), nombre: row.nombre || row.usuario || `Usuario ${attendancePersonId(row)}` });
     return map;
   }, new Map()).values()].sort((a, b) => a.nombre.localeCompare(b.nombre)), [records]);
-  const indexed = useMemo(() => new Map((records || []).map((row) => [`${row.usuario_id}-${Number(row.fecha.slice(8, 10))}`, row])), [records]);
+  const indexed = useMemo(() => attendanceDayIndex(records || []), [records]);
   const registered = (records || []).length;
-  const attendance = (records || []).filter((row) => ["presente", "tardanza", "medio_turno", "apoyo"].includes(row.estado)).length;
+  const attendance = (records || []).filter((row) => ["presente", "tardanza", "medio_turno", "apoyo_ingreso"].includes(row.estado)).length;
 
   return <section className={`panel attendance-overview ${expanded ? "attendance-overview--expanded" : ""}`}>
     <header className="panel__header attendance-matrix-header">
@@ -56,7 +57,7 @@ export default function AttendanceOverviewMatrix({ tiendaId = "", scopeName = ""
     <div className="attendance-matrix-legend">{Object.entries(states).map(([key, value]) => <span key={key}><i className={`attendance-matrix-dot attendance-matrix-dot--${key}`}>{value[0]}</i>{value[1]}</span>)}</div>
     {people.length > 0 && <p className="attendance-matrix-hint">Desliza la matriz hacia los lados para ver todos los días.</p>}
     {error ? <Notice type="error">{error}</Notice> : records === null ? <Loading/> : people.length ? <div className="attendance-matrix-scroll" role="region" aria-label="Matriz de asistencia, desplazable horizontalmente" tabIndex={0}><div className="attendance-matrix" style={{ "--attendance-days": days.length }}>
-      <div className="attendance-matrix-row attendance-matrix-row--totals"><strong className="attendance-matrix-person">Asistencia diaria</strong>{days.map((day) => <strong key={day}>{people.filter((person) => ["presente", "tardanza", "medio_turno", "apoyo"].includes(indexed.get(`${person.id}-${day}`)?.estado)).length}</strong>)}<strong className="attendance-matrix-total"/><strong className="attendance-matrix-total"/><strong className="attendance-matrix-total"/></div>
+      <div className="attendance-matrix-row attendance-matrix-row--totals"><strong className="attendance-matrix-person">Asistencia diaria</strong>{days.map((day) => <strong key={day}>{people.filter((person) => ["presente", "tardanza", "medio_turno", "apoyo_ingreso"].includes(indexed.get(`${person.id}-${day}`)?.estado)).length}</strong>)}<strong className="attendance-matrix-total"/><strong className="attendance-matrix-total"/><strong className="attendance-matrix-total"/></div>
       <div className="attendance-matrix-row attendance-matrix-row--head"><span className="attendance-matrix-person">Colaborador</span>{days.map((day) => <span key={day}><small>{new Intl.DateTimeFormat("es-PE", { weekday: "narrow", timeZone: "UTC" }).format(new Date(`${month}-${String(day).padStart(2,"0")}T12:00:00Z`))}</small>{day}</span>)}<span className="attendance-matrix-total">A</span><span className="attendance-matrix-total">F</span><span className="attendance-matrix-total">T</span></div>
       {people.map((person) => { const personRecords = days.map((day) => indexed.get(`${person.id}-${day}`)); return <div className="attendance-matrix-row" key={person.id}><div className="attendance-matrix-person"><span className="avatar">{person.nombre.charAt(0)}</span><div><strong>{person.nombre}</strong><small>Con marcas en el periodo</small></div></div>{personRecords.map((record,index) => { const value=states[record?.estado]; return <span key={days[index]} className={`attendance-matrix-cell ${record ? `attendance-matrix-cell--${record.estado}` : ""}`} title={value?.[1] || "Sin registro"}>{value?.[0] || "·"}</span>; })}<strong className="attendance-matrix-total">{personRecords.filter((row)=>row?.estado==="presente").length}</strong><strong className="attendance-matrix-total">{personRecords.filter((row)=>row?.estado==="falta").length}</strong><strong className="attendance-matrix-total">{personRecords.filter((row)=>row?.estado==="tardanza").length}</strong></div>; })}
     </div></div> : <div className="panel-empty">No hay registros de asistencia para este periodo.</div>}

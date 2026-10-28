@@ -3,7 +3,6 @@ import { MarketingFeedback } from "./marketingFeedback";
 import { useState } from "react";
 import { Field, Modal } from "../components/UI";
 import { todayISO } from "../lib/api";
-import { weekDays } from "./marketingStaff";
 
 export default function MarketingStaffModal({ open, editing, setEditing, roles, saving, onClose, onSubmit, error }) {
   const [validationError, setValidationError] = useState(null);
@@ -13,8 +12,7 @@ export default function MarketingStaffModal({ open, editing, setEditing, roles, 
   const availableRoles = roles;
   const roleLabels = Object.fromEntries(roles.map(role => [role, role.replaceAll("_", " ")]));
   const set = (key, value) => setEditing(current => ({ ...current, [key]: value }));
-  const setSchedule = (day, key, value) => setEditing(current => ({ ...current, horarios: current.horarios.map(row => row.dia_semana === day ? { ...row, [key]: value } : row) }));
-  return <Modal open={open} wide title={editing.id ? "Editar personal de Marketing" : "Agregar personal"} subtitle="Completa la ficha personal, laboral y el horario semanal." onClose={saving ? () => {} : onClose}>
+  return <Modal open={open} wide title={editing.id ? "Editar personal de Marketing" : "Agregar personal"} subtitle="Completa la ficha personal y laboral." onClose={saving ? () => {} : onClose}>
     <form className="form-grid" noValidate onSubmit={async event => {
       event.preventDefault();
       const invalid = [...event.currentTarget.elements].find(control => control.willValidate && !control.checkValidity());
@@ -81,16 +79,7 @@ export default function MarketingStaffModal({ open, editing, setEditing, roles, 
             <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
               <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />
             </Field>
-            <div className="form-section-title span-2"><strong>Horario semanal</strong><span>Marca los días trabajados y registra sus horas.</span></div>
-            {fieldErrors.horarios && <div className="field-error span-2">{fieldErrors.horarios}</div>}
-            <div className="weekly-schedule span-2">
-              {editing.horarios.map((row, index) => <div className="weekly-schedule__row" key={row.dia_semana}>
-                <strong>{weekDays[index]}</strong>
-                <label className="schedule-check"><input type="checkbox" checked={Boolean(row.trabaja)} onChange={(e) => setSchedule(row.dia_semana, "trabaja", e.target.checked)} /> Trabaja</label>
-                <input aria-label={`Entrada ${weekDays[index]}`} type="time" disabled={!row.trabaja} value={row.hora_entrada || ""} onChange={(e) => setSchedule(row.dia_semana, "hora_entrada", e.target.value)} />
-                <input aria-label={`Salida ${weekDays[index]}`} type="time" disabled={!row.trabaja} value={row.hora_salida || ""} onChange={(e) => setSchedule(row.dia_semana, "hora_salida", e.target.value)} />
-              </div>)}
-            </div>
+
       <div className="form-actions span-2"><button type="button" className="button button--ghost" disabled={saving} onClick={onClose}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button></div>
     </form>
   </Modal>;

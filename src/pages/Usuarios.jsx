@@ -12,17 +12,15 @@ import ApoyoTienda from "./ApoyoTienda";
 
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const rolesByManager = { gerencia_general: ["gerente_comercial", "coach", "administrador_seguridad"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
-const weekDays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const birthdayMonths = [["01", "Enero"], ["02", "Febrero"], ["03", "Marzo"], ["04", "Abril"], ["05", "Mayo"], ["06", "Junio"], ["07", "Julio"], ["08", "Agosto"], ["09", "Septiembre"], ["10", "Octubre"], ["11", "Noviembre"], ["12", "Diciembre"]];
 const districts = ["LIMA", "ATE", "BARRANCO", "BREÑA", "CARABAYLLO", "CHORRILLOS", "CIENEGUILLA", "COMAS", "EL AGUSTINO", "INDEPENDENCIA", "JESÚS MARÍA", "LA MOLINA", "LA VICTORIA", "LINCE", "LOS OLIVOS", "LURIGANCHO", "LURÍN", "MAGDALENA DEL MAR", "MIRAFLORES", "PACHACÁMAC", "PUCUSANA", "PUEBLO LIBRE", "PUENTE PIEDRA", "PUNTA HERMOSA", "PUNTA NEGRA", "RÍMAC", "SAN BARTOLO", "SAN BORJA", "SAN ISIDRO", "SAN JUAN DE LURIGANCHO", "SAN JUAN DE MIRAFLORES", "SAN LUIS", "SAN MARTÍN DE PORRES", "SAN MIGUEL", "SANTA ANITA", "SANTA MARÍA DEL MAR", "SANTA ROSA", "SANTIAGO DE SURCO", "SURQUILLO", "VILLA EL SALVADOR", "VILLA MARÍA DEL TRIUNFO"];
-const blankSchedule = () => weekDays.map((_, index) => ({ dia_semana: index + 1, trabaja: false, hora_entrada: "", hora_salida: "" }));
 const blank = {
   nombres: "", apellidos: "", dni: "", tipo_documento: "dni", usuario: "", password: "",
   telefono: "", email: "", rol: "trabajador", tienda_id: "", tienda_ids: [], estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
   cluster_id: "", fecha_nacimiento: "", mes_cumpleanos: "", sueldo: "", sexo: "", nacionalidad: "", direccion: "", distrito: "", area_laboral: "", carrera: "", grado_academico: "",
   ciclo_semestre: "", estado_civil: "", numero_hijos: "", talla_zapatillas: "", talla_polo: "",
   contacto_emergencia: "", telefono_emergencia: "", alergia: "", condicion_salud: "", motivo_salida: "",
-  regimen_jornada: "", tipo_turno: "", tiene_parentesco: false, tipo_parentesco: "", familiar_vinculo: "", horarios: blankSchedule(),
+  regimen_jornada: "", tipo_turno: "", tiene_parentesco: false, tipo_parentesco: "", familiar_vinculo: "",
 };
 
 const excelFields = {
@@ -95,14 +93,10 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
 
   const clearErrors = () => { setFormError(""); setFieldErrors({}); };
   const closeEditor = () => { setEditing(null); clearErrors(); };
-  const openNew = () => { clearErrors(); setEditing({ ...blank, horarios: blankSchedule(), rol: availableRoles[0] || "trabajador", fecha_ingreso: todayISO() }); };
+  const openNew = () => { clearErrors(); setEditing({ ...blank, rol: availableRoles[0] || "trabajador", fecha_ingreso: todayISO() }); };
   const openEdit = (item) => {
     clearErrors();
-    const savedSchedule = new Map((item.horarios || []).map((row) => [Number(row.dia_semana), row]));
-    setEditing({ ...item, motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "", horarios: blankSchedule().map((row) => {
-      const saved = savedSchedule.get(row.dia_semana) || {};
-      return { ...row, ...saved, hora_entrada: saved.hora_entrada?.slice(0, 5) || "", hora_salida: saved.hora_salida?.slice(0, 5) || "" };
-    }) });
+    setEditing({ ...item, motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "" });
   };
   const openView = async (item) => {
     setViewing(item); setWorkerFile(null); setWarningForm({ tipo: "verbal", motivo: "", fecha: todayISO() });
@@ -132,15 +126,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     setEditing((current) => ({ ...current, [field]: value }));
     setFieldErrors((current) => ({ ...current, [field]: "" }));
   };
-  const setSchedule = (day, field, value) => {
-    setEditing((current) => ({
-      ...current,
-      horarios: current.horarios.map((row) => row.dia_semana === day
-        ? { ...row, [field]: value, ...(field === "trabaja" && !value ? { hora_entrada: "", hora_salida: "" } : {}) }
-        : row),
-    }));
-    setFieldErrors((current) => ({ ...current, horarios: "" }));
-  };
 
   const save = async (event, confirmedRehire = false) => {
     event?.preventDefault();
@@ -163,7 +148,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     if (editing.fecha_salida && !validDepartureReason(editing.motivo_salida)) errors.motivo_salida = "Selecciona un motivo de salida.";
     if (editing.tiene_parentesco && !String(editing.tipo_parentesco || "").trim()) errors.tipo_parentesco = "Selecciona el parentesco.";
     if (editing.tiene_parentesco && !String(editing.familiar_vinculo || "").trim()) errors.familiar_vinculo = "Indica el nombre del familiar o vínculo.";
-    if ((editing.horarios || []).some((row) => row.trabaja && (!row.hora_entrada || !row.hora_salida))) errors.horarios = "Completa la entrada y salida de todos los días trabajados.";
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
     if (!editing.id && !confirmedRehire) {
       const previous = (items || []).find((item) => item.dni === editing.dni && item.estado === "inactivo");
@@ -183,7 +167,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         payload.estado = "activo";
         payload.reingreso_confirmado = true;
         if (!editing.usuario) payload.usuario = rehire.usuario;
-        if (!editing.horarios?.some((row) => row.trabaja)) payload.horarios = rehire.horarios;
       }
       if (!payload.password) delete payload.password;
       await api(editing.id || confirmedRehire ? `/usuarios/${editing.id || rehire.id}` : "/usuarios", {
@@ -478,16 +461,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
               <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />
             </Field>
-            <div className="form-section-title span-2"><strong>Horario semanal</strong><span>Marca los días trabajados y registra sus horas.</span></div>
-            {fieldErrors.horarios && <div className="field-error span-2">{fieldErrors.horarios}</div>}
-            <div className="weekly-schedule span-2">
-              {editing.horarios.map((row, index) => <div className="weekly-schedule__row" key={row.dia_semana}>
-                <strong>{weekDays[index]}</strong>
-                <label className="schedule-check"><input type="checkbox" checked={Boolean(row.trabaja)} onChange={(e) => setSchedule(row.dia_semana, "trabaja", e.target.checked)} /> Trabaja</label>
-                <input aria-label={`Entrada ${weekDays[index]}`} type="time" disabled={!row.trabaja} value={row.hora_entrada || ""} onChange={(e) => setSchedule(row.dia_semana, "hora_entrada", e.target.value)} />
-                <input aria-label={`Salida ${weekDays[index]}`} type="time" disabled={!row.trabaja} value={row.hora_salida || ""} onChange={(e) => setSchedule(row.dia_semana, "hora_salida", e.target.value)} />
-              </div>)}
-            </div>
             <div className="form-actions span-2">
               <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>
               <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
@@ -501,7 +474,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
           {workerFile?.error && <Notice type="error">{workerFile.error}</Notice>}
           <section><h3>Datos personales</h3><dl><div><dt>Documento</dt><dd>{(viewing.tipo_documento || "dni").toUpperCase()} {viewing.dni}</dd></div><div><dt>Teléfono</dt><dd>{viewing.telefono || "—"}</dd></div><div><dt>Nacimiento</dt><dd>{viewing.fecha_nacimiento || "—"}</dd></div><div><dt>Nacionalidad</dt><dd>{viewing.nacionalidad || "—"}</dd></div><div><dt>Distrito</dt><dd>{viewing.distrito || "—"}</dd></div><div><dt>Dirección</dt><dd>{viewing.direccion || "—"}</dd></div></dl></section>
           <section><h3>Datos laborales</h3><dl><div><dt>Cargo</dt><dd>{roleLabels[viewing.rol] || viewing.rol}</dd></div><div><dt>Área</dt><dd>{viewing.area_laboral || "—"}</dd></div><div><dt>Ingreso</dt><dd>{viewing.fecha_ingreso}</dd></div><div><dt>Reingreso</dt><dd>{viewing.reingreso ? "Sí" : "No"}</dd></div><div><dt>Nivel de estudios</dt><dd>{viewing.grado_academico?.replaceAll("_", " ") || "—"}</dd></div><div><dt>Carrera</dt><dd>{viewing.carrera || "—"}</dd></div><div><dt>Jornada / turno</dt><dd>{viewing.regimen_jornada?.toUpperCase() || "—"} · {viewing.tipo_turno?.replaceAll("_", " ") || "—"}</dd></div></dl></section>
-          <section><h3>Horario semanal</h3>{viewing.horarios?.some((row) => row.trabaja) ? <div className="worker-schedule">{viewing.horarios.filter((row) => row.trabaja).map((row) => <div key={row.dia_semana}><strong>{weekDays[Number(row.dia_semana) - 1]}</strong><span>{row.hora_entrada?.slice(0, 5)} – {row.hora_salida?.slice(0, 5)}</span></div>)}</div> : <p>Sin horario registrado.</p>}</section>
           <section><h3>Amonestaciones</h3>{workerFile ? workerFile.warnings.length ? <div className="worker-file__list">{workerFile.warnings.map((row) => <div key={row.id}><strong>{row.tipo.replaceAll("_", " ")}</strong><span>{row.fecha}</span><p>{row.motivo}</p></div>)}</div> : <p>Sin amonestaciones registradas.</p> : <Loading />}
             {user.rol === "jefe_tienda" && <form className="worker-warning-form" onSubmit={saveWarning}><select value={warningForm.tipo} onChange={(e) => setWarningForm({ ...warningForm, tipo: e.target.value })}><option value="verbal">Verbal</option><option value="carta_amonestacion">Carta</option><option value="memorandum">Memorándum</option></select><input type="date" value={warningForm.fecha} onChange={(e) => setWarningForm({ ...warningForm, fecha: e.target.value })} /><input required placeholder="Motivo" value={warningForm.motivo} onChange={(e) => setWarningForm({ ...warningForm, motivo: e.target.value })} /><button className="button button--soft" disabled={busy}>Registrar amonestación</button></form>}
           </section>
