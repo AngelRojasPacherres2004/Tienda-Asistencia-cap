@@ -127,6 +127,21 @@ const CATEGORY_COLORS = [C.navy, C.red, C.blue, C.gold, C.teal, C.purple, C.oran
 const GENDER_COLORS: Record<string, string> = { DAMA: '#C91482', CABALLERO: '#1428D4', BEBE: '#F97316', JOVENCITA: '#7C3AED', JOVENCITO: '#0F9D8A', 'NIÑO': '#16A34A', 'NIÑA': '#EC4899', UNISEX: '#F4B400' };
 const GENDER_ORDER = ['DAMA', 'CABALLERO', 'BEBE', 'JOVENCITA', 'JOVENCITO', 'NIÑO', 'NIÑA', 'UNISEX'];
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const SECTION_HEADINGS: Record<string, { mark: string; title: string; section?: string }> = {
+  commercial: { mark: '01', title: 'RESUMEN COMERCIAL' },
+  'commercial-a': { mark: 'A', title: 'INDICADORES CLAVE', section: '01.A Indicadores clave' },
+  'commercial-b': { mark: 'B', title: 'CUMPLIMIENTO Y AVANCE', section: '01.B Cumplimiento y avance' },
+  'commercial-c': { mark: 'C', title: 'COMPORTAMIENTO COMERCIAL', section: '01.C Comportamiento comercial' },
+  'commercial-d': { mark: 'D', title: 'COMPOSICIÓN DE LA VENTA', section: '01.D Composición de la venta' },
+  inventory: { mark: '02', title: 'CONTROL DE INVENTARIO' },
+  'inventory-a': { mark: 'A', title: 'VISIÓN GENERAL DE STOCK', section: '02.A Visión general de stock' },
+  'inventory-b': { mark: 'B', title: 'COBERTURA Y DISTRIBUCIÓN', section: '02.B Cobertura y distribución' },
+  'inventory-c': { mark: 'C', title: 'SEÑALES DE REPOSICIÓN', section: '02.C Señales de reposición' },
+  talent: { mark: '03', title: 'GESTIÓN DE TALENTO' },
+  'talent-a': { mark: 'A', title: 'DOTACIÓN Y EVOLUCIÓN', section: '03.A Dotación y evolución' },
+  'talent-b': { mark: 'B', title: 'PRODUCTIVIDAD Y DISTRIBUCIÓN', section: '03.B Productividad y distribución' },
+  'talent-c': { mark: 'C', title: 'DESARROLLO Y CONTINUIDAD', section: '03.C Desarrollo y continuidad' },
+};
 
 function sum<T>(rows: T[], field: keyof T): number {
   return rows.reduce((total, row) => total + (Number(row[field]) || 0), 0);
@@ -1526,6 +1541,22 @@ export class App implements OnInit {
       else if (type === 'healthy-unit') this.healthyCoverageUnit.set(value);
       else if (type === 'overstock-unit') this.overstockUnit.set(value);
       else this.noMovementUnit.set(value);
+    }
+  }
+
+  sectionHeadingModel(id: string): Record<string, unknown> {
+    const heading = SECTION_HEADINGS[id];
+    return { id, kind: heading.section ? 'block' : 'page', mark: heading.mark,
+      title: heading.title, section: heading.section, adviceEnabled: this.sectionAdviceEnabled(),
+      advice: heading.section ? this.sectionAdviceFor(id) : null,
+      transferVisible: id === 'inventory-b' && !this.storeFilterLocked(), predictive: id === 'inventory-c' };
+  }
+
+  onReactSectionHeadingAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'transfers') this.openTransfers();
+    else if (type === 'advice' && typeof value === 'string') {
+      const section = SECTION_HEADINGS[value]?.section;
+      if (typeof section === 'string') void this.requestSectionAdvice(value, section);
     }
   }
 
