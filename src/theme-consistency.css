@@ -10,18 +10,6 @@
   color-scheme: light;
 }
 
-.app-shell.app-light .sidebar--readable { color: #203b56; background: #fffdf8; border-color: #d9dfe3; }
-.app-light .sidebar--readable nav button,
-.app-light .sidebar--readable .logout-button { color: #41566a; }
-.app-light .sidebar--readable nav button:hover,
-.app-light .sidebar--readable .logout-button:hover { color: #173c65; background: #e8f0f8; }
-.app-light .sidebar--readable nav button.active { color: #fff; background: #245b91; }
-.app-light .sidebar--readable nav button.active svg { color: #fff; }
-.app-light .sidebar--readable .sidebar__footer { border-color: #d9dfe3; }
-.app-light .sidebar--readable .user-chip strong { color: #203b56; }
-.app-light .sidebar--readable .user-chip small { color: #4b5563; }
-.app-light .sidebar--readable .user-chip > span { color: #245b91; background: #e8f0f8; }
-
 .app-light :is(.audit-summary__sections article, .audit-section-results > div, .audit-observation-list aside,
   .audit-score button, .supervision-metrics article, .supervision-panel, .supervision-toolbar,
   .supervision-toolbar label, .supervision-toolbar select, .store-main-data dl > div, .store-user-row) {

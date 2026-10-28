@@ -455,12 +455,19 @@ export function createOperationsDomain({
     if (!["sabado", "domingo", "feriado", "especial"].includes(data.tipo_dia)) throw httpError("Selecciona un tipo de día válido.", 400);
     if (!["borrador", "confirmada"].includes(data.estado)) throw httpError("El estado de cobertura no es válido.", 400);
     if (!Array.isArray(data.trabajadores) || !data.trabajadores.length) throw httpError("Agrega al menos un trabajador.", 400);
-    const ids = validIds(data.trabajadores.map((row) => row.usuario_id));
+    const ids = validIds(data.trabajadores.filter((row) => row.usuario_id).map((row) => row.usuario_id));
+    if (ids.length !== data.trabajadores.filter((row) => row.usuario_id).length) throw httpError("No repitas un trabajador en la misma cobertura.", 400);
     const candidates = await listCoverageCandidates(user);
     const people = candidates.filter((person) => ids.includes(person.id));
     if (people.length !== ids.length) throw httpError("Uno de los trabajadores no está activo o no puede asignarse a la cobertura.", 400);
     const byId = new Map(people.map((person) => [person.id, person]));
     for (const row of data.trabajadores) {
+      if (!row.usuario_id) {
+        const name = cleanText(row.nombre_manual);
+        if (!name || name.length > 200) throw httpError("Escribe el nombre del trabajador (máximo 200 caracteres).", 400);
+        if (!cleanText(row.origen_manual) || cleanText(row.origen_manual).length > 200) throw httpError("Escribe la tienda de origen (máximo 200 caracteres).", 400);
+        if (row.dni && !/^\d{8}$/.test(row.dni)) throw httpError("El DNI debe tener 8 dígitos o quedar vacío.", 400);
+      }
       if (!/^\d{2}:\d{2}$/.test(row.hora_entrada || "")) throw httpError("Indica la hora de entrada de cada trabajador.", 400);
       if (!["fijo", "apoyo"].includes(row.tipo_cobertura)) throw httpError("Selecciona un tipo de cobertura válido.", 400);
     }
@@ -470,9 +477,10 @@ export function createOperationsDomain({
     }).select().single();
     if (error) throw dbError(error);
     const details = data.trabajadores.map((row) => ({
-      cobertura_id: coverage.id, usuario_id: Number(row.usuario_id), area: normalizeLaborArea(row.area) || null,
+      cobertura_id: coverage.id, usuario_id: row.usuario_id ? Number(row.usuario_id) : null, area: normalizeLaborArea(row.area) || null,
       hora_entrada: row.hora_entrada, tipo_cobertura: row.tipo_cobertura,
-      tienda_origen_id: byId.get(Number(row.usuario_id)).tienda_id, tienda_destino_id: user.tienda_id,
+      tienda_origen_id: row.usuario_id ? byId.get(Number(row.usuario_id)).tienda_id : null, tienda_destino_id: user.tienda_id,
+      ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) } : {}),
       observacion: cleanText(row.observacion) || null,
     }));
     const inserted = await supabase.from("cobertura_trabajadores").insert(details);

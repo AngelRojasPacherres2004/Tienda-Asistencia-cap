@@ -1,0 +1,16 @@
+.attendance-scroller { min-width: 0; max-width: 100%; }
+.attendance-scroller .attendance-scroller__viewport {
+  max-height: clamp(260px, 60vh, 640px);
+  overflow: scroll;
+}
+.attendance-scroller .attendance-table { overflow: visible; }
+.attendance-scroller .attendance-head { position: sticky; top: 0; z-index: 2; }
+.attendance-scroller__viewport {
+  scrollbar-width: auto;
+  scrollbar-color: #8a795a #e9e5dd;
+}
+.attendance-scroller .attendance-scroller__viewport::-webkit-scrollbar { width: 14px; height: 14px; }
+.attendance-scroller .attendance-scroller__viewport::-webkit-scrollbar-track { background: #e9e5dd; border-radius: 7px; }
+.attendance-scroller .attendance-scroller__viewport::-webkit-scrollbar-thumb { background: #8a795a; border: 3px solid #e9e5dd; border-radius: 7px; }
+.attendance-scroller .attendance-scroller__viewport:focus-visible { outline: 2px solid var(--primary, #9a7a38); outline-offset: 2px; }
+
