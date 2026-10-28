@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -75,7 +75,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -86,8 +86,8 @@ try {
     page.on("pageerror", error => failures.push(error.message));
     page.on("response", item => {
       const path = new URL(item.url()).pathname;
-      const optionalFallbackFile = chartId === "antiquity-card" && item.status() === 404
-        && /\/api\/commercial\/files\/dashboard-(?:price-range-summary-\d{4}|stock-hierarchy|stock-sizes-calzado)\.json$/.test(path);
+      const optionalFallbackFile = ["antiquity-card", "health-card", "projection-card", "replenishment-card"].includes(chartId) && item.status() === 404
+        && /\/api\/commercial\/files\/dashboard-(?:price-range-(?:summary|compact)-\d{4}|stock-hierarchy|stock-sizes-calzado)\.json$/.test(path);
       if (item.url().includes("/api/") && item.status() >= 400 && !optionalFallbackFile) failures.push(`API ${item.status()}: ${path}`);
       if (item.url().includes("/api/commercial/store-goals")) goalEvents.push(item.status());
     });
@@ -95,7 +95,7 @@ try {
       const request = route.request();
       const readOnlyPost = request.method() === "POST" && (
         ["inventory-sizes", "size-controls", "stock-matrix", "size-card", "store-value-card"].includes(chartId) && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
-        || chartId.startsWith("predictive-") && new URL(request.url()).pathname === "/api/commercial/stock-insights"
+        || (chartId.startsWith("predictive-") || ["health-card", "projection-card", "replenishment-card"].includes(chartId)) && new URL(request.url()).pathname === "/api/commercial/stock-insights"
       );
       if (request.method() !== "GET" && !readOnlyPost) return route.abort();
       return route.continue();
@@ -386,6 +386,29 @@ try {
         await bucket.click();
         assert.notEqual(await bucket.getAttribute("aria-pressed"), before);
         await card.locator(".chart-expand").click();
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "health-card" || chartId === "projection-card" || chartId === "replenishment-card") {
+        await page.locator(".page-tabs button").nth(1).click();
+        const card = page.locator(chartId === "health-card" ? ".health-card:visible"
+          : chartId === "projection-card" ? ".predictive-projection-card:visible" : ".predictive-replenishment-card:visible");
+        await card.locator("canvas").waitFor({ timeout: 60_000 });
+        assert.equal(await card.getAttribute("data-react-commercial-module"), mode === "react" ? chartId : null);
+        const dimensions = await card.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await card.screenshot({ path: screenshot });
+        if (chartId === "projection-card") {
+          await card.getByRole("button", { name: "+30D" }).click();
+          await card.locator(".projection-horizon-toggle button.active").filter({ hasText: "+30D" }).waitFor({ timeout: 10_000 });
+          assert.match(await card.getByRole("button", { name: "+30D" }).getAttribute("class") || "", /active/);
+        }
+        if (chartId === "replenishment-card") {
+          await card.locator(".chart-expand").click();
+          await card.locator(".predictive-detail-table").waitFor();
+        }
         if (failures.length) throw new Error(failures.join("\n"));
         pair.push({ mode, dimensions, canvasStats: null, screenshot,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });

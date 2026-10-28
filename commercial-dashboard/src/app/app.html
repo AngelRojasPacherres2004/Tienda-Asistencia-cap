@@ -503,11 +503,14 @@
               </div>
             </article>
 
+          <dashboard-react-module moduleId="health-card" [model]="healthCardModel()">
           <article class="card predictive-v2-card health-card">
               <div class="title-row"><span class="card-letter">A</span><h2><svg><use href="/comercial/assets/icons.svg#category"></use></svg> SALUD DEL INVENTARIO</h2></div>
               <div class="health-card-content"><dashboard-chart [option]="predictiveHealthOption()" chartId="predictive-health" label="Círculo de salud del inventario; pasa el mouse por cada color para ver el detalle" /><div class="health-table"><div class="health-table-head"><span>ESTADO</span><span>VALOR STOCK</span><span>PARTIC.</span></div>@for (row of predictiveHealthRows(); track row.status) { <div><strong><i [style.background-color]="row.color"></i>{{ row.status }}</strong><span>{{ money(row.value, true) }}</span><span>{{ percent(row.share) }}</span></div> }</div></div>
             </article>
+          </dashboard-react-module>
 
+            <dashboard-react-module moduleId="replenishment-card" [model]="replenishmentCardModel()" (action)="onReactReplenishmentAction($event)">
             <article class="card predictive-v2-card predictive-action-card predictive-replenishment-card" [class.chart-expanded]="expandedChart() === 'predictive-replenishment'">
               <button type="button" class="chart-expand" (click)="toggleChartExpansion('predictive-replenishment')" [attr.aria-label]="expandedChart() === 'predictive-replenishment' ? 'Cerrar gráfico' : 'Ampliar gráfico y ver detalle'">{{ expandedChart() === 'predictive-replenishment' ? '×' : '⛶' }}</button>
               <div class="title-row"><span class="card-letter">B</span><h2><svg><use href="/comercial/assets/icons.svg#reorder"></use></svg> PRIORIDAD DE REPOSICIÓN POR MARCA</h2></div>
@@ -521,7 +524,9 @@
                 }
               </div>
             </article>
+            </dashboard-react-module>
 
+            <dashboard-react-module moduleId="projection-card" [model]="projectionCardModel()" (action)="onReactProjectionAction($event)">
             <article class="card predictive-v2-card predictive-action-card predictive-projection-card">
               <div class="title-row"><span class="card-letter">C</span><h2><svg><use href="/comercial/assets/icons.svg#alert"></use></svg> VALOR EN RIESGO POR TIENDA · 30 / 60 / 90</h2></div>
               <div class="projection-horizon-toggle"><button type="button" [class.active]="coverageProjectionHorizon() === 0" (click)="coverageProjectionHorizon.set(0)">ACTUAL</button><button type="button" [class.active]="coverageProjectionHorizon() === 30" (click)="coverageProjectionHorizon.set(30)">+30D</button><button type="button" [class.active]="coverageProjectionHorizon() === 60" (click)="coverageProjectionHorizon.set(60)">+60D</button><button type="button" [class.active]="coverageProjectionHorizon() === 90" (click)="coverageProjectionHorizon.set(90)">+90D</button></div>
@@ -529,6 +534,7 @@
               <div class="projection-health-summary">@for (row of predictiveProjectionRows(); track row.status) { <span [title]="row.status + ': ' + money(row.value, true)"><i [style.background-color]="row.color"></i><strong>{{ row.status }}</strong><b>{{ percent(row.share) }}</b><em>{{ number(row.products) }} SKU</em></span> }</div>
               <div class="projection-priority-products"><small>PRODUCTOS A REVISAR · {{ coverageProjectionHorizon() ? '+' + coverageProjectionHorizon() + 'D' : 'ACTUAL' }}</small><div>@for (row of predictivePriorityProducts(); track row.storeId + row.product) { <span [title]="row.product + ' · ' + row.store + ' · ' + (row.coverageDays == null ? 'sin movimiento' : number(row.coverageDays, ' días'))"><i [style.background-color]="predictiveStatusColor(row.status)"></i>{{ row.product }} · {{ row.store }}</span> } @empty { <span>N/A</span> }</div></div>
             </article>
+            </dashboard-react-module>
 
             <section class="simulation-panel feature-hidden" aria-disabled="true">
               <h3><span class="card-letter">5</span> REPOSICIÓN · EOQ Y ROP</h3>

@@ -1468,6 +1468,39 @@ export class App implements OnInit {
     else if (type === 'detail' && typeof value === 'number') this.openStockOriginDetail({ data: { period: value } });
   }
 
+  readonly healthCardModel = computed<Record<string, unknown>>(() => ({
+    option: blackChartText(this.predictiveHealthOption()),
+    rows: this.predictiveHealthRows().map(row => ({ status: row.status, color: row.color,
+      value: this.money(row.value, true), share: this.percent(row.share) })),
+  }));
+
+  readonly projectionCardModel = computed<Record<string, unknown>>(() => ({
+    horizon: this.coverageProjectionHorizon(), option: blackChartText(this.predictiveProjectionOption()),
+    rows: this.predictiveProjectionRows().map(row => ({ status: row.status, color: row.color,
+      value: this.money(row.value, true), share: this.percent(row.share), products: this.number(row.products) })),
+    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, product: row.product,
+      store: row.store, coverageDays: row.coverageDays, coverage: this.number(row.coverageDays, ' días'),
+      color: this.predictiveStatusColor(row.status) })),
+  }));
+
+  onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'horizon' && (value === 0 || value === 30 || value === 60 || value === 90)) this.coverageProjectionHorizon.set(value);
+  }
+
+  readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'predictive-replenishment',
+    option: blackChartText(this.predictiveReplenishmentOption()),
+    rows: this.predictiveReplenishmentRows().map(row => ({ name: row.name,
+      priority: row.priority, color: row.priorityColor,
+      deficitUnits: this.number(row.deficitUnits, ' und'),
+      coverage: row.coverageDays == null ? 'SIN MOVIMIENTO' : this.number(row.coverageDays, ' días'),
+      vendibleUnits: this.number(row.vendibleUnits, ' und') })),
+  }));
+
+  onReactReplenishmentAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
+  }
+
   onReactStoreValueAction({ type }: { type: string }): void {
     if (type === 'expand') this.toggleChartExpansion('store-value-coverage');
   }
@@ -2600,7 +2633,7 @@ export class App implements OnInit {
     }).sort((a, b) => a.coverageDays == null ? 1 : b.coverageDays == null ? -1 : a.coverageDays - b.coverageDays);
   });
   readonly predictiveReplenishmentRows = computed(() => [...this.predictiveBrandRows()]
-    .sort((a, b) => b.priorityIndex - a.priorityIndex));
+    .sort((a, b) => b.priorityIndex - a.priorityIndex || a.name.localeCompare(b.name)));
   readonly predictiveProductHealthRows = computed(() => {
     const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
     const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
