@@ -1560,6 +1560,18 @@ export class App implements OnInit {
     }
   }
 
+  commercialAccessModel(mode: string): Record<string, unknown> {
+    return { mode, error: mode === 'error' ? this.loadingError() : this.cloud.authError(),
+      email: this.loginEmail(), password: this.loginPassword(), busy: this.loginBusy() };
+  }
+
+  onReactCommercialAccessAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'identity' && typeof value === 'string') this.loginEmail.set(value);
+    else if (type === 'password' && typeof value === 'string') this.loginPassword.set(value);
+    else if (type === 'login') void this.signIn();
+    else if (type === 'retry') this.retryDashboardLoad();
+  }
+
   readonly sellerCardModel = computed<Record<string, unknown>>(() => ({
     expanded: this.expandedChart() === 'seller-ranking', ready: this.sellerDetailLoaded(),
     loading: this.sellerDetailLoading(),

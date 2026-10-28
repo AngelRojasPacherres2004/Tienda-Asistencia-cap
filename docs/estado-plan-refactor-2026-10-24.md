@@ -208,7 +208,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27–28/10 se añadieron cuarenta y un módulos de interfaz con flags independientes:
+- El 27–28/10 se añadieron cuarenta y dos módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
   tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
@@ -219,7 +219,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   prioridad de reposición, valor en riesgo, los tres cuadros emergentes mensuales
   y el detalle de origen del stock, el ranking de vendedores y la matriz de
   traslados entre tiendas, los controles de proyección de inventario y los
-  encabezados de página y sección. El puente conserva los mismos
+  encabezados de página y sección y los estados de acceso y carga. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
@@ -232,7 +232,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `antiquity-card`, `health-card`, `replenishment-card` o
   `projection-card`, `ticket-modal`, `conversion-modal`, `traffic-modal` o
   `stock-origin-modal`, `seller-card`, `transfer-modal` o
-  `predictive-parameters` o `section-heading`;
+  `predictive-parameters`, `section-heading` o `commercial-access`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
@@ -284,7 +284,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   captura local; se probaron el cambio de rubro, la unidad de demanda y la
   merma. El encabezado de Cobertura y distribución coincidió píxel por píxel
   y abrió el modal de traslados. Los cálculos y filtros siguen en el
-  controlador Angular.
+  controlador Angular. El estado de acceso denegado de `commercial-access`
+  coincidió píxel por píxel al neutralizar el fondo animado de la captura.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o

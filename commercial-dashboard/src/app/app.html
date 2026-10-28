@@ -1,14 +1,19 @@
 <main class="app-shell" [class.portal-embed]="cloud.portalEnabled">
   @if (!cloud.authReady()) {
+    <dashboard-react-module moduleId="commercial-access" [model]="commercialAccessModel('validating')">
     <section class="status-panel"><span class="loader"></span><strong>Validando acceso seguro…</strong></section>
+    </dashboard-react-module>
   } @else if (!cloud.hasAccess()) {
     @if (cloud.portalEnabled) {
+      <dashboard-react-module moduleId="commercial-access" [model]="commercialAccessModel('denied')">
       <section class="status-panel error">
         <strong>No tienes acceso al dashboard comercial.</strong>
         <span>{{ cloud.authError() || 'Inicia sesión en Asiste con un rol comercial autorizado.' }}</span>
         <a href="/">VOLVER A ASISTE</a>
       </section>
+      </dashboard-react-module>
     } @else {
+    <dashboard-react-module moduleId="commercial-access" [model]="commercialAccessModel('login')" (action)="onReactCommercialAccessAction($event)">
     <section class="login-page" aria-label="Inicio de sesión">
       <form class="login-card" (ngSubmit)="signIn()">
         <img src="/comercial/logo-almacen-remates.png" alt="Almacén de Remates" />
@@ -19,15 +24,20 @@
         <button type="submit" [disabled]="loginBusy() || !loginEmail() || !loginPassword()">{{ loginBusy() ? 'INGRESANDO…' : 'INGRESAR' }}</button>
       </form>
     </section>
+    </dashboard-react-module>
     }
   } @else if (loadingError()) {
+    <dashboard-react-module moduleId="commercial-access" [model]="commercialAccessModel('error')" (action)="onReactCommercialAccessAction($event)">
     <section class="status-panel error">
       <strong>No se pudo abrir el dashboard.</strong>
       <span>{{ loadingError() }}</span>
       <button type="button" class="retry-button" (click)="retryDashboardLoad()">REINTENTAR</button>
     </section>
+    </dashboard-react-module>
   } @else if (!data()) {
+    <dashboard-react-module moduleId="commercial-access" [model]="commercialAccessModel('loading')">
     <section class="status-panel" aria-label="Cargando información"><span class="loader"></span></section>
+    </dashboard-react-module>
   } @else {
     @if (expandedChart()) { <button type="button" class="chart-backdrop" aria-label="Cerrar gráfico ampliado" (click)="closeExpandedChart()"></button> }
     @if (expandedChart() === 'birthday-list') {
