@@ -422,7 +422,9 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   se renderizan en React, sin crear la vista del componente Angular. Se comparte
   la misma hoja visual de la aplicación. Vite local usa este montaje de forma
   predeterminada; `?reactModule=angular` o `?reactShell=angular` conservan la
-  vista Angular. La compilación pública mantiene Angular como opción inicial.
+  vista Angular. La compilación pública mantiene Angular como opción inicial;
+  `VITE_COMMERCIAL_REACT_SHELL=true` permite activar React de forma explícita
+  al compilar una futura versión de prueba, sin cambiar la publicación actual.
   El controlador `App` y `CloudDataService` aún usan señales e inyección de
   Angular; esto sigue siendo una migración en curso, no la retirada del runtime.
 - Comprobación local acotada con la versión preparada

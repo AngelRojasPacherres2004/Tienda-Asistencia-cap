@@ -53,8 +53,9 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
           .split(",").map(value => value.trim()).filter(value => supportedReactModules.has(value));
         const previewModule = new URLSearchParams(location.search).get("reactModule");
         const previewShell = new URLSearchParams(location.search).get("reactShell");
-        const reactStandalone = import.meta.env.DEV && previewModule !== "angular" && previewShell !== "angular"
-          && (previewShell === "react" || (!previewModule && !previewChart));
+        const reactStandalone = previewModule !== "angular" && previewShell !== "angular"
+          && (import.meta.env.VITE_COMMERCIAL_REACT_SHELL === "true"
+            || (import.meta.env.DEV && (previewShell === "react" || (!previewModule && !previewChart))));
         if (import.meta.env.DEV && supportedReactModules.has(previewModule)) reactModules.push(previewModule);
         if (import.meta.env.DEV && (previewModule === "all" || (!previewModule && !previewChart))) reactModules.push(...supportedReactModules);
         if (import.meta.env.DEV && previewModule === "angular") { reactModules.length = 0; reactCharts.length = 0; }
