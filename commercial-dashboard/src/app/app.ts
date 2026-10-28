@@ -1555,7 +1555,7 @@ export class App implements OnInit {
     return { id, kind: heading.section ? 'block' : 'page', mark: heading.mark,
       title: heading.title, section: heading.section, adviceEnabled: this.sectionAdviceEnabled(),
       advice: heading.section ? this.sectionAdviceFor(id) : null,
-      transferVisible: id === 'inventory-b' && !this.storeFilterLocked(), predictive: id === 'inventory-c' };
+      transferVisible: id === 'inventory-b', predictive: id === 'inventory-c' };
   }
 
   onReactSectionHeadingAction({ type, value }: { type: string; value?: string | number }): void {
@@ -2715,7 +2715,10 @@ export class App implements OnInit {
     if (metric === 'TRANSFERS') void this.ensureStockTransfers();
   }
   readonly transferPageSize = 10;
+  readonly storeTransferRoutes = signal<ReturnType<typeof stockTransfers> | null>(null);
+  readonly storeTransferStores = signal<Store[]>([]);
   readonly transferProducts = computed(() => {
+    if (this.storeTransferRoutes() !== null) return this.stockTransferProductsData();
     const ids = new Set(this.predictiveStoreOptions().filter(store => store.isStore).map(store => store.storeId));
     const products = this.stockTransfersLoaded() ? this.stockTransferProductsData()
       : this.stockDetailLoaded() ? this.stockProductsData() : this.stockTransferProductsData();
@@ -2729,7 +2732,7 @@ export class App implements OnInit {
     .filter(row => (!this.transferRubro() || row.category === this.transferRubro())
       && (!this.transferLine() || row.line === this.transferLine()))
     .map(row => row.brand).filter(Boolean))].sort());
-  readonly transferStores = computed(() => this.predictiveStoreOptions().filter(store => store.isStore));
+  readonly transferStores = computed(() => this.storeTransferRoutes() !== null ? this.storeTransferStores() : this.predictiveStoreOptions().filter(store => store.isStore));
   readonly transferSizeLabels = computed(() => {
     const labels = new Map<string, string>();
     if (!this.transferRubro()) return labels;
@@ -2761,14 +2764,21 @@ export class App implements OnInit {
       && (!query || this.normalized(`${row.productCode || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
   });
   readonly transferAllRecommendations = computed(() => {
-    const names = new Map(this.predictiveStoreOptions().map(store => [store.storeId, store.alias || store.store]));
-    const routes = typeof Worker === 'undefined' ? stockTransfers(this.transferFilteredProducts(), 30, 90, false)
-      : this.transferWorkerRoutes() || [];
+    const names = new Map(this.transferStores().map(store => [store.storeId, store.alias || store.store]));
+    const selected = new Set(this.transferFilteredProducts().map(row => JSON.stringify([row.productId, row.storeId])));
+    const scoped = this.storeTransferRoutes()?.filter(row => selected.has(JSON.stringify([row.productId, row.source])) && selected.has(JSON.stringify([row.productId, row.destination])));
+    const routes = scoped ?? (typeof Worker === 'undefined' ? stockTransfers(this.transferFilteredProducts(), 30, 90, false)
+      : this.transferWorkerRoutes() || []);
     return routes.map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
       destinationName: names.get(row.destination) || row.destination }));
   });
   private readonly stockTransferCalculationEffect = effect(onCleanup => {
     if (this.expandedChart() !== 'stock-transfers') return;
+    if (this.storeTransferRoutes() !== null) {
+      this.transferBusy.set(false);
+      this.transferCalculationError.set('');
+      return;
+    }
     this.transferWorkerRoutes.set(null);
     this.transferCalculationError.set('');
     if (!this.transferRubro()) { this.transferBusy.set(false); return; }
@@ -2862,7 +2872,10 @@ export class App implements OnInit {
       add(row, 'stock', row.stockUnits);
     }
     if (this.sizeMetric() === 'TRANSFERS') {
-      for (const transfer of stockTransfers(this.sizeTransfersForChart(rubro))) add(transfer, 'transfers', transfer.suggested);
+      const eligible = new Set(this.sizeTransfersForChart(rubro).map(row => row.productId));
+      const routes = this.storeTransferRoutes()?.filter(row => row.category === rubro && eligible.has(row.productId))
+        ?? stockTransfers(this.sizeTransfersForChart(rubro));
+      for (const transfer of routes) add(transfer, 'transfers', transfer.suggested);
     }
     return [...rows.values()].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label, 'es'));
   });
@@ -4477,6 +4490,7 @@ export class App implements OnInit {
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
     this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);
     this.stockTransferProductsData.set([]); this.stockTransfersLoaded.set(false);
+    this.storeTransferRoutes.set(null); this.storeTransferStores.set([]);
     this.sizeProductsData.set({ CALZADO: [], TEXTIL: [] });
     this.sizeDetailLoaded.set({ CALZADO: false, TEXTIL: false });
     this.stockAggregateByStore.set(new Map()); this.predictiveAggregateByStore.set(new Map());
@@ -4952,6 +4966,17 @@ export class App implements OnInit {
     let promise!: Promise<void>;
     promise = (async () => {
       try {
+        if (this.cloud.accessProfile()?.scopeType === 'store') {
+          const scoped = await this.cloud.storeTransfers(signal);
+          signal.throwIfAborted();
+          if (scoped) {
+            this.stockTransferProductsData.set(scoped.products as ProductRow[]);
+            this.storeTransferStores.set(scoped.stores);
+            this.storeTransferRoutes.set(scoped.routes);
+            this.stockTransfersLoaded.set(true);
+            return;
+          }
+        }
         const payload = await this.loadDetail<{ stockCompact: StockCompact }>('dashboard-stock-transfers.json', signal);
         signal.throwIfAborted();
         this.stockTransferProductsData.set(decodeStockCompact<ProductRow>(payload.stockCompact, signal));

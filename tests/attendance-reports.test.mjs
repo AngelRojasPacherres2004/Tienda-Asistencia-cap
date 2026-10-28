@@ -62,6 +62,27 @@ function mockDb({ stores = [{ id: 8, nombre: "Plaza Unión", jefe: { nombres: "A
   } };
 }
 const schedule = { id: 4, usuario_id: 5, nombre: "Registro 2", asunto: "Reporte de asistencia", tienda_id: 8, destinatarios: ["uno@gmail.com"] };
+
+test('manual support workers retain separate identities and count as present', () => {
+  const summary = reportSummary([], [
+    { usuario_id: null, cobertura_trabajador_id: 1, tienda_id: 8, estado: 'apoyo_ingreso', cobertura_trabajador: { nombre_manual: 'Primera persona' } },
+    { usuario_id: null, cobertura_trabajador_id: 2, tienda_id: 8, estado: 'apoyo_ingreso', cobertura_trabajador: { nombre_manual: 'Segunda persona' } },
+  ], [{ id: 8, nombre: 'Destino' }]);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.asistentes, 2);
+  assert.deepEqual(summary.rows.map(row => row.nombre), ['Primera persona', 'Segunda persona']);
+});
+
+test('el reporte mantiene la salida en origen y cuenta presencia solo en destino', () => {
+  const person = { id: 1, nombres: 'Ana', apellidos: 'Prueba', tienda_id: 8 };
+  const result = reportSummary([person], [
+    { usuario_id: 1, tienda_id: 8, estado: 'apoyo', usuarios: person },
+    { usuario_id: 1, tienda_id: 9, estado: 'apoyo_ingreso', usuarios: person },
+  ], [{ id: 8, nombre: 'Origen' }, { id: 9, nombre: 'Destino' }]);
+  assert.equal(result.asistentes, 1);
+  assert.equal(result.rows.find(row => row.tienda_id === 8).estado, 'apoyo');
+  assert.equal(result.rows.find(row => row.tienda_id === 9).estado, 'apoyo_ingreso');
+});
 test("envío manual adjunta CSV y no altera el próximo envío", async () => {
   const db = mockDb(); let email;
   const result = await sendScheduledReport(db, schedule, limaDate(), "manual", async (...args) => { email = args; });

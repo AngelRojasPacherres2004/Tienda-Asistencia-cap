@@ -1,3 +1,4 @@
+import { attendancePersonName } from "../../shared/attendance.js";
 export function createReportsDomain({ supabase, httpError, hasStoreScope, applyStoreScope, cleanText, businessDate, isISODate, todayISO, resolveStoreScope, dbError, storeStaffRoles, fetchAllReportPages, normalizedPersonnelFields, humanize, normalizeLaborArea, normalizeDepartureReason, incidentCode, excelSheetName, createExcelWorkbook, styleHeader, excelResponse }) {
   const reportKinds = new Set([
     "personal", "asistencias", "documentos", "incidencias", "reclamaciones", "acciones",
@@ -75,10 +76,10 @@ export function createReportsDomain({ supabase, httpError, hasStoreScope, applyS
         .sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1) || a.nombre.localeCompare(b.nombre, "es"));
     }
     if (kind === "asistencias") {
-      let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)").order("fecha", { ascending:false });
+      let request = supabase.from("asistencias").select("id,tienda_id,fecha,estado,observaciones,tiendas(nombre),usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni),cobertura_trabajador:cobertura_trabajadores(nombre_manual,dni_manual)").order("fecha", { ascending:false });
       request = applyStoreScope(request, scope);
       const data = await fetchAllReportPages(request.order("id"));
-      rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:`${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(), dni:row.usuarios?.dni || "", estado:row.estado, observaciones:row.observaciones || "", _fecha:row.fecha, _estado:row.estado }));
+      rows = (data || []).map((row) => ({ id:row.id, fecha:row.fecha, tienda:row.tiendas?.nombre || "", trabajador:attendancePersonName(row), dni:row.usuarios?.dni || row.cobertura_trabajador?.dni_manual || "", estado:row.estado, observaciones:row.observaciones || "", _fecha:row.fecha, _estado:row.estado }));
     }
     if (kind === "amonestaciones") {
       let request = supabase.from("amonestaciones").select("id,tienda_id,fecha,tipo,motivo,tiendas(nombre),usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos,dni,rol)").order("fecha", { ascending:false });
@@ -191,7 +192,7 @@ export function createReportsDomain({ supabase, httpError, hasStoreScope, applyS
 
   function addAttendanceSummary(workbook, rows) {
     const summary = new Map();
-    const states = ["presente","tardanza","medio_turno","apoyo","falta","permiso","descanso_medico","suspension"];
+    const states = ["presente","tardanza","medio_turno","apoyo","apoyo_ingreso","descanso","falta","permiso","descanso_medico","suspension"];
     for (const person of rows) {
       const key = `${person.fecha}|${person.tienda}`;
       if (!summary.has(key)) summary.set(key,{ fecha:person.fecha, tienda:person.tienda, total:0, ...Object.fromEntries(states.map(state=>[state,0])) });
@@ -200,10 +201,10 @@ export function createReportsDomain({ supabase, httpError, hasStoreScope, applyS
       if (states.includes(person.estado)) entry[person.estado]++;
     }
     const sheet = workbook.addWorksheet("Resumen de asistencia");
-    sheet.columns = [["Fecha","fecha",15],["Tienda","tienda",27],["Marcas registradas","total",20],["Asistencia","presente",16],["Tardanza","tardanza",16],["Medio turno","medio_turno",17],["Apoyo","apoyo",15],["Falta","falta",15],["Permiso","permiso",15],["Descanso médico","descanso_medico",20],["Suspensión","suspension",16]].map(([header,key,width])=>({header,key,width}));
+    sheet.columns = [["Fecha","fecha",15],["Tienda","tienda",27],["Marcas registradas","total",20],["Asistencia","presente",16],["Tardanza","tardanza",16],["Medio turno","medio_turno",17],["Apoyo (salida)","apoyo",20],["Apoyo (ingreso)","apoyo_ingreso",20],["Descanso","descanso",16],["Falta","falta",15],["Permiso","permiso",15],["Descanso médico","descanso_medico",20],["Suspensión","suspension",16]].map(([header,key,width])=>({header,key,width}));
     sheet.addRows([...summary.values()].sort((a,b)=>b.fecha.localeCompare(a.fecha)||a.tienda.localeCompare(b.tienda,"es")));
     styleHeader(sheet);
-    sheet.autoFilter = { from:"A1", to:"K1" };
+    sheet.autoFilter = { from:"A1", to:"M1" };
     sheet.views = [{ state:"frozen", ySplit:1 }];
     sheet.addRow([]);
     sheet.addRow(["Una persona sin marca no se clasifica automáticamente como falta."]);

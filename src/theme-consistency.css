@@ -50,11 +50,11 @@
 .app-light .worker-file-modal .worker-file section {
   color: #203b56; background: #fffdf8; border-color: #d9dfe3;
 }
-.app-light .worker-file-modal .worker-file :is(dl > div, .worker-schedule > div, .worker-file__list > div) {
+.app-light .worker-file-modal .worker-file :is(dl > div, .worker-file__list > div) {
   color: #203b56; background: #edf2f7; border-color: #d9dfe3;
 }
-.app-light .worker-file-modal .worker-file :is(h3, dd, .worker-file__list strong, .worker-schedule strong) { color: #203b56; }
-.app-light .worker-file-modal .worker-file :is(dt, section > p, .worker-file__list span, .worker-file__list p, .worker-file__list small, .worker-schedule span) { color: #4b5563; }
+.app-light .worker-file-modal .worker-file :is(h3, dd, .worker-file__list strong) { color: #203b56; }
+.app-light .worker-file-modal .worker-file :is(dt, section > p, .worker-file__list span, .worker-file__list p, .worker-file__list small) { color: #4b5563; }
 .app-light .worker-file-modal :is(.worker-warning-form, .worker-error-form) :is(input, select) {
   color: #203b56; background: #fff; border-color: #b8cede; color-scheme: light;
 }

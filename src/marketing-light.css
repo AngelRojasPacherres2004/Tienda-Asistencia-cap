@@ -137,7 +137,6 @@
 .marketing-theme .form-tabs button { font-size: 14px; }
 .marketing-theme .form-section-title strong { font-size: 14px; }
 .marketing-theme .form-section-title span { font-size: 12px; }
-.marketing-theme .weekly-schedule__row strong, .marketing-theme .weekly-schedule__row > input, .marketing-theme .schedule-check { font-size: 13px; }
 .marketing-theme .marketing-table__head { font-size: 14px; }
 .marketing-theme .marketing-table__row { font-size: 14px; line-height: 1.6; }
 .marketing-theme .marketing-home__metric h2 { font-size: 15px; }
@@ -156,5 +155,4 @@
 @media (max-width: 600px) {
   .marketing-theme .marketing-home__metric > strong { font-size: 27px; }
   .marketing-theme .page-header { flex-wrap: wrap; }
-  .marketing-theme .weekly-schedule__row { grid-template-columns: 1fr 1fr; }
 }

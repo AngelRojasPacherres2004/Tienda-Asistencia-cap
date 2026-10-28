@@ -320,6 +320,15 @@ export class CloudDataService {
     });
   }
 
+  async storeTransfers(signal?: AbortSignal): Promise<{
+    routes: import('./stock-transfers').StockTransferRoute[];
+    products: import('./stock-transfers').TransferProduct[];
+    stores: CompanyRankingData['stores'];
+  } | null> {
+    if (!this.portalMode) return null;
+    return this.portalRequest('/commercial/store-transfers', { signal });
+  }
+
   async companyRanking(): Promise<CompanyRankingData | null> {
     if (!this.portalMode) return null;
     return this.portalRequest<CompanyRankingData>('/commercial/company-ranking');

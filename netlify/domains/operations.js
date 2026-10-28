@@ -440,27 +440,30 @@ export function createOperationsDomain({
     return data;
   }
 
-  async function listCoverageCandidates(_user) {
+  async function listCoverageCandidates(user) {
     const { data, error } = await readAllResult(supabase.from("usuarios")
       .select("id,nombres,apellidos,dni,area_laboral,tienda_id,tiendas!usuarios_tienda_id_fkey(nombre)")
-      .eq("estado", "activo").in("rol", storeStaffRoles).order("nombres"));
+      .eq("estado", "activo").in("rol", storeStaffRoles.filter(role => !["seguridad", "jefe_seguridad"].includes(role))).order("nombres"));
     if (error) throw dbError(error);
-    return data.map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || null }));
+    return data.filter(row => Number(row.tienda_id) !== Number(user.tienda_id)).map(({ tiendas, ...row }) => ({ ...row, tienda_nombre: tiendas?.nombre || null }));
   }
 
   async function saveSpecialCoverage(event, user) {
-    const data = bodyOf(event);
-    requireFields(data, ["fecha_inicio", "fecha_fin", "tipo_dia", "motivo", "estado", "trabajadores"]);
+    const data = { ...bodyOf(event), fecha_inicio: todayISO(), fecha_fin: todayISO(), tipo_dia: "especial", motivo: "Apoyo de personal del dia", estado: "confirmada" };
+    requireFields(data, ["trabajadores"]);
     if (!isISODate(data.fecha_inicio) || !isISODate(data.fecha_fin) || data.fecha_fin < data.fecha_inicio) throw httpError("El período de cobertura no es válido.", 400);
     if (!["sabado", "domingo", "feriado", "especial"].includes(data.tipo_dia)) throw httpError("Selecciona un tipo de día válido.", 400);
     if (!["borrador", "confirmada"].includes(data.estado)) throw httpError("El estado de cobertura no es válido.", 400);
-    if (!Array.isArray(data.trabajadores) || !data.trabajadores.length) throw httpError("Agrega al menos un trabajador.", 400);
+    if (!Array.isArray(data.trabajadores) || !data.trabajadores.length || data.trabajadores.length > 100) throw httpError("Agrega al menos un trabajador.", 400);
+    const candidates = await listCoverageCandidates(user);
+    data.trabajadores = data.trabajadores.map(row => {
+      const match = !row.usuario_id && row.dni ? candidates.find(person => person.dni === row.dni) : null;
+      return match ? { ...row, usuario_id: match.id } : row;
+    });
     const ids = validIds(data.trabajadores.filter((row) => row.usuario_id).map((row) => row.usuario_id));
     if (ids.length !== data.trabajadores.filter((row) => row.usuario_id).length) throw httpError("No repitas un trabajador en la misma cobertura.", 400);
-    const candidates = await listCoverageCandidates(user);
     const people = candidates.filter((person) => ids.includes(person.id));
-    if (people.length !== ids.length) throw httpError("Uno de los trabajadores no está activo o no puede asignarse a la cobertura.", 400);
-    const byId = new Map(people.map((person) => [person.id, person]));
+    if (people.length !== ids.length || people.some(person => Number(person.tienda_id) === Number(user.tienda_id))) throw httpError("Uno de los trabajadores no está activo o no puede asignarse a la cobertura.", 400);
     for (const row of data.trabajadores) {
       if (!row.usuario_id) {
         const name = cleanText(row.nombre_manual);
@@ -468,23 +471,18 @@ export function createOperationsDomain({
         if (!cleanText(row.origen_manual) || cleanText(row.origen_manual).length > 200) throw httpError("Escribe la tienda de origen (máximo 200 caracteres).", 400);
         if (row.dni && !/^\d{8}$/.test(row.dni)) throw httpError("El DNI debe tener 8 dígitos o quedar vacío.", 400);
       }
-      if (!/^\d{2}:\d{2}$/.test(row.hora_entrada || "")) throw httpError("Indica la hora de entrada de cada trabajador.", 400);
-      if (!["fijo", "apoyo"].includes(row.tipo_cobertura)) throw httpError("Selecciona un tipo de cobertura válido.", 400);
     }
-    const { data: coverage, error } = await supabase.from("coberturas_especiales").insert({
-      tienda_destino_id: user.tienda_id, fecha_inicio: data.fecha_inicio, fecha_fin: data.fecha_fin,
-      tipo_dia: data.tipo_dia, motivo: cleanText(data.motivo), estado: data.estado, creado_por: user.id,
-    }).select().single();
-    if (error) throw dbError(error);
-    const details = data.trabajadores.map((row) => ({
-      cobertura_id: coverage.id, usuario_id: row.usuario_id ? Number(row.usuario_id) : null, area: normalizeLaborArea(row.area) || null,
-      hora_entrada: row.hora_entrada, tipo_cobertura: row.tipo_cobertura,
-      tienda_origen_id: row.usuario_id ? byId.get(Number(row.usuario_id)).tienda_id : null, tienda_destino_id: user.tienda_id,
+    const details = data.trabajadores.map(row => ({
+      usuario_id: row.usuario_id ? Number(row.usuario_id) : null,
+      area: normalizeLaborArea(row.area) || null,
       ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) } : {}),
       observacion: cleanText(row.observacion) || null,
     }));
-    const inserted = await supabase.from("cobertura_trabajadores").insert(details);
-    if (inserted.error) { await supabase.from("coberturas_especiales").delete().eq("id", coverage.id); throw dbError(inserted.error); }
+    const { data: coverage, error } = await supabase.rpc('registrar_cobertura_diaria', {
+      p_tienda_id: user.tienda_id, p_creado_por: user.id, p_trabajadores: details,
+    });
+    if (error?.code === '23505') throw httpError('Ese trabajador ya tiene un apoyo registrado hoy. Revisa la cobertura existente.', 409);
+    if (error) throw dbError(error);
     return coverage;
   }
 

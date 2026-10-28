@@ -87,27 +87,19 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     const data = await fetchAllReportPages(request.order("id"));
     if (!data?.length) return [];
     const ids = data.map(row => row.id);
-    const [optionalResult, schedulesResult, periodsResult] = await Promise.allSettled([
+    const [optionalResult, periodsResult] = await Promise.allSettled([
       readAllResult(supabase.from("usuarios").select("id,contacto_emergencia,motivo_salida").in("id", ids)),
-      readAllResult(supabase.from("horarios_trabajadores").select("usuario_id,dia_semana,trabaja,hora_entrada,hora_salida").in("usuario_id", ids).order("dia_semana")),
       readAllResult(supabase.from("periodos_laborales").select("usuario_id,id").in("usuario_id", ids)),
     ]);
     const optionalRows = optionalResult.status === "fulfilled" ? optionalResult.value.data : [];
-    const schedules = schedulesResult.status === "fulfilled" ? schedulesResult.value.data : [];
     const periods = periodsResult.status === "fulfilled" ? periodsResult.value.data : [];
     const optionalById = new Map((optionalRows || []).map((row) => [row.id, row]));
-    const schedulesByUser = new Map();
-    for (const schedule of schedules || []) {
-      if (!schedulesByUser.has(schedule.usuario_id)) schedulesByUser.set(schedule.usuario_id, []);
-      schedulesByUser.get(schedule.usuario_id).push(schedule);
-    }
     const periodCount = new Map();
     for (const period of periods || []) periodCount.set(period.usuario_id, (periodCount.get(period.usuario_id) || 0) + 1);
     const rows = data.map((row) => ({
       ...mapUserRow(row), ...(optionalById.get(row.id) || {}),
       area_laboral: normalizeLaborArea(row.area_laboral) || null,
       motivo_salida: normalizeDepartureReason(optionalById.get(row.id)?.motivo_salida) || null,
-      horarios: schedulesByUser.get(row.id) || [],
       reingreso: (periodCount.get(row.id) || 0) > 1,
     }));
     if (["gerencia_general", "gerente_comercial"].includes(actor.rol) && rows.some((row) => row.rol === "jefe_zonal")) {
@@ -225,7 +217,6 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     if (error) throw dbError(error);
     await saveOptionalPersonnelFields(created.id, data);
     await syncEmploymentPeriod(created.id, data, actor.id);
-    await saveWeeklySchedule(created.id, data.horarios);
     if (data.rol === "jefe_tienda" && data.tienda_id) await linkStoreChief(created.id, Number(data.tienda_id));
     if (data.rol === "jefe_zonal") {
       try {
@@ -341,7 +332,6 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     if (error) throw dbError(error);
     await saveOptionalPersonnelFields(id, data);
     await syncEmploymentPeriod(id, data, actor.id);
-    await saveWeeklySchedule(id, data.horarios);
     if (data.rol === "jefe_tienda" && nextStoreId) await linkStoreChief(id, Number(nextStoreId), current.tienda_id);
     if (data.rol === "jefe_tienda" && !nextStoreId && current.tienda_id) {
       const released = await supabase.from("tiendas").update({ jefe_id: null }).eq("id", current.tienda_id).eq("jefe_id", id);
@@ -356,34 +346,6 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
       motivo_salida: data.motivo_salida ? normalizeDepartureReason(data.motivo_salida) : null,
     }).eq("id", id);
     if (error && !["42703", "PGRST204"].includes(error.code)) throw dbError(error);
-  }
-
-  async function saveWeeklySchedule(userId, schedule) {
-    if (!Array.isArray(schedule)) return;
-    const rows = schedule.map((row) => ({
-      usuario_id: userId,
-      dia_semana: Number(row.dia_semana),
-      trabaja: Boolean(row.trabaja),
-      hora_entrada: row.trabaja ? row.hora_entrada : null,
-      hora_salida: row.trabaja ? row.hora_salida : null,
-      updated_at: new Date().toISOString(),
-    }));
-    const { error } = await supabase.from("horarios_trabajadores").upsert(rows, { onConflict: "usuario_id,dia_semana" });
-    if (error) throw dbError(error);
-  }
-
-  function validateWeeklySchedule(schedule) {
-    if (schedule == null) return;
-    if (!Array.isArray(schedule) || schedule.length !== 7) throw httpError("El horario semanal debe incluir los siete días.", 400);
-    const days = new Set();
-    for (const row of schedule) {
-      const day = Number(row.dia_semana);
-      if (!Number.isInteger(day) || day < 1 || day > 7 || days.has(day)) throw httpError("El horario semanal contiene días inválidos o repetidos.", 400);
-      days.add(day);
-      if (row.trabaja && (!/^\d{2}:\d{2}$/.test(row.hora_entrada || "") || !/^\d{2}:\d{2}$/.test(row.hora_salida || ""))) {
-        throw httpError("Indica la hora de entrada y salida de cada día trabajado.", 400);
-      }
-    }
   }
 
   async function syncEmploymentPeriod(userId, data, actorId) {
@@ -475,5 +437,5 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     return excelResponse(workbook, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx");
   }
 
-  return { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, validateWeeklySchedule, deleteUser, importUsersAdmin, exportUsersExcelAdmin };
+  return { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin };
 }

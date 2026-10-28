@@ -1,3 +1,4 @@
+import { attendanceDayIndex, attendancePersonId, PRESENT_STATES } from "../../shared/attendance.js";
 import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
@@ -227,7 +228,9 @@ const attendanceCodes = {
   presente: { code: "A", label: "Asistencia" },
   tardanza: { code: "T", label: "Tardanza" },
   medio_turno: { code: "M", label: "Medio turno" },
-  apoyo: { code: "AP", label: "Apoyo" },
+  apoyo: { code: "AS", label: "Apoyo (salida)" },
+  apoyo_ingreso: { code: "AI", label: "Apoyo (ingreso)" },
+  descanso: { code: "D", label: "Descanso" },
   falta: { code: "F", label: "Falta" },
   permiso: { code: "P", label: "Permiso" },
   descanso_medico: { code: "DM", label: "Descanso médico" },
@@ -282,9 +285,11 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", closeOnEscape); };
   }, [expanded]);
 
-  const visiblePeople = people.filter((person) => (includeInactive || person.estado === "activo") && (!workerId || String(person.id) === workerId));
+  const participantMap = new Map(people.map(person => [person.id, person]));
+  for (const record of records || []) if (record.fecha.startsWith(month) && !participantMap.has(attendancePersonId(record))) participantMap.set(attendancePersonId(record), { id: attendancePersonId(record), nombres: record.nombre, apellidos: "", nombre: record.nombre, estado: "activo" });
+  const visiblePeople = [...participantMap.values()].filter((person) => (includeInactive || person.estado === "activo") && (!workerId || String(person.id) === workerId));
   const monthRecords = (records || []).filter((record) => record.fecha.startsWith(month));
-  const byPersonAndDay = new Map(monthRecords.map((record) => [`${record.usuario_id}-${Number(record.fecha.slice(8, 10))}`, record]));
+  const byPersonAndDay = attendanceDayIndex(monthRecords);
   const resetFilters = () => {
     setYear(currentDate.slice(0, 4)); setMonthNumber(currentDate.slice(5, 7));
     setWorkerId(""); setIncludeInactive(false); onPeriodChange({ year: currentDate.slice(0, 4), monthNumber: currentDate.slice(5, 7), week: "", day: "" });
@@ -320,7 +325,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
         <div className="attendance-matrix" style={{ "--attendance-days": days.length }}>
           <div className="attendance-matrix-row attendance-matrix-row--totals">
             <strong className="attendance-matrix-person">Total asistencia</strong>
-            {days.map((value) => <strong key={value}>{visiblePeople.filter((person) => byPersonAndDay.get(`${person.id}-${value}`)?.estado === "presente").length}</strong>)}
+            {days.map((value) => <strong key={value}>{visiblePeople.filter((person) => PRESENT_STATES.has(byPersonAndDay.get(`${person.id}-${value}`)?.estado)).length}</strong>)}
             <strong className="attendance-matrix-total" /><strong className="attendance-matrix-total" /><strong className="attendance-matrix-total" />
           </div>
           <div className="attendance-matrix-row attendance-matrix-row--head">

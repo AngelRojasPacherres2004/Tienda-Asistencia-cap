@@ -1,3 +1,5 @@
+import { attendancePersonId, attendancePersonName } from '../../shared/attendance.js';
+
 export function createWorkforceDomain({
   activeStoreIds, applyStoreScope, asistenciaEstados, attendanceStaffRoles,
   bodyOf, cleanText, dbError, estadoLabels, fetchAllReportPages, httpError,
@@ -14,7 +16,7 @@ export function createWorkforceDomain({
       .in("rol", attendanceStaffRoles).order("nombres");
     empleadosQuery = applyStoreScope(empleadosQuery, tiendaScope);
     if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
-    let registrosQuery = supabase.from("asistencias").select("*").eq("fecha", fecha);
+    let registrosQuery = supabase.from("asistencias").select("*,usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni),cobertura_trabajador:cobertura_trabajadores(nombre_manual,dni_manual,origen_manual)").eq("fecha", fecha);
     registrosQuery = applyStoreScope(registrosQuery, tiendaScope);
     const [{ data: empleados, error: e1 }, { data: registros, error: e2 }] = await Promise.all([
       readAllResult(empleadosQuery),
@@ -22,12 +24,21 @@ export function createWorkforceDomain({
     ]);
     if (e1) throw dbError(e1);
     if (e2) throw dbError(e2);
-    const byUser = new Map(registros.map((row) => [row.usuario_id, row]));
+    const allPeople = new Map(empleados.map(emp => [emp.id, emp]));
+    const byUser = new Map();
+    for (const record of registros) {
+      const id = attendancePersonId(record);
+      byUser.set(id, record);
+      if (!allPeople.has(id) && query.estado !== 'inactivo') allPeople.set(id, {
+        id, usuario_id: record.usuario_id, nombres: attendancePersonName(record), apellidos: '',
+        dni: record.usuarios?.dni || record.cobertura_trabajador?.dni_manual || '', estado: 'activo',
+      });
+    }
     return {
       fecha,
-      empleados: empleados.map((emp) => ({
-        usuario_id: emp.id, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado,
-        registro: byUser.get(emp.id) || null,
+      empleados: [...allPeople.values()].map((emp) => ({
+        persona_id: emp.id, usuario_id: typeof emp.id === 'number' ? emp.id : null, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado,
+        registro: byUser.get(emp.id) || null, apoyo_ingreso: byUser.get(emp.id)?.estado === 'apoyo_ingreso', bloqueado: Boolean(byUser.get(emp.id)?.cobertura_trabajador_id),
       })),
     };
   }
@@ -37,17 +48,17 @@ export function createWorkforceDomain({
     requireFields(data, ["fecha", "marcas"]);
     if (!isISODate(data.fecha)) throw httpError("La fecha no es válida.", 400);
     if (!Array.isArray(data.marcas) || !data.marcas.length) throw httpError("No hay marcas para guardar.", 400);
+    if (data.marcas.some(marca => marca.estado === 'apoyo_ingreso')) throw httpError('Apoyo (ingreso) solo se registra al crear una cobertura del d?a.', 403);
     const usuarioIds = validIds(data.marcas.map((marca) => marca.usuario_id));
     const { data: empleados, error: eError } = await readAllResult(supabase.from("usuarios")
       .select("id,tienda_id,rol").in("id", usuarioIds));
     if (eError) throw dbError(eError);
-    if (empleados.length !== usuarioIds.length || empleados.some((emp) => emp.tienda_id !== user.tienda_id || !attendanceStaffRoles.includes(emp.rol))) {
+    if (empleados.length !== usuarioIds.length || empleados.some((emp) => Number(emp.tienda_id) !== Number(user.tienda_id) || !attendanceStaffRoles.includes(emp.rol))) {
       throw httpError("La asistencia solo se registra para personal de la tienda que participa en ese control; Seguridad queda excluida.", 400);
     }
-    const tiendaByUser = new Map(empleados.map((emp) => [emp.id, emp.tienda_id]));
 
     const { data: existentes, error: exError } = await readAllResult(supabase.from("asistencias")
-      .select("usuario_id,estado,observaciones").eq("fecha", data.fecha).in("usuario_id", usuarioIds));
+      .select("usuario_id,estado,observaciones,cobertura_trabajador_id").eq("tienda_id", user.tienda_id).eq("fecha", data.fecha).in("usuario_id", usuarioIds));
     if (exError) throw dbError(exError);
     const existenteByUser = new Map(existentes.map((row) => [row.usuario_id, row]));
 
@@ -58,8 +69,9 @@ export function createWorkforceDomain({
       if (!asistenciaEstados.has(marca.estado)) throw httpError("Uno de los estados marcados no es válido.", 400);
       const observaciones = marca.observaciones ? cleanText(marca.observaciones).slice(0, 500) : null;
       const existente = existenteByUser.get(usuarioId);
+      if (existente?.cobertura_trabajador_id) throw httpError('La asistencia del apoyo es autom?tica y est? bloqueada.', 403);
       if (existente && existente.estado === marca.estado && (existente.observaciones || null) === observaciones) continue;
-      const tiendaId = tiendaByUser.get(usuarioId);
+      const tiendaId = user.tienda_id;
       upserts.push({
         usuario_id: usuarioId, tienda_id: tiendaId, fecha: data.fecha, estado: marca.estado,
         observaciones, registrado_por: user.id,
@@ -72,7 +84,8 @@ export function createWorkforceDomain({
       });
     }
     if (upserts.length) {
-      const { error } = await supabase.from("asistencias").upsert(upserts, { onConflict: "usuario_id,fecha" });
+      const { error } = await supabase.from("asistencias").upsert(upserts, { onConflict: "usuario_id,tienda_id,fecha" });
+      if (error?.code === '23505') throw httpError('El trabajador ya tiene una asistencia presencial en otra tienda ese día. Corrige la marca de origen antes de registrar el ingreso.', 409);
       if (error) throw dbError(error);
       const { error: logError } = await supabase.from("log_asistencias").insert(logs);
       if (logError) throw dbError(logError);
@@ -82,9 +95,10 @@ export function createWorkforceDomain({
 
   async function eliminarAsistencia(id, user) {
     const { data: existente, error } = await supabase.from("asistencias")
-      .select("id,usuario_id,tienda_id,fecha,estado").eq("id", id).maybeSingle();
+      .select("id,usuario_id,tienda_id,fecha,estado,cobertura_trabajador_id").eq("id", id).maybeSingle();
     if (error) throw dbError(error);
     if (!existente || existente.tienda_id !== user.tienda_id) throw httpError("Registro no encontrado.", 404);
+    if (existente.cobertura_trabajador_id) throw httpError('La asistencia del apoyo es autom?tica y est? bloqueada.', 403);
     const { error: deleteError } = await supabase.from("asistencias").delete().eq("id", id);
     if (deleteError) throw dbError(deleteError);
     const { error: logError } = await supabase.from("log_asistencias").insert({
@@ -102,16 +116,13 @@ export function createWorkforceDomain({
     const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
     const ascending = query.orden === "asc";
     let request = supabase.from("asistencias")
-      .select("*, usuarios!asistencias_usuario_id_fkey!inner(nombres,apellidos,usuario,estado)")
+      .select("*, usuarios!asistencias_usuario_id_fkey(nombres,apellidos,usuario,estado),cobertura_trabajador:cobertura_trabajadores(nombre_manual,dni_manual,origen_manual)")
       .gte("fecha", desde).lte("fecha", hasta).order("fecha", { ascending });
     request = applyStoreScope(request, tiendaScope);
-    if (query.estado_usuario === "activo" || query.estado_usuario === "inactivo") {
-      request = request.eq("usuarios.estado", query.estado_usuario);
-    }
     const data = await fetchAllReportPages(request.order("id"));
-    return data.map((row) => ({
-      ...row, usuarios: undefined,
-      nombre: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "",
+    return data.filter(row => !['activo', 'inactivo'].includes(query.estado_usuario) || (row.usuarios?.estado || 'activo') === query.estado_usuario).map((row) => ({
+      ...row, usuarios: undefined, persona_id: attendancePersonId(row),
+      nombre: attendancePersonName(row),
       usuario: row.usuarios?.usuario || "",
     }));
   }
@@ -122,7 +133,7 @@ export function createWorkforceDomain({
     const hasta = query.hasta && isISODate(query.hasta) ? query.hasta : todayISO();
     let request = supabase.from("log_asistencias")
       .select("id,fecha,operacion,estado_anterior,estado_nuevo,created_at,"
-        + "usuarios!log_asistencias_usuario_id_fkey(nombres,apellidos),"
+        + "usuarios!log_asistencias_usuario_id_fkey(nombres,apellidos),cobertura_trabajador:cobertura_trabajadores(nombre_manual),"
         + "realizador:usuarios!log_asistencias_realizado_por_fkey(nombres,apellidos)")
       .eq("tienda_id", user.tienda_id)
       .gte("created_at", `${desde}T00:00:00-05:00`).lte("created_at", `${hasta}T23:59:59.999-05:00`)
@@ -133,7 +144,7 @@ export function createWorkforceDomain({
       id: row.id, fecha: row.fecha, operacion: row.operacion, created_at: row.created_at,
       estado_anterior: row.estado_anterior ? (estadoLabels[row.estado_anterior] || row.estado_anterior) : null,
       estado_nuevo: row.estado_nuevo ? (estadoLabels[row.estado_nuevo] || row.estado_nuevo) : null,
-      trabajador: row.usuarios ? `${row.usuarios.nombres} ${row.usuarios.apellidos}` : "",
+      trabajador: attendancePersonName(row),
       realizado_por: row.realizador ? `${row.realizador.nombres} ${row.realizador.apellidos}` : "",
     }));
   }

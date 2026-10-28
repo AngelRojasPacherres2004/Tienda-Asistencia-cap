@@ -1,3 +1,4 @@
+import { attendancePersonName } from "../../shared/attendance.js";
 export function createExcelDomain({
   createExcelWorkbook, dbError, estadoLabels, fetchAllReportPages,
   httpError, isISODate, progresoLabels, readAllResult, supabase,
@@ -49,15 +50,15 @@ export function createExcelDomain({
 
   async function fetchAsistenciasExport(tiendaId, desde, hasta) {
     let request = supabase.from("asistencias")
-      .select("fecha,estado,observaciones,usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni)")
+      .select("fecha,estado,observaciones,usuarios!asistencias_usuario_id_fkey(nombres,apellidos,dni),cobertura_trabajador:cobertura_trabajadores(nombre_manual,dni_manual)")
       .order("fecha", { ascending: false });
     if (tiendaId) request = request.eq("tienda_id", tiendaId);
     if (desde && isISODate(desde)) request = request.gte("fecha", desde);
     if (hasta && isISODate(hasta)) request = request.lte("fecha", hasta);
     const data = await fetchAllReportPages(request.order("id"));
     return data.map((row) => ({
-      fecha: row.fecha, empleado: `${row.usuarios?.nombres || ""} ${row.usuarios?.apellidos || ""}`.trim(),
-      dni: row.usuarios?.dni || "", estado: estadoLabels[row.estado] || row.estado,
+      fecha: row.fecha, empleado: attendancePersonName(row),
+      dni: row.usuarios?.dni || row.cobertura_trabajador?.dni_manual || "", estado: estadoLabels[row.estado] || row.estado,
       observaciones: row.observaciones || "",
     }));
   }

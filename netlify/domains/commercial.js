@@ -1,3 +1,4 @@
+import { storeTransferOpportunities } from '../lib/store-transfers.js';
 export function createCommercialDomain({ supabase, commercialAccess, dbError, httpError, readAllResult, fetchAllReportPages, normalizeGoalRubro, aggregateCommercialGoalTotals, bodyOf, cleanText, validCommercialPartPath, gunzipSync }) {
   async function currentCommercialAccess(sessionUser) {
     const [{ data: account, error: accountError }, { data: scope, error: scopeError }, { data: storeMap, error: mapError }] = await Promise.all([
@@ -367,6 +368,38 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     };
   }
 
+  async function commercialStoreTransfers(sessionUser) {
+    const access = await currentCommercialAccess(sessionUser);
+    if (access.scopeType !== 'store') throw httpError('Esta consulta requiere una tienda asignada.', 403);
+    const release = await publishedCommercialRelease();
+    const allAccess = { scopeType: 'all' };
+    let logicalName = 'dashboard-stock-transfers.json';
+    let rows = await commercialFileRows(release.id, allAccess, logicalName);
+    if (!rows.length) {
+      logicalName = 'dashboard-stock-products.json';
+      rows = await commercialFileRows(release.id, allAccess, logicalName);
+    }
+    if (!rows.length) {
+      logicalName = 'dashboard-stock.json';
+      rows = await commercialFileRows(release.id, allAccess, logicalName);
+    }
+    const parts = rows[0]?.parts || [];
+    if (!parts.length || !parts.every(part => validCommercialPartPath(part.path, allAccess, logicalName))) {
+      throw httpError('El detalle de traslados no está disponible.', 503);
+    }
+    const chunks = await Promise.all(parts.map(async part => {
+      const result = await supabase.storage.from('dashboard-data').download(part.path);
+      if (result.error || !result.data) throw httpError('No se pudo leer el detalle de traslados.', 503);
+      return Buffer.from(await result.data.arrayBuffer());
+    }));
+    const bytes = Buffer.concat(chunks);
+    const payload = JSON.parse((parts.every(part => part.encoding === 'gzip') ? gunzipSync(bytes) : bytes).toString('utf8'));
+    const value = storeTransferOpportunities(payload.stockCompact || payload.stockProducts, access.storeIds);
+    const ranking = await commercialCompanyRanking(sessionUser);
+    const involved = new Set(value.routes.flatMap(row => [row.source, row.destination]));
+    return { ...value, stores: ranking.stores.filter(store => involved.has(store.storeId)) };
+  }
+
   let companyRankingCache = null;
   async function commercialCompanyRanking(sessionUser, includeGoalDetails = false) {
     await currentCommercialAccess(sessionUser);
@@ -406,5 +439,5 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     return responseValue(value);
   }
 
-  return { currentCommercialAccess, commercialOperationalSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking };
+  return { currentCommercialAccess, commercialOperationalSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers };
 }

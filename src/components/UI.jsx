@@ -1,4 +1,5 @@
 import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { ATTENDANCE_LABELS } from '../../shared/attendance.js';
 
 export function PageHeader({ eyebrow, title, subtitle, action }) {
   return (
@@ -15,7 +16,7 @@ export function PageHeader({ eyebrow, title, subtitle, action }) {
 
 export function StatusBadge({ value, label }) {
   const key = String(value || "").toLowerCase().replace(/\s+/g, "-");
-  const text = label ?? (value ? String(value).replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase()) : "Sin estado");
+  const text = label ?? ATTENDANCE_LABELS[value] ?? (value ? String(value).replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase()) : "Sin estado");
   return <span className={`status status--${key}`}><i />{text}</span>;
 }
 

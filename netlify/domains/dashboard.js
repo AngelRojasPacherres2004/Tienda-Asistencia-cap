@@ -1,3 +1,4 @@
+import { attendancePersonId } from "../../shared/attendance.js";
 export function createDashboardDomain({
   activeStoreIds, attendanceCounts, courseProgress, dbError,
   employmentPeriods, fetchAllReportPages, httpError, isISODate,
@@ -87,13 +88,13 @@ export function createDashboardDomain({
   }
 
   async function getWorkload(tiendaFilter, monthStart, today) {
-    let request = supabase.from("asistencias").select("usuario_id,tienda_id,estado").gte("fecha", monthStart).lte("fecha", today);
+    let request = supabase.from("asistencias").select("usuario_id,cobertura_trabajador_id,tienda_id,estado,cobertura_trabajador:cobertura_trabajadores(nombre_manual)").gte("fecha", monthStart).lte("fecha", today);
     request = applyStoreScope(request, tiendaFilter);
     const data = await fetchAllReportPages(request.order("id"));
     const groupKey = Array.isArray(tiendaFilter) || !hasStoreScope(tiendaFilter) ? "tienda_id" : "usuario_id";
     const groups = new Map();
     for (const row of data) {
-      const key = row[groupKey];
+      const key = groupKey === "usuario_id" ? attendancePersonId(row) : row[groupKey];
       if (!groups.has(key)) groups.set(key, { presentes: 0, otros: 0, faltas: 0, total: 0 });
       const group = groups.get(key);
       group.total += 1;
@@ -103,9 +104,9 @@ export function createDashboardDomain({
     }
     const ids = [...groups.keys()];
     if (!ids.length) return [];
-    const names = new Map();
+    const names = new Map(data.filter(row => row.cobertura_trabajador?.nombre_manual).map(row => [attendancePersonId(row), row.cobertura_trabajador.nombre_manual]));
     if (groupKey === "usuario_id") {
-      const { data: users } = await supabase.from("usuarios").select("id,nombres,apellidos").in("id", ids);
+      const { data: users } = await supabase.from("usuarios").select("id,nombres,apellidos").in("id", ids.filter(Number.isInteger));
       for (const user of users || []) names.set(user.id, `${user.nombres} ${user.apellidos}`.trim());
     } else {
       const { data: tiendas } = await supabase.from("tiendas").select("id,nombre").in("id", ids);
@@ -164,19 +165,20 @@ export function createDashboardDomain({
   }
 
   async function getAttendanceByWorker(tiendaFilter, desde, hasta) {
-    let request = supabase.from("asistencias").select("usuario_id,estado").gte("fecha", desde).lte("fecha", hasta);
+    let request = supabase.from("asistencias").select("usuario_id,cobertura_trabajador_id,estado,cobertura_trabajador:cobertura_trabajadores(nombre_manual)").gte("fecha", desde).lte("fecha", hasta);
     request = applyStoreScope(request, tiendaFilter);
     const data = await fetchAllReportPages(request.order("id"));
     const groups = new Map();
     for (const row of data || []) {
-      if (!groups.has(row.usuario_id)) groups.set(row.usuario_id, []);
-      groups.get(row.usuario_id).push(row);
+      if (!groups.has(attendancePersonId(row))) groups.set(attendancePersonId(row), []);
+      groups.get(attendancePersonId(row)).push(row);
     }
     const ids = [...groups.keys()];
     if (!ids.length) return [];
-    const { data: users, error: userError } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos,usuario,estado").in("id", ids));
+    const { data: users, error: userError } = await readAllResult(supabase.from("usuarios").select("id,nombres,apellidos,usuario,estado").in("id", ids.filter(Number.isInteger)));
     if (userError) throw dbError(userError);
     const names = new Map((users || []).map((user) => [user.id, `${user.nombres || ""} ${user.apellidos || ""}`.trim() || user.usuario || "Sin identificar"]));
+    for (const row of data || []) if (row.cobertura_trabajador?.nombre_manual) names.set(attendancePersonId(row), row.cobertura_trabajador.nombre_manual);
     const userStates = new Map((users || []).map(user => [user.id, user.estado]));
     return [...groups.entries()].map(([id, counts]) => ({
       usuario_id: id, nombre: names.get(id) || "Sin identificar", ...attendanceCounts(counts),

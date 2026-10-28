@@ -111,9 +111,6 @@
 .app-theme .form-section-title strong { font-size: 14px; }
 .app-theme .form-section-title span { font-size: 12px; }
 .app-theme .field-error { font-size: 13px; }
-.app-theme .weekly-schedule__row strong { font-size: 13px; }
-.app-theme .weekly-schedule__row > input { font-size: 13px; }
-.app-theme .schedule-check { font-size: 13px; }
 .app-theme .worker-file-modal .modal__header h2 { font-size: clamp(23px, 2vw, 30px); }
 .app-theme .worker-file-modal .modal__header p { font-size: 16px; }
 .app-theme .worker-file-modal .worker-file h3 { font-size: 22px; }
@@ -122,11 +119,9 @@
 .app-theme .worker-file-modal .worker-file section > p { font-size: 17px; }
 .app-theme .worker-file-modal .worker-file__list strong { font-size: 17px; }
 .app-theme .worker-file-modal .worker-file__list span, .app-theme .worker-file-modal .worker-file__list p, .app-theme .worker-file-modal .worker-file__list small { font-size: 16px; }
-.app-theme .worker-file-modal .worker-schedule strong, .app-theme .worker-file-modal .worker-schedule span { font-size: 16px; }
 .app-theme .worker-file h3 { font-size: 16px; }
 .app-theme .worker-file dt { font-size: 12px; }
 .app-theme .worker-file dd { font-size: 14px; }
-.app-theme .worker-schedule strong, .app-theme .worker-schedule span { font-size: 13px; }
 .app-theme .coverage-list header span { font-size: 13px; }
 .app-theme .coverage-list section p { font-size: 14px; }
 .app-theme .coverage-worker label > span { font-size: 12px; }

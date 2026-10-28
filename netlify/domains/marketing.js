@@ -103,7 +103,7 @@ export function createMarketingDomain({ supabase, dbError, readAllResult, todayI
     const { data,error }=await supabase.from("campanas_marketing").select("id").eq("id",Number(id)).eq("creado_por",user.id).maybeSingle();
     if(error)throw dbError(error);if(!data)throw httpError("La campaña no pertenece a este equipo de Marketing.",403);
   }
-  const marketingProfileFields = ["tipo_documento", "fecha_salida", "motivo_salida", "fecha_nacimiento", "sueldo", "sexo", "nacionalidad", "direccion", "distrito", "carrera", "grado_academico", "ciclo_semestre", "estado_civil", "numero_hijos", "talla_zapatillas", "talla_polo", "contacto_emergencia", "telefono_emergencia", "alergia", "condicion_salud", "regimen_jornada", "tipo_turno", "tiene_parentesco", "tipo_parentesco", "familiar_vinculo", "horarios"];
+  const marketingProfileFields = ["tipo_documento", "fecha_salida", "motivo_salida", "fecha_nacimiento", "sueldo", "sexo", "nacionalidad", "direccion", "distrito", "carrera", "grado_academico", "ciclo_semestre", "estado_civil", "numero_hijos", "talla_zapatillas", "talla_polo", "contacto_emergencia", "telefono_emergencia", "alergia", "condicion_salud", "regimen_jornada", "tipo_turno", "tiene_parentesco", "tipo_parentesco", "familiar_vinculo"];
   function marketingStaffProfile(d) {
     const documentLength = d.tipo_documento === "ce" ? 9 : 8;
     if (!new RegExp(`^\\d{${documentLength}}$`).test(d.dni || "")) throw httpError(`El documento debe tener ${documentLength} dígitos.`, 400);
@@ -111,7 +111,6 @@ export function createMarketingDomain({ supabase, dbError, readAllResult, todayI
     if (d.fecha_salida && (d.fecha_salida < d.fecha_ingreso || !cleanText(d.motivo_salida))) throw httpError("Revisa la fecha y el motivo de salida.", 400);
     if (d.tiene_parentesco && (!d.tipo_parentesco || !cleanText(d.familiar_vinculo))) throw httpError("Completa los datos de parentesco.", 400);
     for (const key of ["sueldo", "numero_hijos", "talla_zapatillas"]) if (d[key] !== "" && d[key] != null && (!Number.isFinite(Number(d[key])) || Number(d[key]) < 0)) throw httpError("Los valores numéricos deben ser positivos.", 400);
-    if (d.horarios && (!Array.isArray(d.horarios) || d.horarios.length !== 7 || new Set(d.horarios.map(row => row.dia_semana)).size !== 7 || d.horarios.some(row => !Number.isInteger(row.dia_semana) || row.dia_semana < 1 || row.dia_semana > 7 || (row.trabaja && (![row.hora_entrada, row.hora_salida].every(time => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time))))))) throw httpError("Completa los horarios de los días trabajados.", 400);
     return Object.fromEntries(marketingProfileFields.filter(key => Object.hasOwn(d, key)).map(key => [key, d[key]]));
   }
 

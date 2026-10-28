@@ -1,3 +1,4 @@
+import { ATTENDANCE_OPTIONS, ATTENDANCE_LABELS, PRESENT_STATES } from "../../shared/attendance.js";
 import { readRows } from "../lib/read-rows.js";
 import { createReportQueries } from "../lib/report-queries.js";
 import { retrySupabaseRead } from "../lib/retry-supabase-fetch.js";
@@ -69,14 +70,9 @@ const storeStaffRoles = ["jefe_tienda", "asistente_tienda", "jefe_seguridad", "j
 const attendanceStaffRoles = storeStaffRoles.filter(role => !["seguridad", "jefe_seguridad"].includes(role));
 const userStates = new Set(["activo", "inactivo"]);
 const tiendaEstados = new Set(["activo", "inactivo"]);
-const asistenciaEstados = new Set([
-  "presente", "tardanza", "medio_turno", "apoyo", "falta", "permiso", "descanso_medico", "suspension",
-]);
-const estadoLabels = {
-  presente: "Asistencia", tardanza: "Tardanza", medio_turno: "Medio Turno", apoyo: "Apoyo",
-  falta: "Falta", permiso: "Permiso", descanso_medico: "Descanso Médico", suspension: "Suspensión",
-};
-const presenteEstados = new Set(["presente", "tardanza", "medio_turno", "apoyo"]);
+const asistenciaEstados = new Set(ATTENDANCE_OPTIONS.map(option => option.value));
+const estadoLabels = ATTENDANCE_LABELS;
+const presenteEstados = PRESENT_STATES;
 const operacionesLog = new Set(["creacion", "edicion", "eliminacion"]);
 const progresoLabels = { pendiente: "Pendiente", en_curso: "En curso", completado: "Completado" };
 const progresoEstados = new Set(["pendiente", "en_curso", "completado"]);
@@ -232,7 +228,7 @@ async function authenticatedContext(event, allowFallback = false) {
   return session;
 }
 
-const { currentCommercialAccess, commercialOperationalSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking } = createCommercialDomain({
+const { currentCommercialAccess, commercialOperationalSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers } = createCommercialDomain({
   supabase, commercialAccess, dbError, httpError, readAllResult, fetchAllReportPages, normalizeGoalRubro, aggregateCommercialGoalTotals, bodyOf, cleanText, validCommercialPartPath, gunzipSync,
 });
 
@@ -276,7 +272,6 @@ function validateUserPayload(data) {
   if (data.tiene_parentesco && (!cleanText(data.tipo_parentesco) || !cleanText(data.familiar_vinculo))) {
     throw httpError("Indica el tipo de parentesco y el nombre del familiar o vínculo.", 400);
   }
-  validateWeeklySchedule(data.horarios);
   if (centralRoles.has(data.rol) && data.tienda_id) {
     throw httpError("Gerentes y jefes zonales no llevan una única tienda asignada.", 400);
   }
@@ -369,9 +364,131 @@ const { authAccount, login, credentialPermissions, setCredentialPermission, chan
 });
 
 // ---------- Usuarios ----------
-const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, validateWeeklySchedule, deleteUser, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
+const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
   supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse,
 });
+
+async function communicationStoreScope(user, requestedStoreId = null) {
+  let storeId = Number(requestedStoreId) || null;
+  if (user.rol === "jefe_tienda") {
+    const { data: account, error: accountError } = await supabase.from("usuarios")
+      .select("id,rol,estado,tienda_id").eq("id", user.id).maybeSingle();
+    if (accountError) throw dbError(accountError);
+    if (!account || account.rol !== "jefe_tienda" || account.estado !== "activo" || !account.tienda_id) {
+      throw httpError("Tu cuenta ya no tiene acceso de administrador de tienda.", 403);
+    }
+    storeId = Number(account.tienda_id);
+  } else if (user.rol === "jefe_zonal") {
+    const storeIds = await zonalStoreIds(user.id);
+    if (!storeId) return { storeIds };
+    if (!storeIds.some(id => Number(id) === storeId)) throw httpError("La tienda no pertenece a tu zona.", 403);
+  } else {
+    throw httpError("La bandeja está disponible para los roles zonal y administrador de tienda.", 403);
+  }
+
+  const { data: store, error: storeError } = await supabase.from("tiendas")
+    .select("id,nombre,estado,jefe_id,cluster:clusters(jefe_zonal_id)").eq("id", storeId).maybeSingle();
+  if (storeError) throw dbError(storeError);
+  if (!store || store.estado !== "activo") throw httpError("La tienda no está activa.", 404);
+  const zonalId = Number(store.cluster?.jefe_zonal_id) || null;
+  if (!zonalId) throw httpError("La tienda todavía no tiene un jefe zonal asignado.", 409);
+
+  let managerId = Number(store.jefe_id) || null;
+  if (managerId) {
+    const { data: manager, error } = await supabase.from("usuarios").select("id")
+      .eq("id", managerId).eq("rol", "jefe_tienda").eq("estado", "activo").eq("tienda_id", storeId).maybeSingle();
+    if (error) throw dbError(error);
+    if (!manager) managerId = null;
+  }
+  if (!managerId) {
+    const { data: manager, error } = await supabase.from("usuarios").select("id")
+      .eq("rol", "jefe_tienda").eq("estado", "activo").eq("tienda_id", storeId).maybeSingle();
+    if (error) throw dbError(error);
+    managerId = Number(manager?.id) || null;
+  }
+  if (!managerId) throw httpError("La tienda todavía no tiene un administrador activo.", 409);
+  if (user.rol === "jefe_tienda" && managerId !== Number(user.id)) {
+    throw httpError("Tu cuenta no es el administrador asignado a esta tienda.", 403);
+  }
+  return { store, storeId, zonalId, managerId };
+}
+
+async function getStoreMailbox(event, user) {
+  const requestedStoreId = event.queryStringParameters?.tienda_id;
+  if (user.rol === "jefe_zonal" && !requestedStoreId) {
+    const { storeIds } = await communicationStoreScope(user);
+    if (!storeIds.length) return { tiendas: [], tienda_id: null, mensajes: [], documentos: [] };
+    const { data, error } = await readAllResult(supabase.from("tiendas")
+      .select("id,nombre,estado,jefe_id").in("id", storeIds).eq("estado", "activo").order("nombre"));
+    if (error) throw dbError(error);
+    return { tiendas: data || [], tienda_id: null, mensajes: [], documentos: [] };
+  }
+
+  const scope = await communicationStoreScope(user, requestedStoreId);
+  const { data: messages, error: messageError } = await supabase.from("bandeja_mensajes_zonal_tienda")
+    .select("id,tienda_id,remitente_id,destinatario_id,mensaje,leido_en,created_at,remitente:usuarios!bandeja_mensajes_zonal_tienda_remitente_id_fkey(nombres,apellidos,rol),destinatario:usuarios!bandeja_mensajes_zonal_tienda_destinatario_id_fkey(nombres,apellidos,rol)")
+    .eq("tienda_id", scope.storeId).in("remitente_id", [scope.zonalId, scope.managerId])
+    .in("destinatario_id", [scope.zonalId, scope.managerId]).order("created_at", { ascending: false }).limit(100);
+  if (messageError) throw dbError(messageError);
+
+  let documents = [];
+  if (user.rol === "jefe_tienda") {
+    const { data, error } = await supabase.from("documentos_municipales")
+      .select("id,tipo_documento,codigo,fecha_vencimiento,dias_alerta,estado")
+      .eq("tienda_id", scope.storeId).gte("fecha_vencimiento", todayISO())
+      .order("fecha_vencimiento").limit(250);
+    if (error) throw dbError(error);
+    const today = todayISO();
+    documents = (data || []).filter(row => {
+      const days = Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000);
+      return days <= Number(row.dias_alerta || 30);
+    });
+  }
+  let stores = [];
+  if (user.rol === "jefe_zonal") {
+    const storeIds = await zonalStoreIds(user.id);
+    const { data, error } = await readAllResult(supabase.from("tiendas")
+      .select("id,nombre").in("id", storeIds.length ? storeIds : [0]).eq("estado", "activo").order("nombre"));
+    if (error) throw dbError(error);
+    stores = data || [];
+  }
+  return {
+    tiendas: stores,
+    tienda_id: scope.storeId,
+    zonal_id: scope.zonalId,
+    mensajes: messages || [],
+    documentos: documents,
+  };
+}
+
+async function sendMailboxMessage(event, user) {
+  const body = bodyOf(event);
+  const scope = await communicationStoreScope(user, body.tienda_id);
+  const message = cleanText(body.mensaje);
+  if (!message || message.length > 2000) throw httpError("Escribe un mensaje de hasta 2000 caracteres.", 400);
+  const recipientId = Number(user.id) === scope.managerId ? scope.zonalId : scope.managerId;
+  const { data, error } = await supabase.from("bandeja_mensajes_zonal_tienda").insert({
+    tienda_id: scope.storeId, remitente_id: Number(user.id), destinatario_id: recipientId, mensaje: message,
+  }).select("id,tienda_id,remitente_id,destinatario_id,mensaje,leido_en,created_at")
+    .single();
+  if (error) throw dbError(error);
+  return data;
+}
+
+async function markMailboxMessageRead(event, user, messageId) {
+  const { data: message, error: readError } = await supabase.from("bandeja_mensajes_zonal_tienda")
+    .select("id,tienda_id,remitente_id,destinatario_id").eq("id", messageId).maybeSingle();
+  if (readError) throw dbError(readError);
+  if (!message || Number(message.destinatario_id) !== Number(user.id)) throw httpError("El mensaje no está en tu bandeja recibida.", 404);
+  const scope = await communicationStoreScope(user, message.tienda_id);
+  if (![scope.zonalId, scope.managerId].includes(Number(message.remitente_id))) throw httpError("No tienes acceso a este mensaje.", 403);
+  const { error } = await supabase.from("bandeja_mensajes_zonal_tienda")
+    .update({ leido_en: new Date().toISOString() }).eq("id", message.id).is("leido_en", null);
+  if (error) throw dbError(error);
+  return { ok: true };
+}
+
+
 
 // ---------- Clústeres y tiendas ----------
 const { listClusters, createCluster, updateCluster, deleteCluster, listTiendas, listStoreCatalogs, createTienda, updateTienda } = createStoresDomain({
@@ -525,6 +642,19 @@ export async function handler(event) {
       const selected = await resolveAdministratorContext(supabase, { ...sessionClaims(user), tienda_contexto_id: storeId });
       return json(200, { user: selected }, { "Set-Cookie": sessionCookie(jwt.sign(sessionClaims(selected), jwtSecret(), { expiresIn: "10h" }), event) });
     }
+    if (path === "/bandeja-zonal-tienda" && method === "GET") {
+      ensureAuth(event, ["jefe_zonal", "jefe_tienda"]);
+      return json(200, await getStoreMailbox(event, user));
+    }
+    if (path === "/bandeja-zonal-tienda/mensajes" && method === "POST") {
+      ensureAuth(event, ["jefe_zonal", "jefe_tienda"]);
+      return json(201, await sendMailboxMessage(event, user));
+    }
+    const mailboxReadMatch = path.match(/^\/bandeja-zonal-tienda\/mensajes\/(\d+)\/leido$/);
+    if (mailboxReadMatch && method === "PATCH") {
+      ensureAuth(event, ["jefe_zonal", "jefe_tienda"]);
+      return json(200, await markMailboxMessageRead(event, user, Number(mailboxReadMatch[1])));
+    }
     if (path === "/zonal/apoyos-tienda" && method === "GET") {
       return json(200, await storeSupportCatalog(supabase, user, zonalStoreIds));
     }
@@ -606,6 +736,9 @@ export async function handler(event) {
     }
     if (path === "/commercial/store-goals" && method === "GET") {
       return json(200, await commercialStoreGoals(user));
+    }
+    if (path === "/commercial/store-transfers" && method === "GET") {
+      return json(200, await commercialStoreTransfers(user));
     }
     if (path === "/commercial/company-ranking" && method === "GET") {
       return json(200, await commercialCompanyRanking(user));
