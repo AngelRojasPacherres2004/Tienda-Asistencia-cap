@@ -2,6 +2,7 @@ import { bootstrapApplication, createApplication } from '@angular/platform-brows
 import { effect, runInInjectionContext } from '@angular/core';
 import { appConfig } from './app/app.config';
 import { App } from './app/app';
+import { CommercialDashboardController } from './app/dashboard-controller';
 import { readRuntimeConfig } from './app/runtime-config';
 
 declare global {
@@ -21,7 +22,7 @@ window.mountCommercialDashboard = async (host, stylesheet) => {
     styles.href = stylesheet;
     shadow.append(styles);
     try {
-      const controller = runInInjectionContext(application.injector, () => new App());
+      const controller = runInInjectionContext(application.injector, () => new CommercialDashboardController());
       const bridge = window.mountReactCommercialStandalone(shadow, controller);
       const watch = runInInjectionContext(application.injector,
         () => effect(() => bridge.update(controller.reactStandaloneModel())));

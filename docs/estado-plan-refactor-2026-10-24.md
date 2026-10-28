@@ -437,6 +437,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   lo sirve. Faltan migrar el controlador y sus servicios, medir paridad más
   amplia y activar los flags en un despliegue verificable antes de retirar
   Angular.
+- La auditoría del montaje completo recorrió los tres roles comerciales en
+  1440 y 820 px, abrió las tres páginas y el asistente en cada combinación;
+  los doce recorridos (Angular y React) terminaron sin errores de la API. El
+  controlador se separó de `app.ts` en `dashboard-controller.ts`; `App` ahora
+  contiene solo la vista Angular de respaldo. React instancia directamente el
+  controlador y no crea el componente Angular. El controlador y los servicios
+  todavía usan señales e inyección de Angular: queda trasladar ese estado a
+  React antes de poder retirar el runtime.
 
 ## Paso 5: pendiente tras la paridad completa del paso 4
 

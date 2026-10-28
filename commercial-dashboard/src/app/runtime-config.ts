@@ -57,7 +57,7 @@ declare global {
       onAction: (action: import('./dashboard-filters').DashboardFilterAction) => void) => ReactFiltersBridge;
     mountReactCommercialModule?: (host: HTMLElement, moduleId: string,
       onAction: (action: { type: string; value?: string | number; file?: File }) => void) => ReactModuleBridge;
-    mountReactCommercialStandalone?: (host: ShadowRoot, controller: import('./app').App) => ReactStandaloneBridge;
+    mountReactCommercialStandalone?: (host: ShadowRoot, controller: import('./dashboard-controller').CommercialDashboardController) => ReactStandaloneBridge;
   }
 }
 
