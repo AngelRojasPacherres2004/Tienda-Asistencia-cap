@@ -236,7 +236,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `predictive-parameters`, `section-heading`, `commercial-access` o
   `assistant-widget`;
   en un despliegue se controlan con
-  `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
+  `VITE_COMMERCIAL_REACT_MODULES`. En desarrollo local se muestran todos los
+  módulos React por defecto; `?reactModule=angular` vuelve a la interfaz
+  Angular y `?reactModule=<id>` aísla un módulo. El despliegue público conserva
+  Angular por defecto.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
   navegación, filtros de mes y día, restablecimiento y apertura del detalle de
   ticket y de cumpleaños. Los controles de tallas cambiaron entre CALZADO,
@@ -290,6 +293,10 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   coincidió píxel por píxel al neutralizar el fondo animado de la captura.
   El asistente coincidió píxel por píxel con Angular en una captura local;
   apertura, escritura de borrador y cierre funcionaron con el servicio actual.
+  Una prueba conjunta de las tres páginas pasó con gerencia comercial,
+  jefatura zonal y jefatura de tienda a 1440 px, más gerencia a 820 px.
+  Esta prueba comprueba montaje y navegación, sin equivaler a la paridad
+  funcional exhaustiva requerida para retirar el controlador Angular.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o

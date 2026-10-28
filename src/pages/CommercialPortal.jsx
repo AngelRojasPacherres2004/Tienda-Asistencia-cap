@@ -50,6 +50,8 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
           .split(",").map(value => value.trim()).filter(value => supportedReactModules.has(value));
         const previewModule = new URLSearchParams(location.search).get("reactModule");
         if (import.meta.env.DEV && supportedReactModules.has(previewModule)) reactModules.push(previewModule);
+        if (import.meta.env.DEV && (previewModule === "all" || (!previewModule && !previewChart))) reactModules.push(...supportedReactModules);
+        if (import.meta.env.DEV && previewModule === "angular") { reactModules.length = 0; reactCharts.length = 0; }
         if (reactCharts.length) {
           const renderer = await import("../components/mount-commercial-react-chart");
           if (!active) return;

@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget", "all-modules"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -59,7 +59,9 @@ const scenarios = [
   { role: "jefe_zonal", width: 820, year: "2025" },
   { role: "jefe_tienda", width: 1440, year: "2026" },
   { role: "jefe_tienda", width: 820, year: "2025" },
-].slice(0, Number(process.env.AUDIT_SCENARIO_LIMIT || 6));
+].filter(scenario => !process.env.AUDIT_ROLE || scenario.role === process.env.AUDIT_ROLE)
+  .filter(scenario => !process.env.AUDIT_WIDTH || scenario.width === Number(process.env.AUDIT_WIDTH))
+  .slice(0, Number(process.env.AUDIT_SCENARIO_LIMIT || 6));
 const results = [];
 try {
   for (const scenario of scenarios) {
@@ -75,7 +77,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", "?reactModule=angular"], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -86,8 +88,10 @@ try {
     page.on("pageerror", error => failures.push(error.message));
     page.on("response", item => {
       const path = new URL(item.url()).pathname;
-      const optionalFallbackFile = ["antiquity-card", "health-card", "projection-card", "replenishment-card", "stock-origin-modal", "predictive-parameters", "section-heading", "assistant-widget"].includes(chartId) && item.status() === 404
-        && /\/api\/commercial\/files\/dashboard-(?:price-range-(?:summary|compact)-\d{4}|stock-hierarchy|stock-sizes-calzado)\.json$/.test(path);
+      const optionalFallbackFile = item.status() === 404 && (
+        (["antiquity-card", "health-card", "projection-card", "replenishment-card", "stock-origin-modal", "predictive-parameters", "section-heading", "assistant-widget", "all-modules"].includes(chartId)
+          && /\/api\/commercial\/files\/dashboard-(?:price-range-(?:summary|compact)-\d{4}|stock-hierarchy|stock-sizes-calzado)\.json$/.test(path))
+        || (chartId === "all-modules" && /\/api\/commercial\/files\/dashboard-sellers-summary-\d{4}\.json$/.test(path)));
       if (item.url().includes("/api/") && item.status() >= 400 && !optionalFallbackFile
         && !(chartId === "commercial-access" && path === "/api/commercial/access" && item.status() === 403)) failures.push(`API ${item.status()}: ${path}`);
       if (item.url().includes("/api/commercial/store-goals")) goalEvents.push(item.status());
@@ -95,7 +99,7 @@ try {
     await page.route("**/api/**", route => {
       const request = route.request();
       const readOnlyPost = request.method() === "POST" && (
-        ["inventory-sizes", "size-controls", "stock-matrix", "size-card", "store-value-card", "transfer-modal", "section-heading"].includes(chartId) && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
+        ["inventory-sizes", "size-controls", "stock-matrix", "size-card", "store-value-card", "transfer-modal", "section-heading", "all-modules"].includes(chartId) && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
         || (chartId.startsWith("predictive-") || ["health-card", "projection-card", "replenishment-card"].includes(chartId)) && new URL(request.url()).pathname === "/api/commercial/stock-insights"
       );
       if (request.method() !== "GET" && !readOnlyPost) return route.abort();
@@ -117,7 +121,31 @@ try {
       const goalsRequest = chartId === "meta-vs-real"
         ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
         : null;
-      await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.goto(`${origin}/${chartId === "all-modules" && mode === "react" ? "" : query}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      if (chartId === "all-modules") {
+        const panels = [
+          { index: 0, page: ".page-one", selectors: [".primary-kpis", ".kpi-strip", ".category-card", ".section-heading"] },
+          { index: 1, page: ".page-two", selectors: [".size-distribution-card", ".predictive-parameters", ".health-card", ".section-heading"] },
+          { index: 2, page: ".talent-page", selectors: [".talent-kpis", ".seller-performance-card", ".training-card", ".section-heading"] },
+        ];
+        for (const target of panels) {
+          if (target.index) await page.locator(".page-tabs button").nth(target.index).click();
+          await page.locator(`${target.page}:visible`).waitFor({ timeout: 30_000 });
+          for (const selector of target.selectors) {
+            const element = page.locator(`${target.page} ${selector}:visible`).first();
+            await element.waitFor({ timeout: 60_000 });
+            assert.equal(await element.getAttribute("data-react-commercial-module") != null, mode === "react", `${mode} ${selector}`);
+          }
+        }
+        const launcher = page.locator(".assistant-launcher:visible");
+        await launcher.click();
+        await page.locator(".assistant-panel:visible").waitFor();
+        await page.locator(".assistant-panel:visible").getByRole("button", { name: "Cerrar asistente" }).click();
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions: { width: 0, height: 0 }, canvasStats: null,
+          screenshot: "", sha256: mode });
+        continue;
+      }
       if (chartId === "commercial-access") {
         const panel = page.locator(".commercial-portal-host .status-panel.error:visible");
         await panel.waitFor({ timeout: 30_000 });
