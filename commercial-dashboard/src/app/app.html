@@ -487,6 +487,7 @@
         <section class="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">
           <div class="block-heading predictive-block-title"><span>C</span><h2>SEÑALES DE REPOSICIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('inventory-c', '02.C Señales de reposición')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>
           @if (sectionAdviceEnabled() && sectionAdviceFor('inventory-c'); as advice) { <div class="predictive-advice-row"><p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p></div> }
+          <dashboard-react-module moduleId="predictive-parameters" [model]="predictiveParametersModel()" (action)="onReactPredictiveParametersAction($event)">
           <div class="predictive-parameters">
             <div class="predictive-rubro-control"><span>RUBRO</span><div class="predictive-toggle"><button type="button" [class.active]="predictiveRubros().includes('TEXTIL')" (click)="togglePredictiveRubro('TEXTIL')">TEXTIL</button><button type="button" [class.active]="predictiveRubros().includes('CALZADO')" (click)="togglePredictiveRubro('CALZADO')">CALZADO</button></div></div>
             @if (storeFilterLocked()) { <label><span>TIENDA</span><select disabled aria-label="Tienda asignada"><option>{{ predictiveStoreOptions()[0]?.store || 'SIN TIENDA ASIGNADA' }}</option></select></label> } @else { <label><span>TIENDA</span><select [ngModel]="predictiveStore()" (ngModelChange)="predictiveStore.set($event)"><option value="TODAS">TODAS</option>@for (store of predictiveStoreOptions(); track store.storeId) { <option [value]="store.storeId">{{ store.alias || store.store }}</option> }</select></label> }
@@ -496,6 +497,7 @@
             <label class="predictive-number"><span>SIN MOVIMIENTO</span><div><input type="number" min="1" step="1" [ngModel]="monthTimeValue(noMovementMonths(), noMovementUnit())" (ngModelChange)="setNoMovementValue(+$event)" /><select aria-label="Unidad de sin movimiento" [ngModel]="noMovementUnit()" (ngModelChange)="noMovementUnit.set($event)"><option value="MONTHS">MESES</option><option value="YEARS">AÑOS</option></select></div></label>
             <label class="predictive-number"><span>MERMA</span><div><input type="number" min="0" max="50" step="1" [ngModel]="predictiveMermaPct()" (ngModelChange)="setPredictiveMerma(+$event)" /><b>%</b></div></label>
           </div>
+          </dashboard-react-module>
           <div class="predictive-overview-grid">
             <article class="card predictive-v2-card predictive-breakage-card feature-hidden" aria-disabled="true" [class.chart-expanded]="expandedChart() === 'predictive-breakage'">
               <button type="button" class="chart-expand" (click)="toggleChartExpansion('predictive-breakage')" [attr.aria-label]="expandedChart() === 'predictive-breakage' ? 'Cerrar gráfico' : 'Ampliar gráfico y ver detalle'">{{ expandedChart() === 'predictive-breakage' ? '×' : '⛶' }}</button>

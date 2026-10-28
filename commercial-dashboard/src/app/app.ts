@@ -1501,6 +1501,34 @@ export class App implements OnInit {
     if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
   }
 
+  readonly predictiveParametersModel = computed<Record<string, unknown>>(() => ({
+    rubros: this.predictiveRubros(), storeLocked: this.storeFilterLocked(),
+    store: this.predictiveStore(), lockedStore: this.predictiveStoreOptions()[0]?.store,
+    stores: this.predictiveStoreOptions().map(store => ({ id: store.storeId, label: store.alias || store.store })),
+    demand: { value: this.timeValue(this.demandWindow(), this.demandWindowUnit()), unit: this.demandWindowUnit() },
+    healthy: { value: this.timeValue(this.healthyCoverageDays(), this.healthyCoverageUnit()), unit: this.healthyCoverageUnit() },
+    overstock: { value: this.timeValue(this.overstockDays(), this.overstockUnit()), unit: this.overstockUnit() },
+    noMovement: { value: this.monthTimeValue(this.noMovementMonths(), this.noMovementUnit()), unit: this.noMovementUnit() },
+    merma: this.predictiveMermaPct(),
+  }));
+
+  onReactPredictiveParametersAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'rubro' && typeof value === 'string') this.togglePredictiveRubro(value);
+    else if (type === 'store' && typeof value === 'string') this.predictiveStore.set(value);
+    else if (type === 'demand-value') this.setDemandWindowValue(Number(value));
+    else if (type === 'healthy-value') this.setHealthyCoverageValue(Number(value));
+    else if (type === 'overstock-value') this.setOverstockValue(Number(value));
+    else if (type === 'no-movement-value') this.setNoMovementValue(Number(value));
+    else if (type === 'merma') this.setPredictiveMerma(Number(value));
+    else if ((type === 'demand-unit' || type === 'healthy-unit' || type === 'overstock-unit' || type === 'no-movement-unit')
+      && (value === 'MONTHS' || value === 'YEARS')) {
+      if (type === 'demand-unit') this.demandWindowUnit.set(value);
+      else if (type === 'healthy-unit') this.healthyCoverageUnit.set(value);
+      else if (type === 'overstock-unit') this.overstockUnit.set(value);
+      else this.noMovementUnit.set(value);
+    }
+  }
+
   readonly sellerCardModel = computed<Record<string, unknown>>(() => ({
     expanded: this.expandedChart() === 'seller-ranking', ready: this.sellerDetailLoaded(),
     loading: this.sellerDetailLoading(),

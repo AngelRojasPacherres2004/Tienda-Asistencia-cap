@@ -208,7 +208,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27–28/10 se añadieron treinta y nueve módulos de interfaz con flags independientes:
+- El 27–28/10 se añadieron cuarenta módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
   tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
@@ -218,7 +218,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   precios, rotación/capacidad, antigüedad del stock, salud del inventario,
   prioridad de reposición, valor en riesgo, los tres cuadros emergentes mensuales
   y el detalle de origen del stock, el ranking de vendedores y la matriz de
-  traslados entre tiendas. El puente conserva los mismos
+  traslados entre tiendas y los controles de proyección de inventario. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
@@ -230,7 +230,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `ranking-card`, `gender-card`, `price-range-card`, `rotation-card` o
   `antiquity-card`, `health-card`, `replenishment-card` o
   `projection-card`, `ticket-modal`, `conversion-modal`, `traffic-modal` o
-  `stock-origin-modal`, `seller-card` o `transfer-modal`;
+  `stock-origin-modal`, `seller-card`, `transfer-modal` o
+  `predictive-parameters`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
@@ -278,7 +279,9 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   y etiquetas. La comparación limita esa tolerancia al interior del gráfico.
   La matriz mostró 719 de 1,183,396 píxeles distintos en una captura local,
   dentro del límite visual; también se comprobaron rubro, expansión de rutas
-  y cierre. Los cálculos y filtros siguen en el controlador Angular.
+  y cierre. Los controles de proyección coincidieron píxel por píxel en una
+  captura local; se probaron el cambio de rubro, la unidad de demanda y la
+  merma. Los cálculos y filtros siguen en el controlador Angular.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o
