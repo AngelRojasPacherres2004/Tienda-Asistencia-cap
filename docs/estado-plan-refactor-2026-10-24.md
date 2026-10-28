@@ -208,7 +208,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 
 ## Paso 4: migración React en curso
 
-- El 27/10 se añadieron treinta y tres módulos de interfaz con flags independientes:
+- El 27/10 se añadieron treinta y siete módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
   indicadores clave, tarjetas de avance, indicadores de talento y controles de
   tallas, dotación por tienda, matriz ampliada de stock, modal de cumpleaños y
@@ -216,7 +216,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   gráficos de Talento, tallas, valor de inventario, participación por categoría,
   venta por marca, ranking de tiendas, participación por género, rango de
   precios, rotación/capacidad, antigüedad del stock, salud del inventario,
-  prioridad de reposición y valor en riesgo. El puente conserva los mismos
+  prioridad de reposición, valor en riesgo, los tres cuadros emergentes mensuales
+  y el detalle de origen del stock. El puente conserva los mismos
   cálculos de Angular y comunica las acciones al controlador existente. En
   local se activan con `?reactModule=header`, `page-tabs`, `filters`,
   `primary-kpis`, `key-kpis`, `progress`, `talent-kpis`, `size-controls`,
@@ -227,7 +228,8 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `size-card`, `store-value-card`, `category-card`, `brand-card` o
   `ranking-card`, `gender-card`, `price-range-card`, `rotation-card` o
   `antiquity-card`, `health-card`, `replenishment-card` o
-  `projection-card`;
+  `projection-card`, `ticket-modal`, `conversion-modal`, `traffic-modal` o
+  `stock-origin-modal`;
   en un despliegue se controlan con
   `VITE_COMMERCIAL_REACT_MODULES`. Angular sigue como vista predeterminada.
   Una comprobación de gerencia comercial a 1440 px confirmó el cambio de año,
@@ -257,6 +259,21 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   de reposición difirió en una etiqueta de 88 × 8 px (323 píxeles), dentro de
   la tolerancia acotada que ya se aplicaba a esa gráfica. Se fijó un criterio
   alfabético para prioridades empatadas y evitar cambios de orden entre cargas.
+  Ticket, conversión y tráfico coincidieron píxel por píxel en la prueba
+  local; se comprobó cambio de año y cierre. El detalle de origen del stock
+  abrió y cerró con la misma tabla; su captura difirió 1,059 de 1,183,396
+  píxeles por un tooltip que permaneció brevemente visible tras el clic.
+  El puente de módulos ahora también monta las vistas creadas después de
+  abrir el dashboard. Se amplió el límite duro del paquete Angular de
+  1.50 a 1.55 MB para permitir el puente temporal; el tamaño actual es
+  aproximadamente 1.50 MB y el límite de advertencia de 1.30 MB sigue activo.
+  El servidor local admite un puerto API alternativo para comprobar datos
+  preparados sin cambiar la versión publicada.
+
+- El ranking de vendedores tiene un piloto React `seller-card`, pero conserva
+  Angular como vista predeterminada. Ambos presentan los mismos 306 vendedores,
+  aunque React aún no dibuja el control vertical de ECharts. Este panel no se
+  considera migrado hasta resolver esa diferencia.
 
 - Se añadió un puente React/ECharts para veintisiete gráficas: Tendencia interanual,
   Meta vs real, Desempeño comercial por hora, Participación por rubro o

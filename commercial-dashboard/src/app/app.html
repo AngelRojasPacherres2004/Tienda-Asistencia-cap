@@ -138,6 +138,7 @@
       </section>
     }
     @if (expandedChart() === 'antiquity-detail') {
+      <dashboard-react-module moduleId="stock-origin-modal" [model]="stockOriginModalModel()" (action)="onReactStockOriginModalAction($event)">
       <section class="card chart-card chart-expanded ticket-modal stock-origin-detail" role="dialog" aria-modal="true" aria-labelledby="stock-origin-detail-title" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
         <button type="button" class="chart-expand" aria-label="Cerrar detalle de antigüedad" (click)="closeExpandedChart()">×</button>
         <h2 id="stock-origin-detail-title">STOCK DE ORIGEN {{ periodLabel(stockOriginDetailPeriod()!) }} · UBICACIÓN POR TIENDA</h2>
@@ -146,8 +147,10 @@
         <p>Detalle por tienda, rubro, línea y sublínea. La fuente de antigüedad no contiene códigos ni nombres individuales de productos.</p>
         <div class="ticket-monthly-table" style="flex: 1; min-height: 0;"><table aria-label="Ubicación y cantidad de stock del mes de origen"><thead><tr><th scope="col">Tienda</th><th scope="col">Código tienda</th><th scope="col">Rubro</th><th scope="col">Línea</th><th scope="col">Sublínea</th><th scope="col">Unidades</th><th scope="col">Valor stock</th></tr></thead><tbody>@for (row of stockOriginDetailRows(); track $index) { <tr><th scope="row">{{ row.store }}</th><td>{{ row.storeId }}</td><td>{{ row.category || 'Sin clasificación' }}</td><td>{{ row.line || 'Sin clasificación' }}</td><td>{{ row.subline || 'Sin clasificación' }}</td><td>{{ number(row.units) }}</td><td>{{ money(row.value) }}</td></tr> } @empty { <tr><td colspan="7">Sin datos para estos filtros.</td></tr> }</tbody></table></div>
       </section>
+      </dashboard-react-module>
     }
     @if (expandedChart() === 'ticket-average') {
+      <dashboard-react-module moduleId="ticket-modal" [model]="ticketModalModel()" (action)="onReactMonthlyModalAction($event)">
       <section class="card chart-card chart-expanded ticket-modal" role="dialog" aria-modal="true" aria-labelledby="ticket-chart-title" tabindex="-1" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
         <button type="button" class="chart-expand" aria-label="Cerrar gráfico de ticket promedio" (click)="closeExpandedChart()">×</button>
         <h2 id="ticket-chart-title">TICKET PROMEDIO POR MES · {{ ticketChartYear() }}</h2>
@@ -163,8 +166,10 @@
         <div class="ticket-extremes-legend" aria-label="Leyenda de valores destacados"><span class="ticket-extreme-max">↑ Máximo</span><span class="ticket-extreme-min">↓ Mínimo</span><span class="ticket-extreme-equal">↕ Máximo y mínimo iguales</span></div>
         <p>Se resaltan todos los empates. Los meses sin transacciones no participan en los máximos y mínimos.</p>
       </section>
+      </dashboard-react-module>
     }
     @if (expandedChart() === 'conversion-average') {
+      <dashboard-react-module moduleId="conversion-modal" [model]="conversionModalModel()" (action)="onReactMonthlyModalAction($event)">
       <section class="card chart-card chart-expanded ticket-modal" role="dialog" aria-modal="true" aria-labelledby="conversion-chart-title" tabindex="-1" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
         <button type="button" class="chart-expand" aria-label="Cerrar gráfico de conversión" (click)="closeExpandedChart()">×</button>
         <h2 id="conversion-chart-title">CONVERSIÓN POR MES · {{ ticketChartYear() }}</h2>
@@ -178,8 +183,10 @@
           <div class="ticket-monthly-table"><table aria-label="Conversión, transacciones y tráfico por mes"><thead><tr><th scope="col">Mes</th><th scope="col">Conversión</th><th scope="col">Transacciones</th><th scope="col">Tráfico</th></tr></thead><tbody>@for (row of conversionMonthlyRows(); track row.label) { <tr><th scope="row">{{ row.label }}</th><td>{{ percent(row.conversion) }}</td><td>{{ number(row.transactions) }}</td><td>{{ number(row.traffic) }}</td></tr> }</tbody></table></div>
         </div>
       </section>
+      </dashboard-react-module>
     }
     @if (expandedChart() === 'traffic-average') {
+      <dashboard-react-module moduleId="traffic-modal" [model]="trafficModalModel()" (action)="onReactMonthlyModalAction($event)">
       <section class="card chart-card chart-expanded ticket-modal" role="dialog" aria-modal="true" aria-labelledby="traffic-chart-title" tabindex="-1" (keydown.escape)="closeExpandedChart()" (keydown.tab)="keepTicketFocus($event)">
         <button type="button" class="chart-expand" aria-label="Cerrar gráfico de tráfico" (click)="closeExpandedChart()">×</button>
         <h2 id="traffic-chart-title">{{ trafficChartLabel() }} POR MES · {{ ticketChartYear() }}</h2>
@@ -193,6 +200,7 @@
           <div class="ticket-monthly-table"><table aria-label="Tráfico mensual por formato"><thead><tr><th scope="col">Mes</th><th scope="col">Tráfico</th><th scope="col">Transacciones</th><th scope="col">Conversión</th></tr></thead><tbody>@for (row of trafficMonthlyRows(); track row.label) { <tr><th scope="row">{{ row.label }}</th><td>{{ number(row.traffic) }}</td><td>{{ number(row.transactions) }}</td><td>{{ percent(row.conversion) }}</td></tr> }</tbody></table></div>
         </div>
       </section>
+      </dashboard-react-module>
     }
     <dashboard-header [model]="headerModel()" (logout)="signOut()" />
 
@@ -626,7 +634,9 @@
 
         <div class="block-heading"><span>B</span><h2>PRODUCTIVIDAD Y DISTRIBUCIÓN</h2><button type="button" class="section-advice-btn" [hidden]="!sectionAdviceEnabled()" (click)="requestSectionAdvice('talent-b', '03.B Productividad y distribución')" title="Pedir consejo a Groq" aria-label="Pedir consejo a Groq">✦</button></div>@if (sectionAdviceEnabled() && sectionAdviceFor('talent-b'); as advice) { <p class="section-advice" [class.error]="advice.error">{{ advice.loading ? 'Generando consejo…' : advice.text }}</p> }
         <div class="talent-performance-grid">
+          <dashboard-react-module moduleId="seller-card" [model]="sellerCardModel()" (action)="onReactSellerAction($event)">
           <article class="card talent-card seller-performance-card" [attr.data-seller-detail-ready]="sellerDetailLoaded() ? 'true' : null" [class.chart-expanded]="expandedChart() === 'seller-ranking'"><button type="button" class="seller-more-btn" (click)="toggleChartExpansion('seller-ranking')" [attr.aria-label]="expandedChart() === 'seller-ranking' ? 'Cerrar tabla de vendedores' : 'Ampliar ranking de vendedores'">{{ expandedChart() === 'seller-ranking' ? '×' : '⛶' }}</button><h2><svg><use href="/comercial/assets/icons.svg#ranking"></use></svg> RANKING DE VENTAS POR VENDEDOR</h2><div class="seller-ranking-content">@if (sellerDetailLoading()) { <p class="detail-loading">CARGANDO VENDEDORES…</p> } @else { <dashboard-chart [option]="sellerPerformanceOption()" chartId="talent-seller-performance" label="Primeros 30 vendedores con desplazamiento vertical" /> }@if (expandedChart() === 'seller-ranking') { <div class="seller-ranking-table" aria-label="Todos los vendedores"><div class="seller-ranking-head"><span>VENDEDOR</span><span>VENTA NETA</span><span>UNIDADES</span><span>TRANSACCIONES</span></div><div class="seller-ranking-body">@for (seller of talentSellerRows(); track seller.seller) { <div><strong>{{ seller.seller }}</strong><span>{{ money(seller.net, true) }}</span><span>{{ number(seller.units) }}</span><span>{{ number(seller.transactions) }}</span></div> } @empty { <p>N/A</p> }</div></div> }</div></article>
+          </dashboard-react-module>
           <dashboard-react-module moduleId="talent-area-card" [model]="talentAreaCardModel()">
           <article class="card talent-card area-distribution-card"><h2><svg><use href="/comercial/assets/icons.svg#category"></use></svg> DISTRIBUCIÓN DEL EQUIPO POR ÁREA</h2><dashboard-chart [option]="talentAreaOption()" chartId="talent-area-distribution" label="Distribución de colaboradores por área" /></article>
           </dashboard-react-module>

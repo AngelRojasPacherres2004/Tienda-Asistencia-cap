@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 Object.assign(process.env, loadEnv("development", process.cwd(), ""));
 const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
 const chartId = process.env.AUDIT_CHART_ID || "growth";
-assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card"].includes(chartId), "Panel de prueba no válido.");
+assert.ok(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic", "page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal"].includes(chartId), "Panel de prueba no válido.");
 const rankingMarkupOnly = chartId === "store-ranking" && process.env.AUDIT_RANKING_VIEW === "MARKUP";
 const rankingFallback = chartId === "store-ranking" && process.env.AUDIT_RANKING_FALLBACK === "1";
 const expandedBrand = chartId === "brand-sales" && process.env.AUDIT_EXPANDED === "1";
@@ -75,7 +75,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", ""], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -86,7 +86,7 @@ try {
     page.on("pageerror", error => failures.push(error.message));
     page.on("response", item => {
       const path = new URL(item.url()).pathname;
-      const optionalFallbackFile = ["antiquity-card", "health-card", "projection-card", "replenishment-card"].includes(chartId) && item.status() === 404
+      const optionalFallbackFile = ["antiquity-card", "health-card", "projection-card", "replenishment-card", "stock-origin-modal"].includes(chartId) && item.status() === 404
         && /\/api\/commercial\/files\/dashboard-(?:price-range-(?:summary|compact)-\d{4}|stock-hierarchy|stock-sizes-calzado)\.json$/.test(path);
       if (item.url().includes("/api/") && item.status() >= 400 && !optionalFallbackFile) failures.push(`API ${item.status()}: ${path}`);
       if (item.url().includes("/api/commercial/store-goals")) goalEvents.push(item.status());
@@ -409,6 +409,66 @@ try {
           await card.locator(".chart-expand").click();
           await card.locator(".predictive-detail-table").waitFor();
         }
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "seller-card") {
+        await page.locator(".page-tabs button").nth(2).click();
+        const card = page.locator('.seller-performance-card[data-seller-detail-ready="true"]:visible');
+        await card.locator("canvas").waitFor({ timeout: 30_000 });
+        assert.equal(await card.getAttribute("data-react-commercial-module"), mode === "react" ? chartId : null);
+        const dimensions = await card.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await card.screenshot({ path: screenshot });
+        await card.locator(".seller-more-btn").click();
+        await card.locator(".seller-ranking-table").waitFor();
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (["ticket-modal", "conversion-modal", "traffic-modal"].includes(chartId)) {
+        if (chartId === "ticket-modal") await page.locator('.ticket-kpi[title="Ver ticket promedio por mes"]').click();
+        else if (chartId === "conversion-modal") await page.locator('.ticket-kpi.conversion-kpi').click();
+        else await page.locator('.ticket-kpi.traffic-kpi').first().click();
+        const card = page.locator(".ticket-modal:visible");
+        await card.locator("canvas").waitFor({ timeout: 30_000 });
+        assert.equal(await card.getAttribute("data-react-commercial-module"), mode === "react" ? chartId : null);
+        const dimensions = await card.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await card.screenshot({ path: screenshot });
+        const select = card.locator(".ticket-year-selector select");
+        if (await select.locator("option").count() > 1) {
+          const before = await select.inputValue();
+          const options = await select.locator("option").evaluateAll(nodes => nodes.map(node => node.value));
+          await select.selectOption(options.find(value => value !== before));
+          assert.notEqual(await select.inputValue(), before);
+        }
+        await card.locator(".chart-expand").click();
+        await card.waitFor({ state: "hidden" });
+        if (failures.length) throw new Error(failures.join("\n"));
+        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+          sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
+        continue;
+      }
+      if (chartId === "stock-origin-modal") {
+        await page.locator(".page-tabs button").nth(1).click();
+        const antiquity = page.locator('.antiquity-card[data-stock-origin-ready="true"]:visible');
+        await antiquity.waitFor({ timeout: 30_000 });
+        await antiquity.locator("canvas").click({ position: { x: 70, y: 155 } });
+        const card = page.locator(".stock-origin-detail:visible");
+        await card.waitFor({ timeout: 5_000 });
+        await antiquity.locator("canvas").dispatchEvent("mouseout");
+        await page.mouse.move(5, 5);
+        await page.waitForTimeout(150);
+        assert.equal(await card.getAttribute("data-react-commercial-module"), mode === "react" ? chartId : null);
+        const dimensions = await card.boundingBox();
+        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
+        const screenshotBytes = await card.screenshot({ path: screenshot });
+        await card.locator(".chart-expand").click();
+        await card.waitFor({ state: "hidden" });
         if (failures.length) throw new Error(failures.join("\n"));
         pair.push({ mode, dimensions, canvasStats: null, screenshot,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });

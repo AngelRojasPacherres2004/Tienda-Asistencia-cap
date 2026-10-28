@@ -1501,6 +1501,82 @@ export class App implements OnInit {
     if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
   }
 
+  readonly sellerCardModel = computed<Record<string, unknown>>(() => ({
+    expanded: this.expandedChart() === 'seller-ranking', ready: this.sellerDetailLoaded(),
+    loading: this.sellerDetailLoading(),
+    option: this.sellerDetailLoading() ? null : blackChartText(this.sellerPerformanceOption()),
+    rows: this.talentSellerRows().map(row => ({ seller: row.seller,
+      net: this.money(row.net, true), units: this.number(row.units), transactions: this.number(row.transactions) })),
+  }));
+
+  onReactSellerAction({ type }: { type: string }): void {
+    if (type === 'expand') this.toggleChartExpansion('seller-ranking');
+  }
+
+  private monthlyModalModel(kind: 'ticket' | 'conversion' | 'traffic'): Record<string, unknown> {
+    const year = this.ticketChartYear();
+    const stores = kind === 'traffic' ? this.trafficChartStores() : this.ticketChartStores();
+    const common = {
+      moduleId: `${kind}-modal`, year, years: this.ticketChartYears(),
+      storeLocked: this.storeFilterLocked(), selectedStores: this.ticketChartSelectedStores(),
+      stores: stores.map(store => ({ storeId: store.storeId, label: store.alias || store.store })),
+      allStoresLabel: kind === 'traffic' ? 'Todas las tiendas del formato' : 'Todas las tiendas permitidas',
+    };
+    if (kind === 'ticket') return { ...common, titleId: 'ticket-chart-title', title: 'TICKET PROMEDIO POR MES',
+      closeLabel: 'Cerrar gráfico de ticket promedio', chartId: 'modal-ticket', chartLabel: 'Evolución mensual del ticket promedio',
+      hasData: this.ticketChartHasData(), emptyText: `No hay transacciones disponibles para ${year} con estos filtros.`,
+      option: blackChartText(this.ticketMonthlyOption()), tableLabel: 'Ticket promedio, transacciones y venta neta por mes',
+      headers: ['Mes', 'Ticket promedio', 'Transacciones', 'Venta neta'], legend: true,
+      rows: this.ticketMonthlyRows().map(row => ({ label: row.label, cells: [
+        { text: this.money(row.ticket), className: this.ticketCellHighlight('ticket', row.ticket, row.transactions), title: this.ticketCellDescription('ticket', row.ticket, row.transactions) },
+        { text: this.number(row.transactions), className: this.ticketCellHighlight('transactions', row.transactions, row.transactions), title: this.ticketCellDescription('transactions', row.transactions, row.transactions) },
+        { text: this.money(row.net), className: this.ticketCellHighlight('net', row.net, row.transactions), title: this.ticketCellDescription('net', row.net, row.transactions) },
+      ] })) };
+    if (kind === 'conversion') return { ...common, titleId: 'conversion-chart-title', title: 'CONVERSIÓN POR MES',
+      closeLabel: 'Cerrar gráfico de conversión', chartId: 'modal-conversion', chartLabel: 'Evolución mensual de conversión',
+      hasData: this.conversionChartHasData(), emptyText: `No hay tráfico registrado para calcular la conversión de ${year}.`,
+      option: blackChartText(this.conversionMonthlyOption()), tableLabel: 'Conversión, transacciones y tráfico por mes',
+      headers: ['Mes', 'Conversión', 'Transacciones', 'Tráfico'], legend: false,
+      rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
+        { text: this.percent(row.conversion) }, { text: this.number(row.transactions) }, { text: this.number(row.traffic) },
+      ] })) };
+    return { ...common, titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
+      closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
+      hasData: this.trafficChartHasData(), emptyText: `No hay tráfico registrado para ${year} con estos filtros.`,
+      option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
+      headers: ['Mes', 'Tráfico', 'Transacciones', 'Conversión'], legend: false,
+      rows: this.trafficMonthlyRows().map(row => ({ label: row.label, cells: [
+        { text: this.number(row.traffic) }, { text: this.number(row.transactions) }, { text: this.percent(row.conversion) },
+      ] })) };
+  }
+
+  readonly ticketModalModel = computed(() => this.monthlyModalModel('ticket'));
+  readonly conversionModalModel = computed(() => this.monthlyModalModel('conversion'));
+  readonly trafficModalModel = computed(() => this.monthlyModalModel('traffic'));
+
+  onReactMonthlyModalAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'close') this.closeExpandedChart();
+    else if (type === 'year' && value != null) this.setTicketChartYear(Number(value));
+    else if (type === 'clear-stores') this.ticketChartSelectedStores.set([]);
+    else if (type === 'store' && typeof value === 'string') this.toggleTicketChartStore(value);
+  }
+
+  readonly stockOriginModalModel = computed<Record<string, unknown>>(() => {
+    const totals = this.stockOriginDetailTotals();
+    return {
+      period: this.periodLabel(this.stockOriginDetailPeriod()!),
+      cutoff: this.formatDate(this.data()!.metadata.stockCutoff),
+      units: this.number(totals.units, ' und'), value: this.money(totals.value),
+      rows: this.stockOriginDetailRows().map(row => ({ store: row.store, storeId: row.storeId,
+        category: row.category || 'Sin clasificación', line: row.line || 'Sin clasificación',
+        subline: row.subline || 'Sin clasificación', units: this.number(row.units), value: this.money(row.value) })),
+    };
+  });
+
+  onReactStockOriginModalAction({ type }: { type: string }): void {
+    if (type === 'close') this.closeExpandedChart();
+  }
+
   onReactStoreValueAction({ type }: { type: string }): void {
     if (type === 'expand') this.toggleChartExpansion('store-value-coverage');
   }

@@ -14,7 +14,11 @@ export class DashboardReactModuleComponent implements AfterViewInit, OnChanges, 
   @Input({ required: true }) moduleId = '';
   @Input({ required: true }) model: Record<string, unknown> = {};
   @Output() action = new EventEmitter<{ type: string; value?: string | number }>();
-  @ViewChild('reactHost') reactHost?: ElementRef<HTMLDivElement>;
+  @ViewChild('reactHost') set reactHost(value: ElementRef<HTMLDivElement> | undefined) {
+    this.host = value;
+    if (value) queueMicrotask(() => this.mountIfReady());
+  }
+  private host?: ElementRef<HTMLDivElement>;
   private bridge?: ReactModuleBridge;
 
   get reactEnabled(): boolean {
@@ -23,8 +27,12 @@ export class DashboardReactModuleComponent implements AfterViewInit, OnChanges, 
   }
 
   ngAfterViewInit(): void {
-    if (!this.reactEnabled || !this.reactHost || !window.mountReactCommercialModule) return;
-    this.bridge = window.mountReactCommercialModule(this.reactHost.nativeElement, this.moduleId, action => this.action.emit(action));
+    this.mountIfReady();
+  }
+
+  private mountIfReady(): void {
+    if (this.bridge || !this.reactEnabled || !this.host || !window.mountReactCommercialModule) return;
+    this.bridge = window.mountReactCommercialModule(this.host.nativeElement, this.moduleId, action => this.action.emit(action));
     this.bridge.update(this.model);
   }
 

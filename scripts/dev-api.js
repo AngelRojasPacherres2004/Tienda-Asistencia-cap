@@ -3,11 +3,12 @@ import http from "node:http";
 // This entry point is local-only; inherited Netlify context must not hide local report files.
 process.env.CONTEXT = "dev";
 const { handler } = await import("../netlify/functions/api.js");
+const apiPort = Number(process.env.DASHBOARD_DEV_API_PORT || 8788);
 
 const server = http.createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
-  const url = new URL(request.url, "http://127.0.0.1:8788");
+  const url = new URL(request.url, `http://127.0.0.1:${apiPort}`);
   const result = await handler({
     httpMethod: request.method,
     path: url.pathname,
@@ -23,6 +24,6 @@ const server = http.createServer(async (request, response) => {
   response.end(responseBody);
 });
 
-server.listen(8788, "127.0.0.1", () => {
-  console.log("API local disponible en http://127.0.0.1:8788");
+server.listen(apiPort, "127.0.0.1", () => {
+  console.log(`API local disponible en http://127.0.0.1:${apiPort}`);
 });
