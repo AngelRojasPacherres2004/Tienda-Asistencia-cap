@@ -801,6 +801,14 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .predictive-grid.equal-layout .calc-card { height: auto; min-height: 520px; }
 }
 
+@media (min-width: 621px) and (max-width: 1100px) {
+  .static-charts > .gender-card[data-react-commercial-module]:not(.chart-expanded) { height:315px !important; }
+}
+
+@media (max-width: 1000px) {
+  .predictive-overview-grid > .predictive-v2-card[data-react-commercial-module] { height:360px; }
+}
+
 .predictive-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);

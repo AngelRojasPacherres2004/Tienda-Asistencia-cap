@@ -467,6 +467,11 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   y Vite. Las capturas completas no son idénticas píxel por píxel, por lo que
   Angular se conserva como respaldo hasta una revisión visual final y prueba
   en el despliegue que active React.
+- En 820 px se corrigieron alturas de la tarjeta de género y de la proyección
+  de inventario. Pasaron las comparaciones de tamaño y controles de Comercial
+  con jefe de tienda, Inventario con jefe zonal y Talento con gerente comercial.
+  Los archivos de captura aún difieren; estas pruebas no demuestran igualdad
+  visual completa ni autorizan por sí solas retirar el respaldo Angular.
 
 ## Paso 5: pendiente tras la validación final del paso 4
 

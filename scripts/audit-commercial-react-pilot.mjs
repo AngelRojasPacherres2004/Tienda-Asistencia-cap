@@ -203,6 +203,10 @@ try {
         assert.equal(await panel.locator('.charts-four .card:visible').count(), 3);
         assert.equal(await panel.locator('.static-charts .card:visible').count(), 3);
         const dimensions = await panel.boundingBox();
+        const layout = await panel.evaluate(element => Object.fromEntries(
+          ['.primary-kpis', '.kpi-strip', '.executive-grid', '.charts-four', '.hourly-insight-grid', '.static-charts']
+            .map(selector => { const node = element.querySelector(selector); const rect = node?.getBoundingClientRect();
+              return [selector, rect ? { top: Math.round(rect.top - element.getBoundingClientRect().top), height: Math.round(rect.height) } : null]; })));
         const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         await page.evaluate(() => document.fonts.ready);
         const screenshotBytes = await panel.screenshot({ path: screenshot });
@@ -212,7 +216,7 @@ try {
         await panel.locator('.brand-sales-card.chart-expanded').waitFor();
         await panel.locator('.brand-sales-card .chart-expand').click();
         if (failures.length) throw new Error(failures.join("\n"));
-        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+        pair.push({ mode, dimensions, canvasStats: null, screenshot, layout,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
         continue;
       }
@@ -230,6 +234,10 @@ try {
         assert.equal(await panel.locator('.inventory-analysis-row .card:visible').count(), 2);
         assert.equal(await panel.locator('.predictive-overview-grid .card:visible').count(), 3);
         const dimensions = await panel.boundingBox();
+        const layout = await panel.evaluate(element => Object.fromEntries(
+          ['.inventory-grid', '.inventory-analysis-row', '.predictive-parameters', '.predictive-overview-grid', '.health-card', '.predictive-replenishment-card', '.projection-card']
+            .map(selector => { const node = element.querySelector(selector); const rect = node?.getBoundingClientRect();
+              return [selector, rect ? { top: Math.round(rect.top - element.getBoundingClientRect().top), height: Math.round(rect.height) } : null]; })));
         const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         await page.evaluate(() => document.fonts.ready);
         const screenshotBytes = await panel.screenshot({ path: screenshot });
@@ -239,7 +247,7 @@ try {
         await panel.locator('.projection-horizon-toggle button').nth(1).click();
         await panel.locator('.projection-horizon-toggle button.active').getByText('+30D').waitFor();
         if (failures.length) throw new Error(failures.join("\n"));
-        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+        pair.push({ mode, dimensions, canvasStats: null, screenshot, layout,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
         continue;
       }
