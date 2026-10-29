@@ -3,6 +3,7 @@ import {
   FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { storeAlias } from '../lib/storeAliases';
 import "../role-themes.css";
 import "../marketing-light.css";
 import "../dashboard-light.css";
@@ -143,6 +144,9 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   };
   const toggleMarketingTheme = () => setLightMode(marketingTheme !== "light");
   const items = navByRole[user.rol] || [];
+  const activeStore = user.tiendas_disponibles?.find(store => Number(store.id) === Number(user.tienda_id));
+  const storeName = activeStore?.nombre || user.tienda_nombre;
+  const activeAlias = activeStore?.alias || user.tienda_alias || storeAlias(storeName);
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
@@ -162,8 +166,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
         <div className="sidebar__footer">
           {["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
           <div className="user-chip" role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
-            <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>
-            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.dni ? ` · DNI ${user.dni}` : ""}</small></div>
+            {user.rol !== 'jefe_tienda' && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
+            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{user.rol === 'jefe_tienda' ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.rol !== 'jefe_tienda' && user.dni ? ` · DNI ${user.dni}` : ""}</small>{user.rol === 'jefe_tienda' && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
           </div>
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>

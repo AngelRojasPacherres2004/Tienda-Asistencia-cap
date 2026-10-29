@@ -159,7 +159,7 @@ export default function App() {
     tiendas: <Tiendas user={user} />,
     clusters: <Clusters />,
     cursos: <Cursos user={user} />,
-    asistencias: <Asistencias />,
+    asistencias: <Asistencias user={user} />,
     capacitaciones: <Capacitaciones user={user} />,
     "mi-asistencia": <MiAsistencia />,
     "mis-capacitaciones": <MisCapacitaciones />,

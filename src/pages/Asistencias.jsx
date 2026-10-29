@@ -7,7 +7,7 @@ import AttendanceScroller from "../components/AttendanceScroller";
 
 const estados = ATTENDANCE_OPTIONS;
 
-export default function Asistencias() {
+export default function Asistencias({ user }) {
   const [fecha, setFecha] = useState(todayISO());
   const [autoToday, setAutoToday] = useState(true);
   const [mostrar, setMostrar] = useState("activo");
@@ -17,6 +17,11 @@ export default function Asistencias() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
   const [success, setSuccess] = useState(null);
+  const storeAdmin = user?.rol === 'jefe_tienda';
+  const readOnly = storeAdmin && fecha !== todayISO();
+  const yesterday = new Date(`${todayISO()}T12:00:00Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const minDate = yesterday.toISOString().slice(0, 10);
 
   const loadRoster = useCallback(() => (
     api(`/asistencias?fecha=${fecha}&estado=${mostrar}`).then((result) => { setRoster(result); setNotice(null); })
@@ -32,7 +37,10 @@ export default function Asistencias() {
     return () => clearInterval(interval);
   }, [autoToday]);
 
-  const onFechaChange = (value) => { setFecha(value); setAutoToday(value === todayISO()); };
+  const onFechaChange = (value) => {
+    if (!value || value > todayISO() || (storeAdmin && value < minDate)) return;
+    setFecha(value); setAutoToday(value === todayISO());
+  };
   const empleados = useMemo(() => (roster?.empleados || []).map((employee) => {
     const draft = pending[employee.usuario_id];
     return draft ? { ...employee, registro: { estado: draft.estado, observaciones: draft.observaciones } } : employee;
@@ -42,7 +50,7 @@ export default function Asistencias() {
   ), [empleados, search]);
   const marcadosCount = empleados.filter((employee) => employee.registro).length;
 
-  const marcar = (employee, estado) => { if (employee.bloqueado || estado === "apoyo_ingreso") return; setPending((current) => ({
+  const marcar = (employee, estado) => { if (readOnly || employee.bloqueado || estado === "apoyo_ingreso") return; setPending((current) => ({
     ...current,
     [employee.usuario_id]: { estado, observaciones: current[employee.usuario_id]?.observaciones ?? employee.registro?.observaciones ?? "" },
   })); };
@@ -53,6 +61,7 @@ export default function Asistencias() {
   const onSearchKeyDown = (event) => { if (event.key === "Enter" && visibles.length === 1) marcar(visibles[0], visibles[0].apoyo_ingreso ? "apoyo_ingreso" : "presente"); };
 
   const guardarTodo = async () => {
+    if (readOnly) return;
     const marcas = Object.entries(pending).map(([usuarioId, draft]) => ({ usuario_id: Number(usuarioId), estado: draft.estado, observaciones: draft.observaciones || null }));
     if (!marcas.length) { setNotice({ type: "error", text: "No hay marcas nuevas para guardar." }); return; }
     setSaving(true); setNotice(null);
@@ -72,21 +81,22 @@ export default function Asistencias() {
     <PageHeader eyebrow="Mi tienda" title="Gestión de asistencia" subtitle="Registra la asistencia diaria. Los registros anteriores y sus cambios están en la sección Historial."/>
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     <div className="toolbar">
-      <span>Fecha</span><input type="date" value={fecha} max={todayISO()} onChange={(event) => onFechaChange(event.target.value)}/>
-      <span>Mostrar</span><select value={mostrar} onChange={(event) => setMostrar(event.target.value)}><option value="activo">Activos</option><option value="inactivo">Inactivos</option><option value="todos">Todos</option></select>
+      <span>Fecha</span><input type="date" value={fecha} min={storeAdmin ? minDate : undefined} max={todayISO()} onChange={(event) => onFechaChange(event.target.value)}/>
+      {!storeAdmin && <><span>Mostrar</span><select value={mostrar} onChange={(event) => setMostrar(event.target.value)}><option value="activo">Activos</option><option value="inactivo">Inactivos</option><option value="todos">Todos</option></select></>}
+      {readOnly && <span>Consulta del día anterior · solo lectura</span>}
       <span>{marcadosCount} de {empleados.length} marcados</span>
       <button className="button button--ghost button--small" style={{ marginLeft: "auto" }} onClick={loadRoster}><RefreshCw size={14}/>Actualizar</button>
     </div>
     <div className="toolbar toolbar--filters"><SearchInput value={search} onChange={setSearch} onKeyDown={onSearchKeyDown} placeholder="Buscar trabajador… (Enter marca Asistencia si queda solo uno)"/></div>
-    {!roster ? <Loading/> : visibles.length ? <AttendanceScroller><div className="attendance-table attendance-table--store">
+    {!roster ? <Loading/> : visibles.length ? <AttendanceScroller><div className={`attendance-table attendance-table--store${storeAdmin ? ' attendance-table--store-compact' : ''}`}>
       <div className="attendance-head"><span>Trabajador</span>{estados.map((state) => <span key={state.value}>{state.label}</span>)}<span>Observación</span></div>
       {visibles.map((employee) => <div className="attendance-row" key={employee.persona_id ?? employee.usuario_id}>
-        <div className="person-cell"><span className="avatar">{employee.nombre.charAt(0).toUpperCase()}</span><div><strong>{employee.nombre}</strong><small>{employee.dni}{employee.apoyo_ingreso ? " ? Apoyo de otra tienda" : ""}{employee.estado === "inactivo" ? " · Inactivo" : ""}</small></div></div>
-        {estados.map((state) => <button key={state.value} type="button" className={`attendance-check attendance-check--${state.value} ${employee.registro?.estado === state.value ? "checked" : ""}`} aria-label={`${state.label} para ${employee.nombre}`} aria-pressed={employee.registro?.estado === state.value} title={state.description || state.label} disabled={employee.bloqueado || state.value === "apoyo_ingreso"} onClick={() => marcar(employee, state.value)}>{employee.registro?.estado === state.value && <Check size={13}/>}</button>)}
-        <input className="attendance-obs" maxLength={500} disabled={!employee.registro || employee.bloqueado} placeholder={employee.registro ? "Observación (opcional)" : "Marca un estado primero"} value={employee.registro?.observaciones || ""} onChange={(event) => setObservacion(employee, event.target.value)}/>
+        <div className="person-cell">{!storeAdmin && <span className="avatar">{employee.nombre.charAt(0).toUpperCase()}</span>}<div><strong>{employee.nombre}</strong><small>{employee.dni}{employee.apoyo_ingreso ? " · Apoyo de otra tienda" : ""}{employee.estado === "inactivo" ? " · Inactivo" : ""}</small></div></div>
+        {estados.map((state) => <button key={state.value} type="button" className={`attendance-check attendance-check--${state.value} ${employee.registro?.estado === state.value ? "checked" : ""}`} aria-label={`${state.label} para ${employee.nombre}`} aria-pressed={employee.registro?.estado === state.value} title={state.description || state.label} disabled={readOnly || employee.bloqueado || state.value === "apoyo_ingreso"} onClick={() => marcar(employee, state.value)}>{employee.registro?.estado === state.value && <Check size={13}/>}</button>)}
+        <input className="attendance-obs" maxLength={500} disabled={readOnly || !employee.registro || employee.bloqueado} placeholder={employee.registro ? "Observación (opcional)" : "Marca un estado primero"} value={employee.registro?.observaciones || ""} onChange={(event) => setObservacion(employee, event.target.value)}/>
       </div>)}
     </div></AttendanceScroller> : <EmptyState icon={Users} title="Sin trabajadores" text="No hay trabajadores para mostrar con ese filtro."/>}
-    <div className="form-actions"><button className="button button--primary" disabled={saving || !Object.keys(pending).length} onClick={guardarTodo}>{saving ? "Guardando…" : "Guardar asistencia"}</button></div>
+    <div className="form-actions"><button className="button button--primary" disabled={readOnly || saving || !Object.keys(pending).length} onClick={guardarTodo}>{saving ? "Guardando…" : "Guardar asistencia"}</button></div>
     <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)}/>
   </>;
 }

@@ -418,6 +418,21 @@ export function createOperationsDomain({
     return row;
   }
 
+  async function warningEvidence(id, user) {
+    const storeId = await resolveOperationalStoreScope(user);
+    const { data: warning, error } = await supabase.from('amonestaciones').select('id').eq('id', id).eq('tienda_id', storeId).maybeSingle();
+    if (error) throw dbError(error);
+    if (!warning) throw httpError('Amonestación no encontrada.', 404);
+    const folder = `${storeId}/amonestacion-${id}`;
+    const listing = await supabase.storage.from('mi-tienda').list(folder, { limit: 10 });
+    if (listing.error) throw dbError(listing.error);
+    const file = (listing.data || []).find(item => item.name && item.id);
+    if (!file) return { url: null };
+    const signed = await supabase.storage.from('mi-tienda').createSignedUrl(`${folder}/${file.name}`, 300);
+    if (signed.error) throw dbError(signed.error);
+    return { url: signed.data.signedUrl, nombre: file.name };
+  }
+
   async function createStoreDocument(event, user) {
     const data = bodyOf(event);
     requireFields(data, ["nombre", "fecha_vencimiento"]);
@@ -572,5 +587,5 @@ export function createOperationsDomain({
     return { desde, hasta, alcance: hasStoreScope(scope) && !Array.isArray(scope) ? "tienda" : "consolidado", registros };
   }
 
-  return { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport };
+  return { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, warningEvidence, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport };
 }

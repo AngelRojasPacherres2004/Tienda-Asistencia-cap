@@ -47,6 +47,7 @@ export function createWorkforceDomain({
     const data = bodyOf(event);
     requireFields(data, ["fecha", "marcas"]);
     if (!isISODate(data.fecha)) throw httpError("La fecha no es válida.", 400);
+    if (user.rol === 'jefe_tienda' && data.fecha !== todayISO()) throw httpError('Solo se puede modificar la asistencia del día actual.', 403);
     if (!Array.isArray(data.marcas) || !data.marcas.length) throw httpError("No hay marcas para guardar.", 400);
     if (data.marcas.some(marca => marca.estado === 'apoyo_ingreso')) throw httpError('Apoyo (ingreso) solo se registra al crear una cobertura del d?a.', 403);
     const usuarioIds = validIds(data.marcas.map((marca) => marca.usuario_id));
@@ -98,6 +99,7 @@ export function createWorkforceDomain({
       .select("id,usuario_id,tienda_id,fecha,estado,cobertura_trabajador_id").eq("id", id).maybeSingle();
     if (error) throw dbError(error);
     if (!existente || existente.tienda_id !== user.tienda_id) throw httpError("Registro no encontrado.", 404);
+    if (user.rol === 'jefe_tienda' && existente.fecha !== todayISO()) throw httpError('Solo se puede modificar la asistencia del día actual.', 403);
     if (existente.cobertura_trabajador_id) throw httpError('La asistencia del apoyo es autom?tica y est? bloqueada.', 403);
     const { error: deleteError } = await supabase.from("asistencias").delete().eq("id", id);
     if (deleteError) throw dbError(deleteError);

@@ -542,7 +542,7 @@ async function getPerfil(user) {
   };
 }
 
-const { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport } = createOperationsDomain({
+const { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, warningEvidence, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport } = createOperationsDomain({
   httpError, zonalStoreIds, bodyOf, supabase, isISODate, fetchAllReportPages,
   dbError, requireFields, rangosTrafico, cleanText, createExcelWorkbook,
   styleHeader, excelResponse, isSecurityIncident, createSecurityDomain,
@@ -1127,6 +1127,11 @@ export async function handler(event) {
     if (path === "/amonestaciones" && method === "POST") {
       ensureAuth(event, "jefe_tienda");
       return json(201, await createDisciplinary(event, user, "amonestaciones"));
+    }
+    const warningEvidenceMatch = path.match(/^\/amonestaciones\/(\d+)\/evidencia$/);
+    if (warningEvidenceMatch && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await warningEvidence(Number(warningEvidenceMatch[1]), user));
     }
     if (path === "/errores-personal" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);

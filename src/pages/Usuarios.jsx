@@ -9,6 +9,7 @@ import {
 } from "../components/UI";
 import Reportes from "./Reportes";
 import ApoyoTienda from "./ApoyoTienda";
+import StoreNewPersonForm from "../components/StoreNewPersonForm";
 
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const rolesByManager = { gerencia_general: ["gerente_comercial", "coach", "administrador_seguridad"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
@@ -60,6 +61,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [viewing, setViewing] = useState(null);
   const [workerFile, setWorkerFile] = useState(null);
   const [warningForm, setWarningForm] = useState({ tipo: "verbal", motivo: "", fecha: todayISO() });
+  const [warningEvidenceFile, setWarningEvidenceFile] = useState(null);
   const [errorForm, setErrorForm] = useState({ categoria: "Operativo", descripcion: "", accion_correctiva: "", fecha: todayISO() });
   const fileRef = useRef(null);
 
@@ -99,7 +101,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     setEditing({ ...item, motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "" });
   };
   const openView = async (item) => {
-    setViewing(item); setWorkerFile(null); setWarningForm({ tipo: "verbal", motivo: "", fecha: todayISO() });
+    setViewing(item); setWorkerFile(null); setWarningForm({ tipo: "verbal", motivo: "", fecha: todayISO() }); setWarningEvidenceFile(null);
     setErrorForm({ categoria: "Operativo", descripcion: "", accion_correctiva: "", fecha: todayISO() });
     try {
       const [training, warnings, errors] = await Promise.all([api(`/capacitaciones/trabajadores/${item.id}`), api("/amonestaciones"), api("/errores-personal")]);
@@ -109,10 +111,32 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const saveWarning = async (event) => {
     event.preventDefault();
     if (!warningForm.motivo.trim()) return;
+    if (warningEvidenceFile && (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(warningEvidenceFile.type) || warningEvidenceFile.size > 5 * 1024 * 1024)) {
+      setWorkerFile(current => ({ ...(current || {}), error: 'La evidencia debe ser PDF, JPG, PNG o WEBP de hasta 5 MB.' })); return;
+    }
     setBusy(true);
-    try { await api("/amonestaciones", { method: "POST", body: { ...warningForm, usuario_id: viewing.id } }); await openView(viewing); }
-    catch (err) { setWorkerFile((current) => ({ ...(current || {}), error: err.message })); }
+    let created = false;
+    try {
+      const warning = await api("/amonestaciones", { method: "POST", body: { ...warningForm, usuario_id: viewing.id } });
+      created = true;
+      if (warningEvidenceFile) {
+        const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('No se pudo leer la evidencia.')); reader.readAsDataURL(warningEvidenceFile); });
+        await api('/mi-tienda-gestion/archivo', { method: 'POST', body: { nombre: warningEvidenceFile.name, mime: warningEvidenceFile.type, base64, carpeta: `amonestacion-${warning.id}` } });
+      }
+      await openView(viewing);
+    }
+    catch (err) {
+      if (created) { await openView(viewing); setWorkerFile(current => ({ ...(current || {}), error: `La amonestación se registró, pero no se guardó la evidencia: ${err.message}` })); }
+      else setWorkerFile((current) => ({ ...(current || {}), error: err.message }));
+    }
     finally { setBusy(false); }
+  };
+  const viewWarningEvidence = async (id) => {
+    try {
+      const result = await api(`/amonestaciones/${id}/evidencia`);
+      if (!result.url) { setWorkerFile(current => ({ ...(current || {}), error: 'Esta amonestación no tiene evidencia adjunta.' })); return; }
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+    } catch (err) { setWorkerFile(current => ({ ...(current || {}), error: err.message })); }
   };
   const saveWorkerError = async (event) => {
     event.preventDefault();
@@ -159,6 +183,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         ? { ...rehire, ...Object.fromEntries(Object.entries(editing).filter(([, value]) => value !== "" && value != null)) }
         : editing;
       const payload = { ...source, estado: source.fecha_salida ? "inactivo" : source.estado, tienda_id: ["gerencia_general", "gerente_comercial", "administrador_seguridad", "coach", "jefe_zonal"].includes(source.rol) ? null : Number(source.tienda_id) || null };
+      if (isStoreAdmin && !editing.id && source.fecha_nacimiento) payload.mes_cumpleanos = source.fecha_nacimiento.slice(5, 7);
       if (confirmedRehire && rehire) {
         payload.id = rehire.id;
         payload.rol = rehire.rol;
@@ -326,7 +351,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <button className="button button--soft" title="Cargar Excel" aria-label="Cargar Excel" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel} />
           </>}
-          <button className="button button--primary" onClick={openNew}>{embedded ? "Nuevo jefe zonal" : "Nuevo usuario"}</button>
+          <button className="button button--primary" onClick={openNew}>{embedded ? "Nuevo jefe zonal" : isStoreAdmin ? "Nuevo personal" : "Nuevo usuario"}</button>
           </>}
         </div>}
       />
@@ -345,7 +370,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         <div className="table-panel">
           <div className={`data-table ${zonalTeam ? "data-table--usuarios-zonal" : isCentral ? "data-table--usuarios" : "data-table--usuarios-tienda"}`}>
             <div className="data-table__head">
-              <span>Persona</span><span>DNI</span>{!zonalTeam && <span>Usuario</span>}<span>Teléfono</span>
+              <span>{isStoreAdmin ? 'Nombre' : 'Persona'}</span><span>DNI</span>{!zonalTeam && <span>{isStoreAdmin ? 'Distrito' : 'Usuario'}</span>}<span>Teléfono</span>
               {isCentral && <><span>Rol</span><span>Tienda / clúster</span></>}
               {!isCentral && <span>Rol</span>}
               <span>Estado</span><span />
@@ -357,7 +382,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
                   <div><button className="person-link" onClick={() => openView(item)}>{item.nombres} {item.apellidos}</button>{item.reingreso && <small>Reingreso</small>}</div>
                 </div>
                 <span className="mono">{item.dni}</span>
-                {!zonalTeam && <span className="cell-primary">{item.usuario || "—"}</span>}
+                {!zonalTeam && <span className="cell-primary">{(isStoreAdmin ? item.distrito : item.usuario) || "—"}</span>}
                 <span>{item.telefono || "—"}</span>
                 {!isCentral && <span className="personnel-role">{roleLabels[item.rol] || item.rol?.replaceAll("_", " ") || "Sin rol"}</span>}
                 {isCentral && <>
@@ -382,11 +407,11 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       <Modal
         open={!!editing}
         wide
-        title={zonalTeam ? (editing?.id ? "Editar administrador" : "Nuevo administrador") : (editing?.id ? "Editar usuario" : "Nuevo usuario")}
+        title={zonalTeam ? (editing?.id ? "Editar administrador" : "Nuevo administrador") : (editing?.id ? "Editar usuario" : isStoreAdmin ? "Nuevo personal" : "Nuevo usuario")}
         subtitle={zonalTeam ? "Completa la ficha laboral y, si tendrá acceso, sus credenciales de administrador." : "Los campos marcados son obligatorios."}
         onClose={closeEditor}
       >
-        {editing && (
+        {editing && isStoreAdmin && !editing.id ? <StoreNewPersonForm value={editing} set={set} errors={fieldErrors} formError={formError} onSubmit={save} onClose={closeEditor} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} /> : editing && (
           <form className="form-grid" onSubmit={save} noValidate>
             {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
             <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
@@ -404,8 +429,9 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Fecha de nacimiento"><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
             <Field label="Edad" hint="Se calcula según la fecha de nacimiento"><input readOnly value={editing.fecha_nacimiento ? Math.max(0, Math.floor((Date.now() - new Date(`${editing.fecha_nacimiento}T12:00:00`).getTime()) / 31557600000)) : ""} /></Field>
             <Field label="Sueldo"><input type="number" min="0" step="0.01" placeholder="0,00" value={editing.sueldo ?? ""} onChange={(e) => set("sueldo", e.target.value)} /></Field>
-            <Field label="Fecha de salida" error={fieldErrors.fecha_salida}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => setEditing((current) => ({ ...current, fecha_salida:e.target.value, estado:e.target.value ? "inactivo" : "activo", motivo_salida:e.target.value ? current.motivo_salida : "" }))} /></Field>
+            {!isStoreAdmin && <><Field label="Fecha de salida" error={fieldErrors.fecha_salida}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => setEditing((current) => ({ ...current, fecha_salida:e.target.value, estado:e.target.value ? "inactivo" : "activo", motivo_salida:e.target.value ? current.motivo_salida : "" }))} /></Field>
             <Field label="Motivo de salida" error={fieldErrors.motivo_salida}><select required={Boolean(editing.fecha_salida)} disabled={!editing.id || !editing.fecha_salida} value={normalizeDepartureReason(editing.motivo_salida)} onChange={(e) => set("motivo_salida", e.target.value)}><option value="">Selecciona un motivo</option>{departureReasonOptions(editing.motivo_salida).map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></Field>
+            </>}
             {availableRoles.length > 0 && (
               <>
                 <Field label="Rol">
@@ -429,12 +455,12 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
                 )}
               </>
             )}
-            <Field label="Estado" className="span-2">
+            {!isStoreAdmin && <Field label="Estado" className="span-2">
               <select value={editing.estado} onChange={(e) => setEditing((current) => ({ ...current, estado:e.target.value, ...(e.target.value === "activo" ? {fecha_salida:"",motivo_salida:""} : {}) }))}>
                 <option value="activo">Activo</option>
                 <option value="inactivo">Inactivo</option>
               </select>
-            </Field>
+            </Field>}
             <Field label="Sexo"><select value={editing.sexo || "no_especificado"} onChange={(e) => set("sexo", e.target.value)}><option value="no_especificado">Sin especificar</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option></select></Field>
             <Field label="Mes de cumpleaños"><select value={editing.mes_cumpleanos || ""} onChange={(e) => set("mes_cumpleanos", e.target.value)}><option value="">Sin registrar</option>{birthdayMonths.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
             <Field label="Nacionalidad"><input value={editing.nacionalidad || ""} onChange={(e) => set("nacionalidad", e.target.value)} /></Field>
@@ -474,8 +500,8 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
           {workerFile?.error && <Notice type="error">{workerFile.error}</Notice>}
           <section><h3>Datos personales</h3><dl><div><dt>Documento</dt><dd>{(viewing.tipo_documento || "dni").toUpperCase()} {viewing.dni}</dd></div><div><dt>Teléfono</dt><dd>{viewing.telefono || "—"}</dd></div><div><dt>Nacimiento</dt><dd>{viewing.fecha_nacimiento || "—"}</dd></div><div><dt>Nacionalidad</dt><dd>{viewing.nacionalidad || "—"}</dd></div><div><dt>Distrito</dt><dd>{viewing.distrito || "—"}</dd></div><div><dt>Dirección</dt><dd>{viewing.direccion || "—"}</dd></div></dl></section>
           <section><h3>Datos laborales</h3><dl><div><dt>Cargo</dt><dd>{roleLabels[viewing.rol] || viewing.rol}</dd></div><div><dt>Área</dt><dd>{viewing.area_laboral || "—"}</dd></div><div><dt>Ingreso</dt><dd>{viewing.fecha_ingreso}</dd></div><div><dt>Reingreso</dt><dd>{viewing.reingreso ? "Sí" : "No"}</dd></div><div><dt>Nivel de estudios</dt><dd>{viewing.grado_academico?.replaceAll("_", " ") || "—"}</dd></div><div><dt>Carrera</dt><dd>{viewing.carrera || "—"}</dd></div><div><dt>Jornada / turno</dt><dd>{viewing.regimen_jornada?.toUpperCase() || "—"} · {viewing.tipo_turno?.replaceAll("_", " ") || "—"}</dd></div></dl></section>
-          <section><h3>Amonestaciones</h3>{workerFile ? workerFile.warnings.length ? <div className="worker-file__list">{workerFile.warnings.map((row) => <div key={row.id}><strong>{row.tipo.replaceAll("_", " ")}</strong><span>{row.fecha}</span><p>{row.motivo}</p></div>)}</div> : <p>Sin amonestaciones registradas.</p> : <Loading />}
-            {user.rol === "jefe_tienda" && <form className="worker-warning-form" onSubmit={saveWarning}><select value={warningForm.tipo} onChange={(e) => setWarningForm({ ...warningForm, tipo: e.target.value })}><option value="verbal">Verbal</option><option value="carta_amonestacion">Carta</option><option value="memorandum">Memorándum</option></select><input type="date" value={warningForm.fecha} onChange={(e) => setWarningForm({ ...warningForm, fecha: e.target.value })} /><input required placeholder="Motivo" value={warningForm.motivo} onChange={(e) => setWarningForm({ ...warningForm, motivo: e.target.value })} /><button className="button button--soft" disabled={busy}>Registrar amonestación</button></form>}
+          <section><h3>Amonestaciones</h3>{workerFile ? workerFile.warnings.length ? <div className="worker-file__list">{workerFile.warnings.map((row) => <div key={row.id}><strong>{row.tipo.replaceAll("_", " ")}</strong><span>{row.fecha}</span><p>{row.motivo}</p>{user.rol === 'jefe_tienda' && <button type="button" className="button button--ghost button--small" onClick={() => viewWarningEvidence(row.id)}>Ver evidencia</button>}</div>)}</div> : <p>Sin amonestaciones registradas.</p> : <Loading />}
+            {user.rol === "jefe_tienda" && <form className="worker-warning-form" onSubmit={saveWarning}><select aria-label="Tipo de amonestación" value={warningForm.tipo} onChange={(e) => setWarningForm({ ...warningForm, tipo: e.target.value })}><option value="verbal">Verbal</option><option value="carta_amonestacion">Carta</option><option value="memorandum">Memorándum</option></select><input aria-label="Fecha de amonestación" type="date" value={warningForm.fecha} onChange={(e) => setWarningForm({ ...warningForm, fecha: e.target.value })} /><input required placeholder="Motivo" value={warningForm.motivo} onChange={(e) => setWarningForm({ ...warningForm, motivo: e.target.value })} /><label>Evidencia opcional (PDF o foto, máximo 5 MB)<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={event => setWarningEvidenceFile(event.target.files?.[0] || null)} /></label><button className="button button--soft" disabled={busy}>Registrar amonestación</button></form>}
           </section>
           <section><h3>Errores de personal</h3>{workerFile ? workerFile.errors.length ? <div className="worker-file__list">{workerFile.errors.map((row) => <div key={row.id}><strong>{row.categoria}</strong><span>{row.fecha}</span><p>{row.descripcion}</p>{row.accion_correctiva && <small>Acción correctiva: {row.accion_correctiva}</small>}</div>)}</div> : <p>Sin errores registrados.</p> : <Loading />}
             {user.rol === "jefe_tienda" && <form className="worker-error-form" onSubmit={saveWorkerError}><input required placeholder="Categoría" value={errorForm.categoria} onChange={(e) => setErrorForm({ ...errorForm, categoria: e.target.value })} /><input type="date" value={errorForm.fecha} onChange={(e) => setErrorForm({ ...errorForm, fecha: e.target.value })} /><input required placeholder="Descripción del error" value={errorForm.descripcion} onChange={(e) => setErrorForm({ ...errorForm, descripcion: e.target.value })} /><input placeholder="Acción correctiva" value={errorForm.accion_correctiva} onChange={(e) => setErrorForm({ ...errorForm, accion_correctiva: e.target.value })} /><button className="button button--soft" disabled={busy}>Registrar error</button></form>}
