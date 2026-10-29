@@ -141,6 +141,12 @@ try {
         assert.equal(await page.locator('dashboard-react-module').count(), 0, "React montó una vista Angular");
         assert.equal(angularRequests.length, 0, "React solicitó el bundle Angular");
       }
+      if (["commercial-page", "inventory-page", "talent-page"].includes(chartId) && scenario.year !== "2026") {
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        await page.locator(".filter-panel label").first().locator("select").selectOption(scenario.year);
+        await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+        await page.locator(".dashboard-filter-drawer").waitFor({ state: "hidden" });
+      }
       if (chartId === "all-modules") {
         const panels = [
           { index: 0, page: ".page-one", selectors: [".primary-kpis", ".kpi-strip", ".category-card", ".section-heading"] },

@@ -472,6 +472,11 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   con jefe de tienda, Inventario con jefe zonal y Talento con gerente comercial.
   Los archivos de captura aún difieren; estas pruebas no demuestran igualdad
   visual completa ni autorizan por sí solas retirar el respaldo Angular.
+- La auditoría de páginas ahora aplica el año indicado antes de capturar. Se
+  repitieron los tres escenarios de 820 px con 2025 seleccionado y pasaron
+  sus comprobaciones de controles y dimensiones. Las capturas largas del
+  navegador incluyen zonas negras fuera del área visible; se requieren
+  capturas por secciones para verificar esas zonas antes de retirar Angular.
 
 ## Paso 5: pendiente tras la validación final del paso 4
 
