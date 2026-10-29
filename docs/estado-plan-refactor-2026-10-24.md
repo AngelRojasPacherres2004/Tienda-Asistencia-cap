@@ -502,3 +502,23 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 La versión optimizada del paso 2 sigue preparada para validación local; la
 publicación pública espera comprobar la compatibilidad de Netlify. No retirar
 Angular ni tablas antes de cumplir sus puertas de paridad y restauración.
+
+## Actualización 29/10: migración del portal comercial a React
+
+- La aplicación monta directamente el controlador y las páginas React. Se retiraron
+  el build, las dependencias y el código fuente Angular del repositorio; las
+  utilidades comerciales, señales y estilos viven en `src/commercial/`.
+- Los datos generados se conservaron localmente en `dashboard-data/` (ignorado
+  por Git). Los scripts de generación y publicación apuntan a esa ruta.
+- La comparación previa de tarjetas entre Angular y React tuvo el mismo texto
+  y dimensiones en los roles y anchos probados. Las diferencias de captura
+  recientes fueron inferiores a 0.86 niveles RGB de 255 en promedio por píxel;
+  la mayor se concentró en una etiqueta del gráfico de género.
+- El portal React recorrió Comercial, Inventario, Talento y el asistente en
+  gerencia comercial, jefatura zonal y jefatura de tienda a 1440 y 820 px.
+  Pasaron 52 pruebas de lógica, ESLint y el build Vite. Esta comprobación local
+  no equivale a una prueba de la futura publicación en Netlify.
+
+Las frases anteriores sobre el respaldo Angular describen el estado histórico
+de cada fecha; a partir de esta actualización ya no existe ese respaldo en
+el código versionado.

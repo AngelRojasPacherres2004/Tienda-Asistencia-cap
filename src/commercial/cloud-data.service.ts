@@ -1,4 +1,4 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, signal } from './reactivity-react';
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import { readRuntimeConfig } from './runtime-config';
 

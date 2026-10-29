@@ -38,7 +38,7 @@ if (result.bytes >= 5_000_000) throw new Error(`Respuesta demasiado grande: ${re
 if (!result.body.rowCount || !Array.isArray(result.body.healthRows)) throw new Error('La respuesta predictiva está incompleta.');
 console.log(`API comercial: ${result.body.rowCount} filas agregadas, ${result.bytes} bytes, ${storeIds.length} tiendas autorizadas, ${((performance.now() - started) / 1000).toFixed(2)} s.`);
 
-const source = JSON.parse(readFileSync(new URL('../commercial-dashboard/public/assets/data/dashboard-stock-products.json', import.meta.url), 'utf8')).stockProducts;
+const source = JSON.parse(readFileSync(new URL('../dashboard-data/dashboard-stock-products.json', import.meta.url), 'utf8')).stockProducts;
 const complete = source.filter(row => storeIds.includes(row.storeId) && ['TEXTIL', 'CALZADO'].includes(row.category));
 const allBrands = field => result.body.brandRows.reduce((value, row) => value + row[field], 0);
 const allSource = field => complete.reduce((value, row) => value + row[field], 0);

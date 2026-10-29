@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
+import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact } from '../src/commercial/compact-dashboard.ts';
 
 test('compact dashboard rows restore repeated dimensions and numeric values', () => {
   const payload = {

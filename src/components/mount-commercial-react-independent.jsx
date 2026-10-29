@@ -1,13 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { effect, withReactServices } from '../../commercial-dashboard/src/app/reactivity-react';
-import { CloudDataService } from '../../commercial-dashboard/src/app/cloud-data.service';
-import { AssistantService } from '../../commercial-dashboard/src/app/assistant.service';
-import { CommercialDashboardController } from '../../commercial-dashboard/src/app/dashboard-controller';
+import { effect, withReactServices } from '../commercial/reactivity-react';
+import { CloudDataService } from '../commercial/cloud-data.service';
+import { AssistantService } from '../commercial/assistant.service';
+import { CommercialDashboardController } from '../commercial/dashboard-controller';
 import CommercialReactStandalone from './CommercialReactStandalone';
-import appStyles from '../../commercial-dashboard/src/app/app.scss?raw';
-import transferModalStyles from '../../commercial-dashboard/src/app/transfer-modal.scss?raw';
-import globalStyles from '../../commercial-dashboard/src/styles.scss?raw';
+import appStyles from '../commercial/app.scss?raw';
+import transferModalStyles from '../commercial/transfer-modal.scss?raw';
+import globalStyles from '../commercial/styles.scss?raw';
 
 export function mountCommercialReactIndependent(host) {
   const shell = document.createElement('app-root');

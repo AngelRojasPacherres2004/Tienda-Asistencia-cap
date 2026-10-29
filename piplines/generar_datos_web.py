@@ -19,9 +19,9 @@ from compactar_dashboard import (
 )
 
 
-WEB_DIR = PROJECT_ROOT / "commercial-dashboard"
-SALIDA_PUBLICA = WEB_DIR / "public" / "assets" / "data" / "dashboard.json"
-SALIDA_COMPILADA = WEB_DIR / "dist" / "dashboard-web" / "browser" / "assets" / "data" / "dashboard.json"
+WEB_DIR = PROJECT_ROOT / "dashboard-data"
+SALIDA_PUBLICA = WEB_DIR / "dashboard.json"
+SALIDA_COMPILADA = PROJECT_ROOT / "dist" / "comercial" / "assets" / "data" / "dashboard.json"
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
 PERSONAL_XLSX = PROJECT_ROOT / "capa1" / "PERSONAL_TIENDAS.xlsx"
 

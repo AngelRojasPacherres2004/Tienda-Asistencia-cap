@@ -18,7 +18,7 @@ from runtime_config import finalizar_proceso
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env.supabase.local"
-RUNTIME_CONFIG = ROOT / "commercial-dashboard" / "public" / "runtime-config.js"
+RUNTIME_CONFIG = ROOT / "public" / "comercial" / "runtime-config.js"
 
 
 def load_env_file(path: Path) -> None:

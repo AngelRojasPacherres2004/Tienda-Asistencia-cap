@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
-import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardNumberFormat } from '../commercial-dashboard/src/app/inventory-performance.ts';
+import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardNumberFormat } from '../src/commercial/inventory-performance.ts';
 
 export const sum = (rows, field) => rows.reduce((total, row) => total + (Number(row[field]) || 0), 0);
 export function grouped(rows, key) {

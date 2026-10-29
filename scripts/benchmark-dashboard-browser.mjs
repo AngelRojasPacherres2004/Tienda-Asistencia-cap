@@ -8,7 +8,7 @@ try {
   const page = await browser.newPage();
   await page.goto('http://127.0.0.1:5180/');
   const result = await page.evaluate(async legacyCode => {
-    const optimized = await import('/commercial-dashboard/src/app/inventory-performance.ts');
+    const optimized = await import('/src/commercial/inventory-performance.ts');
     const old = new Function(`${legacyCode}; return { previousStores, previousExtremes, previousSellers };`)();
     const rows = Array.from({ length: 142055 }, (_, i) => ({
       productId: `P${i % 50000}`, product: `Producto ${i % 50000}`, storeId: `T${i % 18}`,

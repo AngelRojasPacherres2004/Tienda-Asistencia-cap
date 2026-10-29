@@ -29,7 +29,7 @@ supabase/.temp/
 input/
 capa1/
 capa2/
-commercial-dashboard/public/assets/data/
+dashboard-data/
 DashboardGeneral_Portable_v*.zip
 
 # Copia de respaldo del antiguo repositorio anidado; no forma parte del proyecto unificado

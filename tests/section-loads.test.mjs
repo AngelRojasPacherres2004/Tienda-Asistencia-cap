@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
-import { SectionLoads } from '../commercial-dashboard/src/app/section-loads.ts';
-import { decodeCompactRows, decodeStockCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
+import { SectionLoads } from '../src/commercial/section-loads.ts';
+import { decodeCompactRows, decodeStockCompact } from '../src/commercial/compact-dashboard.ts';
 
-const require = createRequire(new URL('../commercial-dashboard/package.json', import.meta.url));
+const require = createRequire(new URL('../package.json', import.meta.url));
 const ts = require('typescript');
-const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
-const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
-const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
+const source = readFileSync(new URL('../src/commercial/dashboard-controller.ts', import.meta.url), 'utf8');
+const tree = ts.createSourceFile('dashboard-controller.ts', source, ts.ScriptTarget.Latest, true);
+const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'CommercialDashboardController');
 const methods = ['ensureSellerDetail', 'ensurePriceRangeDetail', 'ensureBrandDetail', 'ensureStockHierarchy', 'ensureStockTransfers', 'deferHierarchyDetails', 'loadDetail', 'loadYearDetail', 'cancelPendingSectionLoads', 'releaseSectionDetails'];
 const code = ts.transpileModule(`export class Subject {${app.members.filter(member => methods.includes(member.name?.getText(tree))).map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports = {};
@@ -242,6 +242,10 @@ test('transfer modal loads only candidate SKUs from the compact file', async () 
   subject.sectionLoads = new SectionLoads();
   subject.stockDetailLoaded = signal(false);
   subject.stockTransfersLoaded = signal(false);
+  subject.storeTransferRoutes = signal(null);
+  subject.storeTransferStores = signal([]);
+  subject.stockTransfersError = signal('');
+  subject.cloud = { accessProfile: () => null };
   subject.stockTransferProductsData = signal([]);
   const requested = [];
   subject.loadDetail = async file => {

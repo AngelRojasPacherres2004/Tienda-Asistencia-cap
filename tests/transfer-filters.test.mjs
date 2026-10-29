@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
-import { stockTransfers, transferTotals } from '../commercial-dashboard/src/app/stock-transfers.ts';
+import { stockTransfers, transferTotals } from '../src/commercial/stock-transfers.ts';
 
-import { dashboardNumberFormat } from '../commercial-dashboard/src/app/inventory-performance.ts';
-import { resolveProductSize } from '../commercial-dashboard/src/app/product-sizes.ts';
+import { dashboardNumberFormat } from '../src/commercial/inventory-performance.ts';
+import { resolveProductSize } from '../src/commercial/product-sizes.ts';
 
-const require = createRequire(new URL('../commercial-dashboard/package.json', import.meta.url));
+const require = createRequire(new URL('../package.json', import.meta.url));
 const ts = require('typescript');
-const source = readFileSync(new URL('../commercial-dashboard/src/app/app.ts', import.meta.url), 'utf8');
-const tree = ts.createSourceFile('app.ts', source, ts.ScriptTarget.Latest, true);
-const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'App');
+const source = readFileSync(new URL('../src/commercial/dashboard-controller.ts', import.meta.url), 'utf8');
+const tree = ts.createSourceFile('dashboard-controller.ts', source, ts.ScriptTarget.Latest, true);
+const app = tree.statements.find(node => ts.isClassDeclaration(node) && node.name.text === 'CommercialDashboardController');
 const members = app.members.filter(member => member.name?.getText(tree).startsWith('transfer') || ['resetTransferFilters', 'toggleTransferRow', 'normalized', 'number'].includes(member.name?.getText(tree)));
 const code = ts.transpileModule(`export class Subject {${members.map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const signal = initial => {
@@ -29,6 +29,8 @@ function fixture() {
   subject.predictiveStoreOptions = () => ['A', 'B', 'C'].map(storeId => ({ storeId, alias: storeId, isStore: true }));
   subject.stockDetailLoaded = signal(true);
   subject.stockTransfersLoaded = signal(false);
+  subject.storeTransferRoutes = signal(null);
+  subject.storeTransferStores = signal([]);
   subject.stockTransferProductsData = signal([]);
   subject.stockProductsData = () => [product('A', 100, 10), product('B', 0, 10), product('C', 12, 20), product('A', 80, 0, 'P2', 'NIKE', 'CALZADO'), product('B', 0, 20, 'P2', 'NIKE', 'CALZADO'), product('OUTSIDE', 1000, 1000)];
   return subject;
@@ -174,6 +176,7 @@ test('sales and stock chart do not read or calculate transfer data', () => {
   vm.runInNewContext(compiled, { exports: isolated, signal, computed: fn => fn, resolveProductSize,
     stockTransfers: () => { calls++; return []; } });
   const subject = new isolated.SizeSubject();
+  subject.storeTransferRoutes = () => null;
   subject.sizeRubro.set('TEXTIL');
   subject.sizeProductsForChart = () => [{ productId: 'P1', productCode: '1234567890100M', line: 'DAMA', units30: 5, stockUnits: 20 }];
   subject.sizeTransfersForChart = () => { throw new Error('Transfer data must remain unloaded'); };

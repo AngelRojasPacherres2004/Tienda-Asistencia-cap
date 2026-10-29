@@ -1,9 +1,8 @@
-import { Injectable, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, OnInit, computed, effect, inject, signal } from './reactivity-react';
 import type { EChartsOption } from 'echarts';
 import { AssistantService } from './assistant.service';
 import { blackChartText } from './chart-text';
-import type { DashboardHeaderModel } from './dashboard-header';
-import type { DashboardFilterAction, DashboardFiltersModel } from './dashboard-filters';
+import type { DashboardHeaderModel, DashboardFilterAction, DashboardFiltersModel } from './view-models';
 import { readRuntimeConfig } from './runtime-config';
 import { adaptiveValueScale } from './chart-scale';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
@@ -3528,7 +3527,7 @@ export class CommercialDashboardController implements OnInit {
     //
     // Importante: usar SIEMPRE monthlyCategoryIndex. No seleccionar el índice de
     // línea/sublínea ni llamar categoryMatches/lineMatches/sublineMatches aquí;
-    // de esa forma Angular tampoco registra esas señales como dependencias del
+    // de esa forma el motor reactivo tampoco registra esas señales como dependencias del
     // computed y el donut no se recalcula al tocar esos tres filtros.
     const rows = this.categorySummary(); const total = rows.reduce((value, row) => value + row.net, 0);
     return {
@@ -4510,7 +4509,7 @@ export class CommercialDashboardController implements OnInit {
     this.brandDetailLoaded.set(false); this.sublineDetailLoaded.set(false);
     // Invalidates computations using non-reactive indexes as well.
     this.data.update(data => data ? { ...data } : data);
-    // Angular computed values retain their last result until read again.
+    // Los valores calculados retienen el último resultado hasta que vuelven a leerse.
     // Evaluate product-level caches against the cleared source to release old rows.
     this.filteredProducts(); this.staticPredictiveProducts(); this.predictiveProducts(); this.activeProductRows();
     this.predictiveScopedProducts(); this.transferProducts(); this.transferLines(); this.transferBrands();

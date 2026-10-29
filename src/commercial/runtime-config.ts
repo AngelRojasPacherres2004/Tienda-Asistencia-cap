@@ -24,12 +24,12 @@ export type ReactTabsBridge = {
 };
 
 export type ReactHeaderBridge = {
-  update: (model: import('./dashboard-header').DashboardHeaderModel) => void;
+  update: (model: import('./view-models').DashboardHeaderModel) => void;
   dispose: () => void;
 };
 
 export type ReactFiltersBridge = {
-  update: (model: import('./dashboard-filters').DashboardFiltersModel) => void;
+  update: (model: import('./view-models').DashboardFiltersModel) => void;
   dispose: () => void;
 };
 
@@ -48,7 +48,7 @@ declare global {
     mountReactCommercialHeader?: (host: HTMLElement,
       onLogout: () => void) => ReactHeaderBridge;
     mountReactCommercialFilters?: (host: HTMLElement,
-      onAction: (action: import('./dashboard-filters').DashboardFilterAction) => void) => ReactFiltersBridge;
+      onAction: (action: import('./view-models').DashboardFilterAction) => void) => ReactFiltersBridge;
     mountReactCommercialModule?: (host: HTMLElement, moduleId: string,
       onAction: (action: { type: string; value?: string | number; file?: File }) => void) => ReactModuleBridge;
   }

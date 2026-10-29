@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable } from './reactivity-react';
 import { CloudDataService } from './cloud-data.service';
 import { readRuntimeConfig } from './runtime-config';
 

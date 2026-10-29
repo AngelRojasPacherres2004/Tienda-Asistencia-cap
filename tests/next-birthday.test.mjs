@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextBirthday } from '../commercial-dashboard/src/app/next-birthday.ts';
+import { nextBirthday } from '../src/commercial/next-birthday.ts';
 
 test('next birthday follows the current date across months and years', () => {
   const rows = [{name:'Pasado',birthdayMonth:10,birthdayDay:2}, {name:'Próximo',birthdayMonth:11,birthdayDay:3}];

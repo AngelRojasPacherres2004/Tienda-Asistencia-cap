@@ -30,7 +30,7 @@ from particionar_dashboard import scope_catalog, scope_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "commercial-dashboard" / "public" / "assets" / "data"
+DATA_DIR = ROOT / "dashboard-data"
 STATIC_CORE_FILES = (
     "dashboard.json",
     "dashboard-predictive.json",
@@ -49,7 +49,7 @@ YEARLY_DATASETS = (
 # La carga estándar de Storage es más estable por debajo de 6 MB.
 CHUNK_BYTES = 5 * 1024 * 1024
 DEFAULT_RELEASES_TO_KEEP = 2
-RUNTIME_CONFIG = ROOT / "commercial-dashboard" / "public" / "runtime-config.js"
+RUNTIME_CONFIG = ROOT / "public" / "comercial" / "runtime-config.js"
 class PublishError(RuntimeError):
     pass
 

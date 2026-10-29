@@ -136,7 +136,7 @@ npm ci
 npm run build
 ```
 
-El build raíz compila React y `commercial-dashboard/` y después integra ambos en `dist/`.
+El build raíz compila la aplicación React y el dashboard comercial en `dist/`.
 
 La configuración pública de Supabase se genera durante el build de Netlify. `GROQ_API_KEY` permanece exclusivamente en Supabase Edge Function Secrets.
 

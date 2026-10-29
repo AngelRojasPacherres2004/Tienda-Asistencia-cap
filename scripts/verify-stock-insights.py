@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "piplines"))
 from compactar_dashboard import descompactar_predictivo  # noqa: E402
 
-DATA = ROOT / "commercial-dashboard/public/assets/data"
+DATA = ROOT / "dashboard-data"
 
 
 def window_total(days: int, value30: float, value60: float, value90: float) -> float:

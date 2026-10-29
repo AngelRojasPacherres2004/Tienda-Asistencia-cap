@@ -7,8 +7,8 @@
     "dev": "concurrently -k -n WEB,API -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite --host 127.0.0.1 --port 5180",
     "dev:api": "node --watch --env-file=.env scripts/dev-api.js",
-    "build": "npm run build:commercial && vite build && node scripts/copy-commercial-build.mjs",
-    "build:commercial": "node scripts/generate-commercial-icons.mjs && node scripts/ensure-commercial-deps.mjs && npm --prefix commercial-dashboard run build -- --base-href /comercial/",
+    "build": "npm run generate:commercial-icons && vite build",
+    "generate:commercial-icons": "node scripts/generate-commercial-icons.mjs",
     "preview": "vite preview",
     "check": "eslint . --max-warnings=0",
     "import:commercial:check": "node scripts/import-commercial-roster.mjs",
@@ -38,6 +38,7 @@
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
-    "playwright-core": "^1.64.1"
+    "playwright-core": "^1.64.1",
+    "typescript": "^5.9.3"
   }
 }
