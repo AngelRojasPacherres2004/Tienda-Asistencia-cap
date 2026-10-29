@@ -1,7 +1,7 @@
 import { Injectable, OnInit, computed, effect, inject, signal } from '@angular/core';
 import type { EChartsOption } from 'echarts';
 import { AssistantService } from './assistant.service';
-import { blackChartText } from './chart';
+import { blackChartText } from './chart-text';
 import type { DashboardHeaderModel } from './dashboard-header';
 import type { DashboardFilterAction, DashboardFiltersModel } from './dashboard-filters';
 import { readRuntimeConfig } from './runtime-config';
@@ -3994,6 +3994,11 @@ export class CommercialDashboardController implements OnInit {
     onCleanup(() => { clearTimeout(timer); controller.abort(); });
   });
 
+  disposeReactRuntime(): void {
+    this.stockTransferCalculationEffect.destroy();
+    this.stockInsightsEffect.destroy();
+  }
+
   async ngOnInit(): Promise<void> {
     await this.cloud.initialize();
     if (!this.cloud.hasAccess()) return;
@@ -4057,13 +4062,9 @@ export class CommercialDashboardController implements OnInit {
       this.sellerPerformanceData.set(loaded.sellerPerformance || []);
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
       this.data.set(loaded);
-      this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
-      this.cloud.companyRanking().then(ranking => {
-        if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(ranking);
-      }).catch(() => {
-        if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(null);
-      });
-      this.cloud.storeGoals().then(result => {
+      // Metas desbloquea el gráfico principal; iniciar esta consulta antes de
+      // la analítica secundaria evita que compita por las conexiones del navegador.
+      const goalsReady = this.cloud.storeGoals().then(result => {
         if (goalLoadToken !== this.goalLoadToken) return;
         this.storeGoalOverrides.set(result.goals); this.annualGoalOverrides.set(result.annualTargets);
       }).catch(() => {
@@ -4072,12 +4073,22 @@ export class CommercialDashboardController implements OnInit {
       }).finally(() => {
         if (goalLoadToken === this.goalLoadToken) this.storeGoalsReady.set(true);
       });
+      // Los archivos de detalle compiten por las conexiones HTTP. Dar a metas
+      // una ventana breve para terminar evita que quede esperando tras un 200.
+      void Promise.race([goalsReady, new Promise<void>(resolve => setTimeout(resolve, 2500))]).then(() => {
+        if (goalLoadToken !== this.goalLoadToken) return;
+        this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
+        this.cloud.companyRanking().then(ranking => {
+          if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(ranking);
+        }).catch(() => {
+          if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(null);
+        });
+        if (this.page() === 1) void this.ensurePriceRangeDetail();
+      });
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();
-      // Rango de precios vive ahora en la primera página; se carga en segundo plano para
-      // no retrasar los KPIs iniciales, pero ya no depende de abrir Inventario.
-      setTimeout(() => { if (this.page() === 1) void this.ensurePriceRangeDetail(); }, 0);
+      // Rango de precios se carga tras la consulta prioritaria de metas.
       // NO cargar dashboard-brand.json (~35 MB) al abrir. Se carga solo si el usuario
       // entra a un nivel jerárquico que realmente necesita Marca por Rubro/Línea/SubLínea.
     } catch (error) { this.loadingError.set(`No se pudieron abrir los datos del dashboard: ${error instanceof Error ? error.message : error}`); }

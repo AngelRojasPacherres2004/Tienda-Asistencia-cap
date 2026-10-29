@@ -38,8 +38,6 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
       setLoading(true);
       setError("");
       try {
-        const bundle = await loadCommercialBundle();
-        if (!active) return;
         const supportedReactCharts = new Set(["growth", "meta-vs-real", "hourly-performance", "category-participation", "price-range", "store-ranking", "brand-sales", "gender-donut", "gender-bar", "inventory-rotation", "inventory-capacity", "inventory-store-value", "inventory-sizes", "inventory-antiquity", "talent-history", "talent-team-productivity", "talent-seller-performance", "talent-area-distribution", "talent-store-productivity", "talent-training", "talent-exit", "talent-incidents", "predictive-health", "predictive-replenishment", "predictive-projection", "modal-ticket", "modal-conversion", "modal-traffic"]);
         const reactCharts = (import.meta.env.VITE_COMMERCIAL_REACT_CHARTS || "")
           .split(",").map(value => value.trim()).filter(value => supportedReactCharts.has(value));
@@ -60,6 +58,20 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
         if (import.meta.env.DEV && (previewModule === "all" || (!previewModule && !previewChart))) reactModules.push(...supportedReactModules);
         if (import.meta.env.DEV && previewModule === "angular") { reactModules.length = 0; reactCharts.length = 0; }
         if (reactStandalone) { reactModules.length = 0; reactCharts.length = 0; }
+        window.__DASHBOARD_CONFIG__ = {
+          dataMode: "portal", groqAssistantEnabled: true, storeContextId,
+          reactCharts, reactModules,
+          portalUser: { nombres: user?.nombres, apellidos: user?.apellidos },
+        };
+        if (reactStandalone) {
+          const renderer = await import("../components/mount-commercial-react-independent");
+          if (!active) return;
+          dispose = renderer.mountCommercialReactIndependent(host.current);
+          setLoading(false);
+          return;
+        }
+        const bundle = await loadCommercialBundle();
+        if (!active) return;
         if (reactCharts.length) {
           const renderer = await import("../components/mount-commercial-react-chart");
           if (!active) return;
@@ -92,16 +104,6 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
             window.mountReactCommercialModule = renderer.mountReactCommercialModule;
           }
         }
-        if (reactStandalone) {
-          const renderer = await import("../components/mount-commercial-react-standalone");
-          if (!active) return;
-          window.mountReactCommercialStandalone = renderer.mountReactCommercialStandalone;
-        }
-        window.__DASHBOARD_CONFIG__ = {
-          dataMode: "portal", groqAssistantEnabled: true, storeContextId,
-          reactCharts, reactModules, reactStandalone,
-          portalUser: { nombres: user?.nombres, apellidos: user?.apellidos },
-        };
         dispose = await window.mountCommercialDashboard(host.current, bundle.stylesheet);
         if (!active) dispose();
         else setLoading(false);

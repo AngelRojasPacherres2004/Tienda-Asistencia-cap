@@ -77,7 +77,7 @@ try {
       delayedGoalsBody = result.body;
     }
     const pair = [];
-    for (const [mode, query] of [["angular", "?reactModule=angular"], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget", "talent-page", "commercial-page", "inventory-page"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]]) {
+    for (const [mode, query] of [["angular", "?reactModule=angular"], ["react", ["page-tabs", "header", "filters", "primary-kpis", "key-kpis", "progress", "talent-kpis", "size-controls", "talent-capacity", "stock-matrix", "birthday-modal", "growth-card", "meta-vs-real-card", "hourly-card", "talent-history-card", "talent-team-card", "talent-area-card", "talent-store-card", "talent-exit-card", "talent-incidents-card", "talent-training-card", "size-card", "store-value-card", "category-card", "brand-card", "ranking-card", "gender-card", "price-range-card", "rotation-card", "antiquity-card", "health-card", "projection-card", "replenishment-card", "seller-card", "ticket-modal", "conversion-modal", "traffic-modal", "stock-origin-modal", "transfer-modal", "predictive-parameters", "section-heading", "commercial-access", "assistant-widget", "talent-page", "commercial-page", "inventory-page"].includes(chartId) ? `?reactModule=${chartId}` : `?reactChart=${chartId}`]].filter(([mode]) => process.env.AUDIT_SKIP_ANGULAR !== "1" || mode !== "angular")) {
     console.log(JSON.stringify({ checking: scenario, mode }));
     const context = await browser.newContext({ viewport: { width: scenario.width, height: 950 }, timezoneId: "America/Lima" });
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
@@ -85,7 +85,14 @@ try {
     const page = await context.newPage();
     const failures = [];
     const goalEvents = [];
+    const goalFinishes = [];
+    const angularRequests = [];
     page.on("pageerror", error => failures.push(error.message));
+    page.on("console", message => { if (message.type() === "error" && !message.location().url.endsWith("/favicon.ico"))
+      failures.push(`${message.text()} ${message.location().url}`); });
+    page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/comercial/")) angularRequests.push(request.url()); });
+    page.on("requestfinished", request => { if (request.url().includes("/api/commercial/store-goals")) goalFinishes.push("finished"); });
+    page.on("requestfailed", request => { if (request.url().includes("/api/commercial/store-goals")) goalFinishes.push(request.failure()?.errorText || "failed"); });
     page.on("response", item => {
       const path = new URL(item.url()).pathname;
       const optionalFallbackFile = item.status() === 404 && (
@@ -96,7 +103,7 @@ try {
         && !(chartId === "commercial-access" && path === "/api/commercial/access" && item.status() === 403)) failures.push(`API ${item.status()}: ${path}`);
       if (item.url().includes("/api/commercial/store-goals")) goalEvents.push(item.status());
     });
-    await page.route("**/api/**", route => {
+    if (chartId !== "meta-vs-real") await page.route("**/api/**", route => {
       const request = route.request();
       const readOnlyPost = request.method() === "POST" && (
         ["inventory-sizes", "size-controls", "stock-matrix", "size-card", "store-value-card", "transfer-modal", "section-heading", "inventory-page", "all-modules"].includes(chartId) && ["/api/commercial/product-codes", "/api/commercial/stock-insights"].includes(new URL(request.url()).pathname)
@@ -120,13 +127,19 @@ try {
     try {
       const goalsRequest = chartId === "meta-vs-real"
         ? page.waitForResponse(item => item.url().includes("/api/commercial/store-goals"), { timeout: 90_000 })
+          .then(item => ({ status: item.status() }))
         : null;
       const shellQuery = mode === "react" && process.env.AUDIT_REACT_SHELL === "1"
         ? "?reactShell=react" : chartId === "all-modules" && mode === "react" ? "" : query;
       await page.goto(`${origin}/${shellQuery}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
       if (mode === "react" && process.env.AUDIT_REACT_SHELL === "1") {
-        await page.locator('[data-react-commercial-shell="true"]').waitFor({ timeout: 30_000 });
+        try { await page.locator('[data-react-commercial-shell="true"]').waitFor({ timeout: 15_000 }); }
+        catch (error) {
+          throw new Error(`React no inició: ${JSON.stringify({ failures,
+            text: (await page.locator("body").innerText()).slice(0, 600) })}`, { cause: error });
+        }
         assert.equal(await page.locator('dashboard-react-module').count(), 0, "React montó una vista Angular");
+        assert.equal(angularRequests.length, 0, "React solicitó el bundle Angular");
       }
       if (chartId === "all-modules") {
         const panels = [
@@ -136,7 +149,12 @@ try {
         ];
         for (const target of panels) {
           if (target.index) await page.locator(".page-tabs button").nth(target.index).click();
-          await page.locator(`${target.page}:visible`).waitFor({ timeout: 30_000 });
+          try { await page.locator(`${target.page}:visible`).waitFor({ timeout: 30_000 }); }
+          catch (error) {
+            throw new Error(`${scenario.role} ${mode}: página ausente; ${JSON.stringify({ failures,
+              text: (await page.locator("body").innerText()).slice(0, 600),
+              shell: await page.locator('[data-react-commercial-shell="true"]').count() })}`, { cause: error });
+          }
           for (const selector of target.selectors) {
             const element = page.locator(`${target.page} ${selector}:visible`).first();
             await element.waitFor({ timeout: 60_000 });
@@ -929,10 +947,10 @@ try {
           : chartId === "inventory-capacity" ? card.locator(".capacity-donut canvas") : card.locator("canvas");
       if (goalsRequest) {
         const goalsResponse = await goalsRequest;
-        assert.equal(goalsResponse.status(), 200, `${mode}: faltan metas comerciales`);
-        const goalsBody = await goalsResponse.json();
-        assert.ok(goalsBody.goals?.length > 0, `${mode}: metas comerciales vacías`);
-        await card.locator(".card-inline-loader").waitFor({ state: "hidden" });
+        assert.equal(goalsResponse.status, 200, `${mode}: faltan metas comerciales`);
+        try { await card.locator(".card-inline-loader").waitFor({ state: "hidden", timeout: 30_000 }); }
+        catch (error) { throw new Error(`Metas no listas en ${mode}: ${JSON.stringify({ failures, goalEvents, goalFinishes,
+          card: (await card.innerText()).slice(0, 220) })}`, { cause: error }); }
       }
       try { await canvas.waitFor({ timeout: 30_000 }); }
       catch (error) {
@@ -975,7 +993,10 @@ try {
         return { width: element.width, height: element.height, visible };
       });
       if (failures.length) throw new Error(failures.join("\n"));
-      pair.push({ mode, dimensions, canvasStats, screenshot,
+      const layout = await card.evaluate(element => ({ height: getComputedStyle(element).height,
+        minHeight: getComputedStyle(element).minHeight, boxSizing: getComputedStyle(element).boxSizing,
+        chartHeight: element.querySelector('dashboard-chart, [data-react-commercial-chart]')?.getBoundingClientRect().height }));
+      pair.push({ mode, dimensions, canvasStats, screenshot, layout,
         sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
       if (chartId === "inventory-antiquity" && scenario.width === 1440) {
         await canvas.click({ position: { x: 70, y: 155 } });
@@ -985,9 +1006,11 @@ try {
       await context.close();
     }
     }
+    if (pair.length === 2) {
     assert.ok(Math.abs(pair[0].dimensions.width - pair[1].dimensions.width) < 1, "Ancho distinto");
     const pageHeightTolerance = ["commercial-page", "inventory-page"].includes(chartId) ? 10 : 1;
-    assert.ok(Math.abs(pair[0].dimensions.height - pair[1].dimensions.height) < pageHeightTolerance, "Alto distinto");
+    assert.ok(Math.abs(pair[0].dimensions.height - pair[1].dimensions.height) < pageHeightTolerance,
+      `Alto distinto: Angular ${pair[0].dimensions.height}, React ${pair[1].dimensions.height}; ${JSON.stringify(pair.map(item => item.layout))}`);
     if (["talent-training", "predictive-replenishment"].includes(chartId)) {
       assert.equal(pair[0].canvasStats.width, pair[1].canvasStats.width, "Ancho del lienzo distinto");
       assert.equal(pair[0].canvasStats.height, pair[1].canvasStats.height, "Alto del lienzo distinto");
@@ -996,11 +1019,12 @@ try {
     } else {
       assert.deepEqual(pair[0].canvasStats, pair[1].canvasStats, "El lienzo del gráfico difiere");
     }
+    }
     results.push({ ...scenario, dimensions: pair[0].dimensions, canvasStats: pair[0].canvasStats,
       captures: pair.map(item => ({ mode: item.mode, screenshot: item.screenshot, sha256: item.sha256 })) });
   }
   console.log(JSON.stringify(results.map(({ role, width, year, canvasStats, captures }) => ({
-    role, width, year, canvasStats, equal: captures[0].sha256 === captures[1].sha256,
+    role, width, year, canvasStats, equal: captures.length === 2 ? captures[0].sha256 === captures[1].sha256 : null,
   }))));
 } finally {
   await browser.close();

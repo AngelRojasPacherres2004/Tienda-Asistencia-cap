@@ -36,8 +36,19 @@ function commercialDevAssets() {
   };
 }
 
+function commercialReactRuntime() {
+  const adapter = resolve('commercial-dashboard/src/app/reactivity-react.ts');
+  return {
+    name: 'commercial-react-runtime',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === '@angular/core' && importer?.replaceAll('\\', '/').includes('/commercial-dashboard/src/app/')) return adapter;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), commercialDevAssets()],
+  plugins: [commercialReactRuntime(), react(), commercialDevAssets()],
   server: {
     port: 5173,
     proxy: {

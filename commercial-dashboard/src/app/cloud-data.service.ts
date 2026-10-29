@@ -336,7 +336,19 @@ export class CloudDataService {
 
   async storeGoals(): Promise<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }> {
     if (!this.portalMode) return { goals: [], annualTargets: [] };
-    const data = await this.portalRequest<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }>('/commercial/store-goals');
+    const read = async (): Promise<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }> => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      try { return await this.portalRequest('/commercial/store-goals', { signal: controller.signal }); }
+      finally { clearTimeout(timeout); }
+    };
+    let data: { goals: StoreGoal[]; annualTargets: AnnualGoal[] };
+    try { data = await read(); }
+    catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')
+        && !(error instanceof Error && error.message.includes('aborted'))) throw error;
+      data = await read();
+    }
     return { goals: data.goals || [], annualTargets: data.annualTargets || [] };
   }
 
