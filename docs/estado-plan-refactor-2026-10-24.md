@@ -477,6 +477,12 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   sus comprobaciones de controles y dimensiones. Las capturas largas del
   navegador incluyen zonas negras fuera del área visible; se requieren
   capturas por secciones para verificar esas zonas antes de retirar Angular.
+- La auditoría captura ahora cada tarjeta tras desplazarla al área visible,
+  evitando las zonas negras de la captura larga. Con la misma respuesta real
+  de metas en ambas vistas, las comprobaciones de texto y tamaño pasaron para
+  12 tarjetas de Comercial a 1440 px, siete de Inventario y nueve de Talento a
+  820 px. Las capturas siguen teniendo diferencias de píxeles; esta muestra no
+  cubre todas las combinaciones ni confirma por sí sola la paridad completa.
 
 ## Paso 5: pendiente tras la validación final del paso 4
 

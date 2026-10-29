@@ -63,13 +63,35 @@ const scenarios = [
   .filter(scenario => !process.env.AUDIT_WIDTH || scenario.width === Number(process.env.AUDIT_WIDTH))
   .slice(0, Number(process.env.AUDIT_SCENARIO_LIMIT || 6));
 const results = [];
+async function captureSections(panel, scenario, mode) {
+  await panel.evaluate(element => {
+    const root = element.getRootNode();
+    const style = document.createElement('style');
+    style.textContent = '.dashboard-filter-toolbar, .assistant-launcher { visibility: hidden !important; }';
+    root.append(style);
+  });
+  const cards = panel.locator('.card:visible');
+  const sections = [];
+  for (let index = 0; index < await cards.count(); index++) {
+    const card = cards.nth(index);
+    await card.scrollIntoViewIfNeeded();
+    await card.page().evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const path = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}-section-${index}.png`);
+    const bytes = await card.screenshot({ path, animations: 'disabled' });
+    const box = await card.boundingBox();
+    sections.push({ path, width: box.width, height: box.height,
+      text: (await card.innerText()).replace(/\s+/g, ' ').trim(), sha256: createHash('sha256').update(bytes).digest('hex') });
+  }
+  return sections;
+}
 try {
   for (const scenario of scenarios) {
     const user = scenario.role === "jefe_tienda" ? chief
       : people.find(row => row.rol === scenario.role && !row.cambio_credenciales_pendiente);
     assert.ok(user, `No hay cuenta activa de ${scenario.role} para la prueba.`);
     let delayedGoalsBody;
-    if (chartId === "meta-vs-real" && process.env.AUDIT_LOADING_STATE === "1") {
+    if ((chartId === "meta-vs-real" && process.env.AUDIT_LOADING_STATE === "1")
+      || ["commercial-page", "inventory-page", "talent-page"].includes(chartId)) {
       const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
       const result = await handler({ httpMethod: "GET", path: "/api/commercial/store-goals",
         headers: { authorization: `Bearer ${token}` }, queryStringParameters: {}, body: null });
@@ -117,7 +139,11 @@ try {
       status: 403, contentType: "application/json", body: JSON.stringify({ error: "Acceso no autorizado" }),
     }));
     let releaseGoals;
-    if (delayedGoalsBody) {
+    if (delayedGoalsBody && chartId !== "meta-vs-real") {
+      await page.route("**/api/commercial/store-goals", route => route.fulfill({
+        status: 200, contentType: "application/json", body: delayedGoalsBody,
+      }));
+    } else if (delayedGoalsBody) {
       const gate = new Promise(resolve => { releaseGoals = resolve; });
       await page.route("**/api/commercial/store-goals", async route => {
         await gate;
@@ -181,14 +207,16 @@ try {
         const panel = page.locator('.talent-page[data-operational-summary-ready="true"]:visible');
         await panel.waitFor({ timeout: 60_000 });
         await panel.locator(".talent-development-grid .training-card canvas").waitFor({ timeout: 30_000 });
+        await panel.locator('.seller-performance-card .detail-loading').waitFor({ state: 'hidden', timeout: 60_000 });
         assert.equal(await panel.getAttribute("data-react-commercial-module"), mode === "react" ? chartId : null);
         assert.equal(await panel.locator(".talent-overview-grid .card:visible").count(), 3);
         assert.equal(await panel.locator(".talent-performance-grid .card:visible").count(), 3);
         assert.equal(await panel.locator(".talent-development-grid .card:visible").count(), 3);
         const dimensions = await panel.boundingBox();
-        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         await page.evaluate(() => document.fonts.ready);
-        const screenshotBytes = await panel.screenshot({ path: screenshot });
+        const sections = await captureSections(panel, scenario, mode);
+        const screenshot = sections[0]?.path || '';
+        const screenshotBytes = Buffer.from(sections.map(section => section.sha256).join(''));
         await panel.locator(".talent-kpis .birthday-kpi").click();
         await page.locator('.birthday-modal:visible').waitFor();
         await page.locator('.birthday-modal:visible .chart-expand').click();
@@ -196,7 +224,7 @@ try {
         await panel.locator(".seller-performance-card.chart-expanded").waitFor();
         await panel.locator(".seller-performance-card .seller-more-btn").click();
         if (failures.length) throw new Error(failures.join("\n"));
-        pair.push({ mode, dimensions, canvasStats: null, screenshot,
+        pair.push({ mode, dimensions, canvasStats: null, screenshot, sections,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
         continue;
       }
@@ -213,16 +241,17 @@ try {
           ['.primary-kpis', '.kpi-strip', '.executive-grid', '.charts-four', '.hourly-insight-grid', '.static-charts']
             .map(selector => { const node = element.querySelector(selector); const rect = node?.getBoundingClientRect();
               return [selector, rect ? { top: Math.round(rect.top - element.getBoundingClientRect().top), height: Math.round(rect.height) } : null]; })));
-        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         await page.evaluate(() => document.fonts.ready);
-        const screenshotBytes = await panel.screenshot({ path: screenshot });
+        const sections = await captureSections(panel, scenario, mode);
+        const screenshot = sections[0]?.path || '';
+        const screenshotBytes = Buffer.from(sections.map(section => section.sha256).join(''));
         await panel.locator('.category-card .category-view-toggle button').nth(1).click();
         await panel.locator('.category-card .category-view-toggle button.active').getByText('CATEGORÍA').waitFor();
         await panel.locator('.brand-sales-card .chart-expand').click();
         await panel.locator('.brand-sales-card.chart-expanded').waitFor();
         await panel.locator('.brand-sales-card .chart-expand').click();
         if (failures.length) throw new Error(failures.join("\n"));
-        pair.push({ mode, dimensions, canvasStats: null, screenshot, layout,
+        pair.push({ mode, dimensions, canvasStats: null, screenshot, layout, sections,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
         continue;
       }
@@ -244,16 +273,17 @@ try {
           ['.inventory-grid', '.inventory-analysis-row', '.predictive-parameters', '.predictive-overview-grid', '.health-card', '.predictive-replenishment-card', '.projection-card']
             .map(selector => { const node = element.querySelector(selector); const rect = node?.getBoundingClientRect();
               return [selector, rect ? { top: Math.round(rect.top - element.getBoundingClientRect().top), height: Math.round(rect.height) } : null]; })));
-        const screenshot = join(output, `${chartId}-${scenario.role}-${scenario.width}-${scenario.year}-${mode}.png`);
         await page.evaluate(() => document.fonts.ready);
-        const screenshotBytes = await panel.screenshot({ path: screenshot });
+        const sections = await captureSections(panel, scenario, mode);
+        const screenshot = sections[0]?.path || '';
+        const screenshotBytes = Buffer.from(sections.map(section => section.sha256).join(''));
         await panel.locator('.rotation-switch button[aria-label="Ver capacidad y participación"]').click();
         await panel.locator('.rotation-switch button.active[aria-label="Ver capacidad y participación"]').waitFor();
         await panel.locator('.rotation-switch button[aria-label="Ver rotación por tienda"]').click();
         await panel.locator('.projection-horizon-toggle button').nth(1).click();
         await panel.locator('.projection-horizon-toggle button.active').getByText('+30D').waitFor();
         if (failures.length) throw new Error(failures.join("\n"));
-        pair.push({ mode, dimensions, canvasStats: null, screenshot, layout,
+        pair.push({ mode, dimensions, canvasStats: null, screenshot, layout, sections,
           sha256: createHash("sha256").update(screenshotBytes).digest("hex") });
         continue;
       }
@@ -1021,6 +1051,17 @@ try {
     }
     }
     if (pair.length === 2) {
+    if (pair[0].sections && pair[1].sections) {
+      assert.equal(pair[0].sections.length, pair[1].sections.length, 'Número de tarjetas distinto');
+      for (let i = 0; i < pair[0].sections.length; i++) {
+        assert.equal(pair[0].sections[i].text, pair[1].sections[i].text, `Contenido distinto en tarjeta ${i}`);
+        assert.ok(Math.abs(pair[0].sections[i].width - pair[1].sections[i].width) < 2, `Ancho distinto en tarjeta ${i}`);
+        assert.ok(Math.abs(pair[0].sections[i].height - pair[1].sections[i].height) < 10, `Alto distinto en tarjeta ${i}: ${pair[0].sections[i].height} / ${pair[1].sections[i].height}`);
+      }
+      console.log(JSON.stringify({ sections: chartId, count: pair[0].sections.length,
+        textDifferences: pair[0].sections.map((section, i) => section.text === pair[1].sections[i].text ? null : i).filter(i => i !== null),
+        pixelDifferences: pair[0].sections.map((section, i) => section.sha256 === pair[1].sections[i].sha256 ? null : i).filter(i => i !== null) }));
+    }
     assert.ok(Math.abs(pair[0].dimensions.width - pair[1].dimensions.width) < 1, "Ancho distinto");
     const pageHeightTolerance = ["commercial-page", "inventory-page"].includes(chartId) ? 10 : 1;
     assert.ok(Math.abs(pair[0].dimensions.height - pair[1].dimensions.height) < pageHeightTolerance,

@@ -14,7 +14,9 @@ export function mountCommercialReactIndependent(host) {
   host.append(shell);
   const shadow = shell.attachShadow({ mode: 'open' });
   const styles = document.createElement('style');
-  styles.textContent = `:host{display:block;width:100%;font-family:"Segoe UI",Arial,sans-serif}\n${globalStyles}\n${appStyles}\n${transferModalStyles}`;
+  styles.textContent = `:host{display:block;width:100%;font-family:"Segoe UI",Arial,sans-serif}\n${globalStyles}\n${appStyles}\n${transferModalStyles}
+    @media (min-width:1101px) and (max-width:1899px) { .static-charts > .gender-card:not(.chart-expanded) { height:315px !important; } }
+    @media (min-width:1900px) { .static-charts > .gender-card:not(.chart-expanded) { height:360px !important; } }`;
   shadow.append(styles);
   const view = document.createElement('div');
   shadow.append(view);
