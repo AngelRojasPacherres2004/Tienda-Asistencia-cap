@@ -522,3 +522,14 @@ Angular ni tablas antes de cumplir sus puertas de paridad y restauración.
 Las frases anteriores sobre el respaldo Angular describen el estado histórico
 de cada fecha; a partir de esta actualización ya no existe ese respaldo en
 el código versionado.
+
+- Se actualizaron los BAT de apertura, actualización y paquete portable para
+  trabajar con React y `dashboard-data/`. La auditoría vigente se ejecuta con
+  `node scripts/audit-commercial-react.mjs`; captura secciones visibles y
+  comprueba las tres páginas y el asistente para los tres roles comerciales
+  en 1440 y 820 px.
+- En una comparación de 28 tarjetas con las capturas Angular conservadas fuera
+  del repositorio, todas tuvieron el mismo tamaño. La mayor diferencia media
+  fue 0.857 sobre 255 niveles RGB por canal y correspondió a la posición de
+  una etiqueta del gráfico de género. Se mantiene la disposición del gráfico
+  porque un ajuste manual de esa etiqueta desplazó otras y empeoró la medida.

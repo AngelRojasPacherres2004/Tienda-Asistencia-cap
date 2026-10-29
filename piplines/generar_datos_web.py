@@ -1291,7 +1291,7 @@ def escribir(resultado: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Genera el conjunto compacto para el dashboard Angular.")
+    parser = argparse.ArgumentParser(description="Genera el conjunto compacto para el dashboard React.")
     parser.parse_args()
     escribir(generar())
     return 0

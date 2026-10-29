@@ -105,7 +105,7 @@ Solo `--apply` sube los objetos comprimidos al bucket privado `dashboard-data`. 
 
 ## Motor de datos del Dashboard General Comercial
 
-Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz está construida en Angular, los datos privados se publican de forma versionada en Supabase y la web se sirve desde Netlify.
+Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz está construida en React, los datos privados se publican de forma versionada en Supabase y la web se sirve desde Netlify.
 
 ## Operación diaria
 
@@ -113,7 +113,7 @@ Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz
 2. **Actualizar datos locales** reconstruye y valida Capa 1, Capa 2 y el dashboard. **Actualizar y publicar en la web** hace eso y publica el dashboard y los reportes privados en `bd-app`.
 3. La web detecta la versión publicada sin volver a desplegar Netlify.
 
-`4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste desde esta misma raíz en `http://127.0.0.1:5180/`. `--legacy` conserva la apertura directa del dashboard Angular para paquetes portables previos.
+`4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste desde esta misma raíz en `http://127.0.0.1:5180/`.
 
 Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y `6_ACTUALIZAR_DASHBOARD_WEB.bat` publica el corte preparado. `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --sin-pausa` ejecuta ambos pasos. Si llega un Excel diario nuevo de tráfico, usa `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --trafico-excel "RUTA_DEL_ARCHIVO.xlsx"`; primero valida e importa los conteos diarios a `bd-app` y Capa 1, reparte cada total en horas manteniendo la suma y después reconstruye y publica. `--trafico-desde AAAA-MM-DD` permite acotar el intervalo. Añade `--solo-verificar` para revisar el Excel, la base y el modelo sin escribir ni publicar. No reimportes un Excel si solo quieres reconstruir el corte.
 
@@ -125,7 +125,7 @@ Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.
 
-En una PC nueva clona este repositorio, cambia a `test` y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El archivo privado `.env` de Asiste debe quedar en la raíz y apuntar a `bd-app`; nunca se incluye en GitHub. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` incluye la web Angular compilada, datos operativos y los BAT. `5_CREAR_USUARIO_WEB.bat` ya no crea usuarios: las cuentas se administran desde Asiste.
+En una PC nueva clona este repositorio y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El archivo privado `.env` de Asiste debe quedar en la raíz y apuntar a `bd-app`; nunca se incluye en GitHub. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` incluye la web React compilada, los datos operativos y los BAT. `5_CREAR_USUARIO_WEB.bat` ya no crea usuarios: las cuentas se administran desde Asiste.
 
 ## Desarrollo web
 

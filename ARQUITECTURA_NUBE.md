@@ -6,8 +6,8 @@
 2. `6_ACTUALIZAR_DASHBOARD_WEB.bat` solicita el usuario y la contraseña del publicador. Después `piplines/publicar_supabase.py` divide cada JSON en partes de 5 MB y las sube al bucket privado `dashboard-data`.
 3. Supabase registra primero una publicación `staging`. Solo después de completar todas las partes cambia a `published`.
 4. La web consulta la publicación más reciente y descarga únicamente los archivos que necesita. Cada dos minutos verifica si el BAT publicó una versión nueva.
-5. Netlify sirve la aplicación Angular, pero no contiene los datos comerciales dentro del despliegue.
-6. Angular envía chat o audio a Supabase Edge Functions; las funciones validan al usuario y recién entonces llaman a Groq.
+5. Netlify sirve la aplicación React; los datos comerciales se descargan desde Supabase según los permisos del usuario.
+6. React envía chat o audio a Supabase Edge Functions; las funciones validan al usuario y recién entonces llaman a Groq.
 
 ## Corte y cobertura de fuentes
 
@@ -46,7 +46,7 @@
 ## Archivos de configuración
 
 - Migraciones SQL versionadas en `supabase/migrations`.
-- Configuración Netlify: `netlify.toml`; el dashboard Angular integrado vive en `commercial-dashboard/`.
+- Configuración Netlify: `netlify.toml`; el dashboard React integrado vive en `src/commercial/` y `src/components/`.
 - Publicación interactiva: `6_ACTUALIZAR_DASHBOARD_WEB.bat`; solicita las credenciales sin guardarlas. `.env.supabase.local` queda disponible solo como alternativa administrada.
 - Alta segura de accesos adicionales: `5_CREAR_USUARIO_WEB.bat` cuando se dispone de una clave administrativa local.
 - Variables públicas del build: `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.

@@ -3,7 +3,6 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
-set "WEBROOT=commercial-dashboard\dist\dashboard-web\browser"
 set "FECHA_CORTE="
 set "SIN_PAUSA=0"
 set "FORZAR_CAPA1="
@@ -83,63 +82,22 @@ echo Ejecutando validacion estricta final...
 ".venv\Scripts\python.exe" "piplines\validar_modelo.py" --estricto
 if errorlevel 1 goto :error
 
-if exist "commercial-dashboard\public" (
-    echo Actualizando datos compactos del dashboard web...
-    ".venv\Scripts\python.exe" "piplines\generar_datos_web.py"
-    if errorlevel 1 goto :error
-
-    ".venv\Scripts\python.exe" "piplines\corte_comercial_automatico.py" --validar --fecha-corte "%CORTE_ACTUAL%"
-    if errorlevel 1 goto :error
-
-    echo Datos locales preparados.
-    echo Para publicarlos en Internet ejecuta 6_ACTUALIZAR_DASHBOARD_WEB.bat.
-
-    rem Si todavia no existe una compilacion, crearla una sola vez.
-    if not exist "%WEBROOT%\index.html" (
-        echo.
-        echo No existe commercial-dashboard\dist. Compilando Angular...
-        where npm >nul 2>nul
-        if errorlevel 1 (
-            echo ERROR: No se encontro npm. Instala Node.js o compila la web en la PC de desarrollo.
-            goto :error
-        )
-
-        pushd "commercial-dashboard"
-        if not exist "node_modules" (
-            echo Instalando dependencias Angular...
-            call npm ci
-            if errorlevel 1 (
-                popd
-                goto :error
-            )
-        )
-        echo Compilando dashboard web...
-        call npm run build
-        if errorlevel 1 (
-            popd
-            goto :error
-        )
-        popd
-    )
-
-    rem El generador actualiza public; copiar los JSON a la compilacion ya creada.
-    if exist "commercial-dashboard\public\assets\data" if exist "%WEBROOT%\assets" (
-        if not exist "%WEBROOT%\assets\data" mkdir "%WEBROOT%\assets\data"
-        xcopy /E /I /Y /Q "commercial-dashboard\public\assets\data\*" "%WEBROOT%\assets\data\" >nul
+echo Actualizando datos compactos del dashboard React...
+".venv\Scripts\python.exe" "piplines\generar_datos_web.py"
+if errorlevel 1 goto :error
+".venv\Scripts\python.exe" "piplines\corte_comercial_automatico.py" --validar --fecha-corte "%CORTE_ACTUAL%"
+if errorlevel 1 goto :error
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo AVISO: Node.js no esta instalado; los datos quedaron generados.
+) else (
+    if not exist "node_modules\vite" (
+        call npm ci
         if errorlevel 1 goto :error
     )
+    call npm run build
+    if errorlevel 1 goto :error
 )
-
-if exist "commercial-dashboard\public" (
-    if not exist "%WEBROOT%\index.html" (
-        echo.
-        echo AVISO: Los datos se actualizaron correctamente, pero la version
-        echo        compilada del dashboard web no existe aun.
-        echo        Ejecuta 3_CREAR_PAQUETE_PORTABLE.bat para compilarla una vez,
-        echo        o abre 4_EJECUTAR_DASHBOARD_WEB.bat que la compilara automaticamente.
-    )
-)
-
 
 echo.
 echo ============================================================
