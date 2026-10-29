@@ -483,6 +483,14 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   12 tarjetas de Comercial a 1440 px, siete de Inventario y nueve de Talento a
   820 px. Las capturas siguen teniendo diferencias de píxeles; esta muestra no
   cubre todas las combinaciones ni confirma por sí sola la paridad completa.
+- Se alineó el orden de las hojas de estilos del montaje React con el de
+  Angular. Así el título de prioridad de reposición vuelve a caber en una línea
+  como en la vista original. Comercial pasó las comprobaciones de texto,
+  dimensiones y controles para los tres roles a 1440 y 820 px. Inventario con
+  jefe zonal y Talento con gerencia comercial se comprobaron en esos dos anchos.
+  Las capturas de las tarjetas siguen presentando diferencias de píxeles, por
+  lo que estos resultados no demuestran equivalencia visual completa. El
+  respaldo Angular permanece disponible y el paso 4 no se considera finalizado.
 
 ## Paso 5: pendiente tras la validación final del paso 4
 
