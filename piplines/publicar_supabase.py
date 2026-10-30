@@ -382,6 +382,7 @@ def list_storage_objects(
             payload,
         )
         entries = json.loads(raw) if raw else []
+        folders: list[str] = []
         for entry in entries:
             name = str(entry.get("name", "")).strip()
             if not name:
@@ -390,9 +391,14 @@ def list_storage_objects(
             if entry.get("id") or isinstance(entry.get("metadata"), dict):
                 objects.append(object_path)
             else:
-                objects.extend(
-                    list_storage_objects(base_url, api_key, access_token, object_path)
-                )
+                folders.append(object_path)
+        if folders:
+            with ThreadPoolExecutor(max_workers=min(8, len(folders))) as executor:
+                for children in executor.map(
+                    lambda path: list_storage_objects(base_url, api_key, access_token, path),
+                    folders,
+                ):
+                    objects.extend(children)
         if len(entries) < 1_000:
             break
         offset += len(entries)
