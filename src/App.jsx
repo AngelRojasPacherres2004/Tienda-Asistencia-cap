@@ -151,7 +151,7 @@ export default function App() {
   const storeHome = <MiTienda user={user} onNavigate={setPage} />;
   const content = {
     dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal user={user} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+      ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     "metas-comerciales": user.rol === "gerente_comercial" ? <MetasComerciales /> : <Dashboard user={user} />,
     documentos: <Documentos />,
@@ -171,7 +171,7 @@ export default function App() {
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
     "mi-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,
     "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
-    "incidencias-tienda": <IncidenciasTienda user={user} />,
+    "incidencias-tienda": user.rol === "jefe_tienda" ? storeHome : <IncidenciasTienda user={user} />,
     coberturas: <CoberturasEspeciales />,
     "zonal-personal": <Usuarios user={user} zonalTeam />,
     "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,

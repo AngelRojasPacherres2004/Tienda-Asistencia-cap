@@ -68,7 +68,6 @@ const navByRole = {
     { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
-    { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
     { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "reportes", label: "Reportes", icon: FileSpreadsheet },

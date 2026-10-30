@@ -1,3 +1,4 @@
+import { districts, storePersonnelColumns, normalizePersonnelHeader } from '../../shared/store-personnel.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Edit3, Eye, FileSpreadsheet, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
@@ -14,7 +15,7 @@ import StoreNewPersonForm from "../components/StoreNewPersonForm";
 const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const rolesByManager = { gerencia_general: ["gerente_comercial", "coach", "administrador_seguridad"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
 const birthdayMonths = [["01", "Enero"], ["02", "Febrero"], ["03", "Marzo"], ["04", "Abril"], ["05", "Mayo"], ["06", "Junio"], ["07", "Julio"], ["08", "Agosto"], ["09", "Septiembre"], ["10", "Octubre"], ["11", "Noviembre"], ["12", "Diciembre"]];
-const districts = ["LIMA", "ATE", "BARRANCO", "BREÑA", "CARABAYLLO", "CHORRILLOS", "CIENEGUILLA", "COMAS", "EL AGUSTINO", "INDEPENDENCIA", "JESÚS MARÍA", "LA MOLINA", "LA VICTORIA", "LINCE", "LOS OLIVOS", "LURIGANCHO", "LURÍN", "MAGDALENA DEL MAR", "MIRAFLORES", "PACHACÁMAC", "PUCUSANA", "PUEBLO LIBRE", "PUENTE PIEDRA", "PUNTA HERMOSA", "PUNTA NEGRA", "RÍMAC", "SAN BARTOLO", "SAN BORJA", "SAN ISIDRO", "SAN JUAN DE LURIGANCHO", "SAN JUAN DE MIRAFLORES", "SAN LUIS", "SAN MARTÍN DE PORRES", "SAN MIGUEL", "SANTA ANITA", "SANTA MARÍA DEL MAR", "SANTA ROSA", "SANTIAGO DE SURCO", "SURQUILLO", "VILLA EL SALVADOR", "VILLA MARÍA DEL TRIUNFO"];
+
 const blank = {
   nombres: "", apellidos: "", dni: "", tipo_documento: "dni", usuario: "", password: "",
   telefono: "", email: "", rol: "trabajador", tienda_id: "", tienda_ids: [], estado: "activo", fecha_ingreso: todayISO(), fecha_salida: "",
@@ -25,6 +26,7 @@ const blank = {
 };
 
 const excelFields = {
+  ...Object.fromEntries(storePersonnelColumns.map(([header, key]) => [normalizePersonnelHeader(header), key])),
   nombres: "nombres", apellidos: "apellidos", dni: "dni", usuario: "usuario",
   contrasena: "password", password: "password", telefono: "telefono", fechaingreso: "fecha_ingreso",
 };
@@ -246,9 +248,10 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         const data = {};
         Object.entries(headers).forEach(([column, field]) => { data[field] = row.getCell(Number(column)).value ?? ""; });
         if (!Object.values(data).some((value) => String(value).trim())) return;
-        data.dni = String(data.dni).padStart(8, "0");
+        data.dni = String(data.dni).padStart(data.tipo_documento === "ce" ? 9 : 8, "0");
         data.telefono = data.telefono ? String(data.telefono) : "";
         data.fecha_ingreso = excelDate(data.fecha_ingreso);
+        if (data.fecha_nacimiento) data.fecha_nacimiento = excelDate(data.fecha_nacimiento);
         usuarios.push(data);
       });
       const result = await api("/usuarios/importar", { method: "POST", body: { usuarios } });
@@ -346,7 +349,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <button className="button button--soft" onClick={() => downloadUsersAdmin()}><Download size={15} />Exportar Excel</button>
             <input ref={importInput} type="file" accept=".xlsx" onChange={importUsersAdmin} hidden />
           </> : <>
-            <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(false)}><Download size={16} />Exportar Excel</button>
+            {!isStoreAdmin && <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(false)}><Download size={16} />Exportar Excel</button>}
             <button className="button button--ghost" disabled={busy} onClick={() => downloadUsers(true)}><FileSpreadsheet size={16} />Descargar plantilla</button>
             <button className="button button--soft" title="Cargar Excel" aria-label="Cargar Excel" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} className="visually-hidden" type="file" accept=".xlsx" onChange={importExcel} />
@@ -472,8 +475,8 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             {editing.grado_academico === "universitario" && <Field label="Ciclo / semestre"><input placeholder="Ej. 8vo ciclo" value={editing.ciclo_semestre || ""} onChange={(e) => set("ciclo_semestre", e.target.value)} /></Field>}
             {!isStoreAdmin && <Field label="Área"><select value={normalizeLaborArea(editing.area_laboral)} onChange={(e) => set("area_laboral", e.target.value)}><option value="">Selecciona un área</option>{laborAreaOptions([editing.area_laboral]).map((area) => <option key={area} value={area}>{area}</option>)}</select></Field>}
             <Field label="Carrera"><input placeholder="Carrera técnica o profesional" value={editing.carrera || ""} onChange={(e) => set("carrera", e.target.value)} /></Field>
-            <Field label="Régimen / jornada"><select value={editing.regimen_jornada || ""} onChange={(e) => set("regimen_jornada", e.target.value)}><option value="">Sin especificar</option><option value="4h">4 horas</option><option value="8h">8 horas</option><option value="12h">12 horas</option></select></Field>
-            <Field label="Tipo de turno"><select value={editing.tipo_turno || ""} onChange={(e) => set("tipo_turno", e.target.value)}><option value="">Sin especificar</option><option value="apertura">Apertura</option><option value="intermedio">Intermedio</option><option value="cierre">Cierre</option><option value="part_time">Part time</option></select></Field>
+            <Field label="Régimen / jornada (horas)"><input type="number" min="0.01" max="24" step="0.01" value={editing.regimen_jornada || ""} onChange={(e) => set("regimen_jornada", e.target.value)} /></Field>
+            <Field label="Tipo de turno"><select value={editing.tipo_turno || ""} onChange={(e) => set("tipo_turno", e.target.value)}><option value="">Sin especificar</option><option value="apertura">Apertura</option>{!isStoreAdmin && <option value="intermedio">Intermedio</option>}<option value="cierre">Cierre</option>{!isStoreAdmin && <option value="part_time">Part time</option>}</select></Field>
             <Field label="¿Tiene parentesco?"><select value={editing.tiene_parentesco ? "si" : "no"} onChange={(e) => { const hasRelationship = e.target.value === "si"; set("tiene_parentesco", hasRelationship); if (!hasRelationship) setEditing((current) => ({ ...current, tipo_parentesco: "", familiar_vinculo: "" })); }}><option value="no">No</option><option value="si">Sí</option></select></Field>
             {editing.tiene_parentesco && <>
               <Field label="Tipo de parentesco" error={fieldErrors.tipo_parentesco}><select required value={editing.tipo_parentesco || ""} onChange={(e) => set("tipo_parentesco", e.target.value)}><option value="">Selecciona</option><option value="padre_madre">Padre / madre</option><option value="hermano_hermana">Hermano / hermana</option><option value="conyuge_pareja">Cónyuge / pareja</option><option value="hijo_hija">Hijo / hija</option><option value="otro">Otro</option></select></Field>
@@ -482,7 +485,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Estado civil"><select value={editing.estado_civil || "sin_especificar"} onChange={(e) => set("estado_civil", e.target.value)}><option value="sin_especificar">Sin especificar</option><option value="soltero">Soltero(a)</option><option value="casado">Casado(a)</option><option value="conviviente">Conviviente</option><option value="divorciado">Divorciado(a)</option><option value="viudo">Viudo(a)</option></select></Field>
             <Field label="Número de hijos"><input type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field>
             <Field label="Talla de zapatillas"><input type="number" min="0" step="0.5" value={editing.talla_zapatillas ?? ""} onChange={(e) => set("talla_zapatillas", e.target.value)} /></Field>
-            <Field label="Talla de polo"><select value={editing.talla_polo || "sin_especificar"} onChange={(e) => set("talla_polo", e.target.value)}><option value="sin_especificar">Sin especificar</option>{["s", "m", "l", "xl", "xxl"].map((size) => <option key={size} value={size}>{size.toUpperCase()}</option>)}</select></Field>
+            <Field label="Talla polo/casaca"><select value={editing.talla_polo || "sin_especificar"} onChange={(e) => set("talla_polo", e.target.value)}><option value="sin_especificar">Sin especificar</option>{["s", "m", "l", "xl", "xxl"].map((size) => <option key={size} value={size}>{size.toUpperCase()}</option>)}</select></Field>
             <Field label="Alergia" className="span-2"><textarea rows={2} maxLength={500} placeholder="Ej. Ninguna, o detalla la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field>
             <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
               <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />

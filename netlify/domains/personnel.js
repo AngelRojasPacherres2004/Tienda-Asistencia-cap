@@ -1,3 +1,5 @@
+import { storePersonnelColumns, storePersonnelLists, personnelChoiceLabel } from '../../shared/store-personnel.js';
+
 export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse }) {
   function mapUserRow(row) {
     const { tiendas, ...rest } = row;
@@ -236,15 +238,33 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
 
     const prepared = usuarios.map((row, index) => {
       const data = {
-        ...row, rol: "trabajador", tienda_id: actor.tienda_id, estado: "activo", fecha_salida: null,
+        ...row, rol: row.rol || "trabajador", tienda_id: actor.tienda_id, estado: "activo", fecha_salida: null,
       };
-      try { validateUserPayload(data, true); } catch (error) {
+      try {
+        for (const [key, choices] of Object.entries(storePersonnelLists)) {
+          if (key === 'tiene_parentesco' || data[key] == null || data[key] === '') continue;
+          if (key === 'rol' && data[key] === 'trabajador') continue;
+          const selected = choices.find(choice => [choice, personnelChoiceLabel(key, choice)].some(value => value.toLocaleLowerCase('es') === String(data[key]).trim().toLocaleLowerCase('es')));
+          if (!selected) throw httpError(`El campo ${storePersonnelColumns.find(([, field]) => field === key)?.[0] || key} no es válido.`, 400);
+          data[key] = selected;
+        }
+        if (!storePersonnelLists.rol.includes(data.rol) && data.rol !== 'trabajador') throw httpError('El rol no está permitido.', 400);
+        if (data.rol !== 'trabajador' && !allowedCreatedRoles(actor).has(data.rol)) throw httpError('No puedes administrar usuarios de ese rango.', 403);
+        const kinship = String(data.tiene_parentesco ?? '').trim().toLowerCase();
+        if (!['', 'no', 'sí', 'si', 'true', 'false'].includes(kinship)) throw httpError('Tiene parentesco debe ser Sí o No.', 400);
+        data.tiene_parentesco = ['sí', 'si', 'true'].includes(kinship);
+        validateUserPayload(data, true);
+      } catch (error) {
         throw httpError(`Fila ${index + 2}: ${error.message}`, error.status || 400);
       }
       return {
+        ...Object.fromEntries(storePersonnelColumns.filter(([, key]) => !['usuario','password','rol','tiene_parentesco'].includes(key)).map(([, key]) => [key, data[key] === '' || data[key] == null ? null : data[key]])),
+        tipo_documento: data.tipo_documento || 'dni', talla_polo: data.talla_polo || 'sin_especificar', tiene_parentesco: data.tiene_parentesco,
+        sexo: data.sexo || 'no_especificado', grado_academico: data.grado_academico || 'sin_especificar', estado_civil: data.estado_civil || 'sin_especificar', numero_hijos: data.numero_hijos === '' || data.numero_hijos == null ? 0 : Number(data.numero_hijos),
+        mes_cumpleanos: data.fecha_nacimiento?.slice(5, 7) || null,
         nombres: cleanText(data.nombres), apellidos: cleanText(data.apellidos), dni: cleanText(data.dni),
         usuario: cleanUsuario(data.usuario) || null, telefono: data.telefono ? cleanText(data.telefono) : null,
-        password: data.password ? String(data.password) : null, rol: "trabajador", tienda_id: actor.tienda_id, estado: "activo",
+        password: data.password ? String(data.password) : null, rol: data.rol, tienda_id: actor.tienda_id, estado: "activo",
         fecha_ingreso: data.fecha_ingreso, fecha_salida: null,
       };
     });

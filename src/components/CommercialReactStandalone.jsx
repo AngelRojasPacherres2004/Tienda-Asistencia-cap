@@ -13,7 +13,7 @@ import CommercialReactMonthlyModal from "./CommercialReactMonthlyModal";
 import CommercialReactSizeDetailModal from "./CommercialReactSizeDetailModal";
 import CommercialReactAssistantController from "./CommercialReactAssistantController";
 
-export default function CommercialReactStandalone({ model, controller }) {
+export default function CommercialReactStandalone({ model, controller, storeOperations = null }) {
   const accessAction = action => controller.onReactCommercialAccessAction(action);
   if (model.mode !== "ready") return <main className="app-shell portal-embed" data-react-commercial-shell="true">
     <CommercialReactAccessState model={model.access} onAction={accessAction} />
@@ -28,11 +28,11 @@ export default function CommercialReactStandalone({ model, controller }) {
     {modal?.type === "monthly" && <CommercialReactMonthlyModal model={modal.model} onAction={action => controller.onReactMonthlyModalAction(action)} />}
     {modal?.type === "size-detail" && <CommercialReactSizeDetailModal model={modal.model} onClose={() => controller.closeExpandedChart()} />}
     <CommercialReactHeader model={model.header} onLogout={() => controller.signOut()} />
-    <CommercialReactFilters model={model.filters} onAction={action => controller.onReactFilterAction(action)} />
-    <CommercialReactTabs page={model.page} onNavigate={page => controller.goPage(page)} />
+    {!(storeOperations && model.page === 3) && <CommercialReactFilters model={model.filters} onAction={action => controller.onReactFilterAction(action)} />}
+    <CommercialReactTabs page={model.page} onNavigate={page => controller.goPage(page)} talentLabel={storeOperations ? 'OPERACIÓN Y EQUIPO' : undefined} />
     {model.page === 1 && <CommercialReactCommercialPage model={model.commercial} onAction={action => controller.onReactCommercialPageAction(action)} />}
     {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} onAction={action => controller.onReactInventoryPageAction(action)} />}
-    {model.page === 3 && <CommercialReactTalentPage model={model.talent} onAction={action => controller.onReactTalentPageAction(action)} />}
+    {model.page === 3 && (storeOperations || <CommercialReactTalentPage model={model.talent} onAction={action => controller.onReactTalentPageAction(action)} />)}
     {model.assistantEnabled && <CommercialReactAssistantController role={model.assistantRole} context={model.assistantContext} controller={controller} />}
   </main>;
 }

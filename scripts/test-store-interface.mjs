@@ -9,11 +9,14 @@ const errors = [];
 let warningCreated = false;
 let uploaded = null;
 let newPerson = null;
+let coverage = null;
 page.on('pageerror', error => errors.push(error.message));
 await page.route('**/api/**', route => {
   const url = new URL(route.request().url());
   let body = [];
   if (url.pathname.endsWith('/auth/me')) body = { user: account };
+  else if (url.pathname.endsWith('/coberturas-personal')) body = [{ ...employee, tienda_id: 2, tienda_nombre: 'CALLAO' }];
+  else if (url.pathname.endsWith('/coberturas-especiales') && route.request().method() === 'POST') { coverage = route.request().postDataJSON(); body = { id: 99 }; }
   else if (url.pathname.endsWith('/usuarios') && route.request().method() === 'POST') { newPerson = route.request().postDataJSON(); body = { id: 3 }; }
   else if (url.pathname.endsWith('/usuarios')) body = [employee];
   else if (url.pathname.endsWith('/asistencias')) body = { empleados: [{ usuario_id: 2, nombre: 'Luis Prueba', dni: '12345678', estado: 'activo', registro: null }] };
@@ -26,6 +29,7 @@ await page.route('**/api/**', route => {
 try {
   await page.goto('http://127.0.0.1:5180/', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Personal', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Exportar Excel', exact: true }).count(), 0);
   const footer = page.locator('.user-chip');
   assert.match(await footer.innerText(), /Administrador de tienda/);
   assert.match(await footer.innerText(), /LA MARINA.*MAR/);
@@ -37,7 +41,9 @@ try {
   await dialog.locator('input[name="dni"]').fill('12');
   await dialog.locator('input[name="nombres"]').focus();
   assert.equal(await dialog.locator('label.field--error').count(), 1);
-  assert.equal(await dialog.getByText('Régimen / jornada').count(), 0);
+  assert.equal(await dialog.locator('input[name="regimen_jornada"][type="number"]').count(), 1);
+  assert.deepEqual(await dialog.locator('select[name="tipo_turno"] option').allTextContents(), ['Selecciona', 'Apertura', 'Cierre']);
+  assert.equal(await dialog.getByText('Talla polo/casaca', { exact: true }).count(), 1);
   for (const role of ['jefe_area', 'seguridad', 'caja', 'almacenero', 'vendedor', 'asistente']) {
     await dialog.locator('select[name="rol"]').selectOption(role);
     assert.equal(await dialog.locator('input[name="usuario"]').count(), 0);
@@ -49,16 +55,18 @@ try {
   await dialog.locator('input[name="dni"]').fill('87654321');
   await dialog.locator('input[name="nombres"]').fill('María');
   await dialog.locator('input[name="apellidos"]').fill('Pérez');
-  for (const [name, value] of Object.entries({ telefono: '999999999', email: 'maria@example.com', fecha_nacimiento: '1990-01-01', sueldo: '1200', telefono_emergencia: '999999998', contacto_emergencia: 'Ana Pérez', direccion: 'Calle 1', carrera: 'Comercio', numero_hijos: '0', talla_zapatillas: '38', alergia: 'Ninguna', condicion_salud: 'Ninguna' })) {
+  for (const [name, value] of Object.entries({ regimen_jornada: '7.5', telefono: '999999999', email: 'maria@example.com', fecha_nacimiento: '1990-01-01', sueldo: '1200', telefono_emergencia: '999999998', contacto_emergencia: 'Ana Pérez', direccion: 'Calle 1', carrera: 'Comercio', numero_hijos: '0', talla_zapatillas: '38', alergia: 'Ninguna', condicion_salud: 'Ninguna' })) {
     await dialog.locator(`[name="${name}"]`).fill(value);
   }
-  for (const [name, value] of Object.entries({ sexo: 'mujer', nacionalidad: 'Perú', distrito: 'LIMA', grado_academico: 'secundaria', estado_civil: 'soltero', talla_polo: 'm' })) {
+  for (const [name, value] of Object.entries({ tipo_turno: 'cierre', sexo: 'mujer', nacionalidad: 'Perú', distrito: 'LIMA', grado_academico: 'secundaria', estado_civil: 'soltero', talla_polo: 'm' })) {
     await dialog.locator(`[name="${name}"]`).selectOption(value);
   }
   await dialog.getByRole('button', { name: 'Guardar', exact: true }).click();
   await page.getByRole('button', { name: 'Continuar' }).click();
   assert.equal(newPerson?.estado, 'activo');
   assert.equal(newPerson?.dni, '87654321');
+  assert.equal(newPerson?.regimen_jornada, '7.5');
+  assert.equal(newPerson?.tipo_turno, 'cierre');
   assert.ok(await page.getByText('Distrito', { exact: true }).count());
   await page.getByRole('button', { name: 'Ver ficha' }).click();
   const workerDialog = page.getByRole('dialog');
@@ -78,6 +86,20 @@ try {
   await date.fill(await date.getAttribute('min'));
   assert.equal(await page.locator('.attendance-check:not(:disabled)').count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Guardar asistencia' }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Personal', exact: true }).click();
+  await page.getByRole('button', { name: 'Cobertura especial', exact: true }).click();
+  await page.getByRole('button', { name: 'Registrar apoyo', exact: true }).click();
+  const coverageDialog = page.getByRole('dialog');
+  assert.equal(await coverageDialog.getByText('Procedencia / tienda de origen', { exact: true }).count(), 0);
+  await coverageDialog.getByLabel('Nombres y apellidos', { exact: true }).fill('Ana Apoyo');
+  await coverageDialog.getByLabel('Horas de apoyo', { exact: true }).fill('6.5');
+  await coverageDialog.getByRole('button', { name: 'Registrar apoyo y asistencia' }).click();
+  await coverageDialog.waitFor({ state: 'hidden' });
+  assert.equal(coverage.trabajadores[0].nombre_manual, 'Ana Apoyo');
+  assert.equal(coverage.trabajadores[0].origen_manual, '');
+  await page.getByRole('button', { name: 'Registrar apoyo', exact: true }).click();
+  await coverageDialog.getByLabel('Tipo de personal', { exact: true }).selectOption('tienda');
+  assert.equal(await coverageDialog.getByLabel('Trabajador de la tienda').locator('option').first().textContent(), 'Seleccionar');
   assert.deepEqual(errors, []);
   console.log('Alta, validación, tabla y asistencia histórica del administrador comprobadas.');
 } finally { await browser.close(); }

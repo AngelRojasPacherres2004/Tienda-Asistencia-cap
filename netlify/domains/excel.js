@@ -1,3 +1,4 @@
+import { storePersonnelColumns, storePersonnelLists, personnelChoiceLabel } from '../../shared/store-personnel.js';
 import { attendancePersonName } from "../../shared/attendance.js";
 export function createExcelDomain({
   createExcelWorkbook, dbError, estadoLabels, fetchAllReportPages,
@@ -130,50 +131,55 @@ export function createExcelDomain({
   async function exportStoreUsersExcel(actor, templateOnly = false) {
     const workbook = await createExcelWorkbook();
     const sheet = workbook.addWorksheet("Usuarios");
-    sheet.columns = [
-      { header: "Nombres", key: "nombres", width: 22 },
-      { header: "Apellidos", key: "apellidos", width: 22 },
-      { header: "DNI", key: "dni", width: 12 },
-      { header: "Usuario", key: "usuario", width: 18 },
-      { header: "Contraseña", key: "password", width: 18 },
-      { header: "Teléfono", key: "telefono", width: 14 },
-      { header: "Fecha ingreso", key: "fecha_ingreso", width: 16 },
-    ];
-    sheet.getCell("E1").note = "Opcional para empleados. Si agregas una contraseña, debe tener como mínimo 3 caracteres.";
-    for (let rowNumber = 2; rowNumber <= 501; rowNumber += 1) {
-      sheet.getCell(`E${rowNumber}`).dataValidation = {
-        type: "custom",
-        formulae: [`OR(E${rowNumber}="",LEN(E${rowNumber})>=6)`],
-        allowBlank: true,
-        showInputMessage: true,
-        promptTitle: "Contraseña opcional",
-        prompt: "Déjala vacía o escribe una contraseña de mínimo 3 caracteres.",
-        showErrorMessage: true,
-        errorTitle: "Contraseña no válida",
-        error: "La contraseña debe estar vacía o tener al menos 3 caracteres.",
-      };
-    }
+    sheet.columns = storePersonnelColumns.map(([header, key]) => ({ header, key, width: 22 }));
+    const lists = workbook.addWorksheet('Listas');
+    lists.state = 'veryHidden';
+    Object.entries(storePersonnelLists).forEach(([key, values], index) => {
+      const column = lists.getColumn(index + 1);
+      column.values = [key, ...values.map(value => personnelChoiceLabel(key, value))];
+      const name = 'personal_' + key;
+      workbook.definedNames.add('Listas!$' + column.letter + '$2:$' + column.letter + '$' + (values.length + 1), name);
+      const target = sheet.getColumn(key);
+      sheet.dataValidations.add(target.letter + '2:' + target.letter + '501', {
+        type: 'list', allowBlank: true, formulae: [name], showErrorMessage: true, errorStyle: 'stop',
+        errorTitle: 'Selecciona una opción', error: 'Utiliza una opción de la lista.',
+      });
+    });
+    const password = sheet.getColumn('password').letter;
+    sheet.dataValidations.add(password + '2:' + password + '501', {
+      type: 'custom', formulae: [`OR(${password}2="",LEN(${password}2)>=3)`], allowBlank: true,
+      showErrorMessage: true, errorStyle: 'stop', error: 'La contraseña debe tener al menos 3 caracteres.',
+    });
+    const hours = sheet.getColumn('regimen_jornada').letter;
+    sheet.dataValidations.add(hours + '2:' + hours + '501', {
+      type: 'decimal', operator: 'between', formulae: [0.01, 24], allowBlank: true,
+      showInputMessage: true, promptTitle: 'Horas de jornada', prompt: 'Escribe las horas manualmente, por ejemplo 8 o 4.5.',
+      showErrorMessage: true, errorStyle: 'stop', error: 'Escribe un número mayor que 0 y hasta 24.',
+    });
     if (templateOnly) {
       const instructions = workbook.addWorksheet("Instrucciones");
       instructions.columns = [{ header: "Cómo completar la plantilla", key: "texto", width: 90 }];
       instructions.addRows([
         { texto: "Completa una persona por fila en la hoja Usuarios. No cambies los nombres de las columnas." },
-        { texto: "DNI: exactamente 8 dígitos. Teléfono: 9 dígitos (opcional)." },
-        { texto: "Usuario: mínimo 2 caracteres; usa letras, números, punto, guion o guion bajo." },
+        { texto: "Tipo de documento: dni (8 dígitos) o ce (9 dígitos). Teléfonos: 9 dígitos." },
+        { texto: "Usuario: opcional, mínimo 2 caracteres; usa letras, números, punto, guion o guion bajo." },
+        { texto: "Régimen / jornada: horas numéricas manuales, mayor que 0 y hasta 24 (máximo dos decimales). Turno: apertura o cierre." },
+        { texto: "Si Tiene parentesco es Sí, completa Tipo de parentesco y Nombre del familiar." },
         { texto: "Contraseña: opcional. Si se completa, debe tener mínimo 3 caracteres. Fecha ingreso: formato AAAA-MM-DD." },
-        { texto: "La tienda, el rol Empleado y el estado Activo se asignan automáticamente." },
+        { texto: "La tienda y el estado Activo se asignan automáticamente. Selecciona el rol y los demás campos de lista con los desplegables." },
       ]);
       styleHeader(instructions);
     } else {
       const { data, error } = await readAllResult(supabase.from("usuarios")
-        .select("nombres,apellidos,dni,usuario,telefono,fecha_ingreso")
+        .select(storePersonnelColumns.filter(([, key]) => key !== "password").map(([, key]) => key).join(","))
         .eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]).order("nombres"));
       if (error) throw dbError(error);
-      sheet.addRows(data.map((row) => ({ ...row, password: "" })));
+      sheet.addRows(data.map((row) => ({ ...row, password: "", regimen_jornada: row.regimen_jornada ? Number(String(row.regimen_jornada).replace(/h$/, "")) : null, tiene_parentesco: row.tiene_parentesco ? "Sí" : "No" })));
     }
     styleHeader(sheet);
     sheet.getColumn("dni").numFmt = "@";
     sheet.getColumn("telefono").numFmt = "@";
+    sheet.getColumn("telefono_emergencia").numFmt = "@";
     return excelResponse(workbook, templateOnly ? "plantilla-usuarios.xlsx" : "usuarios-mi-tienda.xlsx");
   }
 

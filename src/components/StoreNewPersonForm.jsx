@@ -1,12 +1,7 @@
+import { countries } from '../../shared/store-personnel.js';
 import { useState } from 'react';
 import { Field, Notice } from './UI';
 
-const regionNames = new Intl.DisplayNames(['es'], { type: 'region' });
-const countries = [...new Set(Array.from({ length: 26 * 26 }, (_, index) => {
-  const code = String.fromCharCode(65 + Math.floor(index / 26), 65 + index % 26);
-  const name = regionNames.of(code);
-  return name !== code && code !== 'ZZ' ? name : null;
-}).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
 const accessRoles = new Set(['asistente_tienda', 'jefe_seguridad']);
 
 export default function StoreNewPersonForm({ value, set, errors, formError, onSubmit, onClose, busy, roles, roleLabels, districts, today }) {
@@ -42,6 +37,8 @@ export default function StoreNewPersonForm({ value, set, errors, formError, onSu
     {field('fecha_nacimiento', 'Fecha de nacimiento', input('fecha_nacimiento', { type: 'date', max: today }))}
     {field('sueldo', 'Sueldo', input('sueldo', { type: 'number', min: 0, step: '0.01' }))}
     {field('rol', 'Rol', <select name="rol" value={value.rol} onChange={event => { const role = event.target.value; set('rol', role); if (!accessRoles.has(role)) { set('usuario', ''); set('password', ''); } }}>{roles.map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select>)}
+    {field('regimen_jornada', 'Régimen / jornada (horas)', input('regimen_jornada', { type: 'number', min: 0.01, max: 24, step: 0.01, placeholder: 'Ej. 8 o 4.5' }))}
+    {field('tipo_turno', 'Turno', select('tipo_turno', [['apertura', 'Apertura'], ['cierre', 'Cierre']]))}
     {accessRoles.has(value.rol) && <>{field('usuario', 'Usuario', input('usuario', { required: false, pattern: '[A-Za-z0-9._-]{2,}' }))}{field('password', 'Contraseña', input('password', { required: false, type: 'password', minLength: 3 }))}</>}
     {section('Datos personales y emergencia')}
     {field('sexo', 'Sexo', select('sexo', [['hombre', 'Hombre'], ['mujer', 'Mujer'], ['no_especificado', 'Sin especificar']]))}
@@ -58,7 +55,7 @@ export default function StoreNewPersonForm({ value, set, errors, formError, onSu
     {field('estado_civil', 'Estado civil', select('estado_civil', [['soltero', 'Soltero(a)'], ['casado', 'Casado(a)'], ['conviviente', 'Conviviente'], ['divorciado', 'Divorciado(a)'], ['viudo', 'Viudo(a)'], ['sin_especificar', 'Sin especificar']]))}
     {field('numero_hijos', 'Número de hijos', input('numero_hijos', { type: 'number', min: 0, step: 1 }))}
     {section('Tallas y salud')}
-    {field('talla_polo', 'Talla de polo', select('talla_polo', ['s', 'm', 'l', 'xl', 'xxl'].map(size => [size, size.toUpperCase()])))}
+    {field('talla_polo', 'Talla polo/casaca', select('talla_polo', ['s', 'm', 'l', 'xl', 'xxl'].map(size => [size, size.toUpperCase()])))}
     {field('talla_zapatillas', 'Talla de zapatos', input('talla_zapatillas', { type: 'number', min: 0, step: 0.5 }))}
     {field('alergia', 'Alergia', <textarea name="alergia" required placeholder="Escribe Ninguna si no tiene" maxLength={500} value={value.alergia || ''} onChange={event => set('alergia', event.target.value)} />, { wide: true })}
     {field('condicion_salud', 'Condición de salud', <textarea name="condicion_salud" required placeholder="Escribe Ninguna si no tiene" maxLength={500} value={value.condicion_salud || ''} onChange={event => set('condicion_salud', event.target.value)} />, { wide: true })}

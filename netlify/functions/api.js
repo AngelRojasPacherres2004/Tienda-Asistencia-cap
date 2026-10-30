@@ -267,7 +267,11 @@ function validateUserPayload(data) {
   }
   if (data.estado === "inactivo" && !data.fecha_salida) throw httpError("Indica la fecha de salida.", 400);
   if (data.fecha_salida && !validDepartureReason(data.motivo_salida)) throw httpError("Selecciona un motivo de salida válido.", 400);
-  if (data.regimen_jornada && !["4h", "8h", "12h"].includes(data.regimen_jornada)) throw httpError("La jornada no es válida.", 400);
+  if (data.regimen_jornada != null && data.regimen_jornada !== "") {
+    const hours = Number(String(data.regimen_jornada).replace(/h$/, ""));
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24 || Math.round(hours * 100) / 100 !== hours) throw httpError("La jornada debe ser mayor que 0 y hasta 24 horas, con máximo dos decimales.", 400);
+    data.regimen_jornada = `${hours}h`;
+  }
   if (data.tipo_turno && !["apertura", "intermedio", "cierre", "part_time"].includes(data.tipo_turno)) throw httpError("El tipo de turno no es válido.", 400);
   if (data.tiene_parentesco && (!cleanText(data.tipo_parentesco) || !cleanText(data.familiar_vinculo))) {
     throw httpError("Indica el tipo de parentesco y el nombre del familiar o vínculo.", 400);
@@ -1096,11 +1100,11 @@ export async function handler(event) {
       return json(200, await updateTraffic(event, user, Number(trafficMatch[1])));
     }
     if (path === "/incidencias" && method === "GET") {
-      ensureAuth(event, operationalReaders);
+      ensureAuth(event, operationalReaders.filter(role => role !== "jefe_tienda"));
       return json(200, await listIncidents(event, user));
     }
     if (path === "/incidencias" && method === "POST") {
-      ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["seguridad", "asistente_tienda"]);
       return json(201, await createIncident(event, user));
     }
     const incidentMatch = path.match(/^\/incidencias\/(\d+)$/);
@@ -1109,7 +1113,7 @@ export async function handler(event) {
       return json(200, await updateIncident(event, user, Number(incidentMatch[1])));
     }
     if (path === "/incidencias/export.xlsx" && method === "GET") {
-      ensureAuth(event, operationalReaders);
+      ensureAuth(event, operationalReaders.filter(role => role !== "jefe_tienda"));
       return await exportIncidentsExcel(event, user);
     }
     if (path === "/marcas" && method === "GET") {

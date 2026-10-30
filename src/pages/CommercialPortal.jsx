@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Building2 } from "lucide-react";
 import { Loading, Notice } from "../components/UI";
 
-export default function CommercialPortal({ user, storeContextId = null, onStoreChange, switchingStore = false }) {
+export default function CommercialPortal({ user, storeContextId = null, onStoreChange, switchingStore = false, onNavigate }) {
   const host = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,7 +21,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
         };
         const renderer = await import("../components/mount-commercial-react-independent");
         if (!active) return;
-        dispose = renderer.mountCommercialReactIndependent(host.current);
+        dispose = renderer.mountCommercialReactIndependent(host.current, { user, onNavigate });
         setLoading(false);
       } catch (err) {
         if (active) { setError(err?.message || "No se pudo abrir el dashboard comercial."); setLoading(false); }
@@ -29,7 +29,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
     };
     load();
     return () => { active = false; dispose?.(); };
-  }, [attempt, storeContextId, user?.apellidos, user?.nombres]);
+  }, [attempt, storeContextId, user, onNavigate]);
 
   return (
     <section className="commercial-portal" aria-label="Dashboard ejecutivo comercial">

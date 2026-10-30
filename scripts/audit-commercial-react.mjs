@@ -30,7 +30,7 @@ for (const candidate of users.filter(row => row.rol === "jefe_tienda" && !row.ca
   if (result.statusCode === 200) { chief = candidate; break; }
 }
 assert.ok(chief, "No hay jefe de tienda con acceso comercial vigente");
-const output = join(process.env.LOCALAPPDATA || process.cwd(), "DashBoardGeneral", "audits", "react-final");
+const output = process.env.AUDIT_OUTPUT || join(process.env.LOCALAPPDATA || process.cwd(), "DashBoardGeneral", "audits", "react-final");
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: "msedge", headless: true });
 const results = [];
@@ -57,14 +57,29 @@ try {
         const pages = [
           { button: 0, selector: ".page-one", markers: [".primary-kpis", ".meta-vs-real canvas", ".price-range-card canvas"] },
           { button: 1, selector: ".page-two", markers: [".rotation-card canvas", ".size-distribution-card canvas", ".predictive-v2 .health-card", ".predictive-replenishment-card"] },
-          { button: 2, selector: ".talent-page", markers: [".talent-kpis", ".seller-performance-card canvas", ".training-card canvas"] },
+          role === 'jefe_tienda'
+            ? { button: 2, selector: '.store-dashboard-shell', markers: ['.sales-forecast-panel', '.traffic-matrix-card', '.attendance-matrix-panel', '.training-development'] }
+            : { button: 2, selector: ".talent-page", markers: [".talent-kpis", ".seller-performance-card canvas", ".training-card canvas"] },
         ];
         for (const panel of pages) {
+          if (process.env.AUDIT_PAGE && panel.button + 1 !== Number(process.env.AUDIT_PAGE)) continue;
           if (panel.button) await page.locator(".page-tabs button").nth(panel.button).click();
           const section = page.locator(`${panel.selector}:visible`);
           await section.waitFor({ timeout: 60_000 });
           for (const marker of panel.markers) await section.locator(`${marker}:visible`).first().waitFor({ timeout: 60_000 });
-          const card = section.locator(".card:visible").first();
+          if (role === 'jefe_tienda' && panel.button === 2) {
+            await section.locator('.sales-forecast-loading').waitFor({ state: 'hidden', timeout: 60_000 });
+            await section.getByRole('heading', { name: 'Amonestaciones y asistencia del mes' }).waitFor();
+            const headings = await section.getByRole('heading').allTextContents();
+            const position = pattern => headings.findIndex(text => pattern.test(text));
+            assert.ok(position(/Venta esperada/) < position(/Tráfico de/));
+            assert.ok(position(/Tráfico de/) < position(/Asistencia y movimientos/));
+            assert.ok(position(/Rotación de Personal/) < position(/Amonestaciones y asistencia/));
+            assert.ok(position(/Errores por Usuario/) < position(/^Capacitación y desarrollo$/));
+            await section.getByRole('heading', { name: 'OPERACIÓN Y EQUIPO', exact: true }).scrollIntoViewIfNeeded();
+            await page.screenshot({ path: join(output, `${role}-${width}-operations.png`), animations: 'disabled' });
+          }
+          const card = section.locator(".card:visible, .panel:visible").first();
           await card.scrollIntoViewIfNeeded();
           await card.screenshot({ path: join(output, `${role}-${width}-${panel.button}.png`), animations: "disabled" });
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "jefe_tienda" && panel.button === 0) {
@@ -133,8 +148,22 @@ try {
         await page.locator(".assistant-launcher:visible").click();
         await page.locator(".assistant-panel:visible").waitFor();
         await page.locator('.assistant-panel:visible').getByRole("button", { name: "Cerrar asistente" }).click();
+        if (role === 'jefe_tienda') {
+          assert.equal(await page.getByRole('button', { name: 'Incidencias', exact: true }).count(), 0);
+          assert.match(await page.locator('.page-tabs button').nth(2).innerText(), /OPERACIÓN Y EQUIPO/);
+          for (const [path, method] of [['/api/incidencias','GET'], ['/api/incidencias','POST'], ['/api/incidencias/export.xlsx','GET']]) {
+            const denied = await handler({ httpMethod: method, path, headers: { authorization: `Bearer ${token}` }, queryStringParameters: {}, body: '{}' });
+            assert.equal(denied.statusCode, 403, `${method} ${path}: debe estar bloqueado para el administrador`);
+          }
+          if (width < 1100) await page.locator('.mobile-topbar button').first().click();
+          await page.getByRole('button', { name: 'Resumen', exact: true }).click();
+          const summary = page.locator('.store-dashboard-shell');
+          await summary.locator('.store-dashboard-personnel-kpis').waitFor();
+          assert.doesNotMatch(await summary.innerText(), /Incidencias|Venta esperada|Rotación de Personal|Capacitación y desarrollo/);
+          assert.equal(await summary.locator('.traffic-matrix-card,.attendance-matrix-panel,.training-development').count(), 0);
+        }
         assert.deepEqual(errors, [], `${role}/${width}: errores de navegador`);
-        results.push({ role, width, pages: 3, assistant: "ok" });
+        results.push({ role, width, pages: process.env.AUDIT_PAGE ? [Number(process.env.AUDIT_PAGE)] : [1, 2, 3], assistant: "ok" });
       } catch (error) {
         console.error(JSON.stringify({ role, width, browserErrors: errors,
           body: (await page.locator("body").innerText()).slice(0, 700) }));

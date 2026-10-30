@@ -10,8 +10,11 @@ import { Loading, Notice, Pagination } from "../components/UI";
 import TrafficHourMatrix from "../components/TrafficHourMatrix";
 import { WorkerInsightsPanels } from "./Dashboard";
 
-export default function MiTienda({ user, onNavigate }) {
+export default function MiTienda({ user, onNavigate, view = "summary" }) {
   const isZonal = user.rol === "jefe_zonal";
+  const isStoreAdmin = user.rol === "jefe_tienda";
+  const showAnalytics = !isStoreAdmin || view === "commercial";
+  const showSummary = view !== "commercial";
   const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? "all" : user.tienda_id || "");
   const [zonalAlerts, setZonalAlerts] = useState(null);
   const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [notice, setNotice] = useState(null);
@@ -31,10 +34,10 @@ export default function MiTienda({ user, onNavigate }) {
     const essential = Promise.all([profileRequest, api(`/operaciones/resumen${suffix}`), peopleRequest])
       .then(([p, s, team]) => { if (requestId !== dashboardRequestId.current) return; setProfile(p); setSummary(isOperationalDemo() ? { ...s, trafico_hoy: demoTrafficTotal({ id: storeId || user.tienda_id }, [todayISO()]) } : s); setPeople(team); setNotice(null); })
       .catch((e) => { if (requestId === dashboardRequestId.current) setNotice({ type: "error", text: e.message }); });
-    Promise.allSettled([api(`/documentos-alertas${suffix}`), api(`/errores-personal${suffix}`), api(`/operaciones/pronostico-ventas${suffix}`)])
+    Promise.allSettled([api(`/documentos-alertas${suffix}`), showAnalytics ? api(`/errores-personal${suffix}`) : Promise.resolve([]), showAnalytics ? api(`/operaciones/pronostico-ventas${suffix}`) : Promise.resolve(null)])
       .then(([docs, errorRows, forecast]) => { if (requestId !== dashboardRequestId.current) return; setDocuments(docs.status === "fulfilled" ? docs.value : []); setErrors(errorRows.status === "fulfilled" ? errorRows.value : []); if (forecast.status === "fulfilled") setSalesForecast(forecast.value); else setSalesForecastError(forecast.reason?.message || "No se pudo calcular el pronóstico de ventas."); });
     return essential;
-  }, [isZonal, storeId, stores, user.tienda_id]);
+  }, [isZonal, storeId, stores, user.tienda_id, showAnalytics]);
   useEffect(() => { if (!isZonal) return; api("/tiendas").then((rows) => { setStores(rows); setStoreId((current) => current || rows[0]?.id || ""); }).catch((e) => setNotice({ type: "error", text: e.message })); }, [isZonal]);
   useEffect(() => { if (!isZonal) return; api("/zonal/asistencia").then((attendance) => setZonalAlerts({ attendance })).catch(() => setZonalAlerts(null)); }, [isZonal]);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
@@ -52,28 +55,37 @@ export default function MiTienda({ user, onNavigate }) {
       return remainingDays >= 0 && remainingDays <= Number(document.dias_alerta || 30);
     })
     .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
-  const exportSummary = () => exportExcel(`resumen-${storeName}.xlsx`, [{ indicador: "Tienda", valor: storeName }, { indicador: "Personal activo", valor: summary.personal_activo ?? people.filter((p) => p.estado === "activo").length }, { indicador: "Incidencias", valor: summary.incidencias }, { indicador: "Amonestaciones", valor: summary.amonestaciones }, { indicador: "Errores", valor: summary.errores }, { indicador: "Documentos por vencer", valor: summary.documentos_por_vencer }], "Resumen");
+  const exportSummary = () => exportExcel(`resumen-${storeName}.xlsx`, [{ indicador: "Tienda", valor: storeName }, { indicador: "Personal activo", valor: summary.personal_activo ?? people.filter((p) => p.estado === "activo").length }, ...(!isStoreAdmin ? [{ indicador: "Incidencias", valor: summary.incidencias }] : []), { indicador: "Amonestaciones", valor: summary.amonestaciones }, { indicador: "Errores", valor: summary.errores }, { indicador: "Documentos por vencer", valor: summary.documentos_por_vencer }], "Resumen");
   const activePeople = people.filter((person) => person.estado === "activo");
   const employees = activePeople.filter((person) => ["trabajador", "vendedor", "asistente", "caja", "almacenero", "jefe_area"].includes(person.rol));
   const securityPeople = activePeople.filter((person) => ["seguridad", "jefe_seguridad"].includes(person.rol));
   const securityIncidents = summary.incidencias_seguridad || 0;
   const administrativeIncidents = summary.incidencias_administrativas || 0;
+  const dashboardActions = <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button>{!isStoreAdmin && <button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button>}<button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   return <section className="store-dashboard-shell is-light">
-    <header className="store-dashboard-hero"><div><span><Users size={28} /></span><div><h1>{isZonal ? storeName.toUpperCase() : "RESUMEN DE MI TIENDA"}</h1></div></div><div className="store-dashboard-view-controls">{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button type="button" onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={15} />Limpiar filtros</button></div></header>
+    <header className="store-dashboard-hero"><div><span><Users size={28} /></span><div><h1>{view === "commercial" ? "OPERACIÓN Y EQUIPO" : isZonal ? storeName.toUpperCase() : "RESUMEN DE MI TIENDA"}</h1></div></div><div className="store-dashboard-view-controls">{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button type="button" onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={15} />Limpiar filtros</button></div></header>
     {notice && <Notice type={notice.type}>{notice.text}</Notice>}
     <div className="store-dashboard-body">
+      {showSummary && <>
       <section className="store-dashboard-personnel-kpis"><DashboardPersonnelKpi label="Personal operativo" value={employees.length} detail="Caja, ventas, almacén, asistentes y operación" /><DashboardPersonnelKpi label="Seguridad" value={securityPeople.length} detail="Seguridad y jefe de seguridad" /><DashboardPersonnelKpi label="Administración de tienda" value={summary.administracion_tienda ?? 0} detail="Administrador y asistente de tienda" /></section>
-      <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del personal" first={{ value: administrativeIncidents, label: "Incidencias internas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Alertas operativas" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Movimiento y seguridad" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: securityIncidents, label: "Incidencias de seguridad" }} /></section>
+      {isStoreAdmin ? <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del equipo" first={{ value: summary.amonestaciones, label: "Amonestaciones" }} second={{ value: summary.errores, label: "Errores del personal" }} /><DashboardPairedKpi label="Actividad y documentos" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /></section> : <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del personal" first={{ value: administrativeIncidents, label: "Incidencias internas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Alertas operativas" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Movimiento y seguridad" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: securityIncidents, label: "Incidencias de seguridad" }} /></section>}
       {expiring.length > 0 && <section className="store-dashboard-paired-kpis store-dashboard-document-alerts"><DashboardUpcomingDocumentsKpi documents={expiring} total={summary.documentos_por_vencer} /></section>}
       {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /></section>}
+      </>}
+      {showAnalytics && <>
+      {isStoreAdmin && <DashboardSection kicker="01 · Demanda y planificación" title="Venta esperada y afluencia de clientes" />}
       <SalesForecastMatrix forecast={salesForecast} error={salesForecastError} storeName={storeName} />
-      <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button><button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button><button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>
+      {!isStoreAdmin && dashboardActions}
       <DashboardSection kicker="Afluencia de clientes" title={`Tráfico de ${storeName} por hora`} />
       <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
-      <DashboardSection kicker="Personal de tienda" title={`Asistencia y movimientos de ${storeName}`} />
+      <DashboardSection kicker={isStoreAdmin ? "02 · Asistencia y continuidad" : "Personal de tienda"} title={`Asistencia y movimientos de ${storeName}`} />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} isZonal={isZonal} storeId={storeId} />}
+      {isStoreAdmin && <DashboardSection kicker="04 · Formación" title="Capacitación y desarrollo" />}
       <TrainingDevelopmentHome />
+      </>}
+      {isStoreAdmin && dashboardActions}
+
     </div>
   </section>;
 }
@@ -435,6 +447,7 @@ function PersonnelCharts({ people, errors, year, monthNumber, week, day, isZonal
       <header className="panel__header"><div><span className="eyebrow">Desvinculaciones</span><h2>Motivos de Salida del Personal · {selectedMonthName} {year}</h2><p>Distribución de los motivos registrados en las salidas.</p></div><div className="personnel-chart-actions"><span className="panel-tag">{departed.length} salidas</span><button className="icon-button" onClick={() => setExpandedChart(expandedChart === "reasons" ? "" : "reasons")} aria-label={expandedChart === "reasons" ? "Cerrar vista ampliada" : "Ampliar motivos de salida"}>{expandedChart === "reasons" ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></header>
       {exitReasons.length ? <><div className="personnel-donut"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={exitReasons} dataKey="cantidad" nameKey="motivo" innerRadius={57} outerRadius={84} paddingAngle={3}>{exitReasons.map((item, index) => <Cell key={item.motivo} fill={exitReasonColors[index % exitReasonColors.length]} />)}</Pie><Tooltip contentStyle={chartTooltipStyle} /></PieChart></ResponsiveContainer><div><strong>{departed.length}</strong><small>Total</small></div></div><div className="personnel-reasons">{exitReasons.map((item, index) => <span key={item.motivo}><i style={{ background: exitReasonColors[index % exitReasonColors.length] }} />{item.motivo}<strong>{item.cantidad}</strong></span>)}</div></> : <div className="personnel-chart-empty"><strong>0</strong><span>No hay salidas registradas en {selectedMonthName} de {year}.</span></div>}
     </article>
+    {!isZonal && <DashboardSection kicker="03 · Seguimiento y mejora" title="Desempeño del equipo" />}
     <StoreWorkerInsights isZonal={isZonal} storeId={storeId} />
     <DashboardSection kicker="Seguimiento del personal" title="Errores registrados" />
     <article className={`panel personnel-chart-panel personnel-chart-panel--errors ${expandedChart === "errors" ? "personnel-chart-panel--expanded" : ""}`}>

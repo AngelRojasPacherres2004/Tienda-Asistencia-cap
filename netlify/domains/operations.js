@@ -487,7 +487,7 @@ export function createOperationsDomain({
       if (!row.usuario_id) {
         const name = cleanText(row.nombre_manual);
         if (!name || name.length > 200) throw httpError("Escribe el nombre del trabajador (máximo 200 caracteres).", 400);
-        if (!cleanText(row.origen_manual) || cleanText(row.origen_manual).length > 200) throw httpError("Escribe la tienda de origen (máximo 200 caracteres).", 400);
+        if (cleanText(row.origen_manual).length > 200) throw httpError("Escribe la tienda de origen (máximo 200 caracteres).", 400);
         if (row.dni && !/^\d{8}$/.test(row.dni)) throw httpError("El DNI debe tener 8 dígitos o quedar vacío.", 400);
       }
     }
@@ -495,7 +495,7 @@ export function createOperationsDomain({
       usuario_id: row.usuario_id ? Number(row.usuario_id) : null,
       horas: Number(row.horas),
       area: normalizeLaborArea(row.area) || null,
-      ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) } : {}),
+      ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) || null } : {}),
       observacion: cleanText(row.observacion) || null,
     }));
     const { data: coverage, error } = await supabase.rpc('registrar_cobertura_diaria', {
@@ -525,9 +525,9 @@ export function createOperationsDomain({
     const today = todayISO();
     const [traffic, incidents, securityFixed, securityOther, warnings, errors, documents, administration, activePersonnel] = await Promise.all([
       supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
-      supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-      supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
-      supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
       supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
       supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
       supabase.from("documentos_municipales").select("fecha_vencimiento,dias_alerta").eq("tienda_id", storeId).gte("fecha_vencimiento", today),
@@ -540,8 +540,8 @@ export function createOperationsDomain({
     if (documents.error) throw dbError(documents.error);
     const documentosPorVencer = (documents.data || []).filter((row) => Number(row.fecha_vencimiento.slice(0, 10).replaceAll("-", "")) >= Number(today.replaceAll("-", "")) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length;
     const securityIncidents = (securityFixed.count || 0) + (securityOther.count || 0);
-    return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0,
-      incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents,
+    const incidentIndicators = user.rol === "jefe_tienda" ? {} : { incidencias: incidents.count || 0, incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents };
+    return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), ...incidentIndicators,
       amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
   }
 
