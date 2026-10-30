@@ -4,7 +4,7 @@ function ActionCard({ card, onAction }) {
   const activate = () => onAction({ type: card.action });
   return <article className={card.className} role="button" tabIndex={0} aria-haspopup="dialog" title={card.title}
     onClick={activate} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); } }}>
-    <span>{card.label}</span><strong className={card.valueClass || undefined}>{card.value}</strong><small>VER EVOLUCIÓN MENSUAL ↗</small>
+    <span>{card.label}</span><strong className={card.valueClass || undefined}>{card.value}</strong><small className="kpi-evolution-link">VER EVOLUCIÓN MENSUAL ↗</small>
   </article>;
 }
 

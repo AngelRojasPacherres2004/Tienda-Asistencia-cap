@@ -1,4 +1,6 @@
 import React from "react";
+import { CommercialChartTypography } from './commercialChartTypography';
+import { SingleBarPresentation } from './singleBarPresentation';
 import CommercialReactAccessState from "./CommercialReactAccessState";
 import CommercialReactHeader from "./CommercialReactHeader";
 import CommercialReactFilters from "./CommercialReactFilters";
@@ -20,7 +22,7 @@ export default function CommercialReactStandalone({ model, controller, storeOper
   </main>;
 
   const modal = model.modal;
-  return <main className="app-shell portal-embed" data-react-commercial-shell="true">
+  return <SingleBarPresentation.Provider value={Boolean(storeOperations)}><main className={`app-shell portal-embed${storeOperations ? ' store-admin-dashboard' : ''}`} data-react-commercial-shell="true">
     {model.expanded && <button type="button" className="chart-backdrop" aria-label="Cerrar gráfico ampliado" onClick={() => controller.closeExpandedChart()} />}
     {modal?.type === "birthday" && <CommercialReactBirthdayModal model={modal.model} onAction={action => controller.onReactBirthdayAction(action)} />}
     {modal?.type === "transfer" && <CommercialReactTransferModal model={modal.model} onAction={action => controller.onReactTransferAction(action)} />}
@@ -28,11 +30,11 @@ export default function CommercialReactStandalone({ model, controller, storeOper
     {modal?.type === "monthly" && <CommercialReactMonthlyModal model={modal.model} onAction={action => controller.onReactMonthlyModalAction(action)} />}
     {modal?.type === "size-detail" && <CommercialReactSizeDetailModal model={modal.model} onClose={() => controller.closeExpandedChart()} />}
     <CommercialReactHeader model={model.header} onLogout={() => controller.signOut()} />
-    {!(storeOperations && model.page === 3) && <CommercialReactFilters model={model.filters} onAction={action => controller.onReactFilterAction(action)} />}
+    <CommercialReactFilters model={model.filters} onAction={action => controller.onReactFilterAction(action)} />
     <CommercialReactTabs page={model.page} onNavigate={page => controller.goPage(page)} talentLabel={storeOperations ? 'OPERACIÓN Y EQUIPO' : undefined} />
     {model.page === 1 && <CommercialReactCommercialPage model={model.commercial} onAction={action => controller.onReactCommercialPageAction(action)} />}
-    {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} onAction={action => controller.onReactInventoryPageAction(action)} />}
-    {model.page === 3 && (storeOperations || <CommercialReactTalentPage model={model.talent} onAction={action => controller.onReactTalentPageAction(action)} />)}
+    {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} storeAdmin={Boolean(storeOperations)} hideTransfers={Boolean(storeOperations)} onAction={action => controller.onReactInventoryPageAction(action)} />}
+    {model.page === 3 && <CommercialChartTypography.Provider value={Boolean(storeOperations)}><CommercialReactTalentPage model={model.talent} storeAdmin={Boolean(storeOperations)} onAction={action => controller.onReactTalentPageAction(action)} /></CommercialChartTypography.Provider>}
     {model.assistantEnabled && <CommercialReactAssistantController role={model.assistantRole} context={model.assistantContext} controller={controller} />}
-  </main>;
+  </main></SingleBarPresentation.Provider>;
 }

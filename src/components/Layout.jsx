@@ -64,12 +64,10 @@ const navByRole = {
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
     { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
     { id: "historial", label: "Historial", icon: History },
   ],

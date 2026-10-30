@@ -3,6 +3,12 @@ type StockInput = {
   goodUnits?: number; mermaStockUnits?: number; desmedroStockUnits?: number;
 };
 
+/** Ratio, not percentage: the chart formats it as ratio × 100. */
+export function storeRotationRatio(soldUnits30: number, currentStockUnits: number): number | null {
+  if (!Number.isFinite(soldUnits30) || !Number.isFinite(currentStockUnits) || currentStockUnits <= 0) return null;
+  return soldUnits30 / currentStockUnits;
+}
+
 /** Keeps the original input order for every sum, shared by coverage and rotation. */
 export function aggregateStoreMetrics(rows: readonly StockInput[]) {
   const stores = new Map<string, {

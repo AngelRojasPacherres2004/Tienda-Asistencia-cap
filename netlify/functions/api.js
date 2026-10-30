@@ -1138,11 +1138,11 @@ export async function handler(event) {
       return json(200, await warningEvidence(Number(warningEvidenceMatch[1]), user));
     }
     if (path === "/errores-personal" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "asistente_tienda"]);
       return json(200, await listOperational("errores_personal", event, user, "*,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/errores-personal" && method === "POST") {
-      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["asistente_tienda"]);
       return json(201, await createDisciplinary(event, user, "errores_personal"));
     }
     if (path === "/documentos-tienda" && method === "GET") {

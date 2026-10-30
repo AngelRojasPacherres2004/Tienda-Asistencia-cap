@@ -64,7 +64,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [workerFile, setWorkerFile] = useState(null);
   const [warningForm, setWarningForm] = useState({ tipo: "verbal", motivo: "", fecha: todayISO() });
   const [warningEvidenceFile, setWarningEvidenceFile] = useState(null);
-  const [errorForm, setErrorForm] = useState({ categoria: "Operativo", descripcion: "", accion_correctiva: "", fecha: todayISO() });
   const fileRef = useRef(null);
 
   const load = useCallback(() => {
@@ -104,9 +103,8 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   };
   const openView = async (item) => {
     setViewing(item); setWorkerFile(null); setWarningForm({ tipo: "verbal", motivo: "", fecha: todayISO() }); setWarningEvidenceFile(null);
-    setErrorForm({ categoria: "Operativo", descripcion: "", accion_correctiva: "", fecha: todayISO() });
     try {
-      const [training, warnings, errors] = await Promise.all([api(`/capacitaciones/trabajadores/${item.id}`), api("/amonestaciones"), api("/errores-personal")]);
+      const [training, warnings, errors] = await Promise.all([api(`/capacitaciones/trabajadores/${item.id}`), api("/amonestaciones"), isStoreAdmin ? Promise.resolve([]) : api("/errores-personal")]);
       setWorkerFile({ training, warnings: warnings.filter((row) => Number(row.usuario_id) === Number(item.id)), errors: errors.filter((row) => Number(row.usuario_id) === Number(item.id)) });
     } catch (err) { setWorkerFile({ error: err.message, training: null, warnings: [], errors: [] }); }
   };
@@ -139,14 +137,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       if (!result.url) { setWorkerFile(current => ({ ...(current || {}), error: 'Esta amonestación no tiene evidencia adjunta.' })); return; }
       window.open(result.url, '_blank', 'noopener,noreferrer');
     } catch (err) { setWorkerFile(current => ({ ...(current || {}), error: err.message })); }
-  };
-  const saveWorkerError = async (event) => {
-    event.preventDefault();
-    if (!errorForm.categoria.trim() || !errorForm.descripcion.trim()) return;
-    setBusy(true);
-    try { await api("/errores-personal", { method: "POST", body: { ...errorForm, usuario_id: viewing.id } }); await openView(viewing); }
-    catch (err) { setWorkerFile((current) => ({ ...(current || {}), error: err.message })); }
-    finally { setBusy(false); }
   };
   const set = (field, value) => {
     setEditing((current) => ({ ...current, [field]: value }));
@@ -506,9 +496,10 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
           <section><h3>Amonestaciones</h3>{workerFile ? workerFile.warnings.length ? <div className="worker-file__list">{workerFile.warnings.map((row) => <div key={row.id}><strong>{row.tipo.replaceAll("_", " ")}</strong><span>{row.fecha}</span><p>{row.motivo}</p>{user.rol === 'jefe_tienda' && <button type="button" className="button button--ghost button--small" onClick={() => viewWarningEvidence(row.id)}>Ver evidencia</button>}</div>)}</div> : <p>Sin amonestaciones registradas.</p> : <Loading />}
             {user.rol === "jefe_tienda" && <form className="worker-warning-form" onSubmit={saveWarning}><select aria-label="Tipo de amonestación" value={warningForm.tipo} onChange={(e) => setWarningForm({ ...warningForm, tipo: e.target.value })}><option value="verbal">Verbal</option><option value="carta_amonestacion">Carta</option><option value="memorandum">Memorándum</option></select><input aria-label="Fecha de amonestación" type="date" value={warningForm.fecha} onChange={(e) => setWarningForm({ ...warningForm, fecha: e.target.value })} /><input required placeholder="Motivo" value={warningForm.motivo} onChange={(e) => setWarningForm({ ...warningForm, motivo: e.target.value })} /><label>Evidencia opcional (PDF o foto, máximo 5 MB)<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={event => setWarningEvidenceFile(event.target.files?.[0] || null)} /></label><button className="button button--soft" disabled={busy}>Registrar amonestación</button></form>}
           </section>
+          {!isStoreAdmin && <>
           <section><h3>Errores de personal</h3>{workerFile ? workerFile.errors.length ? <div className="worker-file__list">{workerFile.errors.map((row) => <div key={row.id}><strong>{row.categoria}</strong><span>{row.fecha}</span><p>{row.descripcion}</p>{row.accion_correctiva && <small>Acción correctiva: {row.accion_correctiva}</small>}</div>)}</div> : <p>Sin errores registrados.</p> : <Loading />}
-            {user.rol === "jefe_tienda" && <form className="worker-error-form" onSubmit={saveWorkerError}><input required placeholder="Categoría" value={errorForm.categoria} onChange={(e) => setErrorForm({ ...errorForm, categoria: e.target.value })} /><input type="date" value={errorForm.fecha} onChange={(e) => setErrorForm({ ...errorForm, fecha: e.target.value })} /><input required placeholder="Descripción del error" value={errorForm.descripcion} onChange={(e) => setErrorForm({ ...errorForm, descripcion: e.target.value })} /><input placeholder="Acción correctiva" value={errorForm.accion_correctiva} onChange={(e) => setErrorForm({ ...errorForm, accion_correctiva: e.target.value })} /><button className="button button--soft" disabled={busy}>Registrar error</button></form>}
           </section>
+          </>}
           <section><h3>Capacitaciones</h3>{workerFile?.training ? <div className="worker-file__list">{workerFile.training.cursos.map((course) => <div key={course.curso_id}><strong>{course.titulo}</strong><span>{course.estado.replaceAll("_", " ")}</span></div>)}</div> : <Loading />}</section>
         </div>}
       </Modal>

@@ -10,6 +10,8 @@ export function blackChartText<T>(value: T): T {
     if (key === 'tooltip' && copy['show'] !== false) {
       const textStyle = copy['textStyle'] && typeof copy['textStyle'] === 'object' ? copy['textStyle'] as Record<string, unknown> : {};
       copy['padding'] = [5, 7];
+      copy['backgroundColor'] = '#ffffff';
+      copy['borderColor'] = '#123a6a';
       copy['textStyle'] = { ...textStyle, color: '#111827', fontSize: 9 };
       copy['extraCssText'] = 'box-sizing:border-box;max-width:219px;white-space:normal;';
     }

@@ -4,7 +4,8 @@ import CommercialReactChart from "./CommercialReactChart";
 const ignoreClick = () => {};
 
 export default function CommercialReactReplenishmentCard({ model, onAction }) {
-  return <article className={`card predictive-v2-card predictive-action-card predictive-replenishment-card${model.expanded ? " chart-expanded" : ""}`} data-react-commercial-module="replenishment-card">
+  return <article className={`card predictive-v2-card predictive-action-card predictive-replenishment-card${model.expanded ? " chart-expanded" : ""}`} aria-busy={model.loading || undefined} data-react-commercial-module="replenishment-card">
+    {model.loading && <div className="predictive-card-refresh" role="status">Actualizando reposición…</div>}
     <button type="button" className="chart-expand" onClick={() => onAction({ type: "expand" })} aria-label={model.expanded ? "Cerrar gráfico" : "Ampliar gráfico y ver detalle"}>{model.expanded ? "×" : "⛶"}</button>
     <div className="title-row"><span className="card-letter">B</span><h2><svg><use href="/comercial/assets/icons.svg#reorder" /></svg> PRIORIDAD DE REPOSICIÓN POR MARCA</h2></div>
     <div className="predictive-chart-content"><dashboard-chart style={{ boxSizing: "border-box", display: "block", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: 0, overflow: "hidden", flex: 1 }}><div className="chart-host" style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}><CommercialReactChart chartId="predictive-replenishment" label="Prioridad de reposición por marca" option={model.option} onClick={ignoreClick} /></div></dashboard-chart>

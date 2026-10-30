@@ -1,0 +1,67 @@
+.store-training-selector { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; padding:16px 20px; border:1px solid #d3deec; border-radius:12px; background:#fff; box-shadow:0 5px 15px #1e2a4814; }
+.store-training-selector label { color:#123a8c; font-weight:800; }
+.store-training-selector select { width:min(100%,320px); min-height:40px; padding:8px 12px; border:1px solid #cbd5e1; border-radius:7px; background:#fff; color:#123a8c; }
+.store-commercial-panels.store-dashboard-shell { display:grid; gap:12px; padding:0; margin:0; min-width:0; background:transparent; border:0; box-shadow:none; font-family:"Segoe UI",Arial,sans-serif; }
+.store-commercial-panels :is(.panel,.traffic-matrix-card,.training-development) { margin:0; border:1px solid #d3deec; border-radius:12px; background:#fff; box-shadow:0 5px 15px #1e2a4814; overflow:hidden; }
+.store-commercial-panels :is(.panel__header,.sales-forecast-panel>header,.traffic-matrix-head,.training-development>header) { padding:16px 18px; border-bottom:1px solid #e2e8f0; background:#fff; color:#111; }
+.store-commercial-panels h2 { color:#111!important; font-size:16px!important; line-height:1.3; letter-spacing:.025em; }
+.store-commercial-panels :is(.eyebrow,.sales-forecast-panel>header span,.training-development>header span) { color:#123a8c; font-size:.65rem; font-weight:800; }
+.store-commercial-panels :is(.store-dashboard-section) { display:none; }
+.store-commercial-panels :is(.dashboard-worker-panel,.dashboard-worker-panel .panel__header) { background:#fff; color:#111; }
+.store-commercial-panels.store-dashboard-shell.is-light .dashboard-worker-panel .panel__header { background:#123a6a; color:#fff; }
+.store-commercial-panels.store-dashboard-shell.is-light .dashboard-worker-panel .panel__header :is(p,.panel-tag) { color:#52667c; }
+.store-commercial-panels .store-dashboard-worker-insights { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.store-commercial-panels .personnel-charts-grid { gap:12px; }
+.store-commercial-panels :is(.sales-forecast-kpis,.attendance-matrix-legend) { background:#f4f7fc; }
+.store-commercial-panels .sales-forecast-kpis strong { color:#123a8c; }
+.store-commercial-panels .training-development { padding:0 16px 16px; }
+.store-commercial-panels .training-development>header { margin:0 -16px 16px; }
+.store-commercial-panels .store-dashboard-actions { margin-top:4px; }
+@media(max-width:800px) {
+  .store-training-selector { align-items:stretch; flex-direction:column; }
+  .store-training-selector select { width:100%; }
+  .store-commercial-panels .store-dashboard-worker-insights { grid-template-columns:1fr; }
+}
+
+/* White headings on a dark surface keep all operational charts legible. */
+.store-commercial-panels.store-dashboard-shell.is-light :is(.panel__header,.sales-forecast-panel>header,.traffic-matrix-head,.training-development>header) { background:#123a6a; color:#fff; border-color:#123a6a; }
+.store-commercial-panels.store-dashboard-shell.is-light :is(.panel__header,.sales-forecast-panel>header,.traffic-matrix-head,.training-development>header) :is(h2,h3,p,span,small,.eyebrow,.panel-tag) { color:#fff!important; }
+.store-commercial-panels.store-dashboard-shell.is-light :is(.panel__header,.traffic-matrix-head) button { color:#fff; background:#ffffff14; border-color:#ffffff70; }
+.store-commercial-panels.store-dashboard-shell.is-light :is(.panel__header,.traffic-matrix-head) button:hover { background:#ffffff30; }
+.store-commercial-panels .training-development-grid>article>header { background:#123a6a; color:#fff; }
+.store-commercial-panels .training-development-grid>article>header :is(h3,strong) { color:#fff; }
+
+.store-commercial-panels :is(.panel__header,.sales-forecast-panel>header,.traffic-matrix-head,.training-development>header) { padding:12px 14px; }
+.store-commercial-panels .personnel-chart-panel:not(.personnel-chart-panel--expanded),
+.store-commercial-panels .dashboard-worker-panel,
+.store-commercial-panels .training-development-grid>article { box-sizing:border-box; height:auto; min-height:360px; overflow:visible; }
+.store-commercial-panels .personnel-chart-panel:not(.personnel-chart-panel--expanded)>.panel__header,
+.store-commercial-panels .dashboard-worker-panel>.panel__header { position:sticky; top:0; z-index:2; }
+.store-commercial-panels .sales-forecast-panel { max-height:none; overflow:hidden; }
+.store-commercial-panels .sales-forecast-panel>header { position:sticky; top:0; z-index:2; }
+.store-commercial-panels .sales-forecast-scroll :is(th,td) { padding:7px 10px; }
+.store-commercial-panels .sales-forecast-kpis article { padding:9px 14px; }
+.store-commercial-panels .sales-forecast-drivers { gap:6px; padding:10px; }
+.store-commercial-panels .traffic-matrix-card:not(.is-expanded) .traffic-matrix-scroll { max-height:none; overflow-x:auto; }
+.store-commercial-panels .attendance-matrix-panel:not(.attendance-matrix-panel--expanded) .attendance-matrix-scroll { max-height:none; overflow-x:auto; }
+.store-commercial-panels .rotation-comparison { padding:12px; }
+.store-commercial-panels .rotation-comparison-legend { gap:16px; margin-bottom:12px; }
+.store-commercial-panels.store-dashboard-shell .training-development-bars,
+.store-commercial-panels.store-dashboard-shell .training-history,
+.store-commercial-panels .rotation-comparison-list { max-height:none; overflow:visible; }
+.store-commercial-panels .recharts-default-tooltip { background:#fff!important; color:#10243c!important; border:1px solid #123a6a!important; border-radius:8px; box-shadow:0 4px 16px #10243c33; }
+.store-commercial-panels .recharts-default-tooltip :is(.recharts-tooltip-label,.recharts-tooltip-item) { color:#10243c!important; font-weight:600; }
+.store-commercial-panels .sales-forecast-drivers>span { background:#eaf1fa; border-color:#819cbb; opacity:1; }
+.store-commercial-panels .sales-forecast-drivers small { color:#243b55; }
+.store-commercial-panels .sales-forecast-drivers strong { color:#075a45; }
+.store-commercial-panels .sales-forecast-drivers .baja strong { color:#a42632; }
+
+.store-commercial-panels { font-size:13px; }
+.store-commercial-panels.store-dashboard-shell.is-light :is(.panel__header,.traffic-matrix-head,.sales-forecast-panel>header,.training-development>header) h2 { font-size:16px!important; line-height:1.3; }
+.store-commercial-panels .personnel-charts-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+.store-commercial-panels :is(.panel__header,.training-development-grid>article>header) h3 { font-size:16px; line-height:1.3; }
+.store-commercial-panels :is(.sales-forecast-scroll th,.sales-forecast-scroll td,.traffic-matrix-grid>div,.traffic-matrix-cell strong,.attendance-matrix-person,.attendance-matrix-date,.attendance-matrix-cell,.rotation-comparison-row,.rotation-comparison-legend button,.personnel-reasons,.dashboard-worker-table>div>*,.dashboard-worker-legend,.training-history>div>*,.training-worker,.recharts-text) { font-size:12px!important; line-height:1.4; }
+.store-commercial-panels :is(.sales-forecast-drivers small,.sales-forecast-drivers strong,.sales-forecast-note,.traffic-matrix-legend,.training-development-legend) { font-size:12px; line-height:1.4; }
+.store-commercial-panels .sales-forecast-scroll :is(th,td) { padding:10px 12px; }
+.store-commercial-panels .training-development-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media(max-width:800px) { .store-commercial-panels .personnel-charts-grid,.store-commercial-panels .training-development-grid { grid-template-columns:1fr; } }

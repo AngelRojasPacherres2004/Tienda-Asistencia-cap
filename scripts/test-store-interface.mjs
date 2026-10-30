@@ -10,9 +10,11 @@ let warningCreated = false;
 let uploaded = null;
 let newPerson = null;
 let coverage = null;
+let errorRequests = 0;
 page.on('pageerror', error => errors.push(error.message));
 await page.route('**/api/**', route => {
   const url = new URL(route.request().url());
+  if (url.pathname.endsWith('/errores-personal')) errorRequests++;
   let body = [];
   if (url.pathname.endsWith('/auth/me')) body = { user: account };
   else if (url.pathname.endsWith('/coberturas-personal')) body = [{ ...employee, tienda_id: 2, tienda_nombre: 'CALLAO' }];
@@ -70,6 +72,8 @@ try {
   assert.ok(await page.getByText('Distrito', { exact: true }).count());
   await page.getByRole('button', { name: 'Ver ficha' }).click();
   const workerDialog = page.getByRole('dialog');
+  assert.equal(await workerDialog.getByText('Errores de personal', { exact: true }).count(), 0);
+  assert.equal(await workerDialog.getByRole('button', { name: 'Registrar error', exact: true }).count(), 0);
   assert.equal(await workerDialog.locator('.worker-warning-form').evaluate(element => element.scrollWidth <= element.clientWidth), true);
   await workerDialog.locator('.worker-warning-form input[placeholder="Motivo"]').fill('Prueba');
   await workerDialog.locator('.worker-warning-form input[type="file"]').setInputFiles({ name: 'evidencia.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-test') });
@@ -100,6 +104,17 @@ try {
   await page.getByRole('button', { name: 'Registrar apoyo', exact: true }).click();
   await coverageDialog.getByLabel('Tipo de personal', { exact: true }).selectOption('tienda');
   assert.equal(await coverageDialog.getByLabel('Trabajador de la tienda').locator('option').first().textContent(), 'Seleccionar');
+  await coverageDialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Mis capacitaciones', exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Capacitaciones', exact: true }).click();
+  const trainingView = page.getByLabel('Capacitaciones', { exact: true });
+  await trainingView.waitFor();
+  assert.deepEqual(await trainingView.locator('option').allTextContents(), ['Capacitaciones del equipo', 'Mis capacitaciones']);
+  await trainingView.selectOption('mis');
+  await page.getByRole('heading', { name: 'Mis capacitaciones', exact: true }).waitFor();
+  await trainingView.selectOption('equipo');
+  assert.equal(await page.getByRole('heading', { name: 'Mis capacitaciones', exact: true }).count(), 0);
+  assert.equal(errorRequests, 0);
   assert.deepEqual(errors, []);
   console.log('Alta, validación, tabla y asistencia histórica del administrador comprobadas.');
 } finally { await browser.close(); }

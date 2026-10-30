@@ -7,7 +7,7 @@ export function createReportsDomain({ supabase, httpError, hasStoreScope, applyS
   ]);
 
   const reportKindsByRole = {
-    jefe_tienda: new Set(["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones", "documentos", "reclamaciones", "acciones", "requerimientos", "supervisiones"]),
+    jefe_tienda: new Set(["personal", "asistencias", "amonestaciones", "capacitaciones", "documentos", "reclamaciones", "acciones", "requerimientos", "supervisiones"]),
     jefe_zonal: new Set(["personal", "asistencias", "amonestaciones", "errores-personal", "incidencias", "supervisiones", "capacitaciones", "tareas"]),
   };
 

@@ -529,7 +529,7 @@ export function createOperationsDomain({
       user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
       user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
       supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-      supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
       supabase.from("documentos_municipales").select("fecha_vencimiento,dias_alerta").eq("tienda_id", storeId).gte("fecha_vencimiento", today),
       supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
       supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", storeStaffRoles),
@@ -542,7 +542,7 @@ export function createOperationsDomain({
     const securityIncidents = (securityFixed.count || 0) + (securityOther.count || 0);
     const incidentIndicators = user.rol === "jefe_tienda" ? {} : { incidencias: incidents.count || 0, incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents };
     return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), ...incidentIndicators,
-      amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
+      amonestaciones: warnings.count || 0, ...(user.rol === "jefe_tienda" ? {} : { errores: errors.count || 0 }), documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
   }
 
   async function storeSalesForecast(event, user) {

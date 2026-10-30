@@ -5,14 +5,17 @@ import { blackChartText } from './chart-text';
 import type { DashboardHeaderModel, DashboardFilterAction, DashboardFiltersModel } from './view-models';
 import { readRuntimeConfig } from './runtime-config';
 import { adaptiveValueScale } from './chart-scale';
+import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-refresh';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { stockTransfers, transferTotals } from './stock-transfers';
-import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat } from './inventory-performance';
+import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
 import { resolveProductSize, type ShoeSizeSystem, type SizeRubro } from './product-sizes';
 import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeStockCompact, decodeSizeCompact,
   type CompactRows, type DailyCompact, type PredictiveCompact, type StockCompact, type SizeCompact } from './compact-dashboard';
+
+const riskMoneyFormat = new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Store = {
   storeId: string; store: string; alias: string; format: string; cluster: string;
@@ -197,6 +200,15 @@ export class CommercialDashboardController implements OnInit {
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly stockHierarchyData = signal<StockHierarchyRow[]>([]);
   readonly stockInsightsData = signal<StockInsights | null>(null);
+  readonly stockInsightsRefreshing = signal(false);
+  readonly stockInsightsRefreshScope = signal<'all' | 'projection'>('all');
+  readonly stockInsightsRefreshError = signal('');
+  private stockInsightsResolvedCommonKey = '';
+  private readonly stockInsightBrands = computed(() => this.stockInsightsData()?.brandRows);
+  private readonly stockInsightHealth = computed(() => this.stockInsightsData()?.healthRows);
+  private readonly stockInsightProjection = computed(() => this.stockInsightsData()?.projectionRows);
+  private readonly stockInsightRisk = computed(() => this.stockInsightsData()?.riskRows);
+  private readonly stockInsightPriority = computed(() => this.stockInsightsData()?.priorityProducts);
   private readonly stockInsightsActivated = signal(false);
   private readonly stockInsightsRetry = signal(0);
   readonly stockHierarchyLoaded = signal(false);
@@ -1517,15 +1529,21 @@ export class CommercialDashboardController implements OnInit {
   }
 
   readonly healthCardModel = computed<Record<string, unknown>>(() => ({
+    loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
     option: blackChartText(this.predictiveHealthOption()),
     rows: this.predictiveHealthRows().map(row => ({ status: row.status, color: row.color,
       value: this.money(row.value, true), share: this.percent(row.share) })),
   }));
 
   readonly projectionCardModel = computed<Record<string, unknown>>(() => ({
+    loading: this.stockInsightsRefreshing(),
     horizon: this.coverageProjectionHorizon(), option: blackChartText(this.predictiveProjectionOption()),
+    stores: this.projectionRiskDetails().map(row => ({ ...row,
+      riskAmount: riskMoneyFormat.format(row.riskValue), totalAmount: riskMoneyFormat.format(row.totalValue),
+      remainingAmount: riskMoneyFormat.format(row.totalValue - row.riskValue), riskShare: this.percent(row.totalValue > 0 ? row.riskValue / row.totalValue : null),
+    })),
     rows: this.predictiveProjectionRows().map(row => ({ status: row.status, color: row.color,
-      value: this.money(row.value, true), share: this.percent(row.share), products: this.number(row.products) })),
+      value: riskMoneyFormat.format(row.value), share: this.percent(row.share), products: this.number(row.products) })),
     products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, product: row.product,
       store: row.store, coverageDays: row.coverageDays, coverage: this.number(row.coverageDays, ' días'),
       color: this.predictiveStatusColor(row.status) })),
@@ -1536,6 +1554,7 @@ export class CommercialDashboardController implements OnInit {
   }
 
   readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
+    loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
     expanded: this.expandedChart() === 'predictive-replenishment',
     option: blackChartText(this.predictiveReplenishmentOption()),
     rows: this.predictiveReplenishmentRows().map(row => ({ name: row.name,
@@ -1671,7 +1690,7 @@ export class CommercialDashboardController implements OnInit {
       },
       rotation: this.rotationCardModel(), antiquity: this.antiquityCardModel(),
       storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
-      detailState, detailProgress: this.stockDetailProgress(),
+      detailState, detailProgress: this.stockDetailProgress(), refreshError: this.stockInsightsRefreshError(),
       predictive: detailState === 'ready' ? {
         parameters: this.predictiveParametersModel(), health: this.healthCardModel(),
         replenishment: this.replenishmentCardModel(), projection: this.projectionCardModel(),
@@ -3072,7 +3091,7 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
     const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
     const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
-    const serverRows = this.stockInsightsData()?.brandRows;
+    const serverRows = this.stockInsightBrands();
     const brands = serverRows || [...grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA').entries()]
       .map(([name, rows]) => ({ name, stockUnits: sum(rows, 'stockUnits'), stockValue: sum(rows, 'stockValue'),
         demandUnits: rows.reduce((total, row) => total + this.predictiveWindowUnits(row, window), 0),
@@ -3105,7 +3124,7 @@ export class CommercialDashboardController implements OnInit {
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     // Salud se clasifica por SKU, no por marca: una marca con un artículo activo no
     // puede ocultar otros artículos sin movimiento dentro de la misma marca.
-    const serverRows = this.stockInsightsData()?.healthRows;
+    const serverRows = this.stockInsightHealth();
     const raw = serverRows
       ? new Map(serverRows.map(row => [row.status, { value: row.value, products: row.products }]))
       : new Map([...grouped(this.predictiveProductHealthRows(), row => row.status).entries()]
@@ -3130,7 +3149,7 @@ export class CommercialDashboardController implements OnInit {
     const priority: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'SIN ROTACIÓN': 2, 'BAJA ROTACIÓN': 3, 'ÓPTIMO': 4 };
     const days = this.coverageProjectionHorizon();
     const stores = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
-    const serverRows = this.stockInsightsData()?.priorityProducts;
+    const serverRows = this.stockInsightPriority();
     if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId }));
     return [...this.predictiveProductHealthRows()]
       .map(row => {
@@ -3168,7 +3187,7 @@ export class CommercialDashboardController implements OnInit {
     const statuses = ['CRÍTICO', 'ALERTA', 'ÓPTIMO', 'BAJA ROTACIÓN', 'SIN ROTACIÓN'];
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     const buckets = new Map(statuses.map(status => [status, { value: 0, products: 0 }]));
-    const serverRows = this.stockInsightsData()?.projectionRows;
+    const serverRows = this.stockInsightProjection();
     if (serverRows) {
       for (const row of serverRows) {
         const bucket = buckets.get(row.status) || buckets.get('SIN ROTACIÓN')!;
@@ -3188,7 +3207,7 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveStoreRiskRows = computed(() => {
     const days = this.coverageProjectionHorizon();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
-    const serverRows = this.stockInsightsData()?.riskRows;
+    const serverRows = this.stockInsightRisk();
     if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId,
       share: row.totalValue ? row.riskValue / row.totalValue : 0 }))
       .sort((a, b) => b.riskValue - a.riskValue).slice(0, 7);
@@ -3203,6 +3222,15 @@ export class CommercialDashboardController implements OnInit {
       const riskValue = risky.reduce((total, row) => total + row.vendibleValue, 0);
       return { storeId, store: stores.get(storeId) || storeId, riskValue, totalValue, share: totalValue ? riskValue / totalValue : 0, riskProducts: risky.length, products: storeRows.length };
     }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, 7);
+  });
+  readonly projectionRiskDetails = computed(() => {
+    const rows = this.predictiveStoreRiskRows();
+    if (rows.length || !this.storeFilterLocked()) return rows;
+    const states = this.predictiveProjectionRows();
+    const products = states.reduce((total, row) => total + row.products, 0);
+    const totalValue = states.reduce((total, row) => total + row.value, 0);
+    const store = this.inventoryStoresIgnoringStoreFilter()[0];
+    return products > 0 && store ? [{ storeId: store.storeId, store: store.alias || store.store, riskValue: 0, totalValue, share: 0, riskProducts: 0, products }] : [];
   });
   readonly predictiveProjectionOption = computed<EChartsOption>(() => {
     const days = this.coverageProjectionHorizon(); const rows = this.predictiveStoreRiskRows();
@@ -3337,7 +3365,7 @@ export class CommercialDashboardController implements OnInit {
     if (days == null || !Number.isFinite(days)) return { label: 'FALTA INFORMACIÓN', color: C.slate };
     if (days < 30) return { label: 'CRÍTICO', color: C.red };
     if (days < 60) return { label: 'DÉFICIT', color: C.orange };
-    if (days <= 120) return { label: 'ÓPTIMO · META 90D', color: C.green };
+    if (days < 90) return { label: 'ÓPTIMO · META 90D', color: C.green };
     return { label: 'EXCESO', color: C.blue };
   }
   readonly inventoryStoreMetrics = computed(() => aggregateStoreMetrics(this.stockDetailLoaded()
@@ -3957,19 +3985,23 @@ export class CommercialDashboardController implements OnInit {
       const aggregate = groups.get(storeId);
       const sales = aggregate?.sales30 || 0; const value = aggregate?.stockValue || 0;
       const units = aggregate?.stockUnits || 0; const sold = aggregate?.units30 || 0;
-      return { label, sales, value, units, sold, rotation: units > 0 ? sold / units : 0 };
-    }).sort((a, b) => b.rotation - a.rotation);
-    const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.rotation));
+      const rotationRows = aggregate && aggregate.count ? this.inventoryProductsIgnoringStoreFilter()
+        .filter(row => row.storeId === storeId) : [];
+      const sold90 = rotationRows.reduce((total, row) => total + this.predictiveWindowUnits(row, 90), 0);
+      const rotation = rotationRows.length ? storeRotationRatio(sold90, units) : storeRotationRatio(sold, units);
+      return { label, sales, value, units, sold: sold90 || sold, sold90: sold90 || sold, rotation };
+    }).sort((a, b) => (b.rotation ?? -Infinity) - (a.rotation ?? -Infinity));
+    const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.rotation).filter((value): value is number => value !== null));
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], formatter: (params: any[]) => {
         const index = params[0]?.dataIndex ?? 0; const row = rows[index];
         return this.tooltip(row.label, [
-          { label: 'Rotación 30D', value: this.percent(row.rotation) },
+          { label: 'Rotación 90D', value: this.percent(row.rotation) },
           { label: 'Venta 30D', value: this.money(row.sales, true) },
           { label: 'Valor stock', value: this.money(row.value, true) },
           { label: 'Stock físico', value: this.number(row.units, ' und') },
-          { label: 'Vendidas 30D', value: this.number(row.sold, ' und') }
+          { label: 'Vendidas 90D', value: this.number(row.sold90, ' und') }
         ]);
       } },
       grid: { left: 48, right: 78, top: 8, bottom: 24 },
@@ -3980,8 +4012,8 @@ export class CommercialDashboardController implements OnInit {
       ] : [],
       xAxis: { type: 'value', min: 0, ...rotationScale, axisLabel: { formatter: (value: number) => this.percent(value), color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { interval: 0, align: 'left', margin: 41, width: 38, overflow: 'truncate', color: '#475569', fontSize: 9, fontWeight: 800 } },
-      series: [{ type: 'bar', data: rows.map(row => row.rotation), barMaxWidth: 18, barCategoryGap: '24%', itemStyle: { color: C.green, borderRadius: [0, 4, 4, 0] },
-        label: { show: true, position: 'right', formatter: (params: any) => this.percent(Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 700, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
+      series: [{ type: 'bar', data: rows.map(row => ({ value: row.rotation, rotationDetails: { stockUnits: row.units, soldUnits90: row.sold90, stockValue: row.value, sales30: row.sales } })), barMaxWidth: 18, barCategoryGap: '24%', itemStyle: { color: C.green, borderRadius: [0, 4, 4, 0] },
+        label: { show: true, position: 'right', formatter: (params: any) => this.percent(params.value == null ? null : Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 700, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
     } as EChartsOption;
   });
   readonly coverageOption = computed<EChartsOption>(() => this.barOption(
@@ -3997,32 +4029,27 @@ export class CommercialDashboardController implements OnInit {
     const valueScale = adaptiveValueScale(rows.map(row => row.stockValue));
     return {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [10, 12], textStyle: { fontSize: 12 }, formatter: (params: any[]) => {
         const row = rows[params?.[0]?.dataIndex ?? 0];
         return this.tooltip(row?.alias || '', [
-          { label: 'Valor inventario', value: this.money(row?.stockValue ?? null, true) },
-          { label: 'Cobertura', value: row?.coverageDays == null ? 'SIN VENTA' : this.number(row.coverageDays, ' días') },
-          { label: 'Estado', value: row?.status || 'SIN INFORMACIÓN' }
+          { label: 'Unidades en stock', value: this.number(row?.stockUnits ?? null, ' und') },
+          { label: 'Valor del inventario', value: this.money(row?.stockValue ?? null, true) },
+          { label: 'Cobertura estimada', value: row?.coverageDays == null ? 'SIN VENTA' : this.number(row.coverageDays, ' días') },
+          { label: 'Clasificación', value: row?.status || 'SIN INFORMACIÓN' }
         ]);
       } },
-      grid: { left: 38, right: this.expandedChart() === 'store-value-coverage' ? '25%' : '38%', top: 6, bottom: 30 },
-      xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 24, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
+      grid: { left: 38, right: 10, top: 6, bottom: 10 },
+      xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 22, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#334155', fontSize: 9, fontWeight: 850 } },
-      series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 13, barCategoryGap: '24%',
-        data: rows.map(row => ({ value: row.stockValue, itemStyle: { color: row.color, borderRadius: [0, 4, 4, 0] } })),
-        label: { show: true, position: 'right', distance: 5, color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => {
-          const row = rows[params.dataIndex];
-          return `S/ ${this.short(row.stockValue)}`;
-        } }
+      series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 16, barCategoryGap: '30%',
+        data: rows.map(row => ({ value: row.stockValue, inventoryDetails: { stockUnits: row.stockUnits, soldUnits30: row.units30, coverageDays: row.coverageDays, status: row.status }, itemStyle: { color: row.color, borderRadius: [0, 5, 5, 0] } })),
+        label: { show: true, position: 'right', distance: 5, color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => `S/ ${this.short(Number(params.value))}` }
       }]
     } as EChartsOption;
   });
   private inventoryHealth(days: number | null, stockUnits: number): Pick<InventoryMatrixRow, 'status' | 'tone' | 'color'> {
-    if (days == null || !Number.isFinite(days)) return stockUnits > 0
-      ? { status: 'EXCESO', tone: 'excess', color: C.navy }
-      : { status: 'DÉFICIT', tone: 'deficit', color: C.red };
-    if (days < 60) return { status: 'DÉFICIT', tone: 'deficit', color: C.red };
-    if (days <= 120) return { status: 'ÓPTIMO', tone: 'optimal', color: C.teal };
+    if (days == null || !Number.isFinite(days)) return { status: 'EXCESO', tone: 'excess', color: C.navy };
+    if (days < 90) return { status: 'ÓPTIMO', tone: 'optimal', color: C.teal };
     return { status: 'EXCESO', tone: 'excess', color: C.navy };
   }
   readonly inventoryMatrixRows = computed<InventoryMatrixRow[]>(() => {
@@ -4059,9 +4086,8 @@ export class CommercialDashboardController implements OnInit {
   readonly inventoryHealthSummary = computed(() => {
     const rows = this.inventoryMatrixRows();
     return [
-      { label: 'DÉFICIT <60D', tone: 'deficit', count: rows.filter(row => row.tone === 'deficit').length },
-      { label: 'ÓPTIMO 60–120D · META 90D', tone: 'optimal', count: rows.filter(row => row.tone === 'optimal').length },
-      { label: 'EXCESO >120D', tone: 'excess', count: rows.filter(row => row.tone === 'excess').length }
+      { label: 'ÓPTIMO <90D', tone: 'optimal', count: rows.filter(row => row.tone === 'optimal').length },
+      { label: 'EXCESO ≥90D', tone: 'excess', count: rows.filter(row => row.tone === 'excess').length }
     ];
   });
   readonly ropOption = computed<EChartsOption>(() => {
@@ -4116,25 +4142,27 @@ export class CommercialDashboardController implements OnInit {
     };
     if (!filters.storeIds.length) {
       this.stockInsightsData.set({ rowCount: 0, brandRows: [], healthRows: [], projectionRows: [], riskRows: [], priorityProducts: [] });
-      this.stockDetailLoading.set(false);
+      this.stockInsightsRefreshing.set(false);
       return;
     }
     const controller = new AbortController();
-    this.stockInsightsData.set(null);
+    const commonKey = stockInsightsCommonKey(filters);
+    this.stockInsightsRefreshScope.set(commonKey === this.stockInsightsResolvedCommonKey ? 'projection' : 'all');
+    this.stockInsightsRefreshing.set(true);
+    this.stockInsightsRefreshError.set('');
     this.stockDetailFailed.set(false);
-    this.stockDetailLoading.set(true);
-    this.stockDetailProgress.set(10);
     const timer = setTimeout(() => {
       this.cloud.stockInsights(filters, controller.signal).then(result => {
         if (controller.signal.aborted) return;
-        this.stockInsightsData.set(result);
-        this.stockDetailProgress.set(100);
+        this.stockInsightsData.set(mergeStockInsights(this.stockInsightsData(), result));
+        this.stockInsightsResolvedCommonKey = commonKey;
       }).catch(error => {
         if (controller.signal.aborted) return;
-        this.stockDetailFailed.set(true);
-        this.predictiveNote.set(`La analítica de inventario no está disponible: ${error instanceof Error ? error.message : error}`);
+        const message = `No se pudo actualizar la analítica: ${error instanceof Error ? error.message : error}`;
+        this.stockInsightsRefreshError.set(message);
+        if (!this.stockInsightsData() && !this.stockDetailLoaded()) this.stockDetailFailed.set(true);
       }).finally(() => {
-        if (!controller.signal.aborted) this.stockDetailLoading.set(false);
+        if (!controller.signal.aborted) this.stockInsightsRefreshing.set(false);
       });
     }, 120);
     onCleanup(() => { clearTimeout(timer); controller.abort(); });
