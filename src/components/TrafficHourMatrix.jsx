@@ -5,6 +5,7 @@ import { Activity, CalendarDays, Maximize2, Minimize2, RefreshCw, UsersRound, X 
 import { api, todayISO } from "../lib/api";
 import { demoTrafficRecords, isOperationalDemo } from "../lib/operationalDemo";
 import { createMouseDragScroll } from "../lib/mouseDragScroll";
+import { trafficMatrixHours } from "../lib/trafficMatrixAxes";
 
 const HOURS = TRAFFIC_HOURS;
 const EMPTY_STORES = [];
@@ -37,6 +38,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
     const rows = dates.map((date) => { const cells = HOURS.map((hour) => { const value = values.get(`${date}|${hour}`) || 0; maximum = Math.max(maximum, value); return { hour, value, recorded: values.has(`${date}|${hour}`) }; }); return { date, cells, total: records.filter(row => row.fecha === date).reduce((sum, row) => sum + Number(row.cantidad || 0), 0), recorded: records.some(row => row.fecha === date) }; });
     return { rows, maximum, total, peak: peakTotal > 0 ? peak : null, unassigned: records.filter(row => !HOURS.includes(row.rango_hora)).length, adjustedGroups, records };
   }, [data, dates]);
+  const hourRows = useMemo(() => trafficMatrixHours(view.rows, HOURS), [view.rows]);
   const colorRanges = useMemo(() => { if (!view.maximum) return []; return Array.from({ length: 5 }, (_, index) => { const start = Math.floor(index * view.maximum / 5) + 1; const end = Math.floor((index + 1) * view.maximum / 5); return start <= end ? { level: index + 1, label: start === end ? `${start}` : `${start}–${end}` } : null; }).filter(Boolean); }, [view.maximum]);
   const comparison = useMemo(() => {
     if (tiendaId || !comparisonStores.length) return [];
@@ -55,10 +57,12 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
   const recordedStores = comparison.filter((store) => store.records > 0);
   const highestStore = recordedStores[0]?.total || 0;
   const roleEyebrow = user?.rol === "gerencia_general" ? "Vista corporativa" : user?.rol === "jefe_zonal" ? "Control zonal" : "Operación de tienda";
-  if (error) return <section className="traffic-matrix-card"><h2>Matriz de tráfico por hora</h2><p role="alert">{error}</p><button type="button" onClick={load}>Reintentar</button></section>;
-  if (!data || loading) return <section className="traffic-matrix-card"><p role="status">Cargando tráfico del período seleccionado...</p></section>;
+  if (error && !data) return <section className="traffic-matrix-card"><h2>Matriz de tráfico por hora</h2><p role="alert">{error}</p><button type="button" onClick={load}>Reintentar</button></section>;
+  if (!data) return <section className="traffic-matrix-card"><p role="status">Cargando tráfico del período seleccionado...</p></section>;
   return <section className={`traffic-matrix-card ${expanded ? "is-expanded" : ""}`}>
     <header className="traffic-matrix-head"><div>{user?.rol !== "jefe_tienda" && <span className="traffic-matrix-eyebrow"><Activity size={14} />{roleEyebrow}</span>}<h2>{user?.rol === "jefe_tienda" ? "Tráfico por hora" : `Matriz de tráfico por hora${scopeName ? ` · ${scopeName}` : ""}`}</h2></div><div className="traffic-matrix-actions"><button type="button" onClick={load} aria-label="Actualizar matriz"><RefreshCw size={17} className={loading ? "is-spinning" : ""} /></button><button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Cerrar vista ampliada" : "Ampliar matriz"}>{expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>{expanded && <button type="button" onClick={() => setExpanded(false)} aria-label="Cerrar"><X size={19} /></button>}</div></header>
+    {loading && <p role="status">Actualizando tráfico…</p>}
+    {error && <p className="traffic-matrix-error" role="alert">{error} Se conserva la última lectura disponible. <button type="button" onClick={load}>Reintentar</button></p>}
     {user?.rol !== "jefe_tienda" && <div className="traffic-matrix-kpis"><span><UsersRound size={18} /><small>Tráfico registrado</small><strong>{view.total.toLocaleString("es-PE")}</strong></span><span><Activity size={18} /><small>Hora de mayor tráfico</small><strong>{view.peak ? rangeLabel(view.peak) : "Sin datos"}</strong></span><span><CalendarDays size={18} /><small>Promedio diario (personas/día)</small><strong>{(view.total / Math.max(dates.length, 1)).toLocaleString("es-PE", { maximumFractionDigits: 1 })}</strong><small>Entre {dates.length} {dates.length === 1 ? "día" : "días"} del período</small></span></div>}
     {view.adjustedGroups > 0 && <p className="traffic-matrix-estimate">La distribución por hora de {view.adjustedGroups} {view.adjustedGroups === 1 ? "jornada simulada" : "jornadas simuladas"} es estimada; los totales diarios registrados no cambian.</p>}
     {view.unassigned > 0 && <div className="traffic-matrix-error">{view.unassigned} registros sin horario válido están incluidos en el total, pero no en las celdas por hora.</div>}
@@ -71,7 +75,21 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
       </div>)}</div>
     </section>}
     <p className="traffic-matrix-mobile-hint">Desliza la tabla para ver todos los horarios y días.</p>
-    <div className="traffic-matrix-scroll" {...dragScroll} title="Mantén presionado el clic y arrastra para desplazarte" role="region" aria-label="Tráfico por día y hora" tabIndex={0}><div className="traffic-matrix-grid" style={{ gridTemplateColumns: `minmax(116px, 1.35fr) repeat(${HOURS.length}, minmax(58px, 1fr)) minmax(74px, .8fr)` }}><div className="traffic-matrix-corner">Día / hora</div>{HOURS.map((hour) => <div className="traffic-matrix-hour" key={hour}>{hour.slice(0, 5)}</div>)}<div className="traffic-matrix-hour">Total</div>{view.rows.map((row) => <div className="traffic-matrix-row" key={row.date} style={{ display: "contents" }}><div className="traffic-matrix-date"><strong>{shortDate(row.date)}</strong><small>{row.date}</small></div>{row.cells.map((cell) => <div key={cell.hour} className={`traffic-matrix-cell ${cell.value ? "has-value" : ""}`} style={{ "--heat": view.maximum ? Math.ceil(cell.value / view.maximum * 5) / 5 : 0 }} title={`${shortDate(row.date)}, ${rangeLabel(cell.hour)}: ${cell.recorded ? `${cell.value} personas` : "Sin registro"}`}><strong>{cell.recorded ? cell.value : "—"}</strong></div>)}<div className="traffic-matrix-total">{row.recorded ? row.total.toLocaleString("es-PE") : "—"}</div></div>)}</div></div>
+    <div className="traffic-matrix-scroll" {...dragScroll} title="Mantén presionado el clic y arrastra para desplazarte" role="region" aria-label="Tráfico: días en columnas y horas en filas" tabIndex={0}>
+      <div className="traffic-matrix-grid traffic-matrix-grid--days" style={{ gridTemplateColumns: `128px repeat(${view.rows.length}, minmax(100px, 1fr)) 90px`, minWidth: `${218 + view.rows.length * 100}px` }}>
+        <div className="traffic-matrix-corner">Hora / día</div>
+        {view.rows.map(day => <div className="traffic-matrix-hour traffic-matrix-day-heading" key={day.date}><strong>{shortDate(day.date)}</strong><small>{day.date}</small></div>)}
+        <div className="traffic-matrix-hour">Total por hora</div>
+        {hourRows.map(row => <div className="traffic-matrix-row" key={row.hour} style={{ display: "contents" }}>
+          <div className="traffic-matrix-date"><strong>{rangeLabel(row.hour)}</strong></div>
+          {row.cells.map(cell => <div key={cell.date} className={`traffic-matrix-cell ${cell.value ? "has-value" : ""}`} style={{ "--heat": view.maximum ? Math.ceil(cell.value / view.maximum * 5) / 5 : 0 }} title={`${shortDate(cell.date)}, ${rangeLabel(row.hour)}: ${cell.recorded ? `${cell.value} personas` : "Sin registro"}`}><strong>{cell.recorded ? cell.value : "—"}</strong></div>)}
+          <div className="traffic-matrix-total">{row.recorded ? row.total.toLocaleString("es-PE") : "—"}</div>
+        </div>)}
+        <div className="traffic-matrix-date"><strong>Total por día</strong></div>
+        {view.rows.map(day => <div className="traffic-matrix-total" key={day.date}>{day.recorded ? day.total.toLocaleString("es-PE") : "—"}</div>)}
+        <div className="traffic-matrix-total">{view.records.length ? view.total.toLocaleString("es-PE") : "—"}</div>
+      </div>
+    </div>
     <footer className="traffic-matrix-legend"><span>Menor tráfico</span><div className="traffic-matrix-legend-ranges">{colorRanges.length ? colorRanges.map((range) => <span key={range.level}><i style={{ "--legend-heat": range.level / 5 }} />{range.label}</span>) : <span>Sin registros</span>}</div><span>Mayor tráfico</span><small>{loading ? "Actualizando…" : `Actualizado ${data.loadedAt.toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })}`}</small></footer>
   </section>;
 }

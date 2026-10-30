@@ -8,11 +8,10 @@ import UploadPicker from "../components/UploadPicker";
 const DOCUMENTOS_POR_AREA = {
   "Municipalidad": ["Certificado de Defensa Civil", "Licencia de Funcionamiento"],
   "Contabilidad": ["Ficha RUC"],
-  "Ingeniero eléctrico": ["Pozo a Tierra", "Plan de Contingencia y Seguridad", "Rociadores", "Sistema de alarma contra incendios", "Certificado de mantenimiento de extintores", "Certificado de mantenimiento de luces de emergencia", "Certificado de mantenimiento de detectores de humo", "Certificado de prueba hidrostática de extintores"],
+  "Ingeniero eléctrico": ["Pozo a Tierra", "Plan de Contingencia y Seguridad", "Sistema de alarma contra incendios", "Certificado de mantenimiento de extintores", "Certificado de mantenimiento de luces de emergencia", "Certificado de mantenimiento de detectores de humo", "Certificado de prueba hidrostática de extintores"],
   "Seguridad": ["Certificado de capacitación teórica y práctica sobre seguridad, primeros auxilios e incendios"],
   "Proveedor": ["Láminas de seguridad", "Certificado de fumigación"],
   "Ingeniero civil": ["Plano de evacuación", "Plano de señalización", "Plano de instalaciones eléctricas", "Plano de arquitectura", "Plano de ubicación"],
-  "Correos especiales": ["Correo recibido"],
 };
 const AREAS_DOCUMENTOS = Object.keys(DOCUMENTOS_POR_AREA);
 const AREAS_REQUERIMIENTOS = ["Operaciones","Sistemas","Marketing","Seguridad","Logística","Mantenimiento","Recursos Humanos","Otro"];
