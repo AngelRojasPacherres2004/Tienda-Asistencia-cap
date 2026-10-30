@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, Crown, FileSpreadsheet, Info, Pencil, UsersRound } from "lucide-react";
-import { api } from "../lib/api";
+import { api, formatDate } from "../lib/api";
 import { clusterLabel, isCommercialCluster } from "../lib/clusters";
 import {
   EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput, StatusBadge, SuccessDialog,
 } from "../components/UI";
 import Reportes from "./Reportes";
+import "./store-detail.css";
 
 const blank = {
   nombre: "", codigo: "", direccion: "", distrito: "", provincia: "", departamento: "",
@@ -220,16 +221,45 @@ export default function Tiendas({ user }) {
             <button className={detailView==="reportes"?"active":""} onClick={()=>setDetailView("reportes")}>Reportes de tienda</button>
           </div>
           {detailView === "reportes" && <Reportes user={user} embedded fixedStoreId={viewing.id} initialKind="documentos" allowedKinds={["documentos","reclamaciones","acciones","requerimientos","supervisiones"]}/>}
-          {detailView === "informacion" && <dl className="store-detail-grid">
-            {[['Estado',<StatusBadge key="estado" value={viewing.estado}/>],['Código',viewing.codigo],['Dirección',viewing.direccion],['Distrito',viewing.distrito],['Provincia',viewing.provincia],['Departamento',viewing.departamento],['Formato',viewing.formato],['Fecha de apertura',viewing.fecha_apertura],['Fecha de cierre',viewing.fecha_cierre],['Metraje',viewing.metraje_m2!=null?`${viewing.metraje_m2} m²`:null],['Capacidad de stock',viewing.capacidad_stock_unid],['Dotación habitual',viewing.cant_colaboradores_normal],['Dotación en campaña',viewing.colaboradores_camp],['Alquiler mensual',viewing.alquiler_mensual!=null?`S/ ${Number(viewing.alquiler_mensual).toLocaleString('es-PE',{minimumFractionDigits:2})}`:null],['Clúster',clusterLabel(viewing.cluster_nombre)]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value === null || value === undefined || value === "" ? "Sin registrar" : value}</dd></div>)}
-          </dl>}
+          {detailView === "informacion" && <div className="store-info-sections">
+            {[
+              { title: 'Datos generales', fields: [
+                ['Código', viewing.codigo], ['Estado', <StatusBadge key="estado" value={viewing.estado} />],
+                ['Formato', viewing.formato], ['Clúster', clusterLabel(viewing.cluster_nombre)],
+                ['Administrador de tienda', viewing.jefe_nombre, true],
+              ] },
+              { title: 'Ubicación', fields: [
+                ['Dirección', viewing.direccion, true], ['Distrito', viewing.distrito],
+                ['Provincia', viewing.provincia], ['Departamento', viewing.departamento, true],
+              ] },
+              { title: 'Capacidad y personal', fields: [
+                ['Metraje', viewing.metraje_m2 != null ? `${Number(viewing.metraje_m2).toLocaleString('es-PE')} m²` : null],
+                ['Capacidad de stock', viewing.capacidad_stock_unid != null ? `${Number(viewing.capacidad_stock_unid).toLocaleString('es-PE')} unidades` : null],
+                ['Dotación habitual', viewing.cant_colaboradores_normal != null ? `${viewing.cant_colaboradores_normal} personas` : null],
+                ['Dotación en campaña', viewing.colaboradores_camp != null ? `${viewing.colaboradores_camp} personas` : null],
+              ] },
+              { title: 'Fechas y alquiler', fields: [
+                ['Fecha de apertura', viewing.fecha_apertura ? formatDate(viewing.fecha_apertura) : null],
+                ['Fecha de cierre', viewing.fecha_cierre ? formatDate(viewing.fecha_cierre) : null],
+                ['Alquiler mensual', viewing.alquiler_mensual != null ? `S/ ${Number(viewing.alquiler_mensual).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null, true],
+              ] },
+            ].map(({ title, fields }) => <section className="store-info-section" key={title}>
+              <h3>{title}</h3>
+              <dl>{fields.map(([label, value, wide]) => <div key={label} className={wide ? 'store-info-field--wide' : undefined}>
+                <dt>{label}</dt><dd className={value == null || value === '' ? 'store-info-missing' : undefined}>{value == null || value === '' ? 'Sin registrar' : value}</dd>
+              </div>)}</dl>
+            </section>)}
+          </div>}
           {detailView === "equipo" && (!storeUsers ? <Loading label="Cargando equipo de la tienda..." /> : <div className="store-users">
             <section className="store-users__leader">
               <div className="store-users__icon"><Crown size={18} /></div>
               <div><span>Administrador de tienda</span><strong>{viewing.jefe_nombre || "Sin administrador asignado"}</strong><small>{viewing.jefe_nombre ? <StatusBadge value={viewing.jefe_estado}/> : "Pendiente de asignación"}</small></div>
             </section>
-            <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{filteredTeam.length} de {teamMembers.length} personas</h3></div><select value={teamRole} onChange={(event)=>setTeamRole(event.target.value)}><option value="todos">Todos los roles</option>{teamRoles.map((role)=><option key={role} value={role}>{roleLabels[role] || role.replaceAll("_"," ")}</option>)}</select></div>
-            {filteredTeam.length ? <><div className="store-users__list">{filteredTeam.slice((teamPage-1)*5,teamPage*5).map((item) => <div className="store-user-row" key={item.id}><span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span><div><strong>{item.nombres} {item.apellidos}</strong><small>{roleLabels[item.rol] || item.rol?.replaceAll("_", " ")}{item.telefono ? ` · ${item.telefono}` : ""}{item.reingreso ? " · Reingreso" : ""}</small></div><StatusBadge value={item.estado} /></div>)}</div><Pagination page={teamPage} pages={Math.max(1,Math.ceil(filteredTeam.length/5))} onChange={setTeamPage}/></> : <EmptyState icon={UsersRound} title="Sin personal con ese rol" text="Prueba con otro filtro o registra personal desde Mis equipos." />}
+            <div className="store-users__heading"><div><span className="eyebrow">Equipo operativo</span><h3>{filteredTeam.length} de {teamMembers.length} personas</h3></div><select aria-label="Filtrar equipo por rol" value={teamRole} onChange={(event)=>setTeamRole(event.target.value)}><option value="todos">Todos los roles</option>{teamRoles.map((role)=><option key={role} value={role}>{roleLabels[role] || role.replaceAll("_"," ")}</option>)}</select></div>
+            {filteredTeam.length ? <><div className="store-team-matrix" role="region" aria-label="Personal de la tienda" tabIndex={0}><table>
+              <thead><tr><th scope="col">Nombres</th><th scope="col">Apellidos</th><th scope="col">Rol</th><th scope="col">DNI / CE</th><th scope="col">Teléfono</th><th scope="col">Ingreso</th><th scope="col">Estado</th></tr></thead>
+              <tbody>{filteredTeam.slice((teamPage-1)*10,teamPage*10).map(item => <tr key={item.id}><td>{item.nombres || "—"}</td><td>{item.apellidos || "—"}</td><td>{roleLabels[item.rol] || item.rol?.replaceAll("_", " ") || "Sin rol"}</td><td>{item.dni || "—"}</td><td>{item.telefono || "—"}</td><td>{item.fecha_ingreso ? formatDate(item.fecha_ingreso) : "Sin registrar"}</td><td><StatusBadge value={item.estado}/></td></tr>)}</tbody>
+            </table></div><Pagination page={teamPage} pages={Math.max(1,Math.ceil(filteredTeam.length/10))} onChange={setTeamPage}/></> : <EmptyState icon={UsersRound} title="Sin personal con ese rol" text="Prueba con otro filtro o registra personal desde Mis equipos." />}
           </div>)}
         </>}
       </Modal>

@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import MiTienda from '../pages/MiTienda';
+import CommercialTrafficMatrix from './CommercialTrafficMatrix';
 import '../pages/store-commercial-panels.css';
 import { effect, withReactServices } from '../commercial/reactivity-react';
 import { CloudDataService } from '../commercial/cloud-data.service';
@@ -24,6 +25,12 @@ export function mountCommercialReactIndependent(host, { user, onNavigate } = {})
     return [name, target];
   })) : null;
   const renderOperations = sections => Object.entries(sections).map(([name, content]) => createPortal(content, operationsHosts[name], name));
+  const trafficHost = !operationsHosts ? document.createElement('div') : null;
+  if (trafficHost) {
+    trafficHost.slot = 'commercial-traffic';
+    trafficHost.className = 'store-commercial-panels store-dashboard-shell is-light';
+    shell.append(trafficHost);
+  }
   const shadow = shell.attachShadow({ mode: 'open' });
   const styles = document.createElement('style');
   styles.textContent = `:host{display:block;width:100%;font-family:"Segoe UI",Arial,sans-serif}\n${appStyles}\n${transferModalStyles}\n${globalStyles}
@@ -78,9 +85,12 @@ export function mountCommercialReactIndependent(host, { user, onNavigate } = {})
     () => new CommercialDashboardController());
   const watch = effect(() => {
     const model = controller.reactStandaloneModel();
+    const selectedPeriod = controller.selectedPeriod();
+    const trafficPeriod = { year: String(Math.floor(selectedPeriod / 100)), monthNumber: String(selectedPeriod % 100).padStart(2, '0'), week: '', day: '' };
     root.render(<>
       <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} />
       {operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
+      {trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} period={trafficPeriod} />, trafficHost)}
     </>);
   });
   void controller.ngOnInit().catch(error => controller.loadingError.set(

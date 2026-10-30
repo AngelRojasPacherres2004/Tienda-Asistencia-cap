@@ -54,11 +54,16 @@ test('rotation uses a fixed 0–100% scale and preserves stock and units in its 
   assert.equal(above.series[0].data[0].value, 125);
   assert.match(above.series[0].data[0].name, /supera el 100/);
 });
-test('inventory has a smaller radial chart and a structured inventory tooltip', () => {
+test('inventory separates its scale from the central amount and preserves the inventory tooltip', () => {
   const datum = { value: 994464.75, inventoryDetails: { stockUnits: 22012, soldUnits30: 1731, coverageDays: 95.4, status: 'EXCESO' } };
   const metric = singleBarMetric(option([datum]), 'inventory-store-value');
   const chart = singleBarRadial(metric);
-  assert.equal(chart.series[0].radius, '65%');
+  assert.equal(chart.series[0].radius, '64%');
+  assert.equal(chart.series[0].splitNumber, 4);
+  assert.ok(chart.series[0].axisLabel.distance < 0);
+  assert.equal(chart.series[0].splitLine.distance, 0);
+  assert.equal(chart.series[0].splitLine.length, 0);
+  assert.equal(chart.series[0].data[0].value, datum.value);
   const tooltip = chart.tooltip.formatter({});
   assert.equal((tooltip.match(/grid-template-columns/g) || []).length, 5);
   for (const label of ['Valor del inventario', 'Stock físico', 'Vendidas en 30 días', 'Cobertura estimada', 'Estado de cobertura']) assert.ok(tooltip.includes(label));
@@ -71,7 +76,7 @@ test('rotation is sold units divided by current stock, with separate tooltip row
   assert.equal(storeRotationRatio(66, 0), null);
   assert.equal(storeRotationRatio(66, -1), null);
   assert.equal(storeRotationRatio(NaN, 1000), null);
-  const datum = { value: storeRotationRatio(66, 1000), rotationDetails: { stockUnits: 1000, soldUnits30: 66, stockValue: 50000, sales30: 3300 } };
+  const datum = { value: storeRotationRatio(66, 1000), rotationDetails: { stockUnits: 1000, soldUnits90: 66, stockValue: 50000, sales30: 3300 } };
   const metric = singleBarMetric(option([datum], { axisLabel: { formatter: value => `${value * 100}%` } }), 'inventory-rotation');
   const gauge = singleBarGauge(metric);
   assert.equal(gauge.series[0].axisLabel.show, false);
@@ -80,5 +85,5 @@ test('rotation is sold units divided by current stock, with separate tooltip row
   assert.match(tooltip, /Stock físico actual/);
   assert.match(tooltip, /1,000 unidades/);
   assert.match(tooltip, /66 unidades/);
-  assert.match(tooltip, /vendidas en 30 días ÷ stock actual × 100/);
+  assert.match(tooltip, /vendidas en 90 días ÷ stock actual × 100/);
 });

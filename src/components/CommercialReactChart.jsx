@@ -41,5 +41,5 @@ export default function CommercialReactChart({ chartId, label, onClick, option }
   return <div ref={host} data-react-commercial-chart={chartId} data-chart-presentation={metric ? metric.kind === 'gauge' ? 'gauge' : 'radial' : 'original'} role="img" aria-label={label}
     onMouseMove={metric?.rotation || metric?.inventory ? event => { const bounds = event.currentTarget.getBoundingClientRect(); chart.current?.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: 0, position: [event.clientX - bounds.left + 12, event.clientY - bounds.top + 12] }); } : undefined}
     onMouseLeave={metric?.rotation || metric?.inventory ? () => chart.current?.dispatchAction({ type: 'hideTip' }) : undefined}
-    style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 180 }} />;
+    style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: chartId === 'inventory-store-value' ? 0 : 180 }} />;
 }

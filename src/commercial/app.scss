@@ -533,8 +533,8 @@
 .stock-history-summary small { display: block; font-size: .5rem; font-weight: 800; }
 .stock-history-summary strong { display: block; overflow: hidden; color: #172033; font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
 .inventory-analysis-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 12px; }
-.store-value-coverage-card { box-sizing: border-box; width: min(100%, 780px); height: 300px; justify-self: center; }
-.store-admin-dashboard .store-value-coverage-card:not(.chart-expanded) { width:min(100%,780px); height:280px!important; min-height:0; align-self:start; justify-self:center; }
+.store-value-coverage-card { box-sizing: border-box; width: min(100%, 780px); height: 380px; justify-self: center; }
+.store-admin-dashboard .store-value-coverage-card:not(.chart-expanded) { width:min(100%,780px); height:380px!important; min-height:0; align-self:start; justify-self:center; }
 .store-value-coverage-card:not(.chart-expanded) > .chart-expand,
 .store-admin-dashboard .store-value-coverage-card:not(.chart-expanded) > .chart-expand { top:8px; right:8px; z-index:2; }
 .store-value-coverage-content { display:flex; flex:1; min-height:0; }

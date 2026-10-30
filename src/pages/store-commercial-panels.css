@@ -43,6 +43,30 @@
 .store-commercial-panels .sales-forecast-kpis article { padding:9px 14px; }
 .store-commercial-panels .sales-forecast-drivers { gap:6px; padding:10px; }
 .store-commercial-panels .traffic-matrix-card:not(.is-expanded) .traffic-matrix-scroll { max-height:none; overflow-x:auto; }
+.store-commercial-panels .traffic-matrix-card.is-expanded { box-sizing:border-box; width:auto; max-width:none; height:calc(100dvh - 36px); max-height:calc(100dvh - 36px); overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+@media (max-width:800px) { .store-commercial-panels .traffic-matrix-card.is-expanded { height:calc(100dvh - 12px); max-height:calc(100dvh - 12px); } }
+@media (max-width:600px) {
+  .store-commercial-panels { min-width:0; max-width:100%; }
+  .store-commercial-panels .traffic-matrix-card { box-sizing:border-box; padding:10px; border-radius:12px; }
+  .store-commercial-panels .traffic-matrix-head { gap:10px; margin-bottom:12px; padding:12px; border-radius:8px; }
+  .store-commercial-panels .traffic-matrix-head h2 { overflow-wrap:anywhere; }
+  .store-commercial-panels .traffic-matrix-actions { justify-content:flex-end; gap:8px; }
+  .store-commercial-panels .traffic-matrix-actions button { width:44px; height:44px; flex-shrink:0; }
+  .store-commercial-panels .traffic-matrix-kpis { grid-template-columns:minmax(0,1fr); gap:8px; }
+  .store-commercial-panels .traffic-matrix-kpis > span { min-width:0; min-height:64px; padding:10px 12px; grid-template-columns:24px minmax(0,1fr); }
+  .store-commercial-panels .traffic-matrix-kpis strong { font-size:22px; }
+  .store-commercial-panels .traffic-store-comparison { padding:8px; margin-bottom:12px; }
+  .store-commercial-panels .traffic-store-comparison__list { max-height:240px; overflow-y:auto; overscroll-behavior:contain; }
+  .store-commercial-panels .traffic-store-comparison__row { padding:10px; }
+  .store-commercial-panels .traffic-store-comparison__name strong { white-space:normal; overflow-wrap:anywhere; }
+  .store-commercial-panels .traffic-matrix-card:not(.is-expanded) .traffic-matrix-scroll { max-height:420px; overflow:auto; }
+  .store-commercial-panels .traffic-matrix-card.is-expanded .traffic-matrix-scroll { max-height:none; }
+  .store-commercial-panels .traffic-matrix-card.is-expanded .traffic-matrix-head { position:sticky; top:-10px; z-index:6; }
+  .store-commercial-panels .traffic-matrix-legend { gap:8px; }
+  .store-commercial-panels .traffic-matrix-legend-ranges { flex-wrap:wrap; }
+  .store-commercial-panels .traffic-matrix-legend small { width:100%; margin-left:0; }
+  .store-commercial-panels .traffic-matrix-mobile-hint { display:block; margin:8px 0; color:#53677d; font-size:12px; line-height:1.5; }
+}
 .store-commercial-panels .attendance-matrix-panel:not(.attendance-matrix-panel--expanded) .attendance-matrix-scroll { max-height:none; overflow-x:auto; }
 .store-commercial-panels .rotation-comparison { padding:12px; }
 .store-commercial-panels .rotation-comparison-legend { gap:16px; margin-bottom:12px; }

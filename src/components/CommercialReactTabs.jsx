@@ -1,4 +1,4 @@
-export default function CommercialReactTabs({ page, onNavigate, talentLabel = 'GESTIÓN DE TALENTO' }) {
+export default function CommercialReactTabs({ page, onNavigate, talentLabel = 'OPERACIÓN Y EQUIPO' }) {
   return (
     <nav className="page-tabs" aria-label="Páginas del dashboard" data-react-commercial-module="page-tabs">
       <button type="button" className={page === 1 ? "active" : ""} onClick={() => onNavigate(1)}><span>01</span> GESTIÓN COMERCIAL</button>

@@ -47,7 +47,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [storeFilter, setStoreFilter] = useState("todos");
-  const [roleFilter, setRoleFilter] = useState("todos");
+  const [roleFilter, setRoleFilter] = useState(zonalTeam ? "jefe_tienda" : "todos");
   const [workspace, setWorkspace] = useState("equipo");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null);
@@ -175,7 +175,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         ? { ...rehire, ...Object.fromEntries(Object.entries(editing).filter(([, value]) => value !== "" && value != null)) }
         : editing;
       const payload = { ...source, estado: source.fecha_salida ? "inactivo" : source.estado, tienda_id: ["gerencia_general", "gerente_comercial", "administrador_seguridad", "coach", "jefe_zonal"].includes(source.rol) ? null : Number(source.tienda_id) || null };
-      if (isStoreAdmin && !editing.id && source.fecha_nacimiento) payload.mes_cumpleanos = source.fecha_nacimiento.slice(5, 7);
+      if ((isStoreAdmin || zonalTeam) && !editing.id && source.fecha_nacimiento) payload.mes_cumpleanos = source.fecha_nacimiento.slice(5, 7);
       if (confirmedRehire && rehire) {
         payload.id = rehire.id;
         payload.rol = rehire.rol;
@@ -332,7 +332,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         eyebrow={embedded ? "" : zonalTeam ? "Jefe zonal" : isCentral ? "Jerarquía" : "Mi tienda"}
         title={embedded ? "Jefes zonales" : zonalTeam ? "Mis equipos" : "Usuarios a mi cargo"}
         action={<div className="header-actions">
-          {zonalTeam ? <button className="button button--primary" onClick={openNew}>Nuevo administrador</button> : <>
+          {zonalTeam ? <button className="button button--primary" onClick={openNew}>Nuevo trabajador</button> : <>
           {isCentral ? <>
             <button className="button button--ghost" onClick={() => downloadUsersAdmin(true)}><Download size={15} />Plantilla</button>
             <button className="button button--ghost" title="Cargar Excel" aria-label="Cargar Excel" onClick={() => importInput.current?.click()} disabled={busy}><Upload size={17} /></button>
@@ -371,8 +371,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             {visibleItems.map((item) => (
               <div className="data-table__row" key={item.id}>
                 <div className="person-cell">
-                  <span className="avatar">{item.nombres.charAt(0).toUpperCase()}</span>
-                  <div><button className="person-link" onClick={() => openView(item)}>{item.nombres} {item.apellidos}</button>{item.reingreso && <small>Reingreso</small>}</div>
+                  <div><button className="person-link" onClick={() => openView(item)}>{item.nombres} {item.apellidos}</button></div>
                 </div>
                 <span className="mono">{item.dni}</span>
                 {!zonalTeam && <span className="cell-primary">{(isStoreAdmin ? item.distrito : item.usuario) || "—"}</span>}
@@ -400,11 +399,11 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       <Modal
         open={!!editing}
         wide
-        title={zonalTeam ? (editing?.id ? "Editar administrador" : "Nuevo administrador") : (editing?.id ? "Editar usuario" : isStoreAdmin ? "Nuevo personal" : "Nuevo usuario")}
+        title={zonalTeam ? (editing?.id ? "Editar administrador" : "Nuevo trabajador") : (editing?.id ? "Editar usuario" : isStoreAdmin ? "Nuevo personal" : "Nuevo usuario")}
         subtitle={zonalTeam ? "Completa la ficha laboral y, si tendrá acceso, sus credenciales de administrador." : "Los campos marcados son obligatorios."}
         onClose={closeEditor}
       >
-        {editing && isStoreAdmin && !editing.id ? <StoreNewPersonForm value={editing} set={set} errors={fieldErrors} formError={formError} onSubmit={save} onClose={closeEditor} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} /> : editing && (
+        {editing && (isStoreAdmin || zonalTeam) && !editing.id ? <StoreNewPersonForm value={editing} set={set} errors={fieldErrors} formError={formError} onSubmit={save} onClose={closeEditor} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} stores={zonalTeam ? tiendaOptions : undefined} /> : editing && (
           <form className="form-grid" onSubmit={save} noValidate>
             {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
             <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>

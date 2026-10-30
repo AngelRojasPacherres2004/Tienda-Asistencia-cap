@@ -96,6 +96,14 @@ export function singleBarRadial(metric, originalTooltip) {
   series.title = { show: true, fontSize: 14, color: '#334155', offsetCenter: [0, '65%'] };
   series.detail = { fontSize: 28, color: '#10243c', offsetCenter: [0, '10%'], formatter: () => metric.formatted };
   series.data = [{ value: metric.value, name: metric.category, sourceData: metric.source }];
-  if (metric.inventory) { series.radius = '65%'; series.detail.fontSize = 26; }
+  if (metric.inventory) {
+    series.radius = '64%';
+    series.center = ['50%', '54%'];
+    series.splitNumber = 4;
+    series.splitLine = { show: false, distance: 0, length: 0 };
+    series.axisLabel = { ...series.axisLabel, distance: -45, fontSize: 12, width: 80, overflow: 'none' };
+    series.title = { ...series.title, fontSize: 13, offsetCenter: [0, '65%'] };
+    series.detail = { ...series.detail, fontSize: 28, offsetCenter: [0, '5%'] };
+  }
   return gauge;
 }

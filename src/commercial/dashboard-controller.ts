@@ -136,7 +136,7 @@ const SECTION_HEADINGS: Record<string, { mark: string; title: string; section?: 
   'inventory-a': { mark: 'A', title: 'VISIÓN GENERAL DE STOCK', section: '02.A Visión general de stock' },
   'inventory-b': { mark: 'B', title: 'COBERTURA Y DISTRIBUCIÓN', section: '02.B Cobertura y distribución' },
   'inventory-c': { mark: 'C', title: 'SEÑALES DE REPOSICIÓN', section: '02.C Señales de reposición' },
-  talent: { mark: '03', title: 'GESTIÓN DE TALENTO' },
+  talent: { mark: '03', title: 'OPERACIÓN Y EQUIPO' },
   'talent-a': { mark: 'A', title: 'DOTACIÓN Y EVOLUCIÓN', section: '03.A Dotación y evolución' },
   'talent-b': { mark: 'B', title: 'PRODUCTIVIDAD Y DISTRIBUCIÓN', section: '03.B Productividad y distribución' },
   'talent-c': { mark: 'C', title: 'DESARROLLO Y CONTINUIDAD', section: '03.C Desarrollo y continuidad' },
@@ -1220,7 +1220,7 @@ export class CommercialDashboardController implements OnInit {
     const metrics = this.metrics();
     const gap = this.accumulatedGap();
     return { cards: [
-      { label: 'META', className: 'meta-kpi', title: 'Fórmula: suma de las metas mensuales del año para las tiendas, rubros y demás filtros aplicables.', value: this.money(metrics.annualTarget, true) },
+      { label: 'META', className: 'meta-kpi', title: this.selectedMonths().length ? 'Fórmula: suma de las metas de los meses seleccionados para las tiendas, rubros y demás filtros aplicables.' : 'Fórmula: suma de las metas mensuales del año para las tiendas, rubros y demás filtros aplicables.', value: this.money(this.selectedMonths().length ? metrics.monthTarget : metrics.annualTarget, true) },
       { label: 'VENTA BRUTA', className: 'gross-kpi', title: 'Fórmula: Σ(precio sugerido × cantidad) de las ventas positivas del período filtrado.', value: this.money(metrics.gross, true) },
       { label: 'NOTAS DE CRÉDITO', title: 'Fórmula: Σ(importe de notas de crédito) del período filtrado.', value: this.money(metrics.notes, true) },
       { label: 'DESCUENTO TOTAL', title: 'Fórmula: Σ(descuento aplicado) del período filtrado.', value: this.money(metrics.discount, true) },
@@ -1340,6 +1340,12 @@ export class CommercialDashboardController implements OnInit {
     icon: 'category', title: 'DISTRIBUCIÓN DEL EQUIPO POR ÁREA',
     chartId: 'talent-area-distribution', label: 'Distribución de colaboradores por área', ready: true,
     option: blackChartText(this.talentAreaOption()),
+  }));
+  readonly talentTrafficCardModel = computed<Record<string, unknown>>(() => ({
+    moduleId: 'talent-traffic-card', baseClasses: 'card talent-card', cardClass: 'area-distribution-card',
+    icon: 'comparison', title: 'TRÁFICO POR TIENDA',
+    chartId: 'talent-traffic-store', label: 'Tráfico registrado por tienda en el período seleccionado', ready: true,
+    option: blackChartText(this.talentTrafficOption()),
   }));
   readonly talentStoreCardModel = computed<Record<string, unknown>>(() => ({
     moduleId: 'talent-store-card', baseClasses: 'card talent-card', cardClass: 'store-productivity-card',
@@ -1644,7 +1650,7 @@ export class CommercialDashboardController implements OnInit {
     },
     kpis: this.talentKpiModel(), capacity: this.talentCapacityModel(),
     history: this.talentHistoryCardModel(), team: this.talentTeamCardModel(),
-    seller: this.sellerCardModel(), area: this.talentAreaCardModel(),
+    seller: this.sellerCardModel(), traffic: this.talentTrafficCardModel(),
     store: this.talentStoreCardModel(), training: this.talentTrainingCardModel(),
     exit: this.talentExitCardModel(), incidents: this.talentIncidentsCardModel(),
   }));
@@ -2396,14 +2402,15 @@ export class CommercialDashboardController implements OnInit {
       ]
     } as EChartsOption;
   });
-  readonly talentAreaRows = computed(() => {
+  readonly talentAreaPersonnelRows = computed(() => {
     const rows = this.indexedRows(this.monthlyPersonnelAreaIndex, [this.selectedPeriod()], this.filteredStoreIds());
     const selectedAreas = this.personnelCategories();
     const applicable = selectedAreas.length ? rows.filter(row => selectedAreas.some(category => this.personnelAreaMatchesCategory(row, category))) : rows;
     return [...grouped(applicable, row => row.area || 'SIN ÁREA').entries()]
       .map(([area, values]) => ({ area, personnel: sum(values, 'personnel') }))
-      .filter(row => row.personnel > 0).sort((a, b) => b.personnel - a.personnel).slice(0, 8);
+      .filter(row => row.personnel > 0).sort((a, b) => b.personnel - a.personnel);
   });
+  readonly talentAreaRows = computed(() => this.talentAreaPersonnelRows().slice(0, 8));
   readonly talentAreaOption = computed<EChartsOption>(() => {
     const rows = this.talentAreaRows(); const max = Math.max(1, ...rows.map(row => row.personnel));
     return { animation: false, grid: { left: 104, right: 34, top: 8, bottom: 20 },
@@ -2411,6 +2418,36 @@ export class CommercialDashboardController implements OnInit {
       xAxis: { type: 'value', max: max * 1.15, axisLabel: { color: '#64748B', fontSize: 8 }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.area), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { width: 92, overflow: 'truncate', color: '#334155', fontSize: 8, fontWeight: 700 } },
       series: [{ type: 'bar', data: rows.map(row => row.personnel), barMaxWidth: 18, itemStyle: { color: C.purple, borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', color: '#172033', fontSize: 9, fontWeight: 800 } }]
+    } as EChartsOption;
+  });
+  readonly talentTrafficRows = computed(() => {
+    if (!this.data()) return [];
+    const ids = this.filteredStoreIds();
+    const from = this.fromDate(); const to = this.toDate() || from;
+    const rows = this.dateRangeActive()
+      ? this.dailyTrafficRows.filter(row => ids.has(row.storeId) && row.date >= from && row.date <= to)
+      : this.indexedRows(this.monthlyStoreIndex, this.selectedPeriods(), ids);
+    const byStore = grouped(rows, row => row.storeId);
+    return this.filteredStores().map(store => {
+      const records = byStore.get(store.storeId) || [];
+      return { storeId: store.storeId, alias: store.alias, traffic: records.length ? sum(records, 'traffic') : null };
+    }).sort((a, b) => (b.traffic ?? -1) - (a.traffic ?? -1));
+  });
+  readonly talentTrafficOption = computed<EChartsOption>(() => {
+    const rows = this.talentTrafficRows(); const visible = 7;
+    return {
+      animation: false, grid: { left: 48, right: 74, top: 8, bottom: 28 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any[]) => {
+        const row = rows[params[0]?.dataIndex ?? 0];
+        return this.tooltip(row?.alias || '', [{ label: 'Tráfico registrado', value: row?.traffic == null ? 'Sin registros' : this.number(row.traffic) }]);
+      } },
+      dataZoom: rows.length > visible ? [
+        { type: 'inside', yAxisIndex: 0, startValue: 0, endValue: visible - 1, zoomLock: true, moveOnMouseWheel: true },
+        { type: 'slider', yAxisIndex: 0, right: 0, width: 14, startValue: 0, endValue: visible - 1, showDetail: false, brushSelect: false }
+      ] : [],
+      xAxis: { type: 'value', min: 0, minInterval: 1, splitNumber: 2, name: 'PERSONAS', nameTextStyle: { fontSize: 8 }, nameLocation: 'middle', nameGap: 22, axisLabel: { hideOverlap: true, fontSize: 8, formatter: (value: number) => this.short(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { fontSize: 9, fontWeight: 800 } },
+      series: [{ type: 'bar', data: rows.map(row => row.traffic), barMaxWidth: 18, itemStyle: { color: C.purple, borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', fontSize: 9, formatter: (params: any) => this.number(params.value) } }]
     } as EChartsOption;
   });
   readonly talentTeamProductivityRows = computed(() => {
@@ -2421,16 +2458,13 @@ export class CommercialDashboardController implements OnInit {
       : this.indexedRows(this.selectedSublines().length ? this.monthlySublineIndex : this.monthlyLineIndex, periods, ids)
           .filter(row => this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
     const salesByTeam = grouped(salesSource.filter(row => comparableTeams.has(this.areaHead(row.category))), row => this.areaHead(row.category));
-    const personnelRows = this.indexedRows(this.monthlyPersonnelAreaIndex, periods, ids)
-      .filter(row => this.normalized(row.areaType) === 'COMERCIAL' && comparableTeams.has(this.areaHead(row.area)));
-    const personnelByTeamPeriod = grouped(personnelRows, row => `${this.areaHead(row.area)}|${row.periodId}`);
+    const personnelByTeam = grouped(this.talentAreaPersonnelRows(), row => this.areaHead(row.area));
     const periodCount = Math.max(1, periods.size);
     return [...salesByTeam.entries()].map(([team, rows]) => {
-      const personnelTotal = [...periods].reduce((total, period) => total + sum(personnelByTeamPeriod.get(`${team}|${period}`) || [], 'personnel'), 0);
-      const averagePersonnel = personnelTotal > 0 ? Math.max(1, Math.round(personnelTotal / periodCount)) : 0;
+      const personnel = sum(personnelByTeam.get(team) || [], 'personnel');
       const averageMonthlySales = sum(rows, 'net') / periodCount;
-      return { team, averagePersonnel, averageMonthlySales, productivity: averagePersonnel ? averageMonthlySales / averagePersonnel : null };
-    }).filter(row => row.averagePersonnel > 0 && row.productivity != null)
+      return { team, personnel, averageMonthlySales, productivity: personnel ? averageMonthlySales / personnel : null };
+    }).filter(row => row.personnel > 0 && row.productivity != null)
       .sort((a, b) => (b.productivity || 0) - (a.productivity || 0));
   });
   readonly talentTeamProductivityOption = computed<EChartsOption>(() => {
@@ -2441,7 +2475,7 @@ export class CommercialDashboardController implements OnInit {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.team || '', [
           { label: 'Venta promedio mensual', value: this.money(row?.averageMonthlySales ?? null, true) },
-          { label: 'Colaboradores promedio', value: this.number(row?.averagePersonnel ?? null) },
+          { label: 'Colaboradores del área', value: this.number(row?.personnel ?? null) },
           { label: 'Venta mensual por colaborador', value: this.money(row?.productivity ?? null, true) }
         ]);
       } },

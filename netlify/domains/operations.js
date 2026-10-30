@@ -54,6 +54,25 @@ export function createOperationsDomain({
 
   async function saveTraffic(event, user) {
     const data = bodyOf(event);
+    if (data.registros !== undefined) {
+      if (!isISODate(data.fecha) || data.fecha !== limaDateISO()) throw httpError("La matriz solo permite registrar el tráfico de hoy.", 400);
+      if (!Array.isArray(data.registros) || !data.registros.length || data.registros.length > rangosTrafico.size) throw httpError("Completa al menos un horario válido.", 400);
+      const seen = new Set();
+      for (const row of data.registros) {
+        if (!row || !rangosTrafico.has(row.rango_hora) || seen.has(row.rango_hora)) throw httpError("Los horarios deben ser válidos y no repetirse.", 400);
+        seen.add(row.rango_hora);
+        if (row.cantidad === null || row.cantidad === undefined || String(row.cantidad).trim() === "" || typeof row.cantidad === "boolean" || !Number.isSafeInteger(Number(row.cantidad)) || Number(row.cantidad) < 0) throw httpError("La cantidad de visitantes debe ser un entero mayor o igual a cero.", 400);
+      }
+      const tiendaId = await resolveOperationalStoreScope(user, data.tienda_id);
+      const timestamp = limaTimestamp();
+      const hora = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date());
+      const records = data.registros.map(row => ({ tienda_id: tiendaId, fecha: data.fecha, hora,
+        rango_hora: row.rango_hora, cantidad: Number(row.cantidad), observaciones: cleanText(row.observaciones) || null,
+        registrado_por: user.id, updated_at: timestamp }));
+      const { data: saved, error } = await supabase.from("trafico_tienda").upsert(records, { onConflict: "tienda_id,fecha,rango_hora" }).select();
+      if (error) throw dbError(error);
+      return saved;
+    }
     requireFields(data, ["fecha", "rango_hora", "cantidad"]);
     if (!rangosTrafico.has(data.rango_hora)) throw httpError("Selecciona un rango horario válido.", 400);
     if (!isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha y cantidad válidas.", 400);

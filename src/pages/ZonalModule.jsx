@@ -5,6 +5,7 @@ import { EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, Stat
 import StoreAuditWizard from "../components/StoreAuditWizard";
 import UploadPicker from "../components/UploadPicker";
 import Reportes from "./Reportes";
+import ZonalRequirements from "../components/ZonalRequirements";
 import { departureReasonOptions, normalizeDepartureReason } from "../lib/personnelCatalogs";
 
 const labels = {
@@ -30,17 +31,17 @@ export default function ZonalModule({ section, user }) {
   const title = labels[section] || ["Resumen", ""];
   const openForm=(values=blank(section))=>{setForm({...values,password:""});setOpen(true);};
   const headerAction=user?.rol === "jefe_zonal" && view === "consulta" && (section === "personal" || section === "supervisiones")
-    ? <button className="button button--primary" onClick={()=>section === "supervisiones" ? setAuditOpen(true) : openForm()}><Plus size={16}/>{section === "personal" ? "Nuevo administrador" : section === "supervisiones" ? "Nueva auditoría" : "Nueva incidencia"}</button>
+    ? <button className="button button--primary" onClick={()=>section === "supervisiones" ? setAuditOpen(true) : openForm()}><Plus size={16}/>{section === "personal" ? "Nuevo trabajador" : section === "supervisiones" ? "Nueva auditoría" : "Nueva incidencia"}</button>
     : null;
   return <>
     <PageHeader eyebrow={user?.rol === "gerencia_general" ? "Gerencia general" : "Jefe zonal"} title={title[0]} action={headerAction} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-    <div className="module-view-tabs"><button className={view==="consulta"?"active":""} onClick={()=>setView("consulta")}>Vista general</button><button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div>
-    {view === "reporte" ? <Reportes user={user} embedded initialKind={reportBySection[section]} allowedKinds={[reportBySection[section]]}/> : <>
+    <div className="module-view-tabs"><button className={view==="consulta"?"active":""} onClick={()=>setView("consulta")}>Vista general</button>{section === "supervisiones" && <button className={view === "requerimientos" ? "active" : ""} onClick={() => setView("requerimientos")}>Requerimientos</button>}<button className={view==="reporte"?"active":""} onClick={()=>setView("reporte")}>Reporte y exportación</button></div>
+    {view === "requerimientos" && section === "supervisiones" ? <ZonalRequirements /> : view === "reporte" ? <Reportes user={user} embedded initialKind={reportBySection[section]} allowedKinds={[reportBySection[section]]}/> : <>
       {!["asistencia","supervisiones"].includes(section) && <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar…" /></label>}
       {!data ? <Loading /> : <Content section={section} data={data} search={search} setSearch={setSearch} changeIncident={changeIncident} onEdit={openForm} onChanged={load} onNotice={setNotice} />}
     </>}
-    {section !== "supervisiones" && <Modal open={open} wide title={section === "tareas" ? "Nueva tarea zonal" : section==="personal"?(form.id?"Editar administrador de tienda":"Nuevo administrador de tienda"):"Nueva incidencia zonal"} onClose={() => setOpen(false)}>
+    {section !== "supervisiones" && <Modal open={open} wide title={section === "tareas" ? "Nueva tarea zonal" : section==="personal"?(form.id?"Editar administrador de tienda":"Nuevo trabajador"):"Nueva incidencia zonal"} onClose={() => setOpen(false)}>
       <form className="form-grid" onSubmit={create}>
         {section === "tareas"&&<Field label="Tienda"><select required value={form.tienda_id} onChange={(e) => setForm({ ...form, tienda_id: e.target.value })}><option value="">Selecciona</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></Field>}
         {section === "personal" ? <AdministratorFields form={form} setForm={setForm}/> : section === "incidencias" ? <IncidentFields form={form} setForm={setForm} stores={stores}/> : <TaskFields form={form} setForm={setForm} />}

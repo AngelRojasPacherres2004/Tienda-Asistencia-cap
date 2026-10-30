@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, CalendarDays, Maximize2, Minimize2, RefreshCw, UsersRound, X } from "lucide-react";
 import { api, todayISO } from "../lib/api";
 import { demoTrafficRecords, isOperationalDemo } from "../lib/operationalDemo";
+import { createMouseDragScroll } from "../lib/mouseDragScroll";
 
 const HOURS = TRAFFIC_HOURS;
 const EMPTY_STORES = [];
@@ -15,6 +16,7 @@ const dateFromParts = (year, month, day) => `${year}-${month}-${String(day).padS
 export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, refreshKey = 0 }) {
   const [data, setData] = useState(null); const [error, setError] = useState(""); const [loading, setLoading] = useState(false); const [expanded, setExpanded] = useState(false);
   const requestId = useRef(0);
+  const dragScroll = useMemo(() => createMouseDragScroll(), []);
   const selectedDates = useMemo(() => {
     if (!period) return Array.from({ length: 7 }, (_, index) => daysAgo(index));
     const { year, monthNumber, week, day } = period;
@@ -68,7 +70,8 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
         <small>{store.records ? `${view.total ? (store.total / view.total * 100).toLocaleString("es-PE", { maximumFractionDigits: 1 }) : "0"}% de la zona · ${store.total && store.peak ? `Pico ${rangeLabel(store.peak)}` : "Sin tráfico contabilizado"}` : "No se registró tráfico en este período"}</small>
       </div>)}</div>
     </section>}
-    <div className="traffic-matrix-scroll"><div className="traffic-matrix-grid" style={{ gridTemplateColumns: `minmax(116px, 1.35fr) repeat(${HOURS.length}, minmax(58px, 1fr)) minmax(74px, .8fr)` }}><div className="traffic-matrix-corner">Día / hora</div>{HOURS.map((hour) => <div className="traffic-matrix-hour" key={hour}>{hour.slice(0, 5)}</div>)}<div className="traffic-matrix-hour">Total</div>{view.rows.map((row) => <div className="traffic-matrix-row" key={row.date} style={{ display: "contents" }}><div className="traffic-matrix-date"><strong>{shortDate(row.date)}</strong><small>{row.date}</small></div>{row.cells.map((cell) => <div key={cell.hour} className={`traffic-matrix-cell ${cell.value ? "has-value" : ""}`} style={{ "--heat": view.maximum ? Math.ceil(cell.value / view.maximum * 5) / 5 : 0 }} title={`${shortDate(row.date)}, ${rangeLabel(cell.hour)}: ${cell.recorded ? `${cell.value} personas` : "Sin registro"}`}><strong>{cell.recorded ? cell.value : "—"}</strong></div>)}<div className="traffic-matrix-total">{row.recorded ? row.total.toLocaleString("es-PE") : "—"}</div></div>)}</div></div>
+    <p className="traffic-matrix-mobile-hint">Desliza la tabla para ver todos los horarios y días.</p>
+    <div className="traffic-matrix-scroll" {...dragScroll} title="Mantén presionado el clic y arrastra para desplazarte" role="region" aria-label="Tráfico por día y hora" tabIndex={0}><div className="traffic-matrix-grid" style={{ gridTemplateColumns: `minmax(116px, 1.35fr) repeat(${HOURS.length}, minmax(58px, 1fr)) minmax(74px, .8fr)` }}><div className="traffic-matrix-corner">Día / hora</div>{HOURS.map((hour) => <div className="traffic-matrix-hour" key={hour}>{hour.slice(0, 5)}</div>)}<div className="traffic-matrix-hour">Total</div>{view.rows.map((row) => <div className="traffic-matrix-row" key={row.date} style={{ display: "contents" }}><div className="traffic-matrix-date"><strong>{shortDate(row.date)}</strong><small>{row.date}</small></div>{row.cells.map((cell) => <div key={cell.hour} className={`traffic-matrix-cell ${cell.value ? "has-value" : ""}`} style={{ "--heat": view.maximum ? Math.ceil(cell.value / view.maximum * 5) / 5 : 0 }} title={`${shortDate(row.date)}, ${rangeLabel(cell.hour)}: ${cell.recorded ? `${cell.value} personas` : "Sin registro"}`}><strong>{cell.recorded ? cell.value : "—"}</strong></div>)}<div className="traffic-matrix-total">{row.recorded ? row.total.toLocaleString("es-PE") : "—"}</div></div>)}</div></div>
     <footer className="traffic-matrix-legend"><span>Menor tráfico</span><div className="traffic-matrix-legend-ranges">{colorRanges.length ? colorRanges.map((range) => <span key={range.level}><i style={{ "--legend-heat": range.level / 5 }} />{range.label}</span>) : <span>Sin registros</span>}</div><span>Mayor tráfico</span><small>{loading ? "Actualizando…" : `Actualizado ${data.loadedAt.toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })}`}</small></footer>
   </section>;
 }

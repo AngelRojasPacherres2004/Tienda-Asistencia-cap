@@ -558,7 +558,7 @@ const { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic
 
 // ---------- Supervisión zonal ----------
 
-const { serializeVisit, getZonalModule, createZonalSupervision, getZonalComparison, getGeneralComparison, getZonalCluster, signedZonalSupervisionFile, exportZonalSupervisions, createZonalIncident, updateZonalIncident, exportZonalIncidents } = createZonalDomain({
+const { serializeVisit, getZonalModule, trackZonalRequirement, signedZonalRequirementFile, createZonalSupervision, getZonalComparison, getGeneralComparison, getZonalCluster, signedZonalSupervisionFile, exportZonalSupervisions, createZonalIncident, updateZonalIncident, exportZonalIncidents } = createZonalDomain({
   attendanceStaffRoles, bodyOf, cleanText, createExcelWorkbook, dbError,
   employmentPeriods, excelResponse, fetchAllReportPages, formatLimaDate,
   httpError, isISODate, isSecurityIncident, listClusters, listTiendas,
@@ -1006,10 +1006,19 @@ export async function handler(event) {
       ensureAuth(event, "gerencia_general");
       return json(200, await getGeneralComparison(event, user));
     }
-    const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias)$/);
+    const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias|requerimientos)$/);
     if (zonalModuleMatch && method === "GET") {
       ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
       return json(200, await getZonalModule(event, user, zonalModuleMatch[1]));
+    }
+    const zonalRequirementTracking = path.match(/^\/zonal\/requerimientos\/(\d+)\/seguimiento$/);
+    if (zonalRequirementTracking && method === "POST") {
+      ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
+      return json(201, await trackZonalRequirement(event, user, Number(zonalRequirementTracking[1])));
+    }
+    if (path === "/zonal/requerimientos/archivo-url" && method === "POST") {
+      ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
+      return json(200, await signedZonalRequirementFile(event, user));
     }
     if (path === "/zonal/tareas" && method === "POST") {
       ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta tareas, pero no puede crearlas.", 403);

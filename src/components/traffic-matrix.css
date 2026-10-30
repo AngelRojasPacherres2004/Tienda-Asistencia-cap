@@ -1,0 +1,28 @@
+.traffic-entry-panel { width: 100%; max-width: 680px; margin-inline: auto; }
+.traffic-entry-panel > .panel__header { padding: 10px 16px 2px; }
+.traffic-matrix { padding: 0 16px; }
+.traffic-matrix > p { margin: 4px 0 8px; color: var(--muted); line-height: 1.4; font-size: 13px; }
+.traffic-matrix__scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.traffic-matrix table { width: 100%; table-layout: fixed; border-collapse: collapse; color: var(--text); }
+.traffic-matrix__hours { width: auto; }
+.traffic-matrix__count { width: 160px; }
+.traffic-matrix .traffic-matrix__scroll th, .traffic-matrix .traffic-matrix__scroll td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; line-height: 1.3; overflow-wrap: anywhere; }
+.traffic-matrix thead th { background: var(--surface); font-size: 13px; }
+.traffic-matrix tbody th { font-size: 13px; white-space: nowrap; }
+.traffic-matrix .traffic-matrix__scroll input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 32px; height: 32px; padding: 4px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); }
+.traffic-matrix tfoot { font-weight: 700; background: var(--surface); }
+.traffic-matrix__short-hour { display: none; }
+.traffic-matrix > .form-actions { margin-top: 6px; padding-block: 8px; }
+@media (max-width: 600px) {
+  .traffic-entry-panel > .panel__header { padding: 12px 10px 4px; }
+  .traffic-matrix { padding-inline: 8px; }
+  .traffic-matrix__hours { width: auto; }
+  .traffic-matrix__count { width: 112px; }
+  .traffic-matrix .traffic-matrix__scroll th, .traffic-matrix .traffic-matrix__scroll td { padding: 6px 4px; font-size: 12px; }
+  .traffic-matrix__full-hour { display: none; }
+  .traffic-matrix__short-hour { display: inline; font-variant-numeric: tabular-nums; }
+  .traffic-matrix .traffic-matrix__scroll input { min-height: 36px; height: 36px; padding: 4px; font-size: 16px; }
+  .traffic-matrix input[type="number"] { appearance: textfield; }
+  .traffic-matrix input::-webkit-inner-spin-button, .traffic-matrix input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+  .traffic-matrix > .form-actions .button { width: 100%; justify-content: center; min-height: 44px; }
+}

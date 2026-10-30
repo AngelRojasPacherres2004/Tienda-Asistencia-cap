@@ -65,7 +65,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   if (renderSections && isStoreAdmin) return renderSections({
     demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
-    attendance: <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={[]} showErrors={false} onNavigate={onNavigate} period={matrixPeriod} onPeriodChange={setMatrixPeriod} storeId={storeId} />,
+    attendance: <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={[]} showErrors={false} showPeriodFilter={false} onNavigate={onNavigate} period={matrixPeriod} onPeriodChange={setMatrixPeriod} storeId={storeId} />,
     training: <TrainingDevelopmentHome compactTitles />,
   });
   return <section className="store-dashboard-shell is-light">
@@ -254,7 +254,7 @@ const attendanceCodes = {
   suspension: { code: "S", label: "Suspensión" },
 };
 
-function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true }) {
+function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true }) {
   const currentDate = todayISO();
   const { year, monthNumber, week, day } = period;
   const setYear = (value) => onPeriodChange((current) => ({ ...current, year: value }));
@@ -325,8 +325,8 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
     </div>
     {visiblePeople.length > 0 && <p className="attendance-matrix-hint">Desliza la matriz hacia los lados para ver todos los días.</p>}
     {loadingRecords && <div className="attendance-matrix-sync"><span />Actualizando datos de {year}…</div>}
-    <button className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)}><Filter size={16} /><span>Periodo</span></button>
-    {filtersOpen && <aside className="attendance-filter-popover">
+    {showPeriodFilter && <button className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)}><Filter size={16} /><span>Periodo</span></button>}
+    {showPeriodFilter && filtersOpen && <aside className="attendance-filter-popover">
       <div className="attendance-filter-popover__head"><div><span className="eyebrow">Periodo global</span><h3>Filtros de matriz</h3></div><button className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={16} /></button></div>
       <label className="field"><span>Trabajador</span><select value={workerId} onChange={(event) => setWorkerId(event.target.value)}><option value="">Todos los trabajadores</option>{people.filter((person) => includeInactive || person.estado === "activo").map((person) => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos}</option>)}</select></label>
       <label className="attendance-filter-check"><input type="checkbox" checked={includeInactive} onChange={(event) => setIncludeInactive(event.target.checked)} /><span>Incluir trabajadores inactivos</span></label>

@@ -2,9 +2,9 @@ import { countries } from '../../shared/store-personnel.js';
 import { useState } from 'react';
 import { Field, Notice } from './UI';
 
-const accessRoles = new Set(['asistente_tienda', 'jefe_seguridad']);
+const accessRoles = new Set(['asistente_tienda', 'jefe_seguridad', 'jefe_tienda']);
 
-export default function StoreNewPersonForm({ value, set, errors, formError, onSubmit, onClose, busy, roles, roleLabels, districts, today }) {
+export default function StoreNewPersonForm({ value, set, errors, formError, onSubmit, onClose, busy, roles, roleLabels, districts, today, stores }) {
   const [touched, setTouched] = useState({});
   const [invalid, setInvalid] = useState({});
   const valid = node => node.validity.valid && (!node.required || String(node.value).trim().length > 0);
@@ -37,6 +37,7 @@ export default function StoreNewPersonForm({ value, set, errors, formError, onSu
     {field('fecha_nacimiento', 'Fecha de nacimiento', input('fecha_nacimiento', { type: 'date', max: today }))}
     {field('sueldo', 'Sueldo', input('sueldo', { type: 'number', min: 0, step: '0.01' }))}
     {field('rol', 'Rol', <select name="rol" value={value.rol} onChange={event => { const role = event.target.value; set('rol', role); if (!accessRoles.has(role)) { set('usuario', ''); set('password', ''); } }}>{roles.map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select>)}
+    {stores && field('tienda_id', 'Tienda asignada', <select name="tienda_id" value={value.tienda_id || ''} onChange={event => set('tienda_id', event.target.value)}><option value="">Sin asignar (disponible)</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select>)}
     {field('regimen_jornada', 'Régimen / jornada (horas)', input('regimen_jornada', { type: 'number', min: 0.01, max: 24, step: 0.01, placeholder: 'Ej. 8 o 4.5' }))}
     {field('tipo_turno', 'Turno', select('tipo_turno', [['apertura', 'Apertura'], ['cierre', 'Cierre']]))}
     {accessRoles.has(value.rol) && <>{field('usuario', 'Usuario', input('usuario', { required: false, pattern: '[A-Za-z0-9._-]{2,}' }))}{field('password', 'Contraseña', input('password', { required: false, type: 'password', minLength: 3 }))}</>}

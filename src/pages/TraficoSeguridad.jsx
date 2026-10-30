@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Pencil, Plus, UsersRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Pencil, UsersRound } from "lucide-react";
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
-import { EmptyState, Field, Loading, Modal, Notice, PageHeader, Pagination, SearchInput } from "../components/UI";
+import { EmptyState, Loading, Notice, PageHeader, Pagination, SearchInput } from "../components/UI";
+
+import TrafficMatrix from "../components/TrafficMatrix";
 
 const PAGE_SIZE = 15;
 
@@ -16,14 +18,13 @@ const RANGOS_HORA = Array.from({ length: 14 }, (_, index) => {
 
 export default function TraficoSeguridad({ user }) {
   const [rows, setRows] = useState(null);
-  const [open, setOpen] = useState(false);
+  const matrixRef = useRef(null);
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState(() => todayISO().slice(0, 7));
   const [date, setDate] = useState("");
   const [range, setRange] = useState("todos");
   const [page, setPage] = useState(1);
   const [notice, setNotice] = useState(null);
-  const [form, setForm] = useState(emptyForm());
 
   const { from, to } = monthBounds(month);
   const load = useCallback(() => api(`/trafico?desde=${from}&hasta=${to}`).then((data) => { setRows(data); setNotice(null); }).catch((error) => { setRows([]); setNotice({ type: "error", text: error.message }); }), [from, to]);
@@ -38,19 +39,8 @@ export default function TraficoSeguridad({ user }) {
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visibleRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const openForm = () => { setNotice(null); setForm(emptyForm()); setOpen(true); };
-  const editForm = (row) => { setNotice(null); setForm({ id: row.id, fecha: row.fecha, rango_hora: row.rango_hora, cantidad: row.cantidad, observaciones: row.observaciones || "" }); setOpen(true); };
-  const save = async (event) => {
-    event.preventDefault();
-    try {
-      await api(form.id ? `/trafico/${form.id}` : "/trafico", { method: form.id ? "PUT" : "POST", body: form });
-      setOpen(false);
-      setForm(emptyForm());
-      await load();
-    } catch (error) {
-      setNotice({ type: "error", text: error.message });
-    }
-  };
+  const openForm = () => matrixRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const saved = async () => { await load(); };
   const exportExcel = async () => {
     try {
       const now = new Date();
@@ -61,40 +51,25 @@ export default function TraficoSeguridad({ user }) {
     }
   };
 
-  if (!rows) return notice ? <Notice type="error">{notice.text}</Notice> : <Loading />;
   return <>
-    <PageHeader eyebrow="Seguridad" title="Tráfico de clientes" subtitle="Registro diario e histórico de afluencia" action={<button className="button button--primary" onClick={openForm}><Plus size={16} /> Registrar tráfico</button>} />
-    {notice && !open && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text} <button type="button" className="button button--ghost button--small" onClick={() => { setRows(null); load(); }}>Reintentar</button></Notice>}
+    <PageHeader eyebrow="Seguridad" title="Tráfico de clientes" subtitle="Registro diario e histórico de afluencia" />
+    {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text} <button type="button" className="button button--ghost button--small" onClick={() => { setRows(null); load(); }}>Reintentar</button></Notice>}
+    <section className="panel traffic-entry-panel" ref={matrixRef}>
+      <header className="panel__header"><div><h2>Tráfico del día</h2><p>{user?.tienda_nombre || "Tienda asignada"}</p></div></header>
+      <TrafficMatrix ranges={RANGOS_HORA} onSaved={saved} />
+    </section>
     <section className="panel security-history">
       <header className="panel__header"><div><h2>Historial de tráfico</h2><p>Consulta y exporta los conteos registrados por rango horario</p></div><button className="button button--ghost" onClick={exportExcel}><Download size={15} /> Exportar Excel</button></header>
       <div className="security-filter-grid"><SearchInput value={search} onChange={setSearch} placeholder="Fecha, rango u observación" /><input type="month" value={month} max={todayISO().slice(0, 7)} onChange={(event) => { setMonth(event.target.value); setDate(""); }} aria-label="Mes del historial" /><input type="date" value={date} min={from} max={to} onChange={(event) => setDate(event.target.value)} aria-label="Filtrar por fecha" /><select value={range} onChange={(event) => setRange(event.target.value)} aria-label="Filtrar por rango horario"><option value="todos">Todos los horarios</option>{RANGOS_HORA.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-      {filtered.length ? <><div className="security-table">
+      {!rows ? <Loading /> : filtered.length ? <><div className="security-table">
         <div className="security-table__head security-table__head--traffic"><span>Fecha</span><span>Rango horario</span><span>Visitantes</span><span>Estado</span><span>Observación</span><span /></div>
-        {visibleRows.map((row) => { const editable = isToday(row.fecha); return <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" disabled={!editable} title={editable ? "Editar tráfico" : "Solo se puede editar el día del registro"} onClick={() => editable && editForm(row)} aria-label="Editar tráfico"><Pencil size={15}/></button></div>; })}
+        {visibleRows.map((row) => { const editable = isToday(row.fecha); return <div className="security-table__row security-table__row--traffic" key={row.id}><strong>{formatDate(row.fecha)}</strong><span>{rangeLabel(row.rango_hora)}</span><span>{row.cantidad}</span><span className="security-pill">Registrado</span><span>{row.observaciones || "Sin observaciones"}</span><button className="icon-button" disabled={!editable} title={editable ? "Editar tráfico" : "Solo se puede editar el día del registro"} onClick={() => editable && openForm()} aria-label="Editar tráfico"><Pencil size={15}/></button></div>; })}
       </div><Pagination page={page} pages={pages} onChange={setPage} /></> : <EmptyState icon={UsersRound} title="Sin registros" text="No hay registros para los filtros seleccionados." />}
     </section>
-    <Modal open={open} title={form.id ? "Editar tráfico" : "Registrar tráfico"} subtitle="Conteo de visitantes de la tienda asignada" onClose={() => setOpen(false)}>
-      <form className="form-grid" onSubmit={save}>
-        {notice && <div className="span-2"><Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-        <Field label="Tienda"><input disabled value={user?.tienda_nombre || "Tienda asignada automáticamente"} /></Field>
-        <Field label="Fecha"><input required type="date" max={todayISO()} value={form.fecha} onChange={(event) => setForm({ ...form, fecha: event.target.value })} /></Field>
-        <Field label="Rango horario"><select required value={form.rango_hora} onChange={(event) => setForm({ ...form, rango_hora: event.target.value })}>{RANGOS_HORA.map((rango) => <option key={rango.value} value={rango.value}>{rango.label}</option>)}</select></Field>
-        <Field label="Cantidad de visitantes"><input required min="0" type="number" value={form.cantidad} onChange={(event) => setForm({ ...form, cantidad: event.target.value })} /></Field>
-        <Field label="Observación (opcional)" className="span-2"><textarea rows="4" value={form.observaciones} onChange={(event) => setForm({ ...form, observaciones: event.target.value })} /></Field>
-        <div className="form-actions span-2"><button type="button" className="button button--ghost" onClick={() => setOpen(false)}>Cancelar</button><button className="button button--primary">{form.id ? "Guardar cambios" : "Registrar tráfico"}</button></div>
-      </form>
-    </Modal>
+
   </>;
 }
 
-function emptyForm() { return { fecha: todayISO(), rango_hora: currentRange(), cantidad: "", observaciones: "" }; }
-function currentRange() {
-  const limaHour = Number(new Intl.DateTimeFormat("en-GB", {
-    timeZone: "America/Lima", hour: "2-digit", hourCycle: "h23",
-  }).format(new Date()));
-  const rangeStart = Math.min(22, Math.max(9, limaHour));
-  return `${String(rangeStart).padStart(2, "0")}:00-${String(rangeStart + 1).padStart(2, "0")}:00`;
-}
 function displayHour(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a. m." : "p. m."}`; }
 function rangeLabel(value) { return RANGOS_HORA.find((rango) => rango.value === value)?.label || value || "Sin rango"; }
 function monthBounds(value) { const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : todayISO().slice(0, 7); const [year, number] = month.split("-").map(Number); return { from: `${month}-01`, to: `${month}-${String(new Date(year, number, 0).getDate()).padStart(2, "0")}` }; }
