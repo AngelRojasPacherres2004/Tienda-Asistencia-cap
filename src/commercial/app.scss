@@ -384,6 +384,22 @@
 .ticket-monthly-table th:first-child { text-align: left; }
 .ticket-monthly-table thead { position: sticky; top: 0; background: #e8edf6; color: #123a8c; }
 .ticket-monthly-table tbody tr:nth-child(even) { background: #f8fafc; }
+.kpi-seller-detail { display: grid; gap: 10px; min-height: 0; max-height: 36vh; }
+.kpi-seller-detail__heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.kpi-seller-detail__heading h3 { margin: 0; color: #123a8c; font-size: 12px; }
+.kpi-seller-detail__heading label { display: flex; align-items: center; gap: 8px; color: #475569; font-size: 11px; }
+.kpi-seller-detail__heading select { border: 1px solid #c6cfdd; border-radius: 7px; padding: 5px 8px; background: #fff; color: #172033; }
+.kpi-seller-detail .ticket-monthly-table { min-height: 0; }
+.kpi-seller-detail tfoot { position: sticky; bottom: 0; background: #e8edf6; font-weight: 800; }
+.size-detail-modal { display: flex; flex-direction: column; gap: 12px; }
+.size-detail-modal h2 { padding-right: 40px; }
+.size-detail-modal p { margin: 0; color: #64748b; font-size: 12px; }
+.size-detail-totals { display: flex; flex-wrap: wrap; gap: 8px; }
+.size-detail-totals strong { padding: 8px 12px; border: 1px solid #d5deea; border-radius: 8px; background: #f8fafc; color: #123a8c; font-size: 12px; }
+.size-detail-table { flex: 1; min-height: 0; }
+.size-detail-table .size-detail-brand { background: #dbe7f5; color: #123a8c; font-weight: 800; }
+.size-detail-table .size-detail-brand th { text-align: left; }
+.size-detail-table .size-detail-product { text-align: left; white-space: normal; min-width: 320px; font-weight: 500; }
 .ticket-extreme-max { background: #dcfce7; color: #166534; --extreme: '↑ '; }
 .ticket-extreme-min { background: #fee2e2; color: #991b1b; --extreme: '↓ '; }
 .ticket-extreme-equal { background: #ede9fe; color: #5b21b6; --extreme: '↕ '; }

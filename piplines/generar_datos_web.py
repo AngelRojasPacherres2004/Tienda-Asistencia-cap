@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -1045,6 +1045,40 @@ def generar() -> dict:
         """,
     )
 
+    # Cada corte mensual conserva exactamente los 90 días previos. El gráfico
+    # de tallas no debe reutilizar la foto de ventas del último corte al filtrar
+    # un mes histórico.
+    periodos_talla = sorted({int(registro["periodId"]) for registro in base_mensual})
+    cortes_talla = []
+    for periodo in periodos_talla:
+        anio, mes = divmod(periodo, 100)
+        siguiente = date(anio + (mes == 12), mes % 12 + 1, 1)
+        fin = min(fecha_corte, siguiente - timedelta(days=1))
+        if fin >= date(anio, mes, 1):
+            cortes_talla.append(f"({periodo}, DATE '{fin.isoformat()}')")
+    ventas_talla_90 = filas(
+        conexion,
+        f"""
+        WITH cortes(period_id, fecha_fin) AS (VALUES {', '.join(cortes_talla)})
+        SELECT cortes.period_id AS "periodId", v.tienda_id AS "storeId",
+            v.producto_id AS "productId",
+            MAX(TRIM(CAST(v.codigo_nissei AS VARCHAR))) AS "productCode",
+            MAX(COALESCE(NULLIF(TRIM(v.descripcion), ''), v.producto_id)) AS product,
+            {rubro_dashboard} AS category,
+            COALESCE(NULLIF(TRIM(v.linea), ''), 'SIN LINEA') AS line,
+            COALESCE(NULLIF(TRIM(v.sub_linea), ''), 'SIN SUBLINEA') AS subline,
+            MAX(COALESCE(NULLIF(TRIM(v.marca), ''), 'SIN MARCA')) AS brand,
+            CAST(SUM(v.cantidad) AS DOUBLE) AS units90
+        FROM cortes JOIN {ventas} v
+          ON v.fecha_venta BETWEEN cortes.fecha_fin - INTERVAL 89 DAY AND cortes.fecha_fin
+        WHERE v.producto_id IS NOT NULL AND LENGTH(TRIM(CAST(v.codigo_nissei AS VARCHAR))) = 14
+          AND v.cantidad > 0 AND v.total_venta >= 0
+          AND {rubro_dashboard} IN ('TEXTIL', 'CALZADO')
+        GROUP BY 1, 2, 3, 6, 7, 8
+        ORDER BY 1, 2, 6, 3
+        """,
+    ) if cortes_talla else []
+
     cobertura_fuentes = reporte_cobertura.get("sources", [])
     advertencias_datos = [
         {"source": fuente.get("source", "Fuente"), "message": fuente.get("message", "")}
@@ -1076,10 +1110,9 @@ def generar() -> dict:
             "nonSellableRate": 0.18,
             "coverageRanges": [
                 {"min": 0, "max": 29.9999, "label": "CRÍTICO", "color": "#DC2626"},
-                {"min": 30, "max": 45, "label": "ALERTA", "color": "#F59E0B"},
-                {"min": 45.0001, "max": 60, "label": "NORMAL", "color": "#16A34A"},
-                {"min": 60.0001, "max": 90, "label": "OBSERVACIÓN", "color": "#64748B"},
-                {"min": 90.0001, "max": 999999, "label": "EXCESO", "color": "#2563EB"},
+                {"min": 30, "max": 59.9999, "label": "DÉFICIT", "color": "#F59E0B"},
+                {"min": 60, "max": 120, "label": "ÓPTIMO · META 90D", "color": "#16A34A"},
+                {"min": 120.0001, "max": 999999, "label": "EXCESO", "color": "#2563EB"},
             ],
             "eoq": {
                 "available": True,
@@ -1119,6 +1152,7 @@ def generar() -> dict:
         "predictiveCategory": rotacion_rubro,
         "predictiveRows": detalle_predictivo,
         "stockProducts": producto_extremos,
+        "sizeSales90": ventas_talla_90,
     }
     return resultado
 
@@ -1143,6 +1177,8 @@ def escribir(resultado: dict) -> None:
         SALIDA_COMPILADA.parent / "dashboard-subline.json",
         SALIDA_PUBLICA.parent / "dashboard-price-range.json",
         SALIDA_COMPILADA.parent / "dashboard-price-range.json",
+        *SALIDA_PUBLICA.parent.glob("dashboard-size-sales-????-??-*.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-size-sales-????-??-*.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-compact-????-??.json"),
@@ -1197,7 +1233,17 @@ def escribir(resultado: dict) -> None:
         nombre = f"dashboard-daily-{periodo // 100:04d}-{periodo % 100:02d}.json"
         horas_por_mes.setdefault(nombre, []).append(registro)
 
+    tallas_por_corte: dict[str, list[dict]] = {}
+    for registro in resultado["sizeSales90"]:
+        periodo = int(registro["periodId"])
+        nombre = f"dashboard-size-sales-{periodo // 100:04d}-{periodo % 100:02d}-{registro['category'].lower()}.json"
+        tallas_por_corte.setdefault(nombre, []).append(registro)
+    for periodo in {int(row["periodId"]) for row in resultado["monthlyStore"]}:
+        for rubro in ("textil", "calzado"):
+            tallas_por_corte.setdefault(f"dashboard-size-sales-{periodo // 100:04d}-{periodo % 100:02d}-{rubro}.json", [])
+
     archivos = {
+        **{nombre: {"sizeSales90": compactar_registros(filas_mes, "sizeSales90")} for nombre, filas_mes in sorted(tallas_por_corte.items())},
         **{
             nombre: {"dailyStore": filas_mes, "hourlySales": horas_por_mes.get(nombre, [])}
             for nombre, filas_mes in sorted(diario_por_mes.items())
@@ -1238,7 +1284,7 @@ def escribir(resultado: dict) -> None:
         },
         **{
             f"dashboard-stock-sizes-{rubro.lower()}.json": {
-                "sizeCompact": compactar_tallas(resultado["stockProducts"], rubro),
+                "sizeCompact": compactar_tallas(resultado["stockProducts"], rubro, resultado["predictiveRows"]),
             }
             for rubro in ("TEXTIL", "CALZADO")
         },
@@ -1263,7 +1309,7 @@ def escribir(resultado: dict) -> None:
         **{
             clave: valor for clave, valor in resultado.items()
             if clave not in {
-                "predictiveRows", "monthlyPriceRange", "dailyStore", "dailyHourlySales",
+                "predictiveRows", "monthlyPriceRange", "dailyStore", "dailyHourlySales", "sizeSales90",
                 "sellerPerformance", "clientPerformance",
             }
         },

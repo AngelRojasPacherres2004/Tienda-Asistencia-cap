@@ -47,7 +47,10 @@ try {
       await context.addCookies([{ name: "asiste_session", value: token, url: origin, httpOnly: true, sameSite: "Lax" }]);
       const page = await context.newPage();
       const errors = [];
-      page.on("pageerror", error => errors.push(error.message));
+      page.on("pageerror", error => errors.push(error.stack || error.message));
+      if (process.env.AUDIT_INTERACTIONS === "1") page.on("response", response => {
+        if (response.url().includes("/commercial/company-ranking")) console.log(JSON.stringify({ role, width, rankingStatus: response.status() }));
+      });
       try {
         await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 60_000 });
         await page.locator('[data-react-commercial-shell="true"]').waitFor({ timeout: 45_000 });
@@ -64,6 +67,59 @@ try {
           const card = section.locator(".card:visible").first();
           await card.scrollIntoViewIfNeeded();
           await card.screenshot({ path: join(output, `${role}-${width}-${panel.button}.png`), animations: "disabled" });
+          if (process.env.AUDIT_INTERACTIONS === "1" && role === "jefe_tienda" && panel.button === 0) {
+            console.log(JSON.stringify({ role, width, rankingLabels: await page.locator(".ranking-store-count").allInnerTexts() }));
+            await page.locator(".ranking-store-count:visible").filter({ hasText: /^(?:[2-9]|[1-9][0-9]+) TIENDAS/ }).waitFor({ timeout: 30_000 });
+          }
+          if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 0) {
+            for (const [label, moduleId] of [
+              ["VENTA × M²", "saleM2-modal"],
+              ["VENTA × COLAB", "saleCollaborator-modal"],
+              ["MARKUP", "markup-modal"],
+              ["SELL-THROUGH", "sellThrough-modal"],
+            ]) {
+              await section.locator('[data-react-commercial-module="key-kpis"] article').filter({ hasText: label }).click();
+              const modal = page.locator(`[data-react-commercial-module="${moduleId}"]:visible`);
+              await modal.waitFor({ timeout: 30_000 });
+              if (moduleId === "saleCollaborator-modal") await modal.locator(".kpi-seller-detail tfoot").waitFor({ timeout: 60_000 });
+              await modal.screenshot({ path: join(output, `${moduleId}.png`), animations: "disabled" });
+              await modal.getByRole("button", { name: /Cerrar detalle del indicador/ }).click();
+            }
+          }
+          if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 1) {
+            const sizes = section.locator(".size-distribution-card:visible");
+            await sizes.getByText("Venta: 90 días", { exact: false }).waitFor();
+            let skuCount = 0;
+            for (let attempt = 0; attempt < 60; attempt++) {
+              skuCount = Number((await sizes.locator(".size-chart-summary strong").first().innerText()).replace(/[^0-9]/g, ""));
+              if (skuCount > 0) break;
+              await page.waitForTimeout(500);
+            }
+            assert.ok(skuCount > 0, "La venta por talla no cargó SKU del rubro para el corte seleccionado");
+            await sizes.screenshot({ path: join(output, "size-sales-90d.png"), animations: "disabled" });
+            const canvas = sizes.locator("canvas").first();
+            const bounds = await canvas.boundingBox();
+            assert.ok(bounds, "No se dibujó el gráfico de tallas");
+            const detail = page.locator('[data-react-commercial-module="size-detail-modal"]:visible');
+            for (const [x, y] of [[0.58, 0.5], [0.55, 0.6], [0.62, 0.4]]) {
+              await canvas.click({ position: { x: bounds.width * x, y: bounds.height * y } });
+              if (await detail.isVisible()) break;
+            }
+            await detail.waitFor({ timeout: 10_000 });
+            await detail.locator("tbody tr").first().waitFor({ timeout: 30_000 });
+            await detail.screenshot({ path: join(output, "size-sales-detail.png"), animations: "disabled" });
+            await detail.getByRole("button", { name: "Cerrar detalle por talla" }).click();
+            await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+            const monthFilter = page.locator(".filter-panel .filter-field").first();
+            await monthFilter.locator("summary").click();
+            await monthFilter.getByRole("button", { name: "SEP", exact: true }).click();
+            await sizes.getByText("Venta: 90 días hasta Sep 2026", { exact: false }).waitFor({ timeout: 30_000 });
+            await sizes.locator(".size-chart-summary strong").first().waitFor({ timeout: 60_000 });
+            await page.locator(".filter-panel label").filter({ hasText: "AÑO" }).locator("select").selectOption("2025");
+            await sizes.getByText("Venta: 90 días hasta Sep 2025", { exact: false }).waitFor({ timeout: 30_000 });
+            await sizes.locator(".size-chart-summary strong").first().waitFor({ timeout: 60_000 });
+            await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+          }
           if (process.env.AUDIT_CAPTURE_ALL === "1") {
             const cards = section.locator(".card:visible");
             for (let index = 0; index < await cards.count(); index++) {

@@ -41,6 +41,7 @@ def measure(directory: Path) -> list[tuple[str, int, str, int]]:
         ("Inventario · jerarquía agregada", "dashboard-stock-hierarchy.json", 1, PANEL_LIMIT),
         ("Inventario · candidatos de traslado", "dashboard-stock-transfers.json", 1, PANEL_LIMIT),
         ("Inventario · predictivo", "dashboard-predictive-compact.json", 1, PANEL_LIMIT),
+        ("Tallas · venta móvil 90D", "dashboard-size-sales-????-??-*.json", 1, PANEL_LIMIT),
         ("Detalle diario · un mes", "dashboard-daily-compact-????-??.json", 1, PANEL_LIMIT),
     ]
     result = [(label, *largest(directory, pattern, count), limit) for label, pattern, count, limit in scenarios]

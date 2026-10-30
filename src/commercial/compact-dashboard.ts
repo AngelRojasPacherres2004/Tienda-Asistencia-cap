@@ -35,6 +35,7 @@ export type SizeCompact = {
   category: 'TEXTIL' | 'CALZADO';
   stores: string[];
   products: unknown[][];
+  dictionary?: { line: string[]; subline: string[]; brand: string[] };
   rows: unknown[][];
 };
 
@@ -210,14 +211,17 @@ export function decodeSizeCompact<T extends object>(payload: SizeCompact, signal
   }
   return payload.rows.map((values, rowIndex) => {
     if (rowIndex % 4096 === 0) signal?.throwIfAborted();
-    if (!Array.isArray(values) || values.length !== 4) throw new Error('Fila de tallas incompleta.');
+    if (!Array.isArray(values) || ![4, 5].includes(values.length)) throw new Error('Fila de tallas incompleta.');
     const product = indexedValue(payload.products, values[1]);
-    if (!Array.isArray(product) || product.length !== 5) throw new Error('SKU de tallas no válido.');
+    if (!Array.isArray(product) || ![5, 6].includes(product.length)) throw new Error('SKU de tallas no válido.');
     return {
       storeId: indexedValue(payload.stores, values[0]),
       productId: product[0], productCode: product[1], product: product[2],
-      category: payload.category, line: product[3], subline: product[4],
-      stockUnits: values[2], units30: values[3],
+      category: payload.category,
+      line: payload.dictionary ? indexedValue(payload.dictionary.line, product[3]) : product[3],
+      subline: payload.dictionary ? indexedValue(payload.dictionary.subline, product[4]) : product[4],
+      brand: payload.dictionary ? indexedValue(payload.dictionary.brand, product[5]) : product[5] || 'SIN MARCA',
+      stockUnits: values[2], units30: values[3], units90: values[4] ?? values[3],
     } as T;
   });
 }

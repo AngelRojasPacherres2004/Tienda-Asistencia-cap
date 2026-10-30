@@ -25,6 +25,30 @@ from generar_datos_web import (  # noqa: E402
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_size_sales_90_partition_is_compact_and_store_scoped(self) -> None:
+        rows = [
+            {"periodId": 202610, "storeId": store, "productId": product,
+             "productCode": code, "product": "ZAPATO", "category": "CALZADO",
+             "line": "DAMAS", "subline": "ZAPATOS", "brand": brand, "units90": units}
+            for store, product, code, brand, units in [
+                ("T001", "P1", "00000000001007", "A", 3),
+                ("T002", "P2", "00000000001008", "SECRETA", 5),
+            ]
+        ]
+        compact = compactar_registros(rows, "sizeSales90")
+        scoped = scope_payload({"sizeSales90": compact}, {"T001"})["sizeSales90"]
+        self.assertEqual(descompactar_registros(scoped), rows[:1])
+        self.assertNotIn("SECRETA", scoped["dictionary"]["brand"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-10.json",
+                       "dashboard-size-sales-2026-10-calzado.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2026.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertIn("dashboard-size-sales-2026-10-calzado.json", files)
+
     def test_does_not_publish_full_stock_product_detail(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -172,10 +196,10 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
         rows = [
             {"storeId": store, "productId": "P1", "productCode": "00000000001007",
              "product": "ZAPATO 7", "category": "CALZADO", "line": "DAMAS", "subline": "ZAPATOS",
-             "stockUnits": units, "units30": 1.0}
+             "brand": "MARCA A", "stockUnits": units, "units30": 1.0, "units90": 4.0}
             for store, units in (("T001", 3.0), ("T002", 2.0))
         ]
-        encoded = compactar_tallas(rows, "CALZADO")
+        encoded = compactar_tallas(rows, "CALZADO", [{"storeId": row["storeId"], "productId": "P1", "units90": 4.0} for row in rows])
         self.assertEqual(descompactar_tallas(encoded), rows)
         scoped = scope_payload({"sizeCompact": encoded}, {"T002"})["sizeCompact"]
         self.assertEqual(descompactar_tallas(scoped), rows[1:])

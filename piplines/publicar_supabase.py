@@ -120,6 +120,7 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         missing.extend(f"dashboard-price-range-category-{year}.json" for year in sorted(price_years - category_years))
         files.extend(price_categories)
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-price-range-????-??.json")))
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-size-sales-????-??-*.json")))
     brand_years = {
         name.rsplit("-", 1)[-1].removesuffix(".json")
         for name in files if re.fullmatch(r"dashboard-brand-(?:compact-)?\d{4}\.json", name)

@@ -10,6 +10,7 @@ import CommercialReactBirthdayModal from "./CommercialReactBirthdayModal";
 import CommercialReactTransferModal from "./CommercialReactTransferModal";
 import CommercialReactStockOriginModal from "./CommercialReactStockOriginModal";
 import CommercialReactMonthlyModal from "./CommercialReactMonthlyModal";
+import CommercialReactSizeDetailModal from "./CommercialReactSizeDetailModal";
 import CommercialReactAssistantController from "./CommercialReactAssistantController";
 
 export default function CommercialReactStandalone({ model, controller }) {
@@ -25,6 +26,7 @@ export default function CommercialReactStandalone({ model, controller }) {
     {modal?.type === "transfer" && <CommercialReactTransferModal model={modal.model} onAction={action => controller.onReactTransferAction(action)} />}
     {modal?.type === "stock-origin" && <CommercialReactStockOriginModal model={modal.model} onAction={action => controller.onReactStockOriginModalAction(action)} />}
     {modal?.type === "monthly" && <CommercialReactMonthlyModal model={modal.model} onAction={action => controller.onReactMonthlyModalAction(action)} />}
+    {modal?.type === "size-detail" && <CommercialReactSizeDetailModal model={modal.model} onClose={() => controller.closeExpandedChart()} />}
     <CommercialReactHeader model={model.header} onLogout={() => controller.signOut()} />
     <CommercialReactFilters model={model.filters} onAction={action => controller.onReactFilterAction(action)} />
     <CommercialReactTabs page={model.page} onNavigate={page => controller.goPage(page)} />
