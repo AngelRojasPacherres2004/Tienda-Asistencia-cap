@@ -474,7 +474,13 @@ def cleanup_release_history(
     obsolete_prefixes = tuple(
         f"{row['version']}/" for row in removable_releases if row.get("version")
     )
-    stored_paths = list_storage_objects(base_url, api_key, access_token)
+    # El bucket también guarda archivos de otras funciones. Explorar solo las
+    # carpetas de versiones retirables evita recorrer todos sus objetos.
+    stored_paths = [
+        path
+        for prefix in obsolete_prefixes
+        for path in list_storage_objects(base_url, api_key, access_token, prefix.rstrip("/"))
+    ]
     removable_paths = sorted(
         path for path in stored_paths
         if path.startswith(obsolete_prefixes) and path not in retained_paths
