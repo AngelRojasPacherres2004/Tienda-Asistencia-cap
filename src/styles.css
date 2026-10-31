@@ -47,6 +47,15 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .user-chip { display: flex; align-items: center; gap: 10px; padding: 8px 5px 14px; white-space: nowrap; }
 .user-chip > span { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: #d9b566; background: rgba(212,168,83,.12); font-weight: 700; }
 .user-chip > div { min-width: 0; flex: 1; }
+.without-person-initials .avatar:not(:has(svg)),
+.without-person-initials .profile-avatar,
+.without-person-initials .people-picker > button > span:first-child { display:none; }
+.without-person-initials .people-picker > button { grid-template-columns:minmax(0,1fr) auto; }
+.without-person-initials.app-shell--compact .user-chip > div { display:block; }
+.without-person-initials.app-shell--compact .user-chip strong { max-width:56px; font-size:11px; }
+.without-person-initials.app-shell--compact .user-chip small { display:none; }
+.user-chip.user-chip--security small { max-width:100%; white-space:normal; overflow-wrap:anywhere; line-height:1.5; }
+.user-chip.user-chip--security .user-chip__store { margin-top:6px; font-weight:600; }
 .user-chip strong, .user-chip small { display: block; max-width: 164px; overflow: hidden; text-overflow: ellipsis; }
 .user-chip strong { font-size: 12px; }
 .user-chip small { margin-top: 2px; color: #9fb0c3; font-size: 9px; text-transform: none; white-space: nowrap; }

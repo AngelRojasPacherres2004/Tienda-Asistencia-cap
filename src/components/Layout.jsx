@@ -126,6 +126,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const hidePersonInitials = ["jefe_zonal", "seguridad", "jefe_seguridad", "administrador_seguridad"].includes(user.rol);
+  const isStoreSecurity = ["seguridad", "jefe_seguridad"].includes(user.rol);
   const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
   const isCommercial = ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol);
   const isCommercialDashboard = page === "dashboard" && ["gerente_comercial", "coach", "jefe_zonal", "jefe_tienda"].includes(user.rol);
@@ -147,7 +149,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell app-theme app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
+    <div className={`app-shell app-theme ${hidePersonInitials ? "without-person-initials" : ""} app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
@@ -162,9 +164,9 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
         </nav>
         <div className="sidebar__footer">
           {["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
-          <div className="user-chip" role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
-            {user.rol !== 'jefe_tienda' && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
-            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{user.rol === 'jefe_tienda' ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.rol !== 'jefe_tienda' && user.dni ? ` · DNI ${user.dni}` : ""}</small>{user.rol === 'jefe_tienda' && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
+          <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
+            {user.rol !== 'jefe_tienda' && !hidePersonInitials && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
+            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{user.rol === 'jefe_tienda' || isStoreSecurity ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.rol !== 'jefe_tienda' && user.dni ? ` · DNI ${user.dni}` : ""}</small>{isStoreSecurity && <small className="user-chip__store">Tienda: {storeName || "Sin tienda asignada"}</small>}{user.rol === 'jefe_tienda' && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
           </div>
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>
