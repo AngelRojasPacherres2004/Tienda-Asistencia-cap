@@ -15,6 +15,7 @@ from pathlib import Path
 
 from corte_comercial_automatico import COBERTURA, DATOS_WEB, validar
 from project_paths import PROJECT_ROOT
+from publication_cutoffs import configured_cutoff
 
 
 EXPECTED_URL = "https://xtnihjzqnxozbotymoma.supabase.co"
@@ -68,7 +69,7 @@ def manifest_fresh(path: Path, cutoff: str, stock: str, *, monthly: bool = False
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         expected = {"ventas": cutoff, "ingresos": cutoff,
-                    "transferencias": cutoff, "trafico": cutoff, "stock": stock}
+                    "transferencias": cutoff, "trafico": configured_cutoff('TRAFFIC', date.fromisoformat(cutoff)).isoformat(), "stock": stock}
         newest_source = max((PROJECT_ROOT / "capa2" / name).stat().st_mtime for name in MODEL_FACTS)
         return (manifest.get("cutoffs") == expected
                 and (not monthly or manifest.get("schemaVersion") == 3)
@@ -125,6 +126,7 @@ def main() -> int:
         "PYTHONUNBUFFERED": "1",
     })
     previous = published_release(values["SUPABASE_SECRET_KEY"])
+    run([node, str(app_root / 'scripts' / 'import-dashboard-stock-rest.mjs'), '--apply'], cwd=app_root, env=environment)
     if (same_instant(previous.get("generated_at"), metadata["generatedAt"])
         and previous.get("sales_cutoff") == cutoff
         and previous.get("stock_cutoff") == stock):

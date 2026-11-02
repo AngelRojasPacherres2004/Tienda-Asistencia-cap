@@ -4,7 +4,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 set "SIN_PAUSA=0"
-set "APP_ROOT=%~dp0"
+set "APP_ROOT=%~dp0."
 
 :leer_argumentos
 if "%~1"=="" goto :argumentos_listos
@@ -23,6 +23,7 @@ if /I "%~1"=="--app-root" (
 goto :uso
 
 :argumentos_listos
+for %%I in ("%APP_ROOT%\.") do set "APP_ROOT=%%~fI"
 echo ============================================================
 echo PUBLICACION COMPLETA - BD-APP
 echo ============================================================

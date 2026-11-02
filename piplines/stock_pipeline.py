@@ -2,6 +2,7 @@ from __future__ import annotations
 from runtime_config import finalizar_proceso
 
 import argparse
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -10,6 +11,7 @@ from modelo_relacional import transformar_stock, validar_claves
 from wrapper_utils import ejecutar_base
 
 from project_paths import PROJECT_ROOT
+from publication_cutoffs import configured_cutoff
 BASE = PROJECT_ROOT
 
 
@@ -31,6 +33,8 @@ def main() -> int:
     grupo.add_argument("--verificar-capa2", action="store_true")
     parser.add_argument("--fecha-corte", type=parsear_fecha, default=None)
     args = parser.parse_args()
+    if args.fecha_corte is not None or os.environ.get('DASHBOARD_STOCK_CUTOFF'):
+        args.fecha_corte = configured_cutoff('STOCK', args.fecha_corte or date.today())
     argumentos_capa1: list[str] = ["--solo-capa1"]
     if args.fecha_corte is not None:
         argumentos_capa1.extend(["--fecha-corte", args.fecha_corte.isoformat()])

@@ -19,6 +19,7 @@ import duckdb
 from project_paths import CAPA2_DIR, WORK_TEMP_DIR, preparar_directorios
 from reglas_corte import validar_fecha_corte
 from runtime_config import finalizar_proceso
+from publication_cutoffs import configured_cutoff
 
 
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
@@ -120,7 +121,8 @@ def aplicar(fecha_corte: date) -> dict:
             continue
 
         tabla = f"read_parquet({_literal(ruta)})"
-        condicion = _condicion(fuente, fecha_corte)
+        corte_fuente = configured_cutoff('STOCK', fecha_corte) if fuente.nombre == 'Stock' else configured_cutoff('TRAFFIC', fecha_corte) if fuente.nombre == 'Tráfico' else fecha_corte
+        condicion = _condicion(fuente, corte_fuente)
         original, filas_hasta_corte, maxima, maxima_incluida = conexion.execute(
             f"""
             SELECT COUNT(*),
@@ -134,7 +136,7 @@ def aplicar(fecha_corte: date) -> dict:
         maxima_fecha = _fecha(maxima)
         disponible_hasta = _fecha(maxima_incluida)
         rezago = (
-            (fecha_corte - disponible_hasta).days
+            (corte_fuente - disponible_hasta).days
             if disponible_hasta is not None
             else None
         )
@@ -173,6 +175,7 @@ def aplicar(fecha_corte: date) -> dict:
                 "source": fuente.nombre,
                 "file": fuente.archivo,
                 "frequency": fuente.frecuencia,
+                "sourceCutoff": corte_fuente.isoformat(),
                 "cutoffBehavior": "filter" if fuente.recortar else "completePlan",
                 "status": estado,
                 "message": mensaje,
@@ -187,6 +190,8 @@ def aplicar(fecha_corte: date) -> dict:
 
     reporte = {
         "selectedCutoff": fecha_corte.isoformat(),
+        "trafficCutoff": configured_cutoff('TRAFFIC', fecha_corte).isoformat(),
+        "stockCutoff": configured_cutoff('STOCK', fecha_corte).isoformat(),
         "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
         "defaultRule": "Último lunes disponible en el calendario",
         "manualWarnings": validar_fecha_corte(fecha_corte),

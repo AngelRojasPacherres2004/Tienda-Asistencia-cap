@@ -9,6 +9,7 @@ import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-ref
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
+import { conversionComparable } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
@@ -73,7 +74,7 @@ type DataWarning = { source: string; message: string };
 type DashboardData = {
   metadata: {
     generatedAt: string; salesCutoff: string; stockCutoff: string; years: number[]; nonSellableRate: number;
-    selectedCutoff?: string; salesDataThrough?: string | null; stockDataThrough?: string | null;
+    selectedCutoff?: string; salesDataThrough?: string | null; stockDataThrough?: string | null; trafficCutoff?: string;
     dataWarnings?: DataWarning[];
     eoq: { available: boolean; pilot: boolean; orderCost: number; annualHoldingCost: number };
     rop: { available: boolean; pilot: boolean; leadTimeDays: number; safetyStockUnits: number };
@@ -365,7 +366,9 @@ export class CommercialDashboardController implements OnInit {
       const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
       const traffic = sum(rows, 'traffic');
       const transactions = sum(rows, 'transactions');
-      return { label, traffic, transactions, conversion: traffic > 0 ? transactions / traffic : null };
+      const metadata = this.data()?.metadata;
+      const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
+      return { label, traffic, transactions, conversion: traffic > 0 && (!metadata || conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
     });
   });
   readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic > 0));
@@ -414,7 +417,9 @@ export class CommercialDashboardController implements OnInit {
       const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
       const transactions = sum(rows, 'transactions');
       const traffic = sum(rows, 'traffic');
-      return { label, transactions, traffic, conversion: traffic > 0 ? transactions / traffic : null };
+      const metadata = this.data()?.metadata;
+      const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
+      return { label, transactions, traffic, conversion: traffic > 0 && (!metadata || conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
     });
   });
   readonly conversionChartHasData = computed(() => this.conversionMonthlyRows().some(row => row.conversion !== null));
@@ -1245,12 +1250,15 @@ export class CommercialDashboardController implements OnInit {
     const locked = this.storeFilterLocked();
     const format = this.filteredStores()[0]?.format?.toUpperCase();
     const actions = [];
+    const trafficNote = this.data()?.metadata.trafficCutoff ? ` Tráfico registrado hasta ${this.data()!.metadata.trafficCutoff}.` : '';
     if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de tiendas METRO', action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
     if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de otras tiendas', action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
-    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Fórmula: transacciones ÷ tráfico × 100. Ver evolución mensual', action: 'conversion', value: this.percent(metrics.conversion), valueClass: '' });
+    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Transacciones ÷ tráfico × 100. No disponible si los cortes del período no coinciden.' + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
+    for (const card of actions) if (card.action.startsWith('traffic')) card.title += trafficNote;
     actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: 'Ver ticket promedio por mes', action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
     return {
-      actions, saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
+      actions: actions.map(card => ({ ...card, note: card.action.startsWith('traffic') ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
+      saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
       saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
       markup: this.trend(metrics.priceVariation), markupPositive: (metrics.priceVariation || 0) >= 0,
       sellThroughStock: metrics.sellThroughStock ? this.number(metrics.sellThroughStock, ' und') : '',
@@ -2251,7 +2259,9 @@ export class CommercialDashboardController implements OnInit {
       // En ACUMULADO usa Ene..corte; al elegir un mes usa solo los días de ese mes.
       annualGrowth: previousYtd ? net / previousYtd - 1 : null, dailyAverage: dailyAverageDivisor ? net / dailyAverageDivisor : null,
       returnRatio: positive > 0 ? sum(ytd, 'notes') / positive : null,
-      conversion: traffic ? tx / traffic : null, ticket: tx ? net / tx : null, saleM2: area ? net / area : null,
+      conversion: traffic && conversionComparable(this.data()!.metadata.salesCutoff, this.data()?.metadata.trafficCutoff,
+        this.dateRangeActive() ? this.toDate() || this.fromDate() : `${this.year()}-${String(Math.max(...this.activeMonths())).padStart(2, '0')}-${new Date(this.year(), Math.max(...this.activeMonths()), 0).getDate()}`)
+        ? tx / traffic : null, ticket: tx ? net / tx : null, saleM2: area ? net / area : null,
       personnel, saleCollaborator: personnel && net ? net / personnel : null, priceVariation: gross ? (positive - gross) / gross : null,
       sellThrough: canCompareSellThrough && sellThroughStock + sum(ytd, 'received') > 0
         ? units / (sellThroughStock + sum(ytd, 'received'))

@@ -1514,6 +1514,10 @@ def verificar_capa1(
             if valor
         }
 
+        if errores['totales_inconsistentes'] and os.getenv('DASHBOARD_STOCK_VALUE_POLICY') == 'quantity-price':
+            problemas.pop('totales_inconsistentes', None)
+            print(f"ADVERTENCIA: {errores['totales_inconsistentes']} total(es) fuente de stock difieren de cantidad por precio. Se conserva total_fuente y diferencia_total; valor_stock usa cantidad por precio.")
+
         if int(resumen[0]) == 0 or problemas:
             raise RuntimeError(
                 "Fact_Stock.parquet no pasó la validación "
