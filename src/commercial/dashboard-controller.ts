@@ -8,6 +8,7 @@ import { adaptiveValueScale } from './chart-scale';
 import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-refresh';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
+import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
@@ -1293,15 +1294,41 @@ export class CommercialDashboardController implements OnInit {
 
   readonly talentKpiModel = computed<Record<string, unknown>>(() => {
     const metrics = this.metrics();
-    const profile = this.talentProfileSummary();
-    const personnel = metrics.personnel == null ? 'N/A' : this.number(Math.round(metrics.personnel));
+    const storeIds = this.filteredStoreIds();
+    const activeWorkers = this.operationalSummary()?.activeWorkers;
+    const workers = (activeWorkers || []).filter(worker => storeIds.has(worker.storeId));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const profile = activeWorkerMetrics(workers, today, this.selectedMonth());
+    const roleCounts = new Map<string, number>();
+    for (const worker of workers) {
+      const role = workerRoleLabel(worker.role);
+      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
+    }
+    const personnel = activeWorkers ? this.number(workers.length) : 'N/A';
+    const saleCollaborator = activeWorkers && workers.length ? metrics.net / workers.length : null;
+    const showTopStore = ['gerente_comercial', 'coach'].includes(this.cloud.accessProfile()?.roleCode || '');
+    const sales = grouped(this.yearRows(), row => row.storeId);
+    const topStore = activeWorkers ? this.filteredStores().map(store => {
+      const count = workers.filter(worker => worker.storeId === store.storeId).length;
+      const rows = sales.get(store.storeId) || [];
+      return { alias: store.alias, productivity: count && rows.length ? sum(rows, 'net') / count : null };
+    }).filter(store => store.productivity != null)
+      .sort((a, b) => b.productivity! - a.productivity!)[0]?.alias : null;
     return {
-      personnel, personnelMissing: metrics.personnel == null,
-      saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
-      gender: `${this.number(profile.male)} / ${this.number(profile.female)}`,
-      averageAge: this.number(profile.averageAge, ' años'), salesStaff: this.number(profile.salesStaff),
-      administrativeStaff: this.number(profile.administrativeStaff),
-      topStore: this.talentStoreRows()[0]?.alias || 'N/A', birthdays: this.number(this.birthdayMonthRows().length),
+      personnel, personnelMissing: !activeWorkers,
+      saleCollaborator: this.money(saleCollaborator, true), saleCollaboratorMissing: saleCollaborator == null,
+      gender: activeWorkers ? `${this.number(profile.male)} / ${this.number(profile.female)}` : 'N/A',
+      genderNote: activeWorkers ? `${profile.unknownGender} sin especificar` : 'Datos no disponibles',
+      averageAge: activeWorkers ? this.number(profile.averageAge, ' años') : 'N/A',
+      ageNote: activeWorkers ? `${profile.ageCount} de ${workers.length} con fecha válida` : 'Datos no disponibles',
+      birthdayNote: activeWorkers ? `${profile.missingBirthDates} sin fecha válida` : 'Datos no disponibles',
+      totalWorkers: activeWorkers ? this.number(workers.length) : 'N/A',
+      workersAvailable: !!activeWorkers,
+      workerRoles: [...roleCounts.entries()].sort(([a], [b]) =>
+        Number(b === 'ADMINISTRADOR DE TIENDA') - Number(a === 'ADMINISTRADOR DE TIENDA') || a.localeCompare(b, 'es'))
+        .map(([role, count]) => ({ role, count: this.number(count) })),
+      showTopStore, topStore: topStore || 'N/A',
+      birthdays: activeWorkers ? this.number(this.birthdayMonthRows().length) : 'N/A',
     };
   });
 
@@ -1317,6 +1344,7 @@ export class CommercialDashboardController implements OnInit {
   readonly birthdayModalModel = computed<Record<string, unknown>>(() => ({
     month: this.monthNamesFull[this.selectedMonth() - 1]?.toUpperCase() || '',
     rows: this.birthdayMonthRows(),
+    note: this.talentKpiModel().birthdayNote,
   }));
 
   readonly growthCardModel = computed<Record<string, unknown>>(() => ({ option: blackChartText(this.growthOption()) }));
@@ -2330,10 +2358,11 @@ export class CommercialDashboardController implements OnInit {
   readonly birthdayMonthRows = computed(() => {
     const month = this.selectedMonth();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
-    return this.talentProfiles().filter(row => row.birthDate && Number(row.birthDate.slice(5, 7)) === month)
-      .map(row => ({ name: row.name, store: stores.get(row.storeId) || row.storeId,
-        role: row.role, day: Number(row.birthDate!.slice(8, 10)) }))
-      .sort((a, b) => a.day - b.day || a.name.localeCompare(b.name));
+    const ids = this.filteredStoreIds();
+    const workers = (this.operationalSummary()?.activeWorkers || []).filter(row => ids.has(row.storeId));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    return activeWorkerMetrics(workers, today, month).birthdays
+      .map(row => ({ name: row.name, store: stores.get(row.storeId) || row.storeId, role: row.role, day: row.day }));
   });
 
   // Capacidad de dotación real contra los dos parámetros maestros de DimTiendas.

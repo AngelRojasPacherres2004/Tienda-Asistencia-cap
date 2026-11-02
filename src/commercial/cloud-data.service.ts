@@ -33,6 +33,7 @@ export type DashboardAccessProfile = {
   allowedStoreIds?: string[];
 };
 export type OperationalSummary = {
+  activeWorkers?: { storeId: string; role: string; name: string; gender: string; birthDate: string | null }[];
   courses: string[];
   training: { storeId: string; role: string; course: string; state: string }[];
   departures: { storeId: string; date: string; reason: string }[];

@@ -20,6 +20,7 @@
 .app-light :is(.person-link, .data-table--usuarios-tienda .person-link) { color: #203b56; }
 .app-light :is(.data-table__row div > small, .person-cell small) { color: #4b5563; }
 .app-light :is(.personnel-role, .panel-tag, .role--admin, .role--trabajador, .report-count, .report-detail-button) { color: #245b91; background: #e8f0f8; border-color: #c5d6e5; }
+.app-light .data-table--usuarios-tienda .personnel-role { color: #172f4d; background: #e8f0f8; border-color: #b8c9dc; }
 .app-light :is(.row-actions button, .company-card__footer button, .pagination button, .calendar-toolbar button) { color: #365570; background: #fffdf8; border-color: #d9dfe3; }
 .app-light :is(.row-actions button, .company-card__footer button):hover { color: #194976; background: #e8f0f8; }
 .app-light .row-actions .danger, .app-light .company-card__footer .danger { color: #b1433d; }

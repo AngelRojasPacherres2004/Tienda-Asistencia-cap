@@ -353,7 +353,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
           {visiblePeople.map((person) => {
             const personRecords = days.map((day) => byPersonAndDay.get(`${person.id}-${day}`));
             return <div className="attendance-matrix-row" key={person.id}>
-              <div className="attendance-matrix-person"><span className="avatar">{person.nombres?.charAt(0).toUpperCase()}</span><div><strong>{person.nombres} {person.apellidos}</strong><small>{person.rol === "jefe_tienda" ? "Jefe de tienda" : person.rol?.replaceAll("_", " ")}</small></div></div>
+              <div className="attendance-matrix-person"><span className="avatar">{person.nombres?.charAt(0).toUpperCase()}</span><div><strong>{person.nombres} {person.apellidos}</strong><small>{person.rol === "jefe_tienda" ? "Administrador de tienda" : person.rol?.replaceAll("_", " ")}</small></div></div>
               {personRecords.map((record, index) => {
                 const state = record?.estado;
                 const item = attendanceCodes[state];

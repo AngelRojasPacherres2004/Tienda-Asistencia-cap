@@ -1383,6 +1383,18 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 
 /* Talento: ocho KPI iguales y tres visuales compactos basados en datos reales. */
 .talent-kpis .birthday-kpi strong { font-size: .9rem; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+.talent-kpis .workers-kpi { position: relative; cursor: help; }
+.talent-kpis .workers-kpi-tooltip {
+  display: none; position: absolute; top: calc(100% - 2px); left: 0;
+  z-index: 30; width: max-content; min-width: 230px; max-width: min(320px, 80vw);
+  padding: 14px; border: 1px solid #d3deec; border-radius: 10px;
+  background: #fff; color: #123a8c; box-shadow: 0 8px 24px rgba(30,42,72,.18); text-align: left;
+}
+.talent-kpis .workers-kpi:hover .workers-kpi-tooltip,
+.talent-kpis .workers-kpi:focus-within .workers-kpi-tooltip { display: block; }
+.talent-kpis .workers-kpi-tooltip > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; }
+.talent-kpis .workers-kpi-tooltip > div > span { white-space: normal; overflow: visible; }
+.talent-kpis .workers-kpi-tooltip > div > strong { margin: 0; font-size: .85rem; }
 .talent-overview-grid,
 .talent-performance-grid,
 .talent-development-grid { display: grid; gap: 12px; min-width: 0; }

@@ -107,7 +107,7 @@ export function createStoresDomain({ supabase, readAllResult, dbError, httpError
   async function syncJefe(tiendaId, jefeId) {
     const { data: jefe } = await supabase.from("usuarios").select("id,rol,tienda_id,estado").eq("id", jefeId).maybeSingle();
     if (!jefe || jefe.estado !== "activo") throw httpError("El usuario seleccionado como jefe no existe o está inactivo.", 400);
-    if (jefe.rol !== "jefe_tienda") throw httpError("Selecciona un jefe de tienda activo.", 400);
+    if (jefe.rol !== "jefe_tienda") throw httpError("Selecciona un administrador de tienda activo.", 400);
     if (jefe.tienda_id && Number(jefe.tienda_id) !== Number(tiendaId)) throw httpError("El administrador ya pertenece a otra tienda.", 400);
     const { error } = await supabase.from("usuarios").update({ tienda_id: Number(tiendaId) }).eq("id", jefeId);
     if (error) throw dbError(error);
