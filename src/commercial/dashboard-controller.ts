@@ -1224,11 +1224,21 @@ export class CommercialDashboardController implements OnInit {
     dayLoading: this.dayFilterLoading(), dayError: this.dayFilterError(),
   }));
 
+  // La tarjeta general conserva la meta publicada del año completo. No depende
+  // de los filtros ni de la carga posterior de metas operativas por rubro.
+  readonly companyAnnualTarget = computed(() => {
+    const year = this.year();
+    const rows = this.data()?.monthlyStore;
+    if (!rows) return null;
+    return rows.reduce((total, row) => Math.floor(row.periodId / 100) === year
+      ? total + (row.target || 0) : total, 0);
+  });
+
   readonly primaryKpiModel = computed<Record<string, unknown>>(() => {
     const metrics = this.metrics();
     const gap = this.accumulatedGap();
     return { cards: [
-      { label: 'META', className: 'meta-kpi', title: this.selectedMonths().length ? 'Fórmula: suma de las metas de los meses seleccionados para las tiendas, rubros y demás filtros aplicables.' : 'Fórmula: suma de las metas mensuales del año para las tiendas, rubros y demás filtros aplicables.', value: this.money(this.selectedMonths().length ? metrics.monthTarget : metrics.annualTarget, true) },
+      { label: 'META', className: 'meta-kpi', title: 'Meta general publicada del año completo, sin filtros de meses, tiendas, clústeres, formatos o productos.', value: this.companyAnnualTarget() == null ? 'Cargando...' : this.money(this.companyAnnualTarget()!, true) },
       { label: 'VENTA BRUTA', className: 'gross-kpi', title: 'Fórmula: Σ(precio sugerido × cantidad) de las ventas positivas del período filtrado.', value: this.money(metrics.gross, true) },
       { label: 'NOTAS DE CRÉDITO', title: 'Fórmula: Σ(importe de notas de crédito) del período filtrado.', value: this.money(metrics.notes, true) },
       { label: 'DESCUENTO TOTAL', title: 'Fórmula: Σ(descuento aplicado) del período filtrado.', value: this.money(metrics.discount, true) },
