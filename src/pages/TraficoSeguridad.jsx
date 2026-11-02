@@ -19,6 +19,7 @@ const RANGOS_HORA = Array.from({ length: 14 }, (_, index) => {
 export default function TraficoSeguridad({ user }) {
   const [rows, setRows] = useState(null);
   const matrixRef = useRef(null);
+  const initialHistory = useRef(true);
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState(() => todayISO().slice(0, 7));
   const [date, setDate] = useState("");
@@ -27,7 +28,13 @@ export default function TraficoSeguridad({ user }) {
   const [notice, setNotice] = useState(null);
 
   const { from, to } = monthBounds(month);
-  const load = useCallback(() => api(`/trafico?desde=${from}&hasta=${to}`).then((data) => { setRows(data); setNotice(null); }).catch((error) => { setRows([]); setNotice({ type: "error", text: error.message }); }), [from, to]);
+  const load = useCallback(() => api(`/trafico?desde=${from}&hasta=${to}`).then((data) => {
+    if (initialHistory.current) {
+      initialHistory.current = false;
+      if (!data.length && month === todayISO().slice(0, 7)) { setMonth(previousMonth(month)); return; }
+    }
+    setRows(data); setNotice(null);
+  }).catch((error) => { setRows([]); setNotice({ type: "error", text: error.message }); }), [from, to, month]);
   useEffect(() => { setRows(null); load(); }, [load]);
 
   const filtered = useMemo(() => (rows || []).filter((row) =>
@@ -73,5 +80,6 @@ export default function TraficoSeguridad({ user }) {
 function displayHour(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a. m." : "p. m."}`; }
 function rangeLabel(value) { return RANGOS_HORA.find((rango) => rango.value === value)?.label || value || "Sin rango"; }
 function monthBounds(value) { const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : todayISO().slice(0, 7); const [year, number] = month.split("-").map(Number); return { from: `${month}-01`, to: `${month}-${String(new Date(year, number, 0).getDate()).padStart(2, "0")}` }; }
+function previousMonth(value) { const [year, month] = value.split('-').map(Number); return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7); }
 function isToday(value) { return Boolean(value) && String(value).slice(0, 10) === limaDate(new Date()); }
 function limaDate(value) { const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); return `${parts.year}-${parts.month}-${parts.day}`; }

@@ -120,6 +120,7 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         missing.extend(f"dashboard-price-range-category-{year}.json" for year in sorted(price_years - category_years))
         files.extend(price_categories)
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-price-range-????-??.json")))
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-stock-price-range-????-??.json")))
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-size-sales-????-??-*.json")))
     brand_years = {
         name.rsplit("-", 1)[-1].removesuffix(".json")
@@ -439,12 +440,15 @@ def cleanup_release_history(
     if not retained_ids:
         raise PublishError("No existe una publicación vigente para conservar.")
 
-    file_rows = get_postgrest(
-        base_url,
-        api_key,
-        access_token,
-        "dashboard_files?select=release_id,parts",
-    ) or []
+    file_rows = []
+    for offset in range(0, 100_000, 1_000):
+        page = get_postgrest(
+            base_url, api_key, access_token,
+            f"dashboard_files?select=release_id,parts&order=id.asc&limit=1000&offset={offset}",
+        ) or []
+        file_rows.extend(page)
+        if len(page) < 1_000:
+            break
     retained_paths = {
         str(part["path"])
         for row in file_rows
@@ -453,17 +457,20 @@ def cleanup_release_history(
         if part.get("path")
     }
     for release_id in retained_ids:
-        scope_rows = get_postgrest(
-            base_url, api_key, access_token,
-            "dashboard_scope_files?select=parts"
-            f"&release_id=eq.{urllib.parse.quote(release_id)}&limit=1000",
-        ) or []
-        retained_paths.update(
-            str(part["path"])
-            for row in scope_rows
-            for part in (row.get("parts") or [])
-            if part.get("path")
-        )
+        for offset in range(0, 100_000, 1_000):
+            scope_rows = get_postgrest(
+                base_url, api_key, access_token,
+                "dashboard_scope_files?select=parts"
+                f"&release_id=eq.{urllib.parse.quote(release_id)}&order=id.asc&limit=1000&offset={offset}",
+            ) or []
+            retained_paths.update(
+                str(part["path"])
+                for row in scope_rows
+                for part in (row.get("parts") or [])
+                if part.get("path")
+            )
+            if len(scope_rows) < 1_000:
+                break
     removable_releases = [
         row
         for row in releases
@@ -588,11 +595,16 @@ def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: 
                 f"&release_id=eq.{previous_id}",
             ) or []
             reusable = {str(row["logical_name"]): row for row in previous_files}
-            previous_scopes = get_postgrest(
-                base_url, api_key, access_token,
-                "dashboard_scope_files?select=scope_type,scope_value,logical_name,byte_size,checksum_sha256,content_type,parts"
-                f"&release_id=eq.{previous_id}&limit=1000",
-            ) or []
+            previous_scopes = []
+            for offset in range(0, 100_000, 1_000):
+                page = get_postgrest(
+                    base_url, api_key, access_token,
+                    "dashboard_scope_files?select=scope_type,scope_value,logical_name,byte_size,checksum_sha256,content_type,parts"
+                    f"&release_id=eq.{previous_id}&order=id.asc&limit=1000&offset={offset}",
+                ) or []
+                previous_scopes.extend(page)
+                if len(page) < 1_000:
+                    break
             reusable_scopes = {
                 (str(row["scope_type"]), str(row["scope_value"]), str(row["logical_name"])): row
                 for row in previous_scopes
@@ -672,6 +684,24 @@ def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: 
                 "parts": len(parts),
                 "reused": unchanged,
             }
+
+            previous_for_scopes = [
+                reusable_scopes.get((scope_type, scope_value, name))
+                for scope_type, scope_value in sorted(scopes)
+            ]
+            if unchanged and all(previous_for_scopes):
+                scope_rows.extend({
+                    "release_id": release_id,
+                    "scope_type": previous_scope["scope_type"],
+                    "scope_value": previous_scope["scope_value"],
+                    "logical_name": name,
+                    "byte_size": previous_scope["byte_size"],
+                    "checksum_sha256": previous_scope["checksum_sha256"],
+                    "content_type": previous_scope["content_type"],
+                    "parts": previous_scope["parts"],
+                } for previous_scope in previous_for_scopes)
+                print(f"  {name}: {len(scopes)} alcances privados reutilizados")
+                continue
 
             # Cada rol restringido recibe un archivo físicamente limitado a
             # su tienda o clúster. Ningún filtro del navegador es una frontera

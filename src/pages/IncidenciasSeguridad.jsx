@@ -18,8 +18,15 @@ export default function IncidenciasSeguridad({ user, management = false }) {
   const [month, setMonth] = useState(() => todayISO().slice(0, 7));
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const initialHistory = useRef(true);
   const { from, to } = monthBounds(month);
-  const load = useCallback(() => api(`/incidencias?desde=${from}&hasta=${to}`).then((data) => { setRows(data); setNotice(null); }).catch((e) => { setRows([]); setNotice({ type: "error", text: e.message }); }), [from, to]);
+  const load = useCallback(() => api(`/incidencias?desde=${from}&hasta=${to}`).then((data) => {
+    if (initialHistory.current) {
+      initialHistory.current = false;
+      if (!data.length && month === todayISO().slice(0, 7)) { setMonth(previousMonth(month)); return; }
+    }
+    setRows(data); setNotice(null);
+  }).catch((e) => { setRows([]); setNotice({ type: "error", text: e.message }); }), [from, to, month]);
   useEffect(() => { setRows(null); load(); }, [load]);
   const filtered = useMemo(() => (rows || []).filter((r) => `${r.codigo || ""} ${r.tipo || ""} ${r.asunto} ${r.descripcion}`.toLowerCase().includes(search.toLowerCase()) && (state === "todos" || (r.estado || "abierta") === state) && (severity === "todas" || r.gravedad === severity) && (type === "todos" || r.tipo === type) && (area === "todas" || r.area === area) && (!date || limaNow(r.fecha).fecha_incidente === date)), [rows, search, state, severity, type, area, date]);
   useEffect(() => { setPage(1); }, [search, state, severity, type, area, date]);
@@ -131,6 +138,7 @@ function ReviewMetric({ title, value }) { return <div><small>{title}</small><str
 function productLabel({ sublinea }) { return sublinea || ""; }
 function codeOf(row) { return row.codigo || `INC-${String(row.id).padStart(4, "0")}`; }
 function monthBounds(value) { const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : todayISO().slice(0, 7); const [year, number] = month.split("-").map(Number); return { from: `${month}-01`, to: `${month}-${String(new Date(year, number, 0).getDate()).padStart(2, "0")}` }; }
+function previousMonth(value) { const [year, month] = value.split('-').map(Number); return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7); }
 function isToday(value) { return Boolean(value) && limaDate(value) === limaDate(new Date()); }
 function limaDate(value) { const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])); return `${parts.year}-${parts.month}-${parts.day}`; }
 function label(value) {

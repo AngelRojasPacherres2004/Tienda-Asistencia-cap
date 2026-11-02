@@ -35,6 +35,7 @@ type PersonnelProfile = {
 };
 type BrandRow = { periodId: number; storeId: string; category?: string; line?: string; subline?: string; brand: string; net: number; units: number };
 type PriceRangeRow = { periodId: number; storeId: string; category: string; line: string; subline: string; bandOrder: number; priceBand: string; net: number; units: number };
+type StockPriceRangeRow = { periodId: number; cutoff: string; storeId: string; category: string; line: string; subline: string; bandOrder: number; stockUnits: number };
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };
 type ProductRow = {
@@ -196,6 +197,11 @@ export class CommercialDashboardController implements OnInit {
   readonly sellerPerformanceData = signal<SellerPerformanceRow[]>([]);
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
+  readonly priceRangeStockData = signal<StockPriceRangeRow[]>([]);
+  readonly priceRangeStockLoadedPeriod = signal<number | null>(null);
+  readonly priceRangeStockLoading = signal(false);
+  readonly priceRangeStockError = signal('');
+  readonly priceRangeStockRetry = signal(0);
   readonly priceRangeComparisonYear = signal(2025);
   readonly stockOriginData = signal<StockOrigin[]>([]);
   readonly stockHierarchyData = signal<StockHierarchyRow[]>([]);
@@ -326,6 +332,7 @@ export class CommercialDashboardController implements OnInit {
   readonly page = signal<1 | 2 | 3>(1);
   readonly operationalSummary = signal<OperationalSummary | null>(null);
   readonly companyRankingData = signal<CompanyRankingData | null>(null);
+  readonly companyRankingState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly expandedChart = signal<string | null>(null);
   readonly ticketChartYear = signal(new Date().getFullYear());
   readonly ticketChartSelectedStores = signal<string[]>([]);
@@ -1466,7 +1473,10 @@ export class CommercialDashboardController implements OnInit {
   }
 
   readonly rankingCardModel = computed<Record<string, unknown>>(() => ({
-    countLabel: this.rankingStoreCountLabel(), metrics: this.rankingMetrics(),
+    countLabel: this.cloud.portalEnabled && this.companyRankingState() === 'loading'
+      ? 'COMPARANDO TIENDAS' : this.rankingStoreCountLabel(), metrics: this.rankingMetrics(),
+    loading: this.cloud.portalEnabled && this.companyRankingState() === 'loading',
+    error: this.companyRankingState() === 'error',
     option: blackChartText(this.rankingOption()),
   }));
 
@@ -1488,14 +1498,18 @@ export class CommercialDashboardController implements OnInit {
     expanded: this.expandedChart() === 'price-range', year: this.year(),
     years: this.priceRangeComparisonYears(), comparisonYear: this.effectivePriceRangeComparisonYear(),
     ready: this.priceRangeDetailLoaded(), option: this.priceRangeDetailLoaded() ? blackChartText(this.priceRangeOption()) : null,
+    stockLoading: this.priceRangeStockLoading(), stockError: this.priceRangeStockError(),
+    stockUnavailable: this.priceRangeStockPeriod() == null,
+    stockCutoff: this.priceRangeStockData()[0]?.cutoff || '',
     rows: this.priceRangeSummary().map(row => ({ label: row.label, year: row.year,
-      net: this.money(row.net, true), share: this.percent(row.share),
+      net: this.money(row.net, true), stock: row.stockUnits == null ? 'N/A' : this.number(row.stockUnits, ' und'),
       units: this.number(row.units), averagePrice: this.money(row.averagePrice) })),
   }));
 
   onReactPriceRangeAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'expand') this.toggleChartExpansion('price-range');
     else if (type === 'year' && value != null) this.setPriceRangeComparisonYear(value);
+    else if (type === 'retry-stock') this.priceRangeStockRetry.set(this.priceRangeStockRetry() + 1);
   }
 
   readonly rotationCardModel = computed<Record<string, unknown>>(() => {
@@ -1850,8 +1864,8 @@ export class CommercialDashboardController implements OnInit {
         ...(metric === 'saleCollaborator' ? [{ text: this.number(row.personnel) }] : metric === 'sellThrough' ? [{ text: this.number(row.units) }] : []),
       ] })), legend: false,
       sellerDetail: metric === 'saleCollaborator' ? { loading: this.sellerDetailLoading(), month: selectedMonth,
-        rows: [...sellerRows.map(row => ({ seller: row.seller, net: this.money(row.net, true), contribution: averagePersonnel ? this.money(row.net / averagePersonnel) : 'N/A' })),
-          ...(Math.abs(unmatchedNet) > .01 ? [{ seller: 'Sin vendedor asignado / ajuste', net: this.money(unmatchedNet, true), contribution: averagePersonnel ? this.money(unmatchedNet / averagePersonnel) : 'N/A' }] : [])],
+        rows: [...sellerRows.map(row => ({ seller: row.seller, net: this.money(row.net, true) })),
+          ...(Math.abs(unmatchedNet) > .01 ? [{ seller: 'Sin vendedor asignado / ajuste', net: this.money(unmatchedNet, true) }] : [])],
         net: this.money(totalNet, true), personnel: this.number(averagePersonnel), kpi: averagePersonnel ? this.money(totalNet / averagePersonnel) : 'N/A' } : null,
     };
   });
@@ -3886,6 +3900,12 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly priceRangeComparisonYears = computed(() => (this.data()?.metadata.years || [])
     .filter(year => year >= 2024 && year !== this.year()).sort((a, b) => b - a));
+  readonly priceRangeStockPeriod = computed(() => {
+    const selectedDate = this.toDate() || this.fromDate();
+    const targetDate = this.dateRangeActive() && selectedDate
+      ? selectedDate : this.periodEnd(this.year() * 100 + (Math.max(0, ...this.activeMonths()) || 12));
+    return (this.data()?.metadata.stockPeriods || []).filter(period => this.periodEnd(period) <= targetDate).at(-1) || null;
+  });
   readonly effectivePriceRangeComparisonYear = computed(() => this.priceRangeComparisonYears().includes(this.priceRangeComparisonYear())
     ? this.priceRangeComparisonYear() : this.priceRangeComparisonYears()[0] || this.year() - 1);
   private priceRangeSummaryFor(year: number, base = false) {
@@ -3894,13 +3914,20 @@ export class CommercialDashboardController implements OnInit {
     const rows = (base && this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyPriceRangeIndex, periods, ids)).filter(row =>
       Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
     const groups = grouped(rows, row => String(row.bandOrder));
+    const stockPeriod = this.priceRangeStockLoadedPeriod();
+    const stockGroups = stockPeriod != null && Math.floor(stockPeriod / 100) === year
+      ? grouped(this.priceRangeStockData().filter(row => ids.has(row.storeId) &&
+        this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline)), row => String(row.bandOrder))
+      : null;
     const bands = [
       'S/ 0–30', 'S/ 31–60', 'S/ 61–90', 'S/ 91–120', 'S/ 121–150', 'S/ 151–180',
       'S/ 181–210', 'S/ 211–240', 'S/ 241–270', 'S/ 271–300', 'S/ 301+'
     ];
     const values = bands.map((label, index) => {
       const groupedRows = groups.get(String(index + 1)) || [];
-      return { label, net: sum(groupedRows, 'net'), units: sum(groupedRows, 'units') };
+      const stockRows = stockGroups?.get(String(index + 1)) || [];
+      return { label, net: sum(groupedRows, 'net'), units: sum(groupedRows, 'units'),
+        stockUnits: stockGroups ? sum(stockRows, 'stockUnits') : null };
     });
     const total = values.reduce((sumValue, value) => sumValue + value.net, 0);
     return values.map(value => ({ ...value, year, share: total ? value.net / total : null, averagePrice: value.units ? value.net / value.units : null }));
@@ -4161,6 +4188,27 @@ export class CommercialDashboardController implements OnInit {
     }).finally(() => { if (!controller.signal.aborted) this.sizeSalesLoading.set(false); });
   });
 
+  private readonly priceRangeStockEffect = effect(onCleanup => {
+    if (!this.data() || this.page() !== 1 || this.expandedChart() !== 'price-range') return;
+    const period = this.priceRangeStockPeriod();
+    this.priceRangeStockRetry();
+    const controller = new AbortController();
+    onCleanup(() => controller.abort());
+    this.priceRangeStockData.set([]);
+    this.priceRangeStockLoadedPeriod.set(null);
+    this.priceRangeStockError.set('');
+    if (period == null) return;
+    this.priceRangeStockLoading.set(true);
+    const file = `dashboard-stock-price-range-${Math.floor(period / 100)}-${String(period % 100).padStart(2, '0')}.json`;
+    void this.loadDetail<{ stockPriceRange: StockPriceRangeRow[] }>(file, controller.signal).then(payload => {
+      if (controller.signal.aborted) return;
+      this.priceRangeStockData.set(payload.stockPriceRange || []);
+      this.priceRangeStockLoadedPeriod.set(period);
+    }).catch(() => {
+      if (!controller.signal.aborted) this.priceRangeStockError.set('No se pudo cargar el stock del corte.');
+    }).finally(() => { if (!controller.signal.aborted) this.priceRangeStockLoading.set(false); });
+  });
+
   private readonly stockInsightsEffect = effect(onCleanup => {
     if (!this.cloud.portalEnabled || this.page() !== 2 || !this.stockInsightsActivated()) return;
     this.stockInsightsRetry();
@@ -4203,6 +4251,7 @@ export class CommercialDashboardController implements OnInit {
   });
 
   disposeReactRuntime(): void {
+    this.priceRangeStockEffect.destroy();
     this.stockTransferCalculationEffect.destroy();
     this.stockInsightsEffect.destroy();
     this.sizeSalesEffect.destroy();
@@ -4235,6 +4284,7 @@ export class CommercialDashboardController implements OnInit {
     this.data.set(null);
     this.operationalSummary.set(null);
     this.companyRankingData.set(null);
+    this.companyRankingState.set('loading');
     this.storeGoalOverrides.set([]);
     this.annualGoalOverrides.set([]);
     this.storeGoalsReady.set(false);
@@ -4252,6 +4302,7 @@ export class CommercialDashboardController implements OnInit {
     const goalLoadToken = ++this.goalLoadToken;
     this.storeGoalsReady.set(false);
     this.companyRankingData.set(null);
+    this.companyRankingState.set('loading');
     try {
       const loaded = await this.loadDetail<DashboardData>('dashboard.json');
       // T014 conserva su ID histórico, pero su nombre comercial visible es AGU.
@@ -4288,9 +4339,15 @@ export class CommercialDashboardController implements OnInit {
         if (goalLoadToken !== this.goalLoadToken) return;
         this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
         this.cloud.companyRanking().then(ranking => {
-          if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(ranking);
+          if (goalLoadToken === this.goalLoadToken) {
+            this.companyRankingData.set(ranking);
+            this.companyRankingState.set('ready');
+          }
         }).catch(() => {
-          if (goalLoadToken === this.goalLoadToken) this.companyRankingData.set(null);
+          if (goalLoadToken === this.goalLoadToken) {
+            this.companyRankingData.set(null);
+            this.companyRankingState.set('error');
+          }
         });
         if (this.page() === 1) void this.ensurePriceRangeDetail();
       });

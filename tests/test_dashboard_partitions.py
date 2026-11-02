@@ -25,6 +25,24 @@ from generar_datos_web import (  # noqa: E402
 
 
 class DashboardPartitionDiscoveryTests(unittest.TestCase):
+    def test_stock_price_range_partition_is_small_and_store_scoped(self) -> None:
+        rows = [
+            {"periodId": 202607, "cutoff": "2026-07-31", "storeId": store,
+             "category": "CALZADO", "line": "DAMAS", "subline": "ZAPATOS",
+             "bandOrder": band, "stockUnits": units}
+            for store, band, units in [("T001", 1, 4), ("T002", 2, 7)]
+        ]
+        self.assertEqual(scope_payload({"stockPriceRange": rows}, {"T001"})["stockPriceRange"], rows[:1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.touch(root, *STATIC_CORE_FILES, "dashboard-daily-2026-07.json",
+                       "dashboard-stock-price-range-2026-07.json")
+            for dataset in YEARLY_DATASETS:
+                self.touch(root, f"{dataset}-2026.json")
+            files, missing = discover_dashboard_files(root)
+            self.assertEqual(missing, [])
+            self.assertIn("dashboard-stock-price-range-2026-07.json", files)
+
     def test_size_sales_90_partition_is_compact_and_store_scoped(self) -> None:
         rows = [
             {"periodId": 202610, "storeId": store, "productId": product,

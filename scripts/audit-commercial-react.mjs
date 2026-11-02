@@ -107,6 +107,14 @@ try {
             await page.locator(".ranking-store-count:visible").filter({ hasText: /^(?:[2-9]|[1-9][0-9]+) TIENDAS/ }).waitFor({ timeout: 30_000 });
           }
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 0) {
+            const priceCard = section.locator('.price-range-card');
+            await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
+            const priceMatrix = page.locator('.price-range-detail-table:visible');
+            await priceMatrix.getByText(/Stock disponible al corte/).waitFor({ timeout: 60_000 });
+            assert.equal(await priceMatrix.locator('.price-range-detail-head').innerText().then(text => text.includes('PARTICIPACIÓN')), false);
+            assert.ok((await priceMatrix.locator('.price-range-detail-body .base-year').allInnerTexts()).some(text => /\d+ und/.test(text)), 'El stock por rango no cargó');
+            await priceMatrix.screenshot({ path: join(output, 'price-range-stock-detail.png'), animations: 'disabled' });
+            await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
             for (const [label, moduleId] of [
               ["VENTA × M²", "saleM2-modal"],
               ["VENTA × COLAB", "saleCollaborator-modal"],
@@ -120,6 +128,14 @@ try {
               await modal.screenshot({ path: join(output, `${moduleId}.png`), animations: "disabled" });
               await modal.getByRole("button", { name: /Cerrar detalle del indicador/ }).click();
             }
+            await page.getByRole('button', { name: 'Abrir filtros y listas' }).click();
+            const monthFilter = page.locator('.filter-panel .filter-field').first();
+            await monthFilter.locator('summary').click();
+            await monthFilter.getByRole('button', { name: 'JUN', exact: true }).click();
+            await page.getByRole('button', { name: 'Abrir filtros y listas' }).click();
+            await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
+            await priceMatrix.getByText('Stock disponible al corte 2026-06-30', { exact: false }).waitFor({ timeout: 60_000 });
+            await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
           }
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 1) {
             const sizes = section.locator(".size-distribution-card:visible");
