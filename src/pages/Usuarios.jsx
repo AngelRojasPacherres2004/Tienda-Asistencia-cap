@@ -45,7 +45,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [tiendas, setTiendas] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("todos");
+  const [statusFilter, setStatusFilter] = useState(isStoreAdmin ? "activo" : "todos");
   const [storeFilter, setStoreFilter] = useState("todos");
   const [roleFilter, setRoleFilter] = useState(zonalTeam ? "jefe_tienda" : "todos");
   const [workspace, setWorkspace] = useState("equipo");

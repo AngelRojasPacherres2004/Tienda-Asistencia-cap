@@ -301,7 +301,7 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .data-table--usuarios .data-table__head, .data-table--usuarios .data-table__row { grid-template-columns: 1.5fr .8fr 1fr .8fr .9fr 1fr .7fr 72px; }
 .data-table--usuarios-tienda .data-table__head, .data-table--usuarios-tienda .data-table__row { grid-template-columns: minmax(220px,1.7fr) minmax(105px,.7fr) minmax(125px,1fr) minmax(110px,.8fr) minmax(145px,1fr) minmax(95px,.7fr) 124px; }
 .data-table--usuarios-tienda { min-width: 1040px; }
-.data-table--usuarios-tienda .personnel-role { width: fit-content; max-width: 100%; padding: 7px 10px; border: 1px solid rgba(205,169,95,.24); border-radius: 8px; color: #e6c87f; background: rgba(205,169,95,.10); font-size: 12px; font-weight: 800; line-height: 1.25; }
+.data-table--usuarios-tienda .personnel-role { width: fit-content; max-width: 100%; padding: 7px 10px; border: 1px solid #b8c9dc; border-radius: 8px; color: #172f4d; background: #e8f0f8; font-size: 12px; font-weight: 800; line-height: 1.25; }
 .data-table--usuarios-tienda .data-table__head { min-height: 48px; font-size: 11px; }
 .data-table--usuarios-tienda .data-table__row { min-height: 78px; font-size: 13px; }
 .data-table--usuarios-tienda .person-link { color: #f1ebe2; font-size: 14px; font-weight: 800; text-align: left; }

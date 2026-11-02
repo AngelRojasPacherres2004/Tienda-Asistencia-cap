@@ -30,10 +30,10 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       .select('dashboard_store_id,tienda_id').in('dashboard_store_id', access.storeIds);
     if (mappingError) throw dbError(mappingError);
     const storeIds = [...new Set((mappings || []).map(row => row.tienda_id))];
-    if (!storeIds.length) return { courses: [], training: [], departures: [], incidents: [] };
+    if (!storeIds.length) return { activeWorkers: [], courses: [], training: [], departures: [], incidents: [] };
     const dashboardId = new Map(mappings.map(row => [row.tienda_id, row.dashboard_store_id]));
     const [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult] = await Promise.all([
-      readAllResult(supabase.from('usuarios').select('id,tienda_id,rol,fecha_salida,motivo_salida').in('tienda_id', storeIds)),
+      readAllResult(supabase.from('usuarios').select('id,tienda_id,nombres,apellidos,rol,estado,sexo,fecha_nacimiento,fecha_salida,motivo_salida').in('tienda_id', storeIds)),
       readAllResult(supabase.from('capacitacion_progreso').select('id,usuario_id,tienda_id,curso_id,estado').in('tienda_id', storeIds)),
       supabase.from('cursos').select('id,nombre').eq('activo', true).order('id').limit(5),
       access.role === 'jefe_tienda' ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias').select('id,tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01')),
@@ -45,6 +45,12 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     const roles = new Map(usersResult.data.map(user => [user.id, user.rol]));
     const courseNames = new Map(coursesResult.data.map(course => [course.id, course.nombre]));
     return {
+      activeWorkers: usersResult.data.filter(user => user.estado === 'activo').map(user => ({
+        storeId: dashboardId.get(user.tienda_id), role: user.rol,
+        name: `${user.nombres || ''} ${user.apellidos || ''}`.trim(),
+        gender: user.sexo === 'hombre' ? 'M' : user.sexo === 'mujer' ? 'F' : 'N/A',
+        birthDate: user.fecha_nacimiento || null,
+      })),
       courses: coursesResult.data.map(course => course.nombre),
       training: trainingResult.data.filter(row => courseNames.has(row.curso_id)).map(row => ({
         storeId: dashboardId.get(row.tienda_id), role: roles.get(row.usuario_id) || '',

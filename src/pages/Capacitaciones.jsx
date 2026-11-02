@@ -10,7 +10,7 @@ import Reportes from "./Reportes";
 import { clusterLabel } from "../lib/clusters";
 import { trainingStoreComparison } from "../lib/trainingComparison";
 
-const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Jefe de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
+const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
 const estadoPalette = { completado: "#2f9e78", en_curso: "#df9f39", pendiente: "#d9635f" };
 const progresoLabels = { completado: "Completado", en_curso: "En curso", pendiente: "Pendiente" };
 
@@ -57,7 +57,7 @@ export default function Capacitaciones({ user }) {
     gerencia_general: "jefes zonales",
     gerente_comercial: "jefes zonales",
     coach: "todo el personal, por rol y por tienda",
-    jefe_zonal: "jefes de tienda",
+    jefe_zonal: "administradores de tienda",
     jefe_tienda: "asistentes, trabajadores y seguridad",
     asistente_tienda: "trabajadores y seguridad",
   };
