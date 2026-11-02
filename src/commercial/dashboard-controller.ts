@@ -198,6 +198,7 @@ export class CommercialDashboardController implements OnInit {
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
   readonly priceRangeStockData = signal<StockPriceRangeRow[]>([]);
+  private readonly priceRangeStockCache = new Map<number, StockPriceRangeRow[]>();
   readonly priceRangeStockLoadedPeriod = signal<number | null>(null);
   readonly priceRangeStockLoading = signal(false);
   readonly priceRangeStockError = signal('');
@@ -1482,6 +1483,7 @@ export class CommercialDashboardController implements OnInit {
 
   onReactRankingAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'metric' && (value === 'ROTATION' || value === 'MARKUP' || value === 'TICKET' || value === 'SALE_M2')) this.toggleRankingMetric(value);
+    else if (type === 'retry') void this.loadCompanyRanking(this.goalLoadToken);
   }
 
   readonly genderCardModel = computed<Record<string, unknown>>(() => ({
@@ -1502,7 +1504,7 @@ export class CommercialDashboardController implements OnInit {
     stockUnavailable: this.priceRangeStockPeriod() == null,
     stockCutoff: this.priceRangeStockData()[0]?.cutoff || '',
     rows: this.priceRangeSummary().map(row => ({ label: row.label, year: row.year,
-      net: this.money(row.net, true), stock: row.stockUnits == null ? 'N/A' : this.number(row.stockUnits, ' und'),
+      net: this.money(row.net, true), stock: row.stockUnits == null ? (this.priceRangeStockLoading() && row.year === Math.floor((this.priceRangeStockPeriod() || 0) / 100) ? 'Cargando…' : 'N/A') : this.number(row.stockUnits, ' und'),
       units: this.number(row.units), averagePrice: this.money(row.averagePrice) })),
   }));
 
@@ -4194,18 +4196,47 @@ export class CommercialDashboardController implements OnInit {
     this.priceRangeStockRetry();
     const controller = new AbortController();
     onCleanup(() => controller.abort());
+    this.priceRangeStockError.set('');
+    if (period == null) {
+      this.priceRangeStockData.set([]);
+      this.priceRangeStockLoadedPeriod.set(null);
+      this.priceRangeStockLoading.set(false);
+      return;
+    }
+    const cached = this.priceRangeStockCache.get(period);
+    if (cached) {
+      this.priceRangeStockData.set(cached);
+      this.priceRangeStockLoadedPeriod.set(period);
+      this.priceRangeStockLoading.set(false);
+      return;
+    }
     this.priceRangeStockData.set([]);
     this.priceRangeStockLoadedPeriod.set(null);
-    this.priceRangeStockError.set('');
-    if (period == null) return;
     this.priceRangeStockLoading.set(true);
     const file = `dashboard-stock-price-range-${Math.floor(period / 100)}-${String(period % 100).padStart(2, '0')}.json`;
-    void this.loadDetail<{ stockPriceRange: StockPriceRangeRow[] }>(file, controller.signal).then(payload => {
+    const loadWithRetry = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        controller.signal.throwIfAborted();
+        try { return await this.loadDetail<{ stockPriceRange: StockPriceRangeRow[] }>(file, controller.signal); }
+        catch (error) {
+          lastError = error;
+          if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
+      throw lastError;
+    };
+    void loadWithRetry().then(payload => {
       if (controller.signal.aborted) return;
-      this.priceRangeStockData.set(payload.stockPriceRange || []);
+      const rows = payload.stockPriceRange || [];
+      this.priceRangeStockCache.set(period, rows);
+      this.priceRangeStockData.set(rows);
       this.priceRangeStockLoadedPeriod.set(period);
-    }).catch(() => {
-      if (!controller.signal.aborted) this.priceRangeStockError.set('No se pudo cargar el stock del corte.');
+    }).catch(error => {
+      if (!controller.signal.aborted) {
+        console.warn('Error al cargar stock por rango:', error);
+        this.priceRangeStockError.set('No se pudo cargar el stock del corte. Comprueba la conexión e inténtalo de nuevo.');
+      }
     }).finally(() => { if (!controller.signal.aborted) this.priceRangeStockLoading.set(false); });
   });
 
@@ -4338,17 +4369,7 @@ export class CommercialDashboardController implements OnInit {
       void Promise.race([goalsReady, new Promise<void>(resolve => setTimeout(resolve, 2500))]).then(() => {
         if (goalLoadToken !== this.goalLoadToken) return;
         this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
-        this.cloud.companyRanking().then(ranking => {
-          if (goalLoadToken === this.goalLoadToken) {
-            this.companyRankingData.set(ranking);
-            this.companyRankingState.set('ready');
-          }
-        }).catch(() => {
-          if (goalLoadToken === this.goalLoadToken) {
-            this.companyRankingData.set(null);
-            this.companyRankingState.set('error');
-          }
-        });
+        void this.loadCompanyRanking(goalLoadToken);
         if (this.page() === 1) void this.ensurePriceRangeDetail();
       });
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
@@ -4358,6 +4379,36 @@ export class CommercialDashboardController implements OnInit {
       // NO cargar dashboard-brand.json (~35 MB) al abrir. Se carga solo si el usuario
       // entra a un nivel jerárquico que realmente necesita Marca por Rubro/Línea/SubLínea.
     } catch (error) { this.loadingError.set(`No se pudieron abrir los datos del dashboard: ${error instanceof Error ? error.message : error}`); }
+  }
+
+  private async loadCompanyRanking(loadToken: number): Promise<void> {
+    if (loadToken !== this.goalLoadToken) return;
+    this.companyRankingState.set('loading');
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3 && loadToken === this.goalLoadToken; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new DOMException('Tiempo de espera agotado', 'TimeoutError')), 20_000);
+      try {
+        const ranking = await this.cloud.companyRanking(controller.signal);
+        if (!ranking?.stores?.length) throw new Error('La comparación no contiene tiendas.');
+        if (loadToken !== this.goalLoadToken) return;
+        this.companyRankingData.set(ranking);
+        this.companyRankingState.set('ready');
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2 && loadToken === this.goalLoadToken) {
+          await new Promise(resolve => setTimeout(resolve, 600 * (attempt + 1)));
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    if (loadToken === this.goalLoadToken) {
+      console.warn('No se pudo cargar el ranking general de tiendas:', lastError);
+      this.companyRankingData.set(null);
+      this.companyRankingState.set('error');
+    }
   }
 
   private multiLabel(values: string[], allLabel: string, plural: string): string {

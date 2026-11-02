@@ -87,7 +87,7 @@ export function EmptyState({ icon: Icon, title, text, action }) {
 }
 
 export function Loading({ label = "Cargando información…" }) {
-  return <div className="loading"><i /><span>{label}</span></div>;
+  return <div className="loading" role="status" aria-live="polite"><i aria-hidden="true" /><span>{label}</span></div>;
 }
 
 export function Notice({ type = "success", children, onClose }) {

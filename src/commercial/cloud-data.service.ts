@@ -329,9 +329,9 @@ export class CloudDataService {
     return this.portalRequest('/commercial/store-transfers', { signal });
   }
 
-  async companyRanking(): Promise<CompanyRankingData | null> {
+  async companyRanking(signal?: AbortSignal): Promise<CompanyRankingData | null> {
     if (!this.portalMode) return null;
-    return this.portalRequest<CompanyRankingData>('/commercial/company-ranking');
+    return this.portalRequest<CompanyRankingData>('/commercial/company-ranking', { signal });
   }
 
   async storeGoals(): Promise<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }> {

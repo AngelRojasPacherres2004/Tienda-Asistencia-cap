@@ -47,7 +47,14 @@ try {
       await context.addCookies([{ name: "asiste_session", value: token, url: origin, httpOnly: true, sameSite: "Lax" }]);
       const page = await context.newPage();
       const errors = [];
+      let rankingAttempts = 0;
       page.on("pageerror", error => errors.push(error.stack || error.message));
+      if (process.env.AUDIT_RANKING_RETRY === "1") await page.route("**/api/commercial/company-ranking", async route => {
+        rankingAttempts += 1;
+        if (rankingAttempts <= 2) {
+          await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Fallo temporal de auditoría" }) });
+        } else await route.continue();
+      });
       if (process.env.AUDIT_INTERACTIONS === "1") page.on("response", response => {
         if (response.url().includes("/commercial/company-ranking")) console.log(JSON.stringify({ role, width, rankingStatus: response.status() }));
       });
@@ -105,12 +112,23 @@ try {
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "jefe_tienda" && panel.button === 0) {
             console.log(JSON.stringify({ role, width, rankingLabels: await page.locator(".ranking-store-count").allInnerTexts() }));
             await page.locator(".ranking-store-count:visible").filter({ hasText: /^(?:[2-9]|[1-9][0-9]+) TIENDAS/ }).waitFor({ timeout: 30_000 });
+            const priceCard = section.locator('.price-range-card');
+            const stockStarted = Date.now();
+            await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
+            const priceMatrix = page.locator('.price-range-detail-table:visible');
+            await priceMatrix.locator('.price-range-detail-body .base-year').filter({ hasText: /\d+ und/ }).first().waitFor({ timeout: 60_000 });
+            console.log(JSON.stringify({ role, width, stockLoadMs: Date.now() - stockStarted }));
+            assert.ok((await priceMatrix.locator('.price-range-detail-body .base-year').allInnerTexts()).some(text => /\d+ und/.test(text)), 'El stock por rango de la tienda no cargó');
+            await priceMatrix.screenshot({ path: join(output, `${role}-${width}-price-range-stock.png`), animations: 'disabled' });
+            await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
           }
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 0) {
             const priceCard = section.locator('.price-range-card');
+            const stockStarted = Date.now();
             await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
             const priceMatrix = page.locator('.price-range-detail-table:visible');
-            await priceMatrix.getByText(/Stock disponible al corte/).waitFor({ timeout: 60_000 });
+            await priceMatrix.locator('.price-range-detail-body .base-year').filter({ hasText: /\d+ und/ }).first().waitFor({ timeout: 60_000 });
+            console.log(JSON.stringify({ role, width, stockLoadMs: Date.now() - stockStarted }));
             assert.equal(await priceMatrix.locator('.price-range-detail-head').innerText().then(text => text.includes('PARTICIPACIÓN')), false);
             assert.ok((await priceMatrix.locator('.price-range-detail-body .base-year').allInnerTexts()).some(text => /\d+ und/.test(text)), 'El stock por rango no cargó');
             await priceMatrix.screenshot({ path: join(output, 'price-range-stock-detail.png'), animations: 'disabled' });
@@ -134,8 +152,13 @@ try {
             await monthFilter.getByRole('button', { name: 'JUN', exact: true }).click();
             await page.getByRole('button', { name: 'Abrir filtros y listas' }).click();
             await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
-            await priceMatrix.getByText('Stock disponible al corte 2026-06-30', { exact: false }).waitFor({ timeout: 60_000 });
+            await priceMatrix.locator('.price-range-detail-body .base-year').filter({ hasText: /\d+ und/ }).first().waitFor({ timeout: 60_000 });
+            assert.equal(await priceMatrix.getByText(/Stock disponible al corte/).count(), 0);
             await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
+          }
+          if (process.env.AUDIT_RANKING_RETRY === "1" && panel.button === 0) {
+            await page.locator(".ranking-store-count:visible").filter({ hasText: /^(?:[2-9]|[1-9][0-9]+) TIENDAS/ }).waitFor({ timeout: 60_000 });
+            assert.ok(rankingAttempts >= 3, `Reintentos del ranking: ${rankingAttempts}`);
           }
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 1) {
             const sizes = section.locator(".size-distribution-card:visible");

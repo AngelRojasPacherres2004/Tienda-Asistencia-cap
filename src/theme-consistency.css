@@ -10,6 +10,19 @@
   color-scheme: light;
 }
 
+.app-shell.app-light .security-filter-grid select,
+.app-shell.app-light .security-date-filter {
+  color: #203b56;
+  border-color: #d2dce6;
+  background: #fff;
+}
+.app-shell.app-light .security-date-filter span { color: #4b6074; }
+.app-shell.app-light .security-date-filter input { color: #203b56; color-scheme: light; }
+.app-shell.app-light .security-filter-grid select:focus-visible,
+.app-shell.app-light .security-date-filter:focus-within { border-color: #6b9dc9; box-shadow: 0 0 0 3px rgba(71,125,190,.09); }
+.app-shell.app-light .loading { color: #60778d; }
+.app-shell.app-light .loading i { border-color: #dbe4ee; border-top-color: #245b91; }
+
 .app-light :is(.audit-summary__sections article, .audit-section-results > div, .audit-observation-list aside,
   .audit-score button, .supervision-metrics article, .supervision-panel, .supervision-toolbar,
   .supervision-toolbar label, .supervision-toolbar select, .store-main-data dl > div, .store-user-row) {

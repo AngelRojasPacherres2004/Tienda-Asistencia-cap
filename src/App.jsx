@@ -22,7 +22,6 @@ const StoreTraining = lazy(() => import("./pages/StoreTraining"));
 const MisCapacitaciones = lazy(() => import("./pages/MisCapacitaciones"));
 const Profile = lazy(() => import("./pages/Profile"));
 const GestionTienda = lazy(() => import("./pages/GestionTienda"));
-const Seguridad = lazy(() => import("./pages/Seguridad"));
 const TraficoSeguridad = lazy(() => import("./pages/TraficoSeguridad"));
 const IncidenciasSeguridad = lazy(() => import("./pages/IncidenciasSeguridad"));
 const MiTienda = lazy(() => import("./pages/MiTienda"));
@@ -43,7 +42,7 @@ const CredentialPermissions = lazy(() => import("./pages/CredentialPermissions")
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
-  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
+  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad-trafico", jefe_seguridad: "seguridad-trafico",
 };
 
 class PageErrorBoundary extends Component {
@@ -72,7 +71,9 @@ export default function App() {
         setStoreContext(account);
         setUser(account);
         const navigation = consumeStoreNavigation(account);
-        setPage(navigation?.page || homePageByRole[account.rol] || "dashboard");
+        const nextPage = navigation?.page === "seguridad" && ["seguridad", "jefe_seguridad"].includes(account.rol)
+          ? "seguridad-trafico" : navigation?.page;
+        setPage(nextPage || homePageByRole[account.rol] || "dashboard");
         setSessionNotice(navigation?.notice || "");
       })
       .catch(() => { if (active) setUser(null); })
@@ -168,7 +169,6 @@ export default function App() {
     "mis-capacitaciones": user.rol === "jefe_tienda" ? <StoreTraining key="mis" user={user} initialView="mis" /> : <MisCapacitaciones />,
     profile: <Profile />,
     gestion: <GestionTienda user={user} />,
-    seguridad: <Seguridad user={user} />,
     "seguridad-central": user.rol === "administrador_seguridad" ? <SecurityAdmin /> : <Dashboard user={user} />,
     "seguridad-trafico": <TraficoSeguridad user={user} />,
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
