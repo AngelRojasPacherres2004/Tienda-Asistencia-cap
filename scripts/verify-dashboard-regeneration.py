@@ -143,12 +143,14 @@ def verify(before_dir: Path, after_dir: Path) -> list[str]:
                 if not size_file.is_file():
                     errors.append(f"{size_file.name}: falta el detalle de tallas")
                 else:
+                    predictive_90 = {(row["storeId"], row["productId"]): row["units90"] for row in regenerated["predictiveRows"]}
                     original_sizes = [
                         {"storeId": row["storeId"], "productId": row["productId"],
                          "productCode": row["productCode"],
                          "product": row["product"] if len(row["productCode"]) == 14 else "",
-                         "category": row["category"], "line": row["line"], "subline": row["subline"],
-                         "stockUnits": row["stockUnits"], "units30": row["units30"]}
+                         "category": row["category"], "line": row["line"], "subline": row["subline"], "brand": row["brand"],
+                         "stockUnits": row["stockUnits"], "units30": row["units30"],
+                         "units90": predictive_90.get((row["storeId"], row["productId"]), row["units30"])}
                         for row in regenerated["stockProducts"] if row["category"] == rubro
                     ]
                     if not rows_equal(original_sizes, descompactar_tallas(read(size_file)["sizeCompact"])):

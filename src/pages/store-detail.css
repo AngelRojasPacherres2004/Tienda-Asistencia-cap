@@ -1,0 +1,23 @@
+.store-team-matrix { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.store-team-matrix table { width: 100%; min-width: 780px; border-collapse: collapse; color: var(--text); }
+.store-team-matrix th { background: var(--surface); font-weight: 700; }
+.store-team-matrix :is(th, td) { text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.store-team-matrix td:nth-child(4), .store-team-matrix td:nth-child(5), .store-team-matrix td:nth-child(6) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.store-team-matrix tbody tr:last-child td { border-bottom: 0; }
+.store-users__heading { gap: 12px; flex-wrap: wrap; }
+.store-users__heading select { max-width: 100%; min-height: 40px; padding: 8px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+@media (max-width: 600px) { .store-team-matrix :is(th, td) { font-size: 13px; } }
+.store-info-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.store-info-section { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.store-info-section h3 { margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 16px; }
+.store-info-section dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin: 0; }
+.store-info-section dl > div { min-width: 0; }
+.store-info-field--wide { grid-column: 1 / -1; }
+.store-info-section dt { margin-bottom: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.store-info-section dd { margin: 0; color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.store-info-section dd.store-info-missing { color: var(--muted); font-weight: 400; }
+@media (max-width: 680px) {
+  .store-info-sections { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .store-info-section { padding: 14px; }
+  .store-info-section dl { gap: 14px 12px; }
+}

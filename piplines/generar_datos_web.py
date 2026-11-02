@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -19,9 +19,9 @@ from compactar_dashboard import (
 )
 
 
-WEB_DIR = PROJECT_ROOT / "commercial-dashboard"
-SALIDA_PUBLICA = WEB_DIR / "public" / "assets" / "data" / "dashboard.json"
-SALIDA_COMPILADA = WEB_DIR / "dist" / "dashboard-web" / "browser" / "assets" / "data" / "dashboard.json"
+WEB_DIR = PROJECT_ROOT / "dashboard-data"
+SALIDA_PUBLICA = WEB_DIR / "dashboard.json"
+SALIDA_COMPILADA = PROJECT_ROOT / "dist" / "comercial" / "assets" / "data" / "dashboard.json"
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
 PERSONAL_XLSX = PROJECT_ROOT / "capa1" / "PERSONAL_TIENDAS.xlsx"
 
@@ -864,6 +864,41 @@ def generar() -> dict:
         """,
     )
 
+    # El stock se clasifica por precio sugerido, pues una unidad sin vender no
+    # tiene precio realizado. Solo BUENO representa unidades disponibles.
+    stock_rangos_precio = filas(
+        conexion,
+        f"""
+        WITH clasificado AS (
+            SELECT periodo_corte_id AS "periodId", fecha_corte AS "cutoff",
+                tienda_id AS "storeId", {rubro_dashboard} AS category,
+                COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
+                COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+                CASE
+                    WHEN precio_sugerido <= 30 THEN 1
+                    WHEN precio_sugerido <= 60 THEN 2
+                    WHEN precio_sugerido <= 90 THEN 3
+                    WHEN precio_sugerido <= 120 THEN 4
+                    WHEN precio_sugerido <= 150 THEN 5
+                    WHEN precio_sugerido <= 180 THEN 6
+                    WHEN precio_sugerido <= 210 THEN 7
+                    WHEN precio_sugerido <= 240 THEN 8
+                    WHEN precio_sugerido <= 270 THEN 9
+                    WHEN precio_sugerido <= 300 THEN 10
+                    ELSE 11
+                END AS "bandOrder",
+                cantidad
+            FROM {stock_historico}
+            WHERE estado_grupo = 'BUENO' AND cantidad > 0 AND precio_sugerido > 0
+        )
+        SELECT "periodId", "cutoff", "storeId", category, line, subline,
+            "bandOrder", CAST(SUM(cantidad) AS DOUBLE) AS "stockUnits"
+        FROM clasificado
+        GROUP BY 1, 2, 3, 4, 5, 6, 7
+        ORDER BY 1, 3, 4, 5, 6, 7
+        """,
+    )
+
     stock_tienda = filas(
         conexion,
         f"""
@@ -1045,7 +1080,71 @@ def generar() -> dict:
         """,
     )
 
-    cobertura_fuentes = reporte_cobertura.get("sources", [])
+    # Cada corte mensual conserva exactamente los 90 días previos. El gráfico
+    # de tallas no debe reutilizar la foto de ventas del último corte al filtrar
+    # un mes histórico.
+    periodos_talla = sorted({int(registro["periodId"]) for registro in base_mensual})
+    cortes_talla = []
+    for periodo in periodos_talla:
+        anio, mes = divmod(periodo, 100)
+        siguiente = date(anio + (mes == 12), mes % 12 + 1, 1)
+        fin = min(fecha_corte, siguiente - timedelta(days=1))
+        if fin >= date(anio, mes, 1):
+            cortes_talla.append(f"({periodo}, DATE '{fin.isoformat()}')")
+    ventas_talla_90 = filas(
+        conexion,
+        f"""
+        WITH cortes(period_id, fecha_fin) AS (VALUES {', '.join(cortes_talla)})
+        SELECT cortes.period_id AS "periodId", v.tienda_id AS "storeId",
+            v.producto_id AS "productId",
+            MAX(TRIM(CAST(v.codigo_nissei AS VARCHAR))) AS "productCode",
+            MAX(COALESCE(NULLIF(TRIM(v.descripcion), ''), v.producto_id)) AS product,
+            {rubro_dashboard} AS category,
+            COALESCE(NULLIF(TRIM(v.linea), ''), 'SIN LINEA') AS line,
+            COALESCE(NULLIF(TRIM(v.sub_linea), ''), 'SIN SUBLINEA') AS subline,
+            MAX(COALESCE(NULLIF(TRIM(v.marca), ''), 'SIN MARCA')) AS brand,
+            CAST(SUM(v.cantidad) AS DOUBLE) AS units90
+        FROM cortes JOIN {ventas} v
+          ON v.fecha_venta BETWEEN cortes.fecha_fin - INTERVAL 89 DAY AND cortes.fecha_fin
+        WHERE v.producto_id IS NOT NULL AND LENGTH(TRIM(CAST(v.codigo_nissei AS VARCHAR))) = 14
+          AND v.cantidad > 0 AND v.total_venta >= 0
+          AND {rubro_dashboard} IN ('TEXTIL', 'CALZADO')
+        GROUP BY 1, 2, 3, 6, 7, 8
+        ORDER BY 1, 2, 6, 3
+        """,
+    ) if cortes_talla else []
+
+    cobertura_fuentes = [dict(fuente) for fuente in reporte_cobertura.get("sources", [])]
+    # El reporte de corte puede preceder a una importación posterior. Releer
+    # estas dos fuentes sin recortar sus Parquet conserva el histórico nuevo
+    # para el próximo corte de ventas y muestra la cobertura real de hoy.
+    for nombre, fuente_sql, columna, tolerancia in (
+        ("Tráfico", trafico_fuente, "fecha", 7),
+        ("Merma", merma, "fecha_analisis", 35),
+    ):
+        original, incluida, maxima, hasta = conexion.execute(
+            f"SELECT COUNT(*), COUNT(*) FILTER (WHERE {columna} <= {corte_sql}), "
+            f"MAX({columna}), MAX({columna}) FILTER (WHERE {columna} <= {corte_sql}) "
+            f"FROM {fuente_sql}"
+        ).fetchone()
+        for fuente in cobertura_fuentes:
+            if fuente.get("source") != nombre:
+                continue
+            rezago = (fecha_corte - hasta).days if hasta else None
+            fuente.update({
+                "maxAvailable": maxima.isoformat() if maxima else None,
+                "dataThrough": hasta.isoformat() if hasta else None,
+                "rowsOriginal": original,
+                "rowsIncluded": incluida,
+                "rowsExcludedAfterCutoff": original - incluida,
+                "lagDays": rezago,
+                "status": "ok" if rezago is not None and rezago <= tolerancia else "warning",
+                "message": (f"{nombre} llega hasta {hasta.isoformat()} ({rezago} días antes del corte)."
+                            if hasta and rezago > tolerancia else
+                            f"{nombre} está dentro de su frecuencia esperada." if hasta else
+                            f"No hay {nombre.lower()} hasta el corte."),
+            })
+            break
     advertencias_datos = [
         {"source": fuente.get("source", "Fuente"), "message": fuente.get("message", "")}
         for fuente in cobertura_fuentes
@@ -1076,10 +1175,9 @@ def generar() -> dict:
             "nonSellableRate": 0.18,
             "coverageRanges": [
                 {"min": 0, "max": 29.9999, "label": "CRÍTICO", "color": "#DC2626"},
-                {"min": 30, "max": 45, "label": "ALERTA", "color": "#F59E0B"},
-                {"min": 45.0001, "max": 60, "label": "NORMAL", "color": "#16A34A"},
-                {"min": 60.0001, "max": 90, "label": "OBSERVACIÓN", "color": "#64748B"},
-                {"min": 90.0001, "max": 999999, "label": "EXCESO", "color": "#2563EB"},
+                {"min": 30, "max": 59.9999, "label": "DÉFICIT", "color": "#F59E0B"},
+                {"min": 60, "max": 120, "label": "ÓPTIMO · META 90D", "color": "#16A34A"},
+                {"min": 120.0001, "max": 999999, "label": "EXCESO", "color": "#2563EB"},
             ],
             "eoq": {
                 "available": True,
@@ -1113,12 +1211,14 @@ def generar() -> dict:
         "sellerPerformance": desempeno_vendedores,
         "clientPerformance": desempeno_clientes,
         "monthlyPriceRange": rangos_precio,
+        "stockPriceRange": stock_rangos_precio,
         "stockStore": stock_tienda,
         "stockOrigin": antiguedad,
         "predictiveStore": cobertura,
         "predictiveCategory": rotacion_rubro,
         "predictiveRows": detalle_predictivo,
         "stockProducts": producto_extremos,
+        "sizeSales90": ventas_talla_90,
     }
     return resultado
 
@@ -1143,6 +1243,8 @@ def escribir(resultado: dict) -> None:
         SALIDA_COMPILADA.parent / "dashboard-subline.json",
         SALIDA_PUBLICA.parent / "dashboard-price-range.json",
         SALIDA_COMPILADA.parent / "dashboard-price-range.json",
+        *SALIDA_PUBLICA.parent.glob("dashboard-size-sales-????-??-*.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-size-sales-????-??-*.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-daily-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-daily-compact-????-??.json"),
@@ -1173,6 +1275,8 @@ def escribir(resultado: dict) -> None:
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-compact-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-????-??.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-????-??.json"),
+        *SALIDA_PUBLICA.parent.glob("dashboard-stock-price-range-????-??.json"),
+        *SALIDA_COMPILADA.parent.glob("dashboard-stock-price-range-????-??.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-summary-????.json"),
         *SALIDA_COMPILADA.parent.glob("dashboard-price-range-summary-????.json"),
         *SALIDA_PUBLICA.parent.glob("dashboard-price-range-category-????.json"),
@@ -1197,7 +1301,24 @@ def escribir(resultado: dict) -> None:
         nombre = f"dashboard-daily-{periodo // 100:04d}-{periodo % 100:02d}.json"
         horas_por_mes.setdefault(nombre, []).append(registro)
 
+    tallas_por_corte: dict[str, list[dict]] = {}
+    for registro in resultado["sizeSales90"]:
+        periodo = int(registro["periodId"])
+        nombre = f"dashboard-size-sales-{periodo // 100:04d}-{periodo % 100:02d}-{registro['category'].lower()}.json"
+        tallas_por_corte.setdefault(nombre, []).append(registro)
+    for periodo in {int(row["periodId"]) for row in resultado["monthlyStore"]}:
+        for rubro in ("textil", "calzado"):
+            tallas_por_corte.setdefault(f"dashboard-size-sales-{periodo // 100:04d}-{periodo % 100:02d}-{rubro}.json", [])
+
+    stock_rangos_por_corte: dict[str, list[dict]] = {}
+    for registro in resultado.get("stockPriceRange", []):
+        periodo = int(registro["periodId"])
+        nombre = f"dashboard-stock-price-range-{periodo // 100:04d}-{periodo % 100:02d}.json"
+        stock_rangos_por_corte.setdefault(nombre, []).append(registro)
+
     archivos = {
+        **{nombre: {"sizeSales90": compactar_registros(filas_mes, "sizeSales90")} for nombre, filas_mes in sorted(tallas_por_corte.items())},
+        **{nombre: {"stockPriceRange": filas_mes} for nombre, filas_mes in sorted(stock_rangos_por_corte.items())},
         **{
             nombre: {"dailyStore": filas_mes, "hourlySales": horas_por_mes.get(nombre, [])}
             for nombre, filas_mes in sorted(diario_por_mes.items())
@@ -1238,7 +1359,7 @@ def escribir(resultado: dict) -> None:
         },
         **{
             f"dashboard-stock-sizes-{rubro.lower()}.json": {
-                "sizeCompact": compactar_tallas(resultado["stockProducts"], rubro),
+                "sizeCompact": compactar_tallas(resultado["stockProducts"], rubro, resultado["predictiveRows"]),
             }
             for rubro in ("TEXTIL", "CALZADO")
         },
@@ -1263,7 +1384,7 @@ def escribir(resultado: dict) -> None:
         **{
             clave: valor for clave, valor in resultado.items()
             if clave not in {
-                "predictiveRows", "monthlyPriceRange", "dailyStore", "dailyHourlySales",
+                "predictiveRows", "monthlyPriceRange", "dailyStore", "dailyHourlySales", "sizeSales90", "stockPriceRange",
                 "sellerPerformance", "clientPerformance",
             }
         },
@@ -1291,7 +1412,7 @@ def escribir(resultado: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Genera el conjunto compacto para el dashboard Angular.")
+    parser = argparse.ArgumentParser(description="Genera el conjunto compacto para el dashboard React.")
     parser.parse_args()
     escribir(generar())
     return 0

@@ -47,10 +47,17 @@ export function createZonalDomain({
 
   async function getZonalModule(event, user, kind) {
     const { ids, stores } = await zonalScope(user);
-    if (!ids.length && kind !== "personal") return kind === "asistencia" ? { fecha: todayISO(), tiendas: [] } : [];
+    if (!ids.length && kind !== "personal") return kind === "asistencia" ? { fecha: todayISO(), tiendas: [] } : kind === "requerimientos" ? { tiendas: [], requerimientos: [] } : [];
     const query = event.queryStringParameters || {};
     if (kind === "personal") {
       return listUsers(user, null, { includeZonalTeam: true });
+    }
+    if (kind === "requerimientos") {
+      const { data, error } = await readAllResult(supabase.from("requerimientos_tienda")
+        .select("*,autor:usuarios!creado_por(nombres,apellidos),seguimientos:requerimiento_seguimientos(*,usuarios(nombres,apellidos))")
+        .in("tienda_id", ids).order("created_at", { ascending: false }).order("id", { ascending: false }));
+      if (error) throw dbError(error);
+      return { tiendas: stores, requerimientos: (data || []).map(row => ({ ...row, tienda_nombre: stores.find(store => Number(store.id) === Number(row.tienda_id))?.nombre || "Tienda sin nombre" })) };
     }
     if (kind === "asistencia") {
       const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
@@ -87,6 +94,56 @@ export function createZonalDomain({
       return { visitas: (visitas || []).map(serializeVisit), observaciones: observaciones || [] };
     }
     throw httpError("Módulo zonal no válido.", 404);
+  }
+
+  async function trackZonalRequirement(event, user, id) {
+    if (!["jefe_zonal", "gerencia_general"].includes(user.rol)) throw httpError("No tienes acceso.", 403);
+    const input = bodyOf(event);
+    const comentario = cleanText(input.comentario);
+    if (!Number.isSafeInteger(id) || id < 1 || !["pendiente", "en_proceso", "atendido", "cancelado"].includes(input.estado)
+      || !comentario || comentario.length > 4000) throw httpError("Indica un estado válido y un comentario de hasta 4000 caracteres.", 400);
+    const { ids } = await zonalScope(user);
+    if (!ids.length) throw httpError("No tienes acceso a este requerimiento.", 403);
+    const existing = await supabase.from("requerimientos_tienda").select("id,tienda_id,estado,updated_at").eq("id", id).in("tienda_id", ids).maybeSingle();
+    if (existing.error) throw dbError(existing.error);
+    const previous = existing.data;
+    if (!previous) throw httpError("No tienes acceso a este requerimiento.", 403);
+    if (input.estado_anterior !== previous.estado || input.version !== previous.updated_at) throw httpError("El requerimiento cambió. Actualiza la lista antes de guardar.", 409);
+    const stamp = new Date().toISOString();
+    const guard = query => previous.updated_at == null ? query.is("updated_at", null) : query.eq("updated_at", previous.updated_at);
+    const update = await guard(supabase.from("requerimientos_tienda").update({ estado: input.estado, updated_at: stamp }).eq("id", id).eq("tienda_id", previous.tienda_id).eq("estado", previous.estado)).select("*").maybeSingle();
+    if (update.error) throw dbError(update.error);
+    if (!update.data) throw httpError("El requerimiento cambió. Actualiza la lista antes de guardar.", 409);
+    const tracking = await supabase.from("requerimiento_seguimientos").insert({ requerimiento_id: id, usuario_id: user.id, comentario, estado: input.estado }).select("*,usuarios(nombres,apellidos)").single();
+    if (tracking.error) {
+      const rollback = await supabase.from("requerimientos_tienda").update({ estado: previous.estado, updated_at: previous.updated_at }).eq("id", id).eq("tienda_id", previous.tienda_id).eq("updated_at", stamp).select("id").maybeSingle();
+      if (rollback.error || !rollback.data) throw httpError("No se pudo guardar el seguimiento ni restablecer el estado. Actualiza y verifica el requerimiento antes de reintentar.", 500);
+      throw dbError(tracking.error);
+    }
+    return { requerimiento: update.data, seguimiento: tracking.data };
+  }
+
+  async function signedZonalRequirementFile(event, user) {
+    const input = bodyOf(event);
+    if (!Number.isSafeInteger(Number(input.requerimiento_id)) || Number(input.requerimiento_id) < 1
+      || input.seguimiento_id != null && (!Number.isSafeInteger(Number(input.seguimiento_id)) || Number(input.seguimiento_id) < 1)) throw httpError("El requerimiento o seguimiento no es válido.", 400);
+    const { ids } = await zonalScope(user);
+    if (!ids.length) throw httpError("No tienes acceso a este requerimiento.", 403);
+    const { data: requirement, error } = await supabase.from("requerimientos_tienda").select("id,tienda_id,evidencia_path")
+      .eq("id", Number(input.requerimiento_id)).in("tienda_id", ids).maybeSingle();
+    if (error) throw dbError(error);
+    if (!requirement) throw httpError("No tienes acceso a este requerimiento.", 403);
+    let path = requirement.evidencia_path;
+    if (input.seguimiento_id) {
+      const { data: entry, error: entryError } = await supabase.from("requerimiento_seguimientos").select("evidencia_path")
+        .eq("id", Number(input.seguimiento_id)).eq("requerimiento_id", requirement.id).maybeSingle();
+      if (entryError) throw dbError(entryError);
+      path = entry?.evidencia_path;
+    }
+    if (!path || !path.startsWith(`${requirement.tienda_id}/`)) throw httpError("La evidencia no está disponible.", 404);
+    const signed = await supabase.storage.from("mi-tienda").createSignedUrl(path, 300);
+    if (signed.error) throw dbError(signed.error);
+    return { url: signed.data.signedUrl };
   }
 
   async function createZonalSupervision(event, user) {
@@ -287,5 +344,5 @@ export function createZonalDomain({
     return excelResponse(workbook, "incidencias-zonales.xlsx");
   }
 
-  return { serializeVisit, getZonalModule, createZonalSupervision, getZonalComparison, getGeneralComparison, getZonalCluster, signedZonalSupervisionFile, exportZonalSupervisions, createZonalIncident, updateZonalIncident, exportZonalIncidents };
+  return { serializeVisit, getZonalModule, trackZonalRequirement, signedZonalRequirementFile, createZonalSupervision, getZonalComparison, getGeneralComparison, getZonalCluster, signedZonalSupervisionFile, exportZonalSupervisions, createZonalIncident, updateZonalIncident, exportZonalIncidents };
 }

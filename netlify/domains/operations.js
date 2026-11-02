@@ -54,6 +54,25 @@ export function createOperationsDomain({
 
   async function saveTraffic(event, user) {
     const data = bodyOf(event);
+    if (data.registros !== undefined) {
+      if (!isISODate(data.fecha) || data.fecha !== limaDateISO()) throw httpError("La matriz solo permite registrar el tráfico de hoy.", 400);
+      if (!Array.isArray(data.registros) || !data.registros.length || data.registros.length > rangosTrafico.size) throw httpError("Completa al menos un horario válido.", 400);
+      const seen = new Set();
+      for (const row of data.registros) {
+        if (!row || !rangosTrafico.has(row.rango_hora) || seen.has(row.rango_hora)) throw httpError("Los horarios deben ser válidos y no repetirse.", 400);
+        seen.add(row.rango_hora);
+        if (row.cantidad === null || row.cantidad === undefined || String(row.cantidad).trim() === "" || typeof row.cantidad === "boolean" || !Number.isSafeInteger(Number(row.cantidad)) || Number(row.cantidad) < 0) throw httpError("La cantidad de visitantes debe ser un entero mayor o igual a cero.", 400);
+      }
+      const tiendaId = await resolveOperationalStoreScope(user, data.tienda_id);
+      const timestamp = limaTimestamp();
+      const hora = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date());
+      const records = data.registros.map(row => ({ tienda_id: tiendaId, fecha: data.fecha, hora,
+        rango_hora: row.rango_hora, cantidad: Number(row.cantidad), observaciones: cleanText(row.observaciones) || null,
+        registrado_por: user.id, updated_at: timestamp }));
+      const { data: saved, error } = await supabase.from("trafico_tienda").upsert(records, { onConflict: "tienda_id,fecha,rango_hora" }).select();
+      if (error) throw dbError(error);
+      return saved;
+    }
     requireFields(data, ["fecha", "rango_hora", "cantidad"]);
     if (!rangosTrafico.has(data.rango_hora)) throw httpError("Selecciona un rango horario válido.", 400);
     if (!isISODate(data.fecha) || !Number.isInteger(Number(data.cantidad)) || Number(data.cantidad) < 0) throw httpError("Indica una fecha y cantidad válidas.", 400);
@@ -418,6 +437,21 @@ export function createOperationsDomain({
     return row;
   }
 
+  async function warningEvidence(id, user) {
+    const storeId = await resolveOperationalStoreScope(user);
+    const { data: warning, error } = await supabase.from('amonestaciones').select('id').eq('id', id).eq('tienda_id', storeId).maybeSingle();
+    if (error) throw dbError(error);
+    if (!warning) throw httpError('Amonestación no encontrada.', 404);
+    const folder = `${storeId}/amonestacion-${id}`;
+    const listing = await supabase.storage.from('mi-tienda').list(folder, { limit: 10 });
+    if (listing.error) throw dbError(listing.error);
+    const file = (listing.data || []).find(item => item.name && item.id);
+    if (!file) return { url: null };
+    const signed = await supabase.storage.from('mi-tienda').createSignedUrl(`${folder}/${file.name}`, 300);
+    if (signed.error) throw dbError(signed.error);
+    return { url: signed.data.signedUrl, nombre: file.name };
+  }
+
   async function createStoreDocument(event, user) {
     const data = bodyOf(event);
     requireFields(data, ["nombre", "fecha_vencimiento"]);
@@ -472,7 +506,7 @@ export function createOperationsDomain({
       if (!row.usuario_id) {
         const name = cleanText(row.nombre_manual);
         if (!name || name.length > 200) throw httpError("Escribe el nombre del trabajador (máximo 200 caracteres).", 400);
-        if (!cleanText(row.origen_manual) || cleanText(row.origen_manual).length > 200) throw httpError("Escribe la tienda de origen (máximo 200 caracteres).", 400);
+        if (cleanText(row.origen_manual).length > 200) throw httpError("Escribe la tienda de origen (máximo 200 caracteres).", 400);
         if (row.dni && !/^\d{8}$/.test(row.dni)) throw httpError("El DNI debe tener 8 dígitos o quedar vacío.", 400);
       }
     }
@@ -480,7 +514,7 @@ export function createOperationsDomain({
       usuario_id: row.usuario_id ? Number(row.usuario_id) : null,
       horas: Number(row.horas),
       area: normalizeLaborArea(row.area) || null,
-      ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) } : {}),
+      ...(!row.usuario_id ? { nombre_manual: cleanText(row.nombre_manual), dni_manual: row.dni || null, origen_manual: cleanText(row.origen_manual) || null } : {}),
       observacion: cleanText(row.observacion) || null,
     }));
     const { data: coverage, error } = await supabase.rpc('registrar_cobertura_diaria', {
@@ -510,11 +544,11 @@ export function createOperationsDomain({
     const today = todayISO();
     const [traffic, incidents, securityFixed, securityOther, warnings, errors, documents, administration, activePersonnel] = await Promise.all([
       supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
-      supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-      supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
-      supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
       supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-      supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
       supabase.from("documentos_municipales").select("fecha_vencimiento,dias_alerta").eq("tienda_id", storeId).gte("fecha_vencimiento", today),
       supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
       supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", storeStaffRoles),
@@ -525,9 +559,9 @@ export function createOperationsDomain({
     if (documents.error) throw dbError(documents.error);
     const documentosPorVencer = (documents.data || []).filter((row) => Number(row.fecha_vencimiento.slice(0, 10).replaceAll("-", "")) >= Number(today.replaceAll("-", "")) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length;
     const securityIncidents = (securityFixed.count || 0) + (securityOther.count || 0);
-    return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), incidencias: incidents.count || 0,
-      incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents,
-      amonestaciones: warnings.count || 0, errores: errors.count || 0, documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
+    const incidentIndicators = user.rol === "jefe_tienda" ? {} : { incidencias: incidents.count || 0, incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents };
+    return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), ...incidentIndicators,
+      amonestaciones: warnings.count || 0, ...(user.rol === "jefe_tienda" ? {} : { errores: errors.count || 0 }), documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
   }
 
   async function storeSalesForecast(event, user) {
@@ -572,5 +606,5 @@ export function createOperationsDomain({
     return { desde, hasta, alcance: hasStoreScope(scope) && !Array.isArray(scope) ? "tienda" : "consolidado", registros };
   }
 
-  return { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport };
+  return { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, warningEvidence, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport };
 }

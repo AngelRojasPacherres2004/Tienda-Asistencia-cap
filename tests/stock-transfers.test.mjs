@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stockTransfers, transferTotals } from '../commercial-dashboard/src/app/stock-transfers.ts';
+import { stockTransfers, transferTotals } from '../src/commercial/stock-transfers.ts';
 const row = (storeId, goodUnits, units30, productId = 'SKU1') => ({ storeId, goodUnits, stockUnits: goodUnits, units30, productId, product: 'Producto', category: 'TEXTIL', line: 'DAMA' });
 test('matches the same SKU and reserves healthy stock for the donor', () => {
   const result = stockTransfers([row('A', 100, 10), row('B', 2, 30), row('C', 0, 20, 'SKU2')]);

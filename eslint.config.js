@@ -9,7 +9,6 @@ export default [
     ignores: [
       "**/dist/**",
       "**/node_modules/**",
-      "**/.angular/**",
       ".etl_work/**",
       ".venv/**",
       "venv/**",

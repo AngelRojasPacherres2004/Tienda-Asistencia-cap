@@ -58,10 +58,10 @@ function RotationPanel({ rows, totals, year }) {
   </article>;
 }
 
-function WarningsByWorkerPanel({ data, periodLabel }) {
+function WarningsByWorkerPanel({ data, periodLabel, compactTitles = false }) {
   const rows = data?.rows || [];
   return <article className="panel dashboard-worker-panel">
-    <header className="panel__header"><div><h2>Amonestaciones por trabajador</h2><p>Últimos 8 registros del período seleccionado</p></div><span className="panel-tag">{data?.total || 0} amonestaciones</span></header>
+    <header className="panel__header"><div><h2>{compactTitles ? "Amonestaciones" : "Amonestaciones por trabajador"}</h2>{!compactTitles && <p>Últimos 8 registros del período seleccionado</p>}</div>{!compactTitles && <span className="panel-tag">{data?.total || 0} amonestaciones</span>}</header>
     {rows.length ? <div className="dashboard-worker-table"><div className="dashboard-worker-table__head"><span>Fecha</span><span>Trabajador</span><span>Documento</span></div>{rows.map((row) => <div key={row.id}><span>{formatDate(row.fecha)}</span><strong title={row.trabajador}>{row.trabajador}</strong><span>{row.documento}</span></div>)}</div> : <div className="panel-empty"><CheckCircle2 size={24} /><span>No hay amonestaciones registradas en {periodLabel.toLowerCase()}.</span></div>}
   </article>;
 }
@@ -72,19 +72,19 @@ function WorkerNameTick({ x, y, payload, fill }) {
   return <text x={x} y={y} dy={4} textAnchor="end" fill={fill} fontSize={11} fontWeight={700}><title>{payload?.value}</title>{label}</text>;
 }
 
-function AttendanceByWorkerPanel({ rows, periodLabel, light = false }) {
+function AttendanceByWorkerPanel({ rows, periodLabel, light = false, compactTitles = false }) {
   const axisColor = light ? "#54708a" : "#9f9789";
   const workerColor = light ? "#173b5b" : "#ddd4c7";
   const totalColor = light ? "#174a75" : "#c8d3de";
   return <article className="panel dashboard-worker-panel dashboard-worker-attendance">
-    <header className="panel__header"><div><h2>Asistencia por trabajador</h2><p>Asistencia, tardanza, faltas y otros estados</p></div><span className="panel-tag">{periodLabel}</span></header>
+    <header className="panel__header"><div><h2>{compactTitles ? "Asistencia del equipo" : "Asistencia por trabajador"}</h2>{!compactTitles && <p>Asistencia, tardanza, faltas y otros estados</p>}</div>{!compactTitles && <span className="panel-tag">{periodLabel}</span>}</header>
     {rows.length ? <div className="chart dashboard-worker-chart" style={{ height: Math.max(260, rows.length * 31 + 16) }}><ResponsiveContainer width="100%" height="100%"><BarChart data={rows} layout="vertical" margin={{ top: 8, right: 34, left: 4, bottom: 4 }} barSize={18}><CartesianGrid stroke={light ? "#d4e0e9" : "#2a2926"} horizontal={false} /><XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: axisColor, fontSize: 10 }} /><YAxis type="category" dataKey="nombre" width={142} axisLine={false} tickLine={false} tick={<WorkerNameTick fill={workerColor} />} /><Tooltip contentStyle={tooltipStyle} /><Bar dataKey="presente" name="Asistencia" stackId="asistencia" fill="#08b947" radius={[3, 0, 0, 3]} /><Bar dataKey="tardanza" name="Tardanza" stackId="asistencia" fill="#f2b33b" /><Bar dataKey="ausencia" name="Faltas" stackId="asistencia" fill="#ef4055" radius={[0, 3, 3, 0]}></Bar><Bar dataKey="otros" name="Otros estados" stackId="asistencia" fill="#8f7ac8"><LabelList dataKey="total" position="right" fill={totalColor} fontSize={11} /></Bar></BarChart></ResponsiveContainer></div> : <div className="panel-empty"><CheckCircle2 size={24} /><span>No hay asistencias registradas en {periodLabel.toLowerCase()}.</span></div>}
     <div className="dashboard-worker-legend"><span><i className="is-present" />Asistencia</span><span><i className="is-late" />Tardanza</span><span><i className="is-absent" />Faltas</span><span><i style={{ background: "#8f7ac8" }} />Otros estados</span></div>
   </article>;
 }
 
-export function WorkerInsightsPanels({ warnings, attendance, periodLabel, light = false }) {
-  return <><WarningsByWorkerPanel data={warnings} periodLabel={periodLabel} /><AttendanceByWorkerPanel rows={attendance || []} periodLabel={periodLabel} light={light} /></>;
+export function WorkerInsightsPanels({ warnings, attendance, periodLabel, light = false, compactTitles = false }) {
+  return <><WarningsByWorkerPanel compactTitles={compactTitles} data={warnings} periodLabel={periodLabel} /><AttendanceByWorkerPanel compactTitles={compactTitles} rows={attendance || []} periodLabel={periodLabel} light={light} /></>;
 }
 
 export function TrainingDevelopmentPanel({ rows }) {

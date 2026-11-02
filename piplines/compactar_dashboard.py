@@ -26,9 +26,13 @@ SCHEMAS: dict[str, tuple[str, ...]] = {
         "storeId", "category", "line", "subline", "brand", "stockUnits", "stockValue",
         "goodUnits", "units30", "sales30",
     ),
+    "sizeSales90": (
+        "periodId", "storeId", "productId", "productCode", "product", "category",
+        "line", "subline", "brand", "units90",
+    ),
 }
 
-DIMENSIONS = frozenset({"periodId", "storeId", "category", "line", "subline", "brand", "priceBand"})
+DIMENSIONS = frozenset({"periodId", "storeId", "productId", "productCode", "product", "category", "line", "subline", "brand", "priceBand"})
 SELLER_GROUP_FIELDS = SCHEMAS["sellerPerformance"][:5]
 SELLER_DIMENSIONS = (*SELLER_GROUP_FIELDS, "seller")
 DAILY_FIELDS = frozenset({
@@ -384,7 +388,7 @@ def candidatos_traslado(registros: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [registro for registro in registros if registro["productId"] in candidatos]
 
 
-def compactar_tallas(registros: list[dict[str, Any]], rubro: str) -> dict[str, Any]:
+def compactar_tallas(registros: list[dict[str, Any]], rubro: str, predictivos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Solo transfiere SKU y métricas que necesita el panel de tallas."""
     if rubro not in {"TEXTIL", "CALZADO"}:
         raise ValueError("Rubro de tallas desconocido")
@@ -392,7 +396,17 @@ def compactar_tallas(registros: list[dict[str, Any]], rubro: str) -> dict[str, A
     productos: list[list[Any]] = []
     indices_tienda: dict[str, int] = {}
     indices_producto: dict[str, int] = {}
+    diccionarios: dict[str, list[str]] = {campo: [] for campo in ("line", "subline", "brand")}
+    indices_dim: dict[str, dict[str, int]] = {campo: {} for campo in diccionarios}
     filas: list[list[Any]] = []
+    venta_90 = {(row["storeId"], row["productId"]): row["units90"] for row in (predictivos or [])}
+    def indice(campo: str, valor: str) -> int:
+        actual = indices_dim[campo].get(valor)
+        if actual is None:
+            actual = len(diccionarios[campo])
+            indices_dim[campo][valor] = actual
+            diccionarios[campo].append(valor)
+        return actual
     for registro in registros:
         if registro["category"] != rubro:
             continue
@@ -405,7 +419,8 @@ def compactar_tallas(registros: list[dict[str, Any]], rubro: str) -> dict[str, A
         producto = registro["productId"]
         codigo = registro["productCode"]
         metadatos = [producto, codigo, registro["product"] if len(codigo) == 14 else "",
-                     registro["line"], registro["subline"]]
+                     indice("line", registro["line"]), indice("subline", registro["subline"]),
+                     indice("brand", registro.get("brand", "SIN MARCA"))]
         indice_producto = indices_producto.get(producto)
         if indice_producto is None:
             indice_producto = len(productos)
@@ -413,19 +428,27 @@ def compactar_tallas(registros: list[dict[str, Any]], rubro: str) -> dict[str, A
             productos.append(metadatos)
         elif productos[indice_producto] != metadatos:
             raise ValueError(f"El SKU {producto} tiene tallas incompatibles entre tiendas")
-        filas.append([indice_tienda, indice_producto, registro["stockUnits"], registro["units30"]])
-    return {"encoding": "sizes-v1", "category": rubro, "stores": tiendas, "products": productos, "rows": filas}
+        filas.append([indice_tienda, indice_producto, registro["stockUnits"], registro["units30"],
+                     venta_90.get((tienda, producto), registro.get("units90", registro["units30"]))])
+    return {"encoding": "sizes-v1", "category": rubro, "stores": tiendas, "products": productos,
+            "dictionary": diccionarios, "rows": filas}
 
 
 def descompactar_tallas(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if payload.get("encoding") != "sizes-v1":
         raise ValueError("Formato de tallas desconocido")
     resultado: list[dict[str, Any]] = []
-    for tienda, producto, stock, venta in payload["rows"]:
-        sku, codigo, nombre, linea, sublinea = payload["products"][producto]
+    for valores in payload["rows"]:
+        tienda, producto, stock, venta, *resto = valores
+        sku, codigo, nombre, linea, sublinea, *marca = payload["products"][producto]
+        if "dictionary" in payload:
+            linea = payload["dictionary"]["line"][linea]
+            sublinea = payload["dictionary"]["subline"][sublinea]
+            marca = [payload["dictionary"]["brand"][marca[0]]]
         resultado.append({
             "storeId": payload["stores"][tienda], "productId": sku, "productCode": codigo,
             "product": nombre, "category": payload["category"], "line": linea,
-            "subline": sublinea, "stockUnits": stock, "units30": venta,
+            "subline": sublinea, "brand": marca[0] if marca else "SIN MARCA",
+            "stockUnits": stock, "units30": venta, "units90": resto[0] if resto else venta,
         })
     return resultado

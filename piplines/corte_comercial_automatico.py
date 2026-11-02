@@ -21,7 +21,7 @@ from xlsx_staging import materializar_hoja_csv
 
 TRAFICO = PROJECT_ROOT / "capa1" / "TRAFICO_CLIENTES.xlsx"
 COBERTURA = PROJECT_ROOT / "capa2" / "Reporte_Cobertura.json"
-DATOS_WEB = PROJECT_ROOT / "commercial-dashboard" / "public" / "assets" / "data" / "dashboard.json"
+DATOS_WEB = PROJECT_ROOT / "dashboard-data" / "dashboard.json"
 ORIGEN_EXCEL = date(1899, 12, 30)
 
 

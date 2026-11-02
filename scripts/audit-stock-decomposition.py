@@ -30,7 +30,7 @@ def predictive(row: dict) -> bool:
 
 
 def main() -> None:
-    path = ROOT / "commercial-dashboard/public/assets/data/dashboard-stock-products.json"
+    path = ROOT / "dashboard-data/dashboard-stock-products.json"
     rows = json.loads(path.read_text(encoding="utf-8"))["stockProducts"]
     groups: dict[str, list[dict]] = {}
     for row in rows:

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "piplines"))
 from compactar_dashboard import descompactar_predictivo  # noqa: E402
 
-DATA = ROOT / "commercial-dashboard/public/assets/data"
+DATA = ROOT / "dashboard-data"
 STOCK_FIELDS = (
     "stockUnits", "stockValue", "goodUnits", "mermaStockUnits",
     "desmedroStockUnits", "units30", "sales30", "units12", "sales12",

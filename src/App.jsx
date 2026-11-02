@@ -18,10 +18,10 @@ const Documentos = lazy(() => import("./pages/Documentos"));
 const Asistencias = lazy(() => import("./pages/Asistencias"));
 const Capacitaciones = lazy(() => import("./pages/Capacitaciones"));
 const MiAsistencia = lazy(() => import("./pages/MiAsistencia"));
+const StoreTraining = lazy(() => import("./pages/StoreTraining"));
 const MisCapacitaciones = lazy(() => import("./pages/MisCapacitaciones"));
 const Profile = lazy(() => import("./pages/Profile"));
 const GestionTienda = lazy(() => import("./pages/GestionTienda"));
-const Seguridad = lazy(() => import("./pages/Seguridad"));
 const TraficoSeguridad = lazy(() => import("./pages/TraficoSeguridad"));
 const IncidenciasSeguridad = lazy(() => import("./pages/IncidenciasSeguridad"));
 const MiTienda = lazy(() => import("./pages/MiTienda"));
@@ -42,7 +42,7 @@ const CredentialPermissions = lazy(() => import("./pages/CredentialPermissions")
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
-  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad", jefe_seguridad: "seguridad",
+  jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad-trafico", jefe_seguridad: "seguridad-trafico",
 };
 
 class PageErrorBoundary extends Component {
@@ -71,7 +71,9 @@ export default function App() {
         setStoreContext(account);
         setUser(account);
         const navigation = consumeStoreNavigation(account);
-        setPage(navigation?.page || homePageByRole[account.rol] || "dashboard");
+        const nextPage = navigation?.page === "seguridad" && ["seguridad", "jefe_seguridad"].includes(account.rol)
+          ? "seguridad-trafico" : navigation?.page;
+        setPage(nextPage || homePageByRole[account.rol] || "dashboard");
         setSessionNotice(navigation?.notice || "");
       })
       .catch(() => { if (active) setUser(null); })
@@ -148,10 +150,12 @@ export default function App() {
   if (user.cambio_credenciales_pendiente) return <RequiredCredentialChange user={user} onComplete={account => { setStoreContext(account); setUser(account); }} onLogout={logout} />;
 
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
-  const storeHome = <MiTienda user={user} onNavigate={setPage} />;
+  const storeHome = user.rol === 'jefe_tienda'
+    ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={user.tienda_id} onStoreChange={changeStore} switchingStore={switchingStore} />
+    : <MiTienda user={user} onNavigate={setPage} />;
   const content = {
     dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal user={user} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+      ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     "metas-comerciales": user.rol === "gerente_comercial" ? <MetasComerciales /> : <Dashboard user={user} />,
     documentos: <Documentos />,
@@ -159,19 +163,18 @@ export default function App() {
     tiendas: <Tiendas user={user} />,
     clusters: <Clusters />,
     cursos: <Cursos user={user} />,
-    asistencias: <Asistencias />,
-    capacitaciones: <Capacitaciones user={user} />,
+    asistencias: <Asistencias user={user} />,
+    capacitaciones: user.rol === "jefe_tienda" ? <StoreTraining key="equipo" user={user} /> : <Capacitaciones user={user} />,
     "mi-asistencia": <MiAsistencia />,
-    "mis-capacitaciones": <MisCapacitaciones />,
+    "mis-capacitaciones": user.rol === "jefe_tienda" ? <StoreTraining key="mis" user={user} initialView="mis" /> : <MisCapacitaciones />,
     profile: <Profile />,
     gestion: <GestionTienda user={user} />,
-    seguridad: <Seguridad user={user} />,
     "seguridad-central": user.rol === "administrador_seguridad" ? <SecurityAdmin /> : <Dashboard user={user} />,
     "seguridad-trafico": <TraficoSeguridad user={user} />,
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
     "mi-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,
     "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
-    "incidencias-tienda": <IncidenciasTienda user={user} />,
+    "incidencias-tienda": user.rol === "jefe_tienda" ? storeHome : <IncidenciasTienda user={user} />,
     coberturas: <CoberturasEspeciales />,
     "zonal-personal": <Usuarios user={user} zonalTeam />,
     "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,

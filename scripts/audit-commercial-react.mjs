@@ -1,0 +1,312 @@
+import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import jwt from "jsonwebtoken";
+import { chromium } from "playwright-core";
+import { loadEnv } from "vite";
+
+Object.assign(process.env, loadEnv("development", process.cwd(), ""));
+const { handler } = await import("../netlify/functions/api.js");
+const origin = process.env.AUDIT_ORIGIN || "http://127.0.0.1:5180";
+const headers = { apikey: process.env.SUPABASE_SECRET_KEY,
+  Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}` };
+const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,rol,tienda_id,estado,cambio_credenciales_pendiente&rol=in.(gerente_comercial,jefe_zonal,jefe_tienda)&estado=eq.activo&limit=300`, { headers });
+assert.equal(response.status, 200, "No se pudieron leer las cuentas de auditoría");
+const users = await response.json();
+const [scopesResponse, storesResponse] = await Promise.all([
+  fetch(`${process.env.SUPABASE_URL}/rest/v1/commercial_user_scopes?select=usuario_id,scope_type,scope_value&scope_type=eq.store`, { headers }),
+  fetch(`${process.env.SUPABASE_URL}/rest/v1/commercial_store_map?select=dashboard_store_id,tienda_id`, { headers }),
+]);
+assert.equal(scopesResponse.status, 200);
+assert.equal(storesResponse.status, 200);
+const scopes = new Map((await scopesResponse.json()).map(row => [row.usuario_id, row.scope_value]));
+const stores = new Map((await storesResponse.json()).map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+let chief;
+for (const candidate of users.filter(row => row.rol === "jefe_tienda" && !row.cambio_credenciales_pendiente
+  && scopes.get(row.id) === stores.get(Number(row.tienda_id)))) {
+  const token = jwt.sign(candidate, process.env.JWT_SECRET, { expiresIn: "10m" });
+  const result = await handler({ httpMethod: "GET", path: "/api/commercial/access",
+    headers: { authorization: `Bearer ${token}` }, queryStringParameters: {}, body: null });
+  if (result.statusCode === 200) { chief = candidate; break; }
+}
+assert.ok(chief, "No hay jefe de tienda con acceso comercial vigente");
+const output = process.env.AUDIT_OUTPUT || join(process.env.LOCALAPPDATA || process.cwd(), "DashBoardGeneral", "audits", "react-final");
+await mkdir(output, { recursive: true });
+const browser = await chromium.launch({ channel: "msedge", headless: true });
+const results = [];
+try {
+  for (const role of ["gerente_comercial", "jefe_zonal", "jefe_tienda"]) {
+    if (process.env.AUDIT_ROLE && process.env.AUDIT_ROLE !== role) continue;
+    const user = role === "jefe_tienda" ? chief
+      : users.find(row => row.rol === role && !row.cambio_credenciales_pendiente);
+    assert.ok(user, `Falta una cuenta activa de ${role}`);
+    for (const width of [1440, 820]) {
+      if (process.env.AUDIT_WIDTH && Number(process.env.AUDIT_WIDTH) !== width) continue;
+      const context = await browser.newContext({ viewport: { width, height: 950 }, timezoneId: "America/Lima" });
+      const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "10m" });
+      await context.addCookies([{ name: "asiste_session", value: token, url: origin, httpOnly: true, sameSite: "Lax" }]);
+      const page = await context.newPage();
+      const errors = [];
+      let rankingAttempts = 0;
+      page.on("pageerror", error => errors.push(error.stack || error.message));
+      if (process.env.AUDIT_RANKING_RETRY === "1") await page.route("**/api/commercial/company-ranking", async route => {
+        rankingAttempts += 1;
+        if (rankingAttempts <= 2) {
+          await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Fallo temporal de auditoría" }) });
+        } else await route.continue();
+      });
+      if (process.env.AUDIT_INTERACTIONS === "1") page.on("response", response => {
+        if (response.url().includes("/commercial/company-ranking")) console.log(JSON.stringify({ role, width, rankingStatus: response.status() }));
+      });
+      try {
+        await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 60_000 });
+        await page.locator('[data-react-commercial-shell="true"]').waitFor({ timeout: 45_000 });
+        const pages = [
+          { button: 0, selector: ".page-one", markers: [".primary-kpis", ".meta-vs-real canvas", ".price-range-card canvas"] },
+          { button: 1, selector: ".page-two", markers: [".rotation-card canvas", ".size-distribution-card canvas", ".predictive-v2 .health-card", ".predictive-replenishment-card"] },
+          role === 'jefe_tienda'
+            ? { button: 2, selector: '.store-talent-page', markers: ['.talent-overview-grid', '.talent-performance-grid', '.training-card'] }
+            : { button: 2, selector: ".talent-page", markers: [".talent-kpis", ".seller-performance-card canvas", ".training-card canvas"] },
+        ];
+        for (const panel of pages) {
+          if (process.env.AUDIT_PAGE && panel.button + 1 !== Number(process.env.AUDIT_PAGE)) continue;
+          if (panel.button) await page.locator(".page-tabs button").nth(panel.button).click();
+          const section = page.locator(`${panel.selector}:visible`);
+          await section.waitFor({ timeout: 60_000 });
+          for (const marker of panel.markers) await section.locator(`${marker}:visible`).first().waitFor({ timeout: 60_000 });
+          if (role === 'jefe_tienda' && panel.button === 2) {
+            for (const marker of ['.sales-forecast-panel', '.traffic-matrix-card', '.attendance-matrix-panel', '.training-development']) await page.locator(marker).waitFor({ timeout: 60_000 });
+            await page.locator('.sales-forecast-loading').waitFor({ state: 'hidden', timeout: 60_000 });
+            await page.locator('.store-dashboard-worker-insights').waitFor();
+            assert.equal(await page.locator('.traffic-matrix-kpis,.sales-forecast-confidence').count(), 0);
+            for (const title of ['Venta esperada', 'Tráfico por hora', 'Rotación de personal', 'Motivos de salida', 'Amonestaciones', 'Asistencia del equipo']) {
+              const headerText = await page.getByRole('heading', { name: title, exact: true }).evaluate(node => node.closest('header').innerText.trim());
+              assert.equal(headerText, title);
+            }
+            assert.equal(await page.locator('.personnel-chart-panel--errors,.worker-error-form').count(), 0);
+            const headings = await section.locator('.block-heading h2').allTextContents();
+            assert.deepEqual(headings, ['DEMANDA Y PLANIFICACIÓN', 'DOTACIÓN Y PRODUCTIVIDAD', 'ASISTENCIA, CONTINUIDAD Y SEGUIMIENTO', 'FORMACIÓN Y DESARROLLO']);
+            assert.ok(await section.locator('.section-heading h2').evaluate(node => parseFloat(getComputedStyle(node).fontSize) >= 17));
+            assert.ok(await section.locator('.block-heading h2').first().evaluate(node => parseFloat(getComputedStyle(node).fontSize) >= 15));
+            const cardHeights = await section.locator('.talent-card:not(.chart-expanded)').evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().height)));
+            assert.ok(cardHeights.length >= 8);
+            assert.ok(cardHeights.every(height => height === 360), `Alturas: ${cardHeights.join(', ')}`);
+            const verticalOverflow = await page.locator('.store-commercial-panels .sales-forecast-panel,.store-commercial-panels .personnel-chart-panel:not(.personnel-chart-panel--expanded),.store-commercial-panels .dashboard-worker-panel').evaluateAll(nodes => nodes.filter(node => node.scrollHeight > node.clientHeight + 2).map(node => node.className));
+            assert.deepEqual(verticalOverflow, [], 'Los paneles deben mostrar el contenido sin desplazamiento vertical interno');
+            const titleSizes = await page.locator('.store-commercial-panels header h2:visible').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
+            assert.ok(titleSizes.every(size => size === '16px'), `Tamaños de título: ${titleSizes.join(', ')}`);
+            for (const module of ['talent-capacity', 'talent-history-card', 'talent-team-card', 'seller-card', 'talent-area-card', 'talent-store-card', 'talent-training-card', 'talent-exit-card']) assert.ok(await section.locator(`[data-react-commercial-module="${module}"]`).count(), module);
+            const operationalTitles = await page.locator('.store-commercial-panels header h2:visible').evaluateAll(nodes => nodes.map(node => ({ title: node.textContent, color: getComputedStyle(node).color, background: getComputedStyle(node.closest('header')).backgroundColor })));
+            assert.ok(operationalTitles.length >= 6);
+            for (const title of operationalTitles) {
+              assert.equal(title.color, 'rgb(255, 255, 255)', title.title);
+              assert.equal(title.background, 'rgb(18, 58, 106)', title.title);
+            }
+            await section.getByRole('heading', { name: 'OPERACIÓN Y EQUIPO', exact: true }).scrollIntoViewIfNeeded();
+            await page.screenshot({ path: join(output, `${role}-${width}-operations.png`), animations: 'disabled' });
+            await section.locator('.talent-overview-grid').screenshot({ path: join(output, `${role}-${width}-workforce.png`), animations: 'disabled' });
+          }
+          const card = section.locator(".card:visible, .panel:visible").first();
+          await card.scrollIntoViewIfNeeded();
+          await card.screenshot({ path: join(output, `${role}-${width}-${panel.button}.png`), animations: "disabled" });
+          if (process.env.AUDIT_INTERACTIONS === "1" && role === "jefe_tienda" && panel.button === 0) {
+            console.log(JSON.stringify({ role, width, rankingLabels: await page.locator(".ranking-store-count").allInnerTexts() }));
+            await page.locator(".ranking-store-count:visible").filter({ hasText: /^(?:[2-9]|[1-9][0-9]+) TIENDAS/ }).waitFor({ timeout: 30_000 });
+            const priceCard = section.locator('.price-range-card');
+            const stockStarted = Date.now();
+            await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
+            const priceMatrix = page.locator('.price-range-detail-table:visible');
+            await priceMatrix.locator('.price-range-detail-body .base-year').filter({ hasText: /\d+ und/ }).first().waitFor({ timeout: 60_000 });
+            console.log(JSON.stringify({ role, width, stockLoadMs: Date.now() - stockStarted }));
+            assert.ok((await priceMatrix.locator('.price-range-detail-body .base-year').allInnerTexts()).some(text => /\d+ und/.test(text)), 'El stock por rango de la tienda no cargó');
+            await priceMatrix.screenshot({ path: join(output, `${role}-${width}-price-range-stock.png`), animations: 'disabled' });
+            await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
+          }
+          if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 0) {
+            const priceCard = section.locator('.price-range-card');
+            const stockStarted = Date.now();
+            await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
+            const priceMatrix = page.locator('.price-range-detail-table:visible');
+            await priceMatrix.locator('.price-range-detail-body .base-year').filter({ hasText: /\d+ und/ }).first().waitFor({ timeout: 60_000 });
+            console.log(JSON.stringify({ role, width, stockLoadMs: Date.now() - stockStarted }));
+            assert.equal(await priceMatrix.locator('.price-range-detail-head').innerText().then(text => text.includes('PARTICIPACIÓN')), false);
+            assert.ok((await priceMatrix.locator('.price-range-detail-body .base-year').allInnerTexts()).some(text => /\d+ und/.test(text)), 'El stock por rango no cargó');
+            await priceMatrix.screenshot({ path: join(output, 'price-range-stock-detail.png'), animations: 'disabled' });
+            await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
+            for (const [label, moduleId] of [
+              ["VENTA × M²", "saleM2-modal"],
+              ["VENTA × COLAB", "saleCollaborator-modal"],
+              ["MARKUP", "markup-modal"],
+              ["SELL-THROUGH", "sellThrough-modal"],
+            ]) {
+              await section.locator('[data-react-commercial-module="key-kpis"] article').filter({ hasText: label }).click();
+              const modal = page.locator(`[data-react-commercial-module="${moduleId}"]:visible`);
+              await modal.waitFor({ timeout: 30_000 });
+              if (moduleId === "saleCollaborator-modal") await modal.locator(".kpi-seller-detail tfoot").waitFor({ timeout: 60_000 });
+              await modal.screenshot({ path: join(output, `${moduleId}.png`), animations: "disabled" });
+              await modal.getByRole("button", { name: /Cerrar detalle del indicador/ }).click();
+            }
+            await page.getByRole('button', { name: 'Abrir filtros y listas' }).click();
+            const monthFilter = page.locator('.filter-panel .filter-field').first();
+            await monthFilter.locator('summary').click();
+            await monthFilter.getByRole('button', { name: 'JUN', exact: true }).click();
+            await page.getByRole('button', { name: 'Abrir filtros y listas' }).click();
+            await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
+            await priceMatrix.locator('.price-range-detail-body .base-year').filter({ hasText: /\d+ und/ }).first().waitFor({ timeout: 60_000 });
+            assert.equal(await priceMatrix.getByText(/Stock disponible al corte/).count(), 0);
+            await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
+          }
+          if (process.env.AUDIT_RANKING_RETRY === "1" && panel.button === 0) {
+            await page.locator(".ranking-store-count:visible").filter({ hasText: /^(?:[2-9]|[1-9][0-9]+) TIENDAS/ }).waitFor({ timeout: 60_000 });
+            assert.ok(rankingAttempts >= 3, `Reintentos del ranking: ${rankingAttempts}`);
+          }
+          if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 1) {
+            const sizes = section.locator(".size-distribution-card:visible");
+            await sizes.getByText("Venta: 90 días", { exact: false }).waitFor();
+            let skuCount = 0;
+            for (let attempt = 0; attempt < 60; attempt++) {
+              skuCount = Number((await sizes.locator(".size-chart-summary strong").first().innerText()).replace(/[^0-9]/g, ""));
+              if (skuCount > 0) break;
+              await page.waitForTimeout(500);
+            }
+            assert.ok(skuCount > 0, "La venta por talla no cargó SKU del rubro para el corte seleccionado");
+            await sizes.screenshot({ path: join(output, "size-sales-90d.png"), animations: "disabled" });
+            const canvas = sizes.locator("canvas").first();
+            const bounds = await canvas.boundingBox();
+            assert.ok(bounds, "No se dibujó el gráfico de tallas");
+            const detail = page.locator('[data-react-commercial-module="size-detail-modal"]:visible');
+            for (const [x, y] of [[0.58, 0.5], [0.55, 0.6], [0.62, 0.4]]) {
+              await canvas.click({ position: { x: bounds.width * x, y: bounds.height * y } });
+              if (await detail.isVisible()) break;
+            }
+            await detail.waitFor({ timeout: 10_000 });
+            await detail.locator("tbody tr").first().waitFor({ timeout: 30_000 });
+            await detail.screenshot({ path: join(output, "size-sales-detail.png"), animations: "disabled" });
+            await detail.getByRole("button", { name: "Cerrar detalle por talla" }).click();
+            await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+            const monthFilter = page.locator(".filter-panel .filter-field").first();
+            await monthFilter.locator("summary").click();
+            await monthFilter.getByRole("button", { name: "SEP", exact: true }).click();
+            await sizes.getByText("Venta: 90 días hasta Sep 2026", { exact: false }).waitFor({ timeout: 30_000 });
+            await sizes.locator(".size-chart-summary strong").first().waitFor({ timeout: 60_000 });
+            await page.locator(".filter-panel label").filter({ hasText: "AÑO" }).locator("select").selectOption("2025");
+            await sizes.getByText("Venta: 90 días hasta Sep 2025", { exact: false }).waitFor({ timeout: 30_000 });
+            await sizes.locator(".size-chart-summary strong").first().waitFor({ timeout: 60_000 });
+            await page.getByRole("button", { name: "Abrir filtros y listas" }).click();
+          }
+          if (process.env.AUDIT_CAPTURE_ALL === "1") {
+            const cards = section.locator(".card:visible");
+            for (let index = 0; index < await cards.count(); index++) {
+              const current = cards.nth(index);
+              await current.scrollIntoViewIfNeeded();
+              await current.screenshot({ path: join(output, `${role}-${width}-${panel.button}-section-${index}.png`), animations: "disabled" });
+            }
+          }
+          console.log(JSON.stringify({ role, width, page: panel.button + 1, status: "ok" }));
+        }
+        await page.locator(".assistant-launcher:visible").click();
+        await page.locator(".assistant-panel:visible").waitFor();
+        await page.locator('.assistant-panel:visible').getByRole("button", { name: "Cerrar asistente" }).click();
+        if (role === 'jefe_tienda') {
+          const singleBars = async () => page.locator('[data-chart-presentation="radial"],[data-chart-presentation="gauge"]').evaluateAll(nodes => nodes.map(node => ({ id: node.dataset.reactCommercialChart, type: node.dataset.chartPresentation, title: node.closest('.card')?.querySelector('h2')?.textContent?.trim() || node.getAttribute('aria-label'), value: node.textContent?.trim() })));
+          console.log(JSON.stringify({ role, singleBars: await singleBars() }));
+          assert.equal(await page.getByRole('button', { name: 'Incidencias', exact: true }).count(), 0);
+          assert.match(await page.locator('.page-tabs button').nth(2).innerText(), /OPERACIÓN Y EQUIPO/);
+          await page.locator('.page-tabs button').nth(1).click();
+          await page.locator('.page-two').waitFor();
+          assert.equal(await page.getByRole('button', { name: 'VER TRASLADOS ENTRE TIENDAS', exact: true }).count(), 0);
+          if (process.env.AUDIT_REFRESH === '1') {
+            const projection = page.locator('.predictive-projection-card');
+            await page.locator('.predictive-projection-card:not([aria-busy="true"])').waitFor({ timeout: 60_000 });
+            await projection.locator('.risk-status-table').waitFor();
+            assert.deepEqual(await projection.locator('.risk-value-grid dt').first().locator('..').locator('..').locator('dt').allTextContents(), ['Valor en riesgo', 'Resto del valor evaluado', 'Total vendible evaluado', 'Productos en riesgo / evaluados']);
+            assert.equal(await projection.locator('.risk-status-table tbody tr').count(), 5);
+            assert.equal(await projection.locator('canvas').count(), 0);
+            await projection.screenshot({ path: join(output, `${role}-${width}-risk-detail.png`), animations: 'disabled' });
+            const controls = await page.locator('.predictive-parameters').elementHandle();
+            const health = await page.locator('.health-card canvas').elementHandle();
+            const replenishment = await page.locator('.predictive-replenishment-card canvas').elementHandle();
+            assert.ok(controls && health && replenishment);
+            let rejectRefresh = false;
+            await page.route('**/api/commercial/stock-insights', async route => {
+              await new Promise(resolve => setTimeout(resolve, 700));
+              if (rejectRefresh) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Prueba de actualización fallida' }) });
+              const response = await route.fetch();
+              return route.fulfill({ response });
+            });
+            for (const horizon of ['+30D', '+60D', '+90D']) {
+              await projection.getByRole('button', { name: horizon, exact: true }).click();
+              await page.locator('.predictive-projection-card[aria-busy="true"]').waitFor();
+              assert.equal(await page.locator('.health-card').getAttribute('aria-busy'), null);
+              assert.equal(await page.locator('.predictive-replenishment-card').getAttribute('aria-busy'), null);
+              for (const handle of [controls, health, replenishment]) assert.equal(await handle.evaluate(node => node.isConnected), true);
+              assert.equal(await page.locator('.stock-product-detail-trigger').count(), 0);
+              await page.locator('.predictive-projection-card:not([aria-busy="true"])').waitFor({ timeout: 60_000 });
+            }
+            const demand = page.locator('.predictive-parameters label').filter({ hasText: 'VENTANA DEMANDA' }).locator('input');
+            await demand.fill('2');
+            await page.locator('.predictive-replenishment-card[aria-busy="true"]').waitFor();
+            assert.equal(await demand.evaluate(node => node.getRootNode().activeElement === node), true);
+            for (const handle of [controls, health, replenishment]) assert.equal(await handle.evaluate(node => node.isConnected), true);
+            await page.locator('.predictive-projection-card:not([aria-busy="true"])').waitFor({ timeout: 60_000 });
+            rejectRefresh = true;
+            await projection.getByRole('button', { name: 'ACTUAL', exact: true }).click();
+            await page.locator('.predictive-refresh-error').waitFor({ timeout: 60_000 });
+            for (const handle of [controls, health, replenishment]) assert.equal(await handle.evaluate(node => node.isConnected), true);
+            rejectRefresh = false;
+            await page.locator('.predictive-refresh-error').getByRole('button', { name: 'REINTENTAR' }).click();
+            await page.locator('.predictive-refresh-error').waitFor({ state: 'hidden' });
+            await page.locator('.predictive-projection-card:not([aria-busy="true"])').waitFor({ timeout: 60_000 });
+            console.log(JSON.stringify({ predictiveRefresh: 'ok', horizons: [30, 60, 90], controlsRetained: true, errorRecovery: true }));
+            await page.unroute('**/api/commercial/stock-insights');
+          }
+          if (process.env.AUDIT_SINGLE_BARS === '1') {
+            await page.locator('[data-react-commercial-chart="inventory-store-value"]').waitFor({ timeout: 60_000 });
+            const rotation = page.locator('[data-react-commercial-chart="inventory-rotation"]');
+            await rotation.waitFor();
+            assert.equal(await rotation.getAttribute('data-chart-presentation'), 'gauge');
+            await rotation.hover();
+            const rotationTooltip = rotation.locator('.rotation-tooltip');
+            await rotationTooltip.waitFor();
+            assert.match(await rotationTooltip.innerText(), /Stock físico/);
+            assert.match(await rotationTooltip.innerText(), /Vendidas 30D/);
+            assert.equal(await rotationTooltip.locator(':scope > div').count(), 5);
+            await page.locator('.rotation-card').screenshot({ path: join(output, `${role}-${width}-rotation-tooltip.png`), animations: 'disabled' });
+            await page.locator('.page-tabs').hover();
+            await rotationTooltip.waitFor({ state: 'hidden' });
+            await page.locator('.rotation-card').screenshot({ path: join(output, `${role}-${width}-rotation-clean.png`), animations: 'disabled' });
+            const inventory = page.locator('[data-react-commercial-chart="inventory-store-value"]');
+            await inventory.hover();
+            const inventoryTooltip = inventory.locator('.inventory-value-tooltip');
+            await inventoryTooltip.waitFor();
+            assert.equal(await inventoryTooltip.locator(':scope > div').count(), 5);
+            assert.match(await inventoryTooltip.innerText(), /Cobertura estimada/);
+            assert.equal(Math.round(await page.locator('.store-value-coverage-card').evaluate(node => node.getBoundingClientRect().height)), 360);
+            console.log(JSON.stringify({ role, page: 2, singleBars: await singleBars() }));
+            await page.locator('.store-value-coverage-card').screenshot({ path: join(output, `${role}-${width}-single-inventory.png`), animations: 'disabled' });
+            await page.locator('.page-tabs button').nth(0).click();
+            await page.locator('.page-one').waitFor();
+            console.log(JSON.stringify({ role, page: 1, singleBars: await singleBars() }));
+          }
+          for (const [path, method] of [['/api/incidencias','GET'], ['/api/incidencias','POST'], ['/api/incidencias/export.xlsx','GET'], ['/api/errores-personal','GET'], ['/api/errores-personal','POST'], ['/api/reportes/errores-personal','GET']]) {
+            const denied = await handler({ httpMethod: method, path, headers: { authorization: `Bearer ${token}` }, queryStringParameters: {}, body: '{}' });
+            assert.equal(denied.statusCode, 403, `${method} ${path}: debe estar bloqueado para el administrador`);
+          }
+          assert.equal(await page.getByRole('button', { name: 'Resumen', exact: true }).count(), 0);
+        }
+        else assert.equal(await page.locator('[data-chart-presentation="radial"],[data-chart-presentation="gauge"]').count(), 0);
+        assert.deepEqual(errors, [], `${role}/${width}: errores de navegador`);
+        results.push({ role, width, pages: process.env.AUDIT_PAGE ? [Number(process.env.AUDIT_PAGE)] : [1, 2, 3], assistant: "ok" });
+      } catch (error) {
+        console.error(JSON.stringify({ role, width, browserErrors: errors,
+          body: (await page.locator("body").innerText()).slice(0, 700) }));
+        throw error;
+      } finally {
+        await context.close();
+      }
+    }
+  }
+} finally {
+  await browser.close();
+}
+console.log(JSON.stringify(results));

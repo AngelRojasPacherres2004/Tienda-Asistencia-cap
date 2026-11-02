@@ -5,7 +5,7 @@ import {
   nisseiSizeCode,
   normalizeSizeGender,
   resolveProductSize,
-} from '../commercial-dashboard/src/app/product-sizes.ts';
+} from '../src/commercial/product-sizes.ts';
 
 const canonicalCode = suffix => `${'0'.repeat(11)}${suffix}`;
 

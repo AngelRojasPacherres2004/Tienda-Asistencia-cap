@@ -29,6 +29,6 @@ const symbols = Object.entries(icons).map(([id, Icon]) => {
   return `<symbol id="${id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</symbol>`;
 });
 
-const target = fileURLToPath(new URL("../commercial-dashboard/public/assets/icons.svg", import.meta.url));
-await mkdir(fileURLToPath(new URL("../commercial-dashboard/public/assets/", import.meta.url)), { recursive: true });
+const target = fileURLToPath(new URL("../public/comercial/assets/icons.svg", import.meta.url));
+await mkdir(fileURLToPath(new URL("../public/comercial/assets/", import.meta.url)), { recursive: true });
 await writeFile(target, `<svg xmlns="http://www.w3.org/2000/svg">${symbols.join("")}</svg>\n`);

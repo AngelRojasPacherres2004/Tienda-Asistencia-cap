@@ -3,6 +3,7 @@ import {
   FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { storeAlias } from '../lib/storeAliases';
 import "../role-themes.css";
 import "../marketing-light.css";
 import "../dashboard-light.css";
@@ -63,13 +64,10 @@ const navByRole = {
   ],
   jefe_tienda: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
     { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
-    { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
     { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
     { id: "historial", label: "Historial", icon: History },
   ],
@@ -86,7 +84,6 @@ const navByRole = {
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
   seguridad: [
-    { id: "seguridad", label: "Inicio", icon: BarChart3 },
     { id: "seguridad-trafico", label: "Tráfico", icon: Users },
     { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
   ],
@@ -128,6 +125,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const hidePersonInitials = ["jefe_zonal", "seguridad", "jefe_seguridad", "administrador_seguridad"].includes(user.rol);
+  const isStoreSecurity = ["seguridad", "jefe_seguridad"].includes(user.rol);
   const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
   const isCommercial = ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol);
   const isCommercialDashboard = page === "dashboard" && ["gerente_comercial", "coach", "jefe_zonal", "jefe_tienda"].includes(user.rol);
@@ -143,10 +142,13 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   };
   const toggleMarketingTheme = () => setLightMode(marketingTheme !== "light");
   const items = navByRole[user.rol] || [];
+  const activeStore = user.tiendas_disponibles?.find(store => Number(store.id) === Number(user.tienda_id));
+  const storeName = activeStore?.nombre || user.tienda_nombre;
+  const activeAlias = activeStore?.alias || user.tienda_alias || storeAlias(storeName);
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell app-theme app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
+    <div className={`app-shell app-theme ${hidePersonInitials ? "without-person-initials" : ""} app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
@@ -161,9 +163,9 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
         </nav>
         <div className="sidebar__footer">
           {["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
-          <div className="user-chip" role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
-            <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>
-            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.dni ? ` · DNI ${user.dni}` : ""}</small></div>
+          <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
+            {user.rol !== 'jefe_tienda' && !hidePersonInitials && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
+            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{user.rol === 'jefe_tienda' || isStoreSecurity ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.rol !== 'jefe_tienda' && user.dni ? ` · DNI ${user.dni}` : ""}</small>{isStoreSecurity && <small className="user-chip__store">Tienda: {storeName || "Sin tienda asignada"}</small>}{user.rol === 'jefe_tienda' && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
           </div>
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>

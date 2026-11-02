@@ -206,7 +206,7 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   `autovacuum_analyze_scale_factor=0.02`; la versión quedó registrada en
   `supabase_migrations.schema_migrations`. No se borró ningún índice.
 
-## Paso 4: migración React en curso
+## Paso 4: React autónomo en local; Angular disponible como respaldo
 
 - El 27–28/10 se añadieron cuarenta y tres módulos de interfaz con flags independientes:
   cabecera, navegación, filtros (incluido calendario), indicadores principales,
@@ -437,8 +437,62 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
   lo sirve. Faltan migrar el controlador y sus servicios, medir paridad más
   amplia y activar los flags en un despliegue verificable antes de retirar
   Angular.
+- La auditoría del montaje completo recorrió los tres roles comerciales en
+  1440 y 820 px, abrió las tres páginas y el asistente en cada combinación;
+  los doce recorridos (Angular y React) terminaron sin errores de la API. El
+  controlador se separó de `app.ts` en `dashboard-controller.ts`; `App` ahora
+  contiene solo la vista Angular de respaldo. React instancia directamente el
+  controlador y no crea el componente Angular. El controlador y los servicios
+  todavía usan señales e inyección de Angular: queda trasladar ese estado a
+  React antes de poder retirar el runtime.
+- Tras integrar el cambio de traslados por tienda de `TEST2`, el modal se
+  comprobó en Angular y React con jefatura de tienda: abrió, filtró por rubro,
+  mostró las rutas y permitió comparar y cerrar. Una respuesta incompleta ya
+  no deja el panel cargando sin fin; muestra el error y permite reintentar.
+  Si una tienda no tiene productos candidatos, ambos montajes indican ese
+  estado explícitamente. La consulta HTTP local de una tienda autorizada
+  devolvió 986 rutas y 1,504 posiciones en unos 2.6 segundos; la prueba de
+  navegador completa tardó más por la carga de la página y sus detalles.
+- El montaje React ya importa el controlador y los servicios directamente desde
+  Vite. Las señales usan `@preact/signals-core` en esa ruta y React no solicita
+  `/comercial/index.html` ni el bundle Angular. La ruta Angular permanece
+  seleccionable con `?reactModule=angular`; local usa React por defecto y un
+  despliegue requiere `VITE_COMMERCIAL_REACT_SHELL=true` para activarlo.
+- Se compararon Comercial, Inventario y Talento con Angular a 1440 px, incluidos
+  gráficos y controles; sus contenedores tienen el mismo tamaño. Los tres roles
+  comerciales recorrieron las tres páginas y el asistente a 1440 y 820 px.
+  El gráfico de metas se verificó con carga diferida y cambio al año 2025 en
+  820 px. El endpoint de metas se priorizó y tiene un reintento acotado cuando
+  una respuesta HTTP queda sin completar. Pasaron ESLint y los builds Angular
+  y Vite. Las capturas completas no son idénticas píxel por píxel, por lo que
+  Angular se conserva como respaldo hasta una revisión visual final y prueba
+  en el despliegue que active React.
+- En 820 px se corrigieron alturas de la tarjeta de género y de la proyección
+  de inventario. Pasaron las comparaciones de tamaño y controles de Comercial
+  con jefe de tienda, Inventario con jefe zonal y Talento con gerente comercial.
+  Los archivos de captura aún difieren; estas pruebas no demuestran igualdad
+  visual completa ni autorizan por sí solas retirar el respaldo Angular.
+- La auditoría de páginas ahora aplica el año indicado antes de capturar. Se
+  repitieron los tres escenarios de 820 px con 2025 seleccionado y pasaron
+  sus comprobaciones de controles y dimensiones. Las capturas largas del
+  navegador incluyen zonas negras fuera del área visible; se requieren
+  capturas por secciones para verificar esas zonas antes de retirar Angular.
+- La auditoría captura ahora cada tarjeta tras desplazarla al área visible,
+  evitando las zonas negras de la captura larga. Con la misma respuesta real
+  de metas en ambas vistas, las comprobaciones de texto y tamaño pasaron para
+  12 tarjetas de Comercial a 1440 px, siete de Inventario y nueve de Talento a
+  820 px. Las capturas siguen teniendo diferencias de píxeles; esta muestra no
+  cubre todas las combinaciones ni confirma por sí sola la paridad completa.
+- Se alineó el orden de las hojas de estilos del montaje React con el de
+  Angular. Así el título de prioridad de reposición vuelve a caber en una línea
+  como en la vista original. Comercial pasó las comprobaciones de texto,
+  dimensiones y controles para los tres roles a 1440 y 820 px. Inventario con
+  jefe zonal y Talento con gerencia comercial se comprobaron en esos dos anchos.
+  Las capturas de las tarjetas siguen presentando diferencias de píxeles, por
+  lo que estos resultados no demuestran equivalencia visual completa. El
+  respaldo Angular permanece disponible y el paso 4 no se considera finalizado.
 
-## Paso 5: pendiente tras la paridad completa del paso 4
+## Paso 5: pendiente tras la validación final del paso 4
 
 - Hay candidatas legacy documentadas, pero faltan el periodo de observación,
   consolidación, archivo, restauración probada y eliminación. El respaldo
@@ -448,3 +502,34 @@ sin usar `db push` indiscriminadamente. La contraseña temporal se retiró del
 La versión optimizada del paso 2 sigue preparada para validación local; la
 publicación pública espera comprobar la compatibilidad de Netlify. No retirar
 Angular ni tablas antes de cumplir sus puertas de paridad y restauración.
+
+## Actualización 29/10: migración del portal comercial a React
+
+- La aplicación monta directamente el controlador y las páginas React. Se retiraron
+  el build, las dependencias y el código fuente Angular del repositorio; las
+  utilidades comerciales, señales y estilos viven en `src/commercial/`.
+- Los datos generados se conservaron localmente en `dashboard-data/` (ignorado
+  por Git). Los scripts de generación y publicación apuntan a esa ruta.
+- La comparación previa de tarjetas entre Angular y React tuvo el mismo texto
+  y dimensiones en los roles y anchos probados. Las diferencias de captura
+  recientes fueron inferiores a 0.86 niveles RGB de 255 en promedio por píxel;
+  la mayor se concentró en una etiqueta del gráfico de género.
+- El portal React recorrió Comercial, Inventario, Talento y el asistente en
+  gerencia comercial, jefatura zonal y jefatura de tienda a 1440 y 820 px.
+  Pasaron 52 pruebas de lógica, ESLint y el build Vite. Esta comprobación local
+  no equivale a una prueba de la futura publicación en Netlify.
+
+Las frases anteriores sobre el respaldo Angular describen el estado histórico
+de cada fecha; a partir de esta actualización ya no existe ese respaldo en
+el código versionado.
+
+- Se actualizaron los BAT de apertura, actualización y paquete portable para
+  trabajar con React y `dashboard-data/`. La auditoría vigente se ejecuta con
+  `node scripts/audit-commercial-react.mjs`; captura secciones visibles y
+  comprueba las tres páginas y el asistente para los tres roles comerciales
+  en 1440 y 820 px.
+- En una comparación de 28 tarjetas con las capturas Angular conservadas fuera
+  del repositorio, todas tuvieron el mismo tamaño. La mayor diferencia media
+  fue 0.857 sobre 255 niveles RGB por canal y correspondió a la posición de
+  una etiqueta del gráfico de género. Se mantiene la disposición del gráfico
+  porque un ajuste manual de esa etiqueta desplazó otras y empeoró la medida.

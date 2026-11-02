@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { viewportTooltipPosition } from '../commercial-dashboard/src/app/tooltip-position.ts';
+import { viewportTooltipPosition } from '../src/commercial/tooltip-position.ts';
 
 test('keeps the full card visible near the bottom and right edges', () => {
   const chart = { left: 70, top: 490 };

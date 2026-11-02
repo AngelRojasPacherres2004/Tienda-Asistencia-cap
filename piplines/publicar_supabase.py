@@ -30,7 +30,7 @@ from particionar_dashboard import scope_catalog, scope_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "commercial-dashboard" / "public" / "assets" / "data"
+DATA_DIR = ROOT / "dashboard-data"
 STATIC_CORE_FILES = (
     "dashboard.json",
     "dashboard-predictive.json",
@@ -49,7 +49,7 @@ YEARLY_DATASETS = (
 # La carga estándar de Storage es más estable por debajo de 6 MB.
 CHUNK_BYTES = 5 * 1024 * 1024
 DEFAULT_RELEASES_TO_KEEP = 2
-RUNTIME_CONFIG = ROOT / "commercial-dashboard" / "public" / "runtime-config.js"
+RUNTIME_CONFIG = ROOT / "public" / "comercial" / "runtime-config.js"
 class PublishError(RuntimeError):
     pass
 
@@ -120,6 +120,8 @@ def discover_dashboard_files(data_dir: Path) -> tuple[tuple[str, ...], list[str]
         missing.extend(f"dashboard-price-range-category-{year}.json" for year in sorted(price_years - category_years))
         files.extend(price_categories)
     files.extend(sorted(path.name for path in data_dir.glob("dashboard-price-range-????-??.json")))
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-stock-price-range-????-??.json")))
+    files.extend(sorted(path.name for path in data_dir.glob("dashboard-size-sales-????-??-*.json")))
     brand_years = {
         name.rsplit("-", 1)[-1].removesuffix(".json")
         for name in files if re.fullmatch(r"dashboard-brand-(?:compact-)?\d{4}\.json", name)
@@ -381,6 +383,7 @@ def list_storage_objects(
             payload,
         )
         entries = json.loads(raw) if raw else []
+        folders: list[str] = []
         for entry in entries:
             name = str(entry.get("name", "")).strip()
             if not name:
@@ -389,9 +392,14 @@ def list_storage_objects(
             if entry.get("id") or isinstance(entry.get("metadata"), dict):
                 objects.append(object_path)
             else:
-                objects.extend(
-                    list_storage_objects(base_url, api_key, access_token, object_path)
-                )
+                folders.append(object_path)
+        if folders:
+            with ThreadPoolExecutor(max_workers=min(8, len(folders))) as executor:
+                for children in executor.map(
+                    lambda path: list_storage_objects(base_url, api_key, access_token, path),
+                    folders,
+                ):
+                    objects.extend(children)
         if len(entries) < 1_000:
             break
         offset += len(entries)
@@ -432,12 +440,15 @@ def cleanup_release_history(
     if not retained_ids:
         raise PublishError("No existe una publicación vigente para conservar.")
 
-    file_rows = get_postgrest(
-        base_url,
-        api_key,
-        access_token,
-        "dashboard_files?select=release_id,parts",
-    ) or []
+    file_rows = []
+    for offset in range(0, 100_000, 1_000):
+        page = get_postgrest(
+            base_url, api_key, access_token,
+            f"dashboard_files?select=release_id,parts&order=id.asc&limit=1000&offset={offset}",
+        ) or []
+        file_rows.extend(page)
+        if len(page) < 1_000:
+            break
     retained_paths = {
         str(part["path"])
         for row in file_rows
@@ -446,17 +457,20 @@ def cleanup_release_history(
         if part.get("path")
     }
     for release_id in retained_ids:
-        scope_rows = get_postgrest(
-            base_url, api_key, access_token,
-            "dashboard_scope_files?select=parts"
-            f"&release_id=eq.{urllib.parse.quote(release_id)}&limit=1000",
-        ) or []
-        retained_paths.update(
-            str(part["path"])
-            for row in scope_rows
-            for part in (row.get("parts") or [])
-            if part.get("path")
-        )
+        for offset in range(0, 100_000, 1_000):
+            scope_rows = get_postgrest(
+                base_url, api_key, access_token,
+                "dashboard_scope_files?select=parts"
+                f"&release_id=eq.{urllib.parse.quote(release_id)}&order=id.asc&limit=1000&offset={offset}",
+            ) or []
+            retained_paths.update(
+                str(part["path"])
+                for row in scope_rows
+                for part in (row.get("parts") or [])
+                if part.get("path")
+            )
+            if len(scope_rows) < 1_000:
+                break
     removable_releases = [
         row
         for row in releases
@@ -473,7 +487,13 @@ def cleanup_release_history(
     obsolete_prefixes = tuple(
         f"{row['version']}/" for row in removable_releases if row.get("version")
     )
-    stored_paths = list_storage_objects(base_url, api_key, access_token)
+    # El bucket también guarda archivos de otras funciones. Explorar solo las
+    # carpetas de versiones retirables evita recorrer todos sus objetos.
+    stored_paths = [
+        path
+        for prefix in obsolete_prefixes
+        for path in list_storage_objects(base_url, api_key, access_token, prefix.rstrip("/"))
+    ]
     removable_paths = sorted(
         path for path in stored_paths
         if path.startswith(obsolete_prefixes) and path not in retained_paths
@@ -575,11 +595,16 @@ def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: 
                 f"&release_id=eq.{previous_id}",
             ) or []
             reusable = {str(row["logical_name"]): row for row in previous_files}
-            previous_scopes = get_postgrest(
-                base_url, api_key, access_token,
-                "dashboard_scope_files?select=scope_type,scope_value,logical_name,byte_size,checksum_sha256,content_type,parts"
-                f"&release_id=eq.{previous_id}&limit=1000",
-            ) or []
+            previous_scopes = []
+            for offset in range(0, 100_000, 1_000):
+                page = get_postgrest(
+                    base_url, api_key, access_token,
+                    "dashboard_scope_files?select=scope_type,scope_value,logical_name,byte_size,checksum_sha256,content_type,parts"
+                    f"&release_id=eq.{previous_id}&order=id.asc&limit=1000&offset={offset}",
+                ) or []
+                previous_scopes.extend(page)
+                if len(page) < 1_000:
+                    break
             reusable_scopes = {
                 (str(row["scope_type"]), str(row["scope_value"]), str(row["logical_name"])): row
                 for row in previous_scopes
@@ -659,6 +684,24 @@ def publish(env_path: Path, *, interactive: bool = False, expected_project_ref: 
                 "parts": len(parts),
                 "reused": unchanged,
             }
+
+            previous_for_scopes = [
+                reusable_scopes.get((scope_type, scope_value, name))
+                for scope_type, scope_value in sorted(scopes)
+            ]
+            if unchanged and all(previous_for_scopes):
+                scope_rows.extend({
+                    "release_id": release_id,
+                    "scope_type": previous_scope["scope_type"],
+                    "scope_value": previous_scope["scope_value"],
+                    "logical_name": name,
+                    "byte_size": previous_scope["byte_size"],
+                    "checksum_sha256": previous_scope["checksum_sha256"],
+                    "content_type": previous_scope["content_type"],
+                    "parts": previous_scope["parts"],
+                } for previous_scope in previous_for_scopes)
+                print(f"  {name}: {len(scopes)} alcances privados reutilizados")
+                continue
 
             # Cada rol restringido recibe un archivo físicamente limitado a
             # su tienda o clúster. Ningún filtro del navegador es una frontera

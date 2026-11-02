@@ -69,7 +69,7 @@ const statusOptions = {
 const initialFilters = { q: "", tienda_id: "", desde: "", hasta: "", estado: "" };
 
 const reportKindsByRole = {
-  jefe_tienda: ["personal", "asistencias", "amonestaciones", "errores-personal", "capacitaciones"],
+  jefe_tienda: ["personal", "asistencias", "amonestaciones", "capacitaciones"],
   jefe_zonal: ["personal", "asistencias", "amonestaciones", "errores-personal", "incidencias", "supervisiones", "capacitaciones", "tareas"],
 };
 

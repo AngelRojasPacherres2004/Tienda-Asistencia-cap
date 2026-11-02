@@ -44,7 +44,7 @@ test("registra cobertura y asistencia en una sola operación sin horarios ni cue
   assert.equal(Object.hasOwn(writes[0].args, 'fecha_inicio'), false);
 });
 
-for (const [name, changes] of [["nombre vacío", { nombre_manual: " " }], ["origen vacío", { origen_manual: "" }], ["DNI inválido", { dni: "123" }], ["usuario inexistente", { usuario_id: "88" }]]) {
+for (const [name, changes] of [["nombre vacío", { nombre_manual: " " }], ["origen demasiado largo", { origen_manual: "a".repeat(201) }], ["DNI inválido", { dni: "123" }], ["usuario inexistente", { usuario_id: "88" }]]) {
   test(`rechaza ${name} antes de insertar la cobertura`, async () => {
     const { save, writes } = setup();
     await assert.rejects(save([{ ...manual, ...changes }]));
@@ -54,6 +54,11 @@ for (const [name, changes] of [["nombre vacío", { nombre_manual: " " }], ["orig
 test("permite DNI vacío para registro manual", async () => {
   const { save, writes } = setup(); await save([{ ...manual, dni: "" }]);
   assert.equal(writes[0].args.p_trabajadores[0].dni_manual, null);
+});
+
+test("un trabajador nuevo sin tienda de origen se guarda sin inventar una procedencia", async () => {
+  const { save, writes } = setup(); await save([{ ...manual, origen_manual: "" }]);
+  assert.equal(writes[0].args.p_trabajadores[0].origen_manual, null);
 });
 test("rechaza duplicar un usuario registrado", async () => {
   const { save, writes } = setup(); await assert.rejects(save([{ ...manual, usuario_id: "7" }, { ...manual, usuario_id: "7" }]), /repitas/);

@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { resolveProductSize } from '../commercial-dashboard/src/app/product-sizes.ts';
-import { stockTransfers } from '../commercial-dashboard/src/app/stock-transfers.ts';
-import { decodeSizeCompact, decodeStockCompact } from '../commercial-dashboard/src/app/compact-dashboard.ts';
+import { resolveProductSize } from '../src/commercial/product-sizes.ts';
+import { stockTransfers } from '../src/commercial/stock-transfers.ts';
+import { decodeSizeCompact, decodeStockCompact } from '../src/commercial/compact-dashboard.ts';
 
-const root = new URL('../commercial-dashboard/public/assets/data/', import.meta.url);
+const root = new URL('../dashboard-data/', import.meta.url);
 const read = name => JSON.parse(readFileSync(new URL(name, root), 'utf8'));
 const all = read('dashboard-stock-products.json').stockProducts;
 const transfers = decodeStockCompact(read('dashboard-stock-transfers.json').stockCompact);

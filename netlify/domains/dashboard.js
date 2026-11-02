@@ -238,12 +238,12 @@ export function createDashboardDomain({
       getWorkload(tiendaFilter, desde, hasta),
       getCourseProgress(tiendaFilter),
       getRotation(tiendaFilter, rotationDesde, rotationHasta),
-      getErrorsByResponsible(tiendaFilter, desde, hasta),
+      user.rol === 'jefe_tienda' ? Promise.resolve([]) : getErrorsByResponsible(tiendaFilter, desde, hasta),
       getWarningsByWorker(tiendaFilter, desde, hasta),
       getAttendanceByWorker(tiendaFilter, desde, hasta),
     ]);
     summary.cursos_en_curso = progresoCursos.reduce((sum, row) => sum + row.en_curso, 0);
-    return { summary, states, trend, workload, progresoCursos, rotation, errorsByResponsible, warningsByWorker, attendanceByWorker, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
+    return { summary, states, trend, workload, progresoCursos, rotation, ...(user.rol === 'jefe_tienda' ? {} : { errorsByResponsible }), warningsByWorker, attendanceByWorker, filters: { desde, hasta, rotation_year: rotationYear, tienda_id: tiendaFilter } };
   }
 
   return { hasStoreScope, applyStoreScope, getDashboard };

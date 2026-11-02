@@ -45,10 +45,9 @@ const fetchAll = async (table, columns, configure = query => query) => {
     if (data.length < 1000) return results;
   }
 };
-const [stores, users, existingTraffic, existingIncidents, existingBrands] = await Promise.all([
+const [stores, users, existingIncidents, existingBrands] = await Promise.all([
   fetchAll('tiendas', 'id,nombre,codigo'),
   fetchAll('usuarios', 'id,usuario,rol', query => query.eq('usuario', 'sistemas1')),
-  fetchAll('trafico_tienda', 'id,tienda_id,fecha,hora,rango_hora,cantidad,observaciones,registrado_por,updated_at', query => query.gte('fecha', '2026-03-02').lte('fecha', '2026-10-11')),
   fetchAll('incidencias', 'id,tienda_id,fecha,asunto,descripcion,tipo,area,gravedad,estado,intervencion,detencion,registrado_por,notificacion_estado'),
   fetchAll('marcas', 'id,nombre'),
 ]);
@@ -88,6 +87,9 @@ for (let rowNumber = 1; rowNumber <= trafficSheet.rowCount; rowNumber += 1) {
 if (unmappedStores.size) throw new Error(`Tiendas sin homologar: ${[...unmappedStores].join(', ')}`);
 
 const hours = SECURITY_TRAFFIC_HOURS;
+const sourceDates = [...trafficDays.values()].map(item => item.date).sort();
+const existingTraffic = await fetchAll('trafico_tienda', 'id,tienda_id,fecha,hora,rango_hora,cantidad,observaciones,registrado_por,updated_at',
+  query => query.gte('fecha', sourceDates[0]).lte('fecha', sourceDates.at(-1)));
 const existingByDay = new Map();
 for (const row of existingTraffic) {
   const key = `${row.tienda_id}|${row.fecha}`;
@@ -97,6 +99,11 @@ for (const row of existingTraffic) {
 const collisions = [...trafficDays.entries()].filter(([key]) => existingByDay.has(key));
 const conflictingDays = collisions.filter(([key, sourceDay]) => existingByDay.get(key).reduce((sum, row) => sum + row.cantidad, 0) !== sourceDay.total);
 const sourceTag = '[Excel seguridad 2026]';
+const protectedDays = conflictingDays.filter(([key]) => existingByDay.get(key).some(row => !row.observaciones?.includes(sourceTag)));
+const protectedKeys = new Set(protectedDays.map(([key]) => key));
+const changedImportedDays = conflictingDays.filter(([key]) => !protectedKeys.has(key));
+const missingDays = [...trafficDays.entries()].filter(([key]) => !existingByDay.has(key));
+const writeDays = [...missingDays, ...changedImportedDays];
 const incidentRows = [];
 for (let rowNumber = 3; rowNumber <= incidentsSheet.rowCount; rowNumber += 1) {
   const row = incidentsSheet.getRow(rowNumber);
@@ -121,9 +128,10 @@ for (let rowNumber = 3; rowNumber <= incidentsSheet.rowCount; rowNumber += 1) {
 }
 if (unmappedStores.size) throw new Error(`Tiendas sin homologar: ${[...unmappedStores].join(', ')}`);
 const alreadyImported = incidentRows.filter(item => existingIncidents.some(row => row.descripcion?.includes(item.sourceReference)));
-console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', source: path.basename(source), weeks: week + 1,
+console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', source: path.basename(source), trafficCutoff: sourceDates.at(-1), incidentCutoff: incidentRows.map(row => row.date).sort().at(-1), weeks: week + 1,
   dailyTotals: trafficDays.size, hourlyRows: trafficDays.size * hours.length, existingHourlyRows: existingTraffic.length,
   overlappingDays: collisions.length, daysWithDifferentTotals: conflictingDays.length,
+  missingDays: missingDays.length, changedImportedDays: changedImportedDays.length, protectedManualDays: protectedDays.length,
   weeklyMismatches, incidents: incidentRows.length, alreadyImportedIncidents: alreadyImported.length }, null, 2));
 if (!apply) process.exit(0);
 
@@ -131,10 +139,10 @@ if (!apply) process.exit(0);
 const backupDir = path.resolve('.etl_work');
 await mkdir(backupDir, { recursive: true });
 const backupPath = path.join(backupDir, `security-import-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-await writeFile(backupPath, JSON.stringify({ source: path.resolve(source), traffic: collisions.flatMap(([key]) => existingByDay.get(key)), incidents: existingIncidents }, null, 2));
+await writeFile(backupPath, JSON.stringify({ source: path.resolve(source), traffic: changedImportedDays.flatMap(([key]) => existingByDay.get(key)), incidents: existingIncidents }, null, 2));
 console.log(`Backup local: ${backupPath}`);
 const trafficRows = [];
-for (const item of trafficDays.values()) {
+for (const [, item] of writeDays) {
   const values = allocateDailySecurityTraffic(item.total, item.storeId, item.date);
   if (values.reduce((sum, value) => sum + value, 0) !== item.total) throw new Error(`Descuadre interno ${item.storeId} ${item.date}`);
   for (const [index, hour] of hours.entries()) trafficRows.push({ tienda_id: item.storeId, fecha: item.date,

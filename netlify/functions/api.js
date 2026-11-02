@@ -267,7 +267,11 @@ function validateUserPayload(data) {
   }
   if (data.estado === "inactivo" && !data.fecha_salida) throw httpError("Indica la fecha de salida.", 400);
   if (data.fecha_salida && !validDepartureReason(data.motivo_salida)) throw httpError("Selecciona un motivo de salida válido.", 400);
-  if (data.regimen_jornada && !["4h", "8h", "12h"].includes(data.regimen_jornada)) throw httpError("La jornada no es válida.", 400);
+  if (data.regimen_jornada != null && data.regimen_jornada !== "") {
+    const hours = Number(String(data.regimen_jornada).replace(/h$/, ""));
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24 || Math.round(hours * 100) / 100 !== hours) throw httpError("La jornada debe ser mayor que 0 y hasta 24 horas, con máximo dos decimales.", 400);
+    data.regimen_jornada = `${hours}h`;
+  }
   if (data.tipo_turno && !["apertura", "intermedio", "cierre", "part_time"].includes(data.tipo_turno)) throw httpError("El tipo de turno no es válido.", 400);
   if (data.tiene_parentesco && (!cleanText(data.tipo_parentesco) || !cleanText(data.familiar_vinculo))) {
     throw httpError("Indica el tipo de parentesco y el nombre del familiar o vínculo.", 400);
@@ -542,7 +546,7 @@ async function getPerfil(user) {
   };
 }
 
-const { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport } = createOperationsDomain({
+const { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic, exportTrafficExcel, createIncident, updateIncident, listIncidents, listBrands, listStoreProducts, exportIncidentsExcel, incidentCode, humanize, formatLimaDate, createDisciplinary, warningEvidence, createStoreDocument, listSpecialCoverages, listCoverageCandidates, saveSpecialCoverage, executiveAlerts, dashboardPeople, operationalSummary, storeSalesForecast, listTrafficMatrix, securityAdminReport } = createOperationsDomain({
   httpError, zonalStoreIds, bodyOf, supabase, isISODate, fetchAllReportPages,
   dbError, requireFields, rangosTrafico, cleanText, createExcelWorkbook,
   styleHeader, excelResponse, isSecurityIncident, createSecurityDomain,
@@ -554,7 +558,7 @@ const { listOperational, listDashboardDocumentAlerts, saveTraffic, updateTraffic
 
 // ---------- Supervisión zonal ----------
 
-const { serializeVisit, getZonalModule, createZonalSupervision, getZonalComparison, getGeneralComparison, getZonalCluster, signedZonalSupervisionFile, exportZonalSupervisions, createZonalIncident, updateZonalIncident, exportZonalIncidents } = createZonalDomain({
+const { serializeVisit, getZonalModule, trackZonalRequirement, signedZonalRequirementFile, createZonalSupervision, getZonalComparison, getGeneralComparison, getZonalCluster, signedZonalSupervisionFile, exportZonalSupervisions, createZonalIncident, updateZonalIncident, exportZonalIncidents } = createZonalDomain({
   attendanceStaffRoles, bodyOf, cleanText, createExcelWorkbook, dbError,
   employmentPeriods, excelResponse, fetchAllReportPages, formatLimaDate,
   httpError, isISODate, isSecurityIncident, listClusters, listTiendas,
@@ -1002,10 +1006,19 @@ export async function handler(event) {
       ensureAuth(event, "gerencia_general");
       return json(200, await getGeneralComparison(event, user));
     }
-    const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias)$/);
+    const zonalModuleMatch = path.match(/^\/zonal\/(personal|asistencia|tareas|supervisiones|incidencias|requerimientos)$/);
     if (zonalModuleMatch && method === "GET") {
       ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
       return json(200, await getZonalModule(event, user, zonalModuleMatch[1]));
+    }
+    const zonalRequirementTracking = path.match(/^\/zonal\/requerimientos\/(\d+)\/seguimiento$/);
+    if (zonalRequirementTracking && method === "POST") {
+      ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
+      return json(201, await trackZonalRequirement(event, user, Number(zonalRequirementTracking[1])));
+    }
+    if (path === "/zonal/requerimientos/archivo-url" && method === "POST") {
+      ensureAuth(event, ["gerencia_general", "jefe_zonal"]);
+      return json(200, await signedZonalRequirementFile(event, user));
     }
     if (path === "/zonal/tareas" && method === "POST") {
       ensureAuth(event, "jefe_zonal"); throw httpError("El rol zonal consulta tareas, pero no puede crearlas.", 403);
@@ -1096,11 +1109,11 @@ export async function handler(event) {
       return json(200, await updateTraffic(event, user, Number(trafficMatch[1])));
     }
     if (path === "/incidencias" && method === "GET") {
-      ensureAuth(event, operationalReaders);
+      ensureAuth(event, operationalReaders.filter(role => role !== "jefe_tienda"));
       return json(200, await listIncidents(event, user));
     }
     if (path === "/incidencias" && method === "POST") {
-      ensureAuth(event, ["seguridad", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["seguridad", "asistente_tienda"]);
       return json(201, await createIncident(event, user));
     }
     const incidentMatch = path.match(/^\/incidencias\/(\d+)$/);
@@ -1109,7 +1122,7 @@ export async function handler(event) {
       return json(200, await updateIncident(event, user, Number(incidentMatch[1])));
     }
     if (path === "/incidencias/export.xlsx" && method === "GET") {
-      ensureAuth(event, operationalReaders);
+      ensureAuth(event, operationalReaders.filter(role => role !== "jefe_tienda"));
       return await exportIncidentsExcel(event, user);
     }
     if (path === "/marcas" && method === "GET") {
@@ -1128,12 +1141,17 @@ export async function handler(event) {
       ensureAuth(event, "jefe_tienda");
       return json(201, await createDisciplinary(event, user, "amonestaciones"));
     }
+    const warningEvidenceMatch = path.match(/^\/amonestaciones\/(\d+)\/evidencia$/);
+    if (warningEvidenceMatch && method === "GET") {
+      ensureAuth(event, "jefe_tienda");
+      return json(200, await warningEvidence(Number(warningEvidenceMatch[1]), user));
+    }
     if (path === "/errores-personal" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "asistente_tienda"]);
       return json(200, await listOperational("errores_personal", event, user, "*,usuarios!errores_personal_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/errores-personal" && method === "POST") {
-      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["asistente_tienda"]);
       return json(201, await createDisciplinary(event, user, "errores_personal"));
     }
     if (path === "/documentos-tienda" && method === "GET") {
