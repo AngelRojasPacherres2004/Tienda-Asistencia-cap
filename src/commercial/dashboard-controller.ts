@@ -9,7 +9,7 @@ import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-ref
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
-import { conversionComparable } from './source-cutoffs';
+import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
@@ -3943,9 +3943,12 @@ export class CommercialDashboardController implements OnInit {
     .filter(year => year >= 2024 && year !== this.year()).sort((a, b) => b - a));
   readonly priceRangeStockPeriod = computed(() => {
     const selectedDate = this.toDate() || this.fromDate();
+    const selectedPeriod = this.year() * 100 + (Math.max(0, ...this.activeMonths()) || 12);
+    const metadata = this.data()?.metadata;
+    const latestSalesPeriod = Number(metadata?.salesCutoff.slice(0, 7).replace('-', ''));
     const targetDate = this.dateRangeActive() && selectedDate
-      ? selectedDate : this.periodEnd(this.year() * 100 + (Math.max(0, ...this.activeMonths()) || 12));
-    return (this.data()?.metadata.stockPeriods || []).filter(period => this.periodEnd(period) <= targetDate).at(-1) || null;
+      ? selectedDate : selectedPeriod === latestSalesPeriod ? metadata!.stockCutoff : this.periodEnd(selectedPeriod);
+    return stockPeriodForDate(metadata?.stockPeriods || [], this.cloud.availableFiles(), targetDate, metadata?.stockCutoff || '');
   });
   readonly effectivePriceRangeComparisonYear = computed(() => this.priceRangeComparisonYears().includes(this.priceRangeComparisonYear())
     ? this.priceRangeComparisonYear() : this.priceRangeComparisonYears()[0] || this.year() - 1);

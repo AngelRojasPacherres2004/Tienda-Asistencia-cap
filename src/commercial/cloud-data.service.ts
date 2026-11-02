@@ -93,6 +93,7 @@ export class CloudDataService {
   readonly accessProfile = signal<DashboardAccessProfile | null>(this.client || this.portalMode ? null : LOCAL_ACCESS);
   readonly authError = signal('');
   readonly dataVersion = signal('LOCAL');
+  readonly availableFiles = signal<string[]>([]);
   readonly remoteEnabled = computed(() => this.client !== null || this.portalMode);
   readonly hasAccess = computed(() => this.portalMode
     ? this.portalUser() !== null && this.accessProfile()?.canAccessDashboard === true
@@ -239,6 +240,7 @@ export class CloudDataService {
 
   async jsonSource(logicalName: string): Promise<DashboardFileSource> {
     if (this.portalMode) {
+      if (!this.availableFiles().length) await this.refreshManifest();
       const source = await this.portalRequest<DashboardFileSource>(`/commercial/files/${encodeURIComponent(logicalName)}`);
       this.dataVersion.set(source.cacheVersion);
       return source;
@@ -275,8 +277,9 @@ export class CloudDataService {
   async refreshManifest(): Promise<void> {
     this.clearManifest();
     if (this.portalMode) {
-      const data = await this.portalRequest<{ release: { version: string } }>('/commercial/manifest');
+      const data = await this.portalRequest<{ release: { version: string }; files: string[] }>('/commercial/manifest');
       this.dataVersion.set(data.release.version);
+      this.availableFiles.set(data.files || []);
       return;
     }
     if (this.client && this.session()) await this.loadPublishedManifest();
@@ -427,6 +430,7 @@ export class CloudDataService {
 
     const rows = (filesData ?? []) as DashboardFileRow[];
     this.fileManifest = new Map(rows.map(row => [row.logical_name, row]));
+    this.availableFiles.set(rows.map(row => row.logical_name));
     this.dataVersion.set(release.version);
   }
 
@@ -505,6 +509,7 @@ export class CloudDataService {
 
   private clearManifest(): void {
     this.fileManifest.clear();
+    this.availableFiles.set([]);
     this.dataVersion.set(this.client || this.portalMode ? 'SIN CARGAR' : 'LOCAL');
   }
 

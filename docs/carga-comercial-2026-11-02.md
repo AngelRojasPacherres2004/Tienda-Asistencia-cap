@@ -28,3 +28,9 @@ La conversión del período no se calcula cuando el tráfico no cubre el mismo
 corte de ventas. Los reportes privados y la metadata conservan los cortes
 independientes. El nuevo stock se carga como `loading`, se comprueban cantidades
 y sumas y solo después se marca `ready`. Se conservan las fotografías anteriores.
+
+Se conservaron también los resúmenes publicados de rangos de precio de junio,
+cuyo Excel no está en el `input` de esta carga. Se reutilizan sus objetos
+privados y sus alcances de tienda/clúster después de comprobar los permisos.
+El selector consulta los archivos disponibles para no perder ese mes histórico
+y utiliza el día real de la foto actual, aunque sea al inicio del mes.
