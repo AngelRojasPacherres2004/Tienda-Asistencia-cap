@@ -13,10 +13,31 @@ import duckdb
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'piplines'))
 import aplicar_corte_modelo as model
 import _base_stock as stock
+import publicar_corte_completo as publisher
 from publication_cutoffs import configured_cutoff
 
 
 class PublicationCutoffsTest(unittest.TestCase):
+    def test_republishing_uses_recorded_traffic_date_without_environment_flags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'capa2').mkdir()
+            for name in publisher.MODEL_FACTS:
+                (root / 'capa2' / name).write_bytes(b'prepared')
+            coverage = root / 'coverage.json'
+            coverage.write_text('{"trafficCutoff":"2026-10-25"}')
+            manifest = root / 'manifest.json'
+            manifest.write_text('{"schemaVersion":3,"cutoffs":{"ventas":"2026-10-31","ingresos":"2026-10-31","transferencias":"2026-10-31","trafico":"2026-10-25","stock":"2026-11-01"}}')
+            with patch.multiple(publisher, COBERTURA=coverage, PROJECT_ROOT=root), patch.dict(os.environ, {'DASHBOARD_TRAFFIC_CUTOFF': ''}):
+                self.assertTrue(publisher.manifest_fresh(manifest, '2026-10-31', '2026-11-01', monthly=True))
+
+    def test_publication_does_not_replace_newer_sales_or_stock_with_older_dates(self):
+        previous = {'sales_cutoff': '2026-10-31', 'stock_cutoff': '2026-11-01'}
+        publisher.validate_cutoff_progression(previous, '2026-10-31', '2026-11-01')
+        for sales, snapshot in [('2026-10-25', '2026-11-01'), ('2026-10-31', '2026-07-31')]:
+            with self.assertRaises(RuntimeError):
+                publisher.validate_cutoff_progression(previous, sales, snapshot)
+
     def test_source_dates_do_not_invent_traffic_or_remove_confirmed_stock(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
