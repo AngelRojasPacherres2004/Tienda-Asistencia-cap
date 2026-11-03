@@ -1132,7 +1132,8 @@ export class CommercialDashboardController implements OnInit {
   }
 
   private isFullCompanyScope(): boolean {
-    return !this.selectedClusters().length && !this.selectedFormats().length && !this.selectedStores().length;
+    return this.cloud.accessProfile()?.scopeType === 'all'
+      && !this.selectedClusters().length && !this.selectedFormats().length && !this.selectedStores().length;
   }
 
   private isFullYear(periods: number[]): boolean {
@@ -1252,7 +1253,7 @@ export class CommercialDashboardController implements OnInit {
   });
 
   private goalContextHasFilters(): boolean {
-    return this.dateRangeActive() || this.selectedMonths().length > 0
+    return !this.isFullCompanyScope() || this.dateRangeActive() || this.selectedMonths().length > 0
       || this.selectedClusters().length > 0 || this.selectedFormats().length > 0 || this.selectedStores().length > 0
       || this.selectedCategories().length > 0 || this.selectedGenders().length > 0
       || this.selectedLines().length > 0 || this.selectedSublines().length > 0;

@@ -163,12 +163,12 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
         anio: Math.floor(goal.periodId / 100), mes: goal.periodId % 100,
         rubro: goal.category, meta_venta: goal.target,
       })), year, null);
-      const authoritativeAnnual = annualTargets.get(year)?.target;
-      const factor = authoritativeAnnual != null && aggregate.annualTarget > 0 ? authoritativeAnnual / aggregate.annualTarget : 1;
+      // Los rubros ya contienen la meta oficial de cada tienda. La meta anual
+      // corporativa es independiente y no debe reescalar un alcance parcial.
       for (const total of aggregate.totalRows) {
         const storeId = dashboardByStore.get(Number(total.tienda_id));
         if (storeId) mergedGoals.set(`${storeId}|${year * 100 + total.mes}|`, {
-          storeId, periodId: year * 100 + total.mes, target: Math.round(total.meta_venta * factor * 100) / 100, source: "CALCULADO_BD",
+          storeId, periodId: year * 100 + total.mes, target: total.meta_venta, source: "CALCULADO_BD",
         });
       }
       if (aggregate.totalRows.length && !annualTargets.has(year)) annualTargets.set(year, { year, target: aggregate.annualTarget });
