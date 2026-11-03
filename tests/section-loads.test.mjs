@@ -239,6 +239,7 @@ test('inventory hierarchy loads a small exact aggregate before product detail', 
 
 test('transfer modal loads only candidate SKUs from the compact file', async () => {
   const subject = new exports.Subject();
+  subject.cloud = { accessProfile: () => null };
   subject.sectionLoads = new SectionLoads();
   subject.stockDetailLoaded = signal(false);
   subject.stockTransfersLoaded = signal(false);
@@ -267,6 +268,22 @@ test('a canceled source lookup never starts a download', async () => {
   const load = subject.loadDetail('dashboard-stock-products.json', controller.signal);
   controller.abort(); finish({ urls: [] });
   await assert.rejects(load, error => error.name === 'AbortError');
+});
+
+test('store transfer detail uses authorized server routes instead of a scoped stock file', async () => {
+  const subject = new exports.Subject();
+  subject.sectionLoads = new SectionLoads();
+  subject.stockTransfersLoaded = signal(false);
+  subject.stockTransferProductsData = signal([]);
+  subject.storeTransferRoutes = signal(null);
+  subject.storeTransferStores = signal([]);
+  subject.stockTransfersError = signal('');
+  subject.cloud = { accessProfile: () => ({ scopeType: 'store' }), storeTransfers: async () => ({ products: [{ productId: 'P1' }], stores: [{ storeId: 'A' }], routes: [{ source: 'A', destination: 'B' }] }) };
+  subject.loadDetail = async () => { throw new Error('Unexpected scoped stock download'); };
+  await subject.ensureStockTransfers();
+  assert.equal(subject.stockTransfersLoaded(), true);
+  assert.equal(subject.storeTransferRoutes()[0].destination, 'B');
+  assert.equal(subject.stockTransferProductsData()[0].productId, 'P1');
 });
 test('el inventario queda disponible antes de enriquecer códigos Nissei', () => {
   const start = source.indexOf('private async ensureStockDetail');

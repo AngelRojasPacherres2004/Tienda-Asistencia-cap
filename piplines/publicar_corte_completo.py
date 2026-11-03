@@ -67,8 +67,9 @@ def run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> 
 def manifest_fresh(path: Path, cutoff: str, stock: str, *, monthly: bool = False) -> bool:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
+        coverage = json.loads(COBERTURA.read_text(encoding='utf-8'))
         expected = {"ventas": cutoff, "ingresos": cutoff,
-                    "transferencias": cutoff, "trafico": cutoff, "stock": stock}
+                    "transferencias": cutoff, "trafico": coverage.get('trafficCutoff', cutoff), "stock": stock}
         newest_source = max((PROJECT_ROOT / "capa2" / name).stat().st_mtime for name in MODEL_FACTS)
         return (manifest.get("cutoffs") == expected
                 and (not monthly or manifest.get("schemaVersion") == 3)
@@ -88,6 +89,12 @@ def same_instant(first: str | None, second: str | None) -> bool:
                 == datetime.fromisoformat(second.replace("Z", "+00:00")).astimezone(timezone.utc))
     except ValueError:
         return False
+
+
+def validate_cutoff_progression(previous: dict, sales: str, stock: str) -> None:
+    for field, value in (('sales_cutoff', sales), ('stock_cutoff', stock)):
+        if previous.get(field) and date.fromisoformat(value) < date.fromisoformat(previous[field]):
+            raise RuntimeError(f'El corte {field} {value} es anterior al publicado {previous[field]}; no se reemplaza por datos más antiguos.')
 
 
 def main() -> int:
@@ -125,6 +132,8 @@ def main() -> int:
         "PYTHONUNBUFFERED": "1",
     })
     previous = published_release(values["SUPABASE_SECRET_KEY"])
+    validate_cutoff_progression(previous, cutoff, stock)
+    run([node, str(app_root / 'scripts' / 'import-dashboard-stock-rest.mjs'), '--apply'], cwd=app_root, env=environment)
     if (same_instant(previous.get("generated_at"), metadata["generatedAt"])
         and previous.get("sales_cutoff") == cutoff
         and previous.get("stock_cutoff") == stock):

@@ -694,11 +694,11 @@
 :host ::ng-deep .rop-gauge .chart-host { height: 105px !important; min-height: 105px !important; }
 
 footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center; }
-.status-panel { display: grid; min-height: 70vh; place-content: center; gap: 10px; text-align: center; }
-.detail-loader { display: grid; min-height: 420px; place-content: center; gap: 10px; text-align: center; }
+.status-panel { display: grid; min-height: 70vh; place-content: center; justify-items: center; gap: 12px; color: #64748b; font-size: 12px; font-weight: 700; text-align: center; }
+.detail-loader { display: grid; min-height: 420px; place-content: center; justify-items: center; gap: 12px; color: #64748b; font-size: 12px; font-weight: 700; text-align: center; }
 .detail-loader small { color: #64748b; }
 .detail-loader.compact { min-height: 150px; margin-top: 12px; border: 1px solid #d7dfeb; border-radius: 12px; background: #fff; }
-.card-inline-loader { position: absolute; inset: 58px 12px 40px; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9px; background: rgba(255,255,255,.88); color: #475569; font-size: .62rem; font-weight: 850; backdrop-filter: blur(2px); }
+.card-inline-loader { position: absolute; inset: 58px 12px 40px; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 12px; border-radius: 9px; background: rgba(255,255,255,.88); color: #64748b; font-size: 12px; font-weight: 700; backdrop-filter: blur(2px); }
 .card-inline-loader .loader { width: 20px; height: 20px; }
 .status-panel.error { color: #b91c1c; }
 .retry-button { min-width: 140px; height: 40px; margin: 6px auto 0; padding: 0 18px; border: 0; border-radius: 8px; background: #123a8c; color: #fff; cursor: pointer; font-size: .7rem; font-weight: 900; letter-spacing: .06em; }
@@ -716,7 +716,7 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .login-card button:disabled { opacity: .55; cursor: wait; }
 .login-card small { color: #94a3b8; font-size: .62rem; line-height: 1.4; text-align: center; }
 .login-card .login-error { padding: 8px 10px; border-radius: 7px; background: #fff1f2; color: #b91c1c; font-weight: 800; }
-.loader { width: 36px; height: 36px; margin: auto; border: 4px solid #dbe4f3; border-top-color: #123a8c; border-radius: 50%; animation: spin 1s linear infinite; }
+.loader { width: 30px; height: 30px; margin: auto; border: 3px solid #dbe4f3; border-top-color: #123a8c; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 :host ::ng-deep .chart-tooltip { box-sizing: border-box; width: 205px; min-width: 205px; max-width: 205px; font-family: Arial,sans-serif; white-space: normal; }
 :host ::ng-deep .chart-tooltip > strong { display: block; margin-bottom: 5px; color: #172033; font-size: 10px; }

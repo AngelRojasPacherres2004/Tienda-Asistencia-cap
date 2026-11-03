@@ -37,6 +37,21 @@ function fixture() {
 }
 const totals = subject => ({ ...subject.transferSummary() });
 
+test('store scope retains the opposite store of a server-authorized transfer and applies filters', () => {
+  const subject = fixture();
+  const products = [product('A', 100, 10), product('B', 0, 20)];
+  subject.predictiveStoreOptions = () => [{ storeId: 'B', alias: 'Mi tienda', isStore: true }];
+  subject.stockTransfersLoaded.set(true);
+  subject.stockTransferProductsData.set(products);
+  subject.storeTransferRoutes.set(stockTransfers(products, 30, 90, false));
+  subject.storeTransferStores.set([{ storeId: 'A', alias: 'Origen', isStore: true }, { storeId: 'B', alias: 'Mi tienda', isStore: true }]);
+  assert.equal(subject.transferProducts().length, 2);
+  assert.equal(subject.transferRecommendations()[0].sourceName, 'Origen');
+  assert.equal(subject.transferRecommendations()[0].destinationName, 'Mi tienda');
+  subject.transferBrand.set('NIKE');
+  assert.equal(subject.transferRecommendations().length, 0);
+});
+
 test('brand, line, category, product search and reset update both routes and totals', () => {
   const subject = fixture();
   assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 60 });
@@ -168,7 +183,7 @@ test('matrix reset starts without a selected rubro and prefers compact transfer 
 });
 
 test('sales and stock chart do not read or calculate transfer data', () => {
-  const names = new Set(['sizeRubro', 'shoeSizeSystem', 'sizeMetric', 'selectSizeMetric', 'sizeChartRows']);
+  const names = new Set(['storeTransferRoutes', 'sizeRubro', 'shoeSizeSystem', 'sizeMetric', 'selectSizeMetric', 'sizeChartRows']);
   const selected = app.members.filter(member => names.has(member.name?.getText(tree)));
   const compiled = ts.transpileModule(`export class SizeSubject {${selected.map(member => member.getText(tree)).join('\n')}}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const isolated = {};

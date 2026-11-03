@@ -17,6 +17,7 @@ from pathlib import Path
 
 from project_paths import PROJECT_ROOT
 from xlsx_staging import materializar_hoja_csv
+from publication_cutoffs import configured_cutoff
 
 
 TRAFICO = PROJECT_ROOT / "capa1" / "TRAFICO_CLIENTES.xlsx"
@@ -78,9 +79,10 @@ def seleccionar(explicita: date | None) -> date:
     tiendas_esperadas = max(recientes)
     minimo = max(1, math.ceil(tiendas_esperadas * 0.8))
     if explicita:
-        if explicita not in conteos or len(conteos[explicita]) < minimo:
+        traffic_date = configured_cutoff('TRAFFIC', explicita)
+        if traffic_date not in conteos or len(conteos[traffic_date]) < minimo:
             raise RuntimeError(
-                f"El {explicita} tiene {len(conteos.get(explicita, set()))} tiendas con tráfico; "
+                f"El {traffic_date} tiene {len(conteos.get(traffic_date, set()))} tiendas con tráfico; "
                 f"se necesitan al menos {minimo} de {tiendas_esperadas}."
             )
         elegida = explicita
@@ -89,7 +91,7 @@ def seleccionar(explicita: date | None) -> date:
     if elegida > date.today():
         raise RuntimeError(f"El corte {elegida} está en el futuro.")
     print(
-        f"Tráfico: {len(conteos[elegida])}/{tiendas_esperadas} tiendas con datos; "
+        f"Tráfico: {len(conteos[configured_cutoff('TRAFFIC', elegida)])}/{tiendas_esperadas} tiendas con datos; "
         f"corte elegido {elegida}.", file=sys.stderr
     )
     return elegida
@@ -104,9 +106,11 @@ def validar(fecha: date) -> None:
     if cobertura.get("selectedCutoff") != esperado or web.get("selectedCutoff") != esperado:
         raise RuntimeError("El modelo y el dashboard no comparten la fecha de corte solicitada.")
     fuentes = {fila["source"]: fila for fila in cobertura.get("sources", [])}
-    for nombre in ("Ventas", "Tráfico"):
-        if fuentes.get(nombre, {}).get("dataThrough") != esperado:
-            raise RuntimeError(f"{nombre} no llega al corte {esperado}.")
+    for nombre, corte in (("Ventas", esperado), ("Tráfico", cobertura.get("trafficCutoff", esperado))):
+        if fuentes.get(nombre, {}).get("dataThrough") != corte:
+            raise RuntimeError(f"{nombre} no llega al corte {corte}.")
+    if web.get('trafficCutoff', esperado) != cobertura.get('trafficCutoff', esperado):
+        raise RuntimeError('El corte de tráfico del dashboard no coincide con el modelo.')
     for nombre in ("Ingresos", "Transferencias"):
         fuente = fuentes.get(nombre, {})
         if fuente.get("status") != "ok" or not fuente.get("dataThrough"):

@@ -1,6 +1,6 @@
 import { storePersonnelColumns, storePersonnelLists, personnelChoiceLabel } from '../../shared/store-personnel.js';
 
-export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse }) {
+export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, storeStaffRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse }) {
   function mapUserRow(row) {
     const { tiendas, ...rest } = row;
     return { ...rest, tienda_nombre: tiendas?.nombre || null };
@@ -83,7 +83,7 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
         request = ids.length ? request.or(`tienda_id.in.(${ids.join(",")}),zonal_creador_id.eq.${actor.id}`) : request.eq("zonal_creador_id", actor.id);
       }
     }
-    if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+    if (actor.rol === "jefe_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", storeStaffRoles);
     if (actor.rol === "asistente_tienda") request = request.eq("tienda_id", actor.tienda_id).in("rol", ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
     if (storeId) request = request.eq("tienda_id", storeId);
     const data = await fetchAllReportPages(request.order("id"));

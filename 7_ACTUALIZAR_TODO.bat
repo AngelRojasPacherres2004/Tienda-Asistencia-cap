@@ -5,12 +5,31 @@ cd /d "%~dp0"
 
 set "SIN_PAUSA=0"
 set "FECHA_CORTE="
-set "APP_ROOT=%~dp0"
+set "APP_ROOT=%~dp0."
 set "TRAFICO_EXCEL="
 set "TRAFICO_DESDE="
 set "SOLO_VERIFICAR=0"
 
 :leer_argumentos
+if /I "%~1"=="--fecha-stock" (
+    if "%~2"=="" goto :error
+    set "DASHBOARD_STOCK_CUTOFF=%~2"
+    shift
+    shift
+    goto :leer_argumentos
+)
+if /I "%~1"=="--fecha-trafico" (
+    if "%~2"=="" goto :error
+    set "DASHBOARD_TRAFFIC_CUTOFF=%~2"
+    shift
+    shift
+    goto :leer_argumentos
+)
+if /I "%~1"=="--valorar-stock-cantidad-precio" (
+    set "DASHBOARD_STOCK_VALUE_POLICY=quantity-price"
+    shift
+    goto :leer_argumentos
+)
 if "%~1"=="" goto :argumentos_listos
 if /I "%~1"=="--sin-pausa" (
     set "SIN_PAUSA=1"
@@ -53,6 +72,7 @@ if /I "%~1"=="--trafico-desde" (
 goto :uso
 
 :argumentos_listos
+for %%I in ("%APP_ROOT%\.") do set "APP_ROOT=%%~fI"
 echo ============================================================
 echo ACTUALIZACION DE PUNTA A PUNTA
 echo ============================================================
@@ -154,7 +174,7 @@ if "%SIN_PAUSA%"=="0" pause
 exit /b 0
 
 :uso
-echo Uso: 7_ACTUALIZAR_TODO.bat [--fecha-corte AAAA-MM-DD] [--trafico-excel RUTA] [--trafico-desde AAAA-MM-DD] [--app-root RUTA] [--solo-verificar] [--sin-pausa]
+echo Uso: 7_ACTUALIZAR_TODO.bat [--fecha-corte AAAA-MM-DD] [--fecha-stock AAAA-MM-DD] [--fecha-trafico AAAA-MM-DD] [--valorar-stock-cantidad-precio] [--trafico-excel RUTA] [--trafico-desde AAAA-MM-DD] [--app-root RUTA] [--solo-verificar] [--sin-pausa]
 goto :error
 
 :error

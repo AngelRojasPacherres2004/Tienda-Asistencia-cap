@@ -12,7 +12,7 @@ export function createWorkforceDomain({
     const query = event.queryStringParameters || {};
     const tiendaScope = await resolveStoreScope(user, query.tienda_id);
     const fecha = query.fecha && isISODate(query.fecha) ? query.fecha : todayISO();
-    let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado")
+    let empleadosQuery = supabase.from("usuarios").select("id,nombres,apellidos,dni,estado,rol")
       .in("rol", attendanceStaffRoles).order("nombres");
     empleadosQuery = applyStoreScope(empleadosQuery, tiendaScope);
     if (query.estado === "activo" || query.estado === "inactivo") empleadosQuery = empleadosQuery.eq("estado", query.estado);
@@ -36,8 +36,8 @@ export function createWorkforceDomain({
     }
     return {
       fecha,
-      empleados: [...allPeople.values()].map((emp) => ({
-        persona_id: emp.id, usuario_id: typeof emp.id === 'number' ? emp.id : null, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado,
+      empleados: [...allPeople.values()].sort((a, b) => Number(b.rol === 'jefe_tienda') - Number(a.rol === 'jefe_tienda') || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, 'es')).map((emp) => ({
+        persona_id: emp.id, usuario_id: typeof emp.id === 'number' ? emp.id : null, nombre: `${emp.nombres} ${emp.apellidos}`, dni: emp.dni, estado: emp.estado, rol: emp.rol || null,
         registro: byUser.get(emp.id) || null, apoyo_ingreso: byUser.get(emp.id)?.estado === 'apoyo_ingreso', bloqueado: Boolean(byUser.get(emp.id)?.cobertura_trabajador_id),
       })),
     };

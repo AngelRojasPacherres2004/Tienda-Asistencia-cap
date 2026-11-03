@@ -369,7 +369,7 @@ const { authAccount, login, credentialPermissions, setCredentialPermission, chan
 
 // ---------- Usuarios ----------
 const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
-  supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse,
+  supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, storeStaffRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse,
 });
 
 async function communicationStoreScope(user, requestedStoreId = null) {

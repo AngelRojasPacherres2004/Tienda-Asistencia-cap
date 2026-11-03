@@ -33,7 +33,7 @@ function fixture() {
     return query;
   } };
   const domain = createWorkforceDomain({
-    supabase, attendanceStaffRoles: ['vendedor'], asistenciaEstados: new Set(ATTENDANCE_OPTIONS.map(row => row.value)),
+    supabase, attendanceStaffRoles: ['vendedor', 'jefe_tienda'], asistenciaEstados: new Set(ATTENDANCE_OPTIONS.map(row => row.value)),
     bodyOf: event => event.body, requireFields() {}, isISODate: date => /^\d{4}-\d{2}-\d{2}$/.test(date),
     validIds: values => [...new Set(values.map(Number))], cleanText: value => value.trim(),
     readAllResult: query => query, httpError: (message, status) => Object.assign(new Error(message), { status }),
@@ -75,4 +75,12 @@ test('automatic incoming attendance cannot be deleted from the attendance endpoi
   data.asistencias.push({ id: 100, usuario_id: null, tienda_id: 20, fecha: '2026-10-28', estado: 'apoyo_ingreso', cobertura_trabajador_id: 101 });
   await assert.rejects(domain.eliminarAsistencia(100, { tienda_id: 20 }), error => error.status === 403);
   assert.equal(data.asistencias.length, 1);
+});
+
+test('administrator is listed first in attendance and retains the role label', async () => {
+  const { data, domain } = fixture();
+  data.usuarios.push({ id: 2, tienda_id: 10, rol: 'jefe_tienda', estado: 'activo', nombres: 'Zoe', apellidos: 'Administradora' });
+  const result = await domain.listAsistenciasDia({ queryStringParameters: { estado: 'activo' } }, { tienda_id: 10 });
+  assert.deepEqual(result.empleados.map(person => person.usuario_id), [2, 1]);
+  assert.equal(result.empleados[0].rol, 'jefe_tienda');
 });

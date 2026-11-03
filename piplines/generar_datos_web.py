@@ -419,7 +419,8 @@ def generar() -> dict:
     ventas = f"(SELECT * FROM {ventas_fuente} WHERE fecha_venta <= {corte_sql})"
     ingresos = f"(SELECT * FROM {ingresos_fuente} WHERE fecha_ingreso <= {corte_sql})"
     trafico = f"(SELECT * FROM {trafico_fuente} WHERE fecha <= {corte_sql})"
-    stock_historico = f"(SELECT * FROM {stock_fuente} WHERE fecha_corte <= {corte_sql})"
+    corte_stock = date.fromisoformat(reporte_cobertura.get('stockCutoff') or fecha_corte.isoformat())
+    stock_historico = f"(SELECT * FROM {stock_fuente} WHERE fecha_corte <= DATE '{corte_stock.isoformat()}')"
     fecha_stock = conexion.execute(
         f"SELECT MAX(fecha_corte) FROM {stock_historico}"
     ).fetchone()[0]
@@ -1154,6 +1155,11 @@ def generar() -> dict:
         {"source": "Fecha de corte", "message": mensaje}
         for mensaje in reporte_cobertura.get("manualWarnings", [])
     )
+    if reporte_cobertura.get('trafficCutoff', fecha_corte.isoformat()) != fecha_corte.isoformat():
+        advertencias_datos.append({'source': 'Tráfico', 'message': f"Ventas al {fecha_corte.isoformat()}; tráfico al {reporte_cobertura['trafficCutoff']}. No se mezclan los cortes para calcular conversión."})
+    diferencias_stock = conexion.execute(f"SELECT COUNT(*) FROM {stock} WHERE NOT es_total_consistente").fetchone()[0]
+    if diferencias_stock:
+        advertencias_datos.append({'source': 'Valoración de stock', 'message': f'{diferencias_stock} total(es) fuente difieren de cantidad por precio; el inventario usa cantidad por precio y conserva el importe original para auditoría.'})
     cobertura_por_nombre = {
         fuente.get("source"): fuente for fuente in cobertura_fuentes
     }
@@ -1165,6 +1171,8 @@ def generar() -> dict:
             "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
             "selectedCutoff": fecha_corte.isoformat(),
             "salesCutoff": fecha_corte.isoformat(),
+            "trafficCutoff": reporte_cobertura.get('trafficCutoff', fecha_corte.isoformat()),
+            "stockValuationPolicy": "cantidad × precio_sugerido; total_fuente se conserva para auditoría",
             "salesDataThrough": ventas_hasta or (fecha_ultima_venta.isoformat() if fecha_ultima_venta else None),
             "stockCutoff": fecha_ancla_stock.isoformat(),
             "stockDataThrough": stock_hasta or (fecha_stock.isoformat() if fecha_stock else None),
@@ -1405,9 +1413,7 @@ def escribir(resultado: dict) -> None:
     for nombre, contenido in archivos.items():
         destino = SALIDA_PUBLICA.parent / nombre
         destino.write_text(json.dumps(contenido, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        if SALIDA_COMPILADA.parent.parent.parent.exists():
-            SALIDA_COMPILADA.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(destino, SALIDA_COMPILADA.parent / nombre)
+        # Los datos comerciales se publican en Storage privado, nunca en dist.
         print(f"Datos web: {destino.name} ({destino.stat().st_size / 1024 / 1024:.2f} MB)")
 
 

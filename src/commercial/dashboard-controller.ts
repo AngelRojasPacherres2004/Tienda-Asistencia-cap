@@ -9,6 +9,7 @@ import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-ref
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
+import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
@@ -73,7 +74,7 @@ type DataWarning = { source: string; message: string };
 type DashboardData = {
   metadata: {
     generatedAt: string; salesCutoff: string; stockCutoff: string; years: number[]; nonSellableRate: number;
-    selectedCutoff?: string; salesDataThrough?: string | null; stockDataThrough?: string | null;
+    selectedCutoff?: string; salesDataThrough?: string | null; stockDataThrough?: string | null; trafficCutoff?: string;
     dataWarnings?: DataWarning[];
     eoq: { available: boolean; pilot: boolean; orderCost: number; annualHoldingCost: number };
     rop: { available: boolean; pilot: boolean; leadTimeDays: number; safetyStockUnits: number };
@@ -199,6 +200,7 @@ export class CommercialDashboardController implements OnInit {
   readonly stockProductsData = signal<ProductRow[]>([]);
   readonly priceRangeData = signal<PriceRangeRow[]>([]);
   readonly priceRangeStockData = signal<StockPriceRangeRow[]>([]);
+  private readonly priceRangeStockCache = new Map<number, StockPriceRangeRow[]>();
   readonly priceRangeStockLoadedPeriod = signal<number | null>(null);
   readonly priceRangeStockLoading = signal(false);
   readonly priceRangeStockError = signal('');
@@ -364,7 +366,9 @@ export class CommercialDashboardController implements OnInit {
       const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
       const traffic = sum(rows, 'traffic');
       const transactions = sum(rows, 'transactions');
-      return { label, traffic, transactions, conversion: traffic > 0 ? transactions / traffic : null };
+      const metadata = this.data()?.metadata;
+      const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
+      return { label, traffic, transactions, conversion: traffic > 0 && (!metadata || conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
     });
   });
   readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic > 0));
@@ -413,7 +417,9 @@ export class CommercialDashboardController implements OnInit {
       const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
       const transactions = sum(rows, 'transactions');
       const traffic = sum(rows, 'traffic');
-      return { label, transactions, traffic, conversion: traffic > 0 ? transactions / traffic : null };
+      const metadata = this.data()?.metadata;
+      const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
+      return { label, transactions, traffic, conversion: traffic > 0 && (!metadata || conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
     });
   });
   readonly conversionChartHasData = computed(() => this.conversionMonthlyRows().some(row => row.conversion !== null));
@@ -1254,12 +1260,15 @@ export class CommercialDashboardController implements OnInit {
     const locked = this.storeFilterLocked();
     const format = this.filteredStores()[0]?.format?.toUpperCase();
     const actions = [];
+    const trafficNote = this.data()?.metadata.trafficCutoff ? ` Tráfico registrado hasta ${this.data()!.metadata.trafficCutoff}.` : '';
     if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de tiendas METRO', action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
     if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de otras tiendas', action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
-    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Fórmula: transacciones ÷ tráfico × 100. Ver evolución mensual', action: 'conversion', value: this.percent(metrics.conversion), valueClass: '' });
+    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Transacciones ÷ tráfico × 100. No disponible si los cortes del período no coinciden.' + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
+    for (const card of actions) if (card.action.startsWith('traffic')) card.title += trafficNote;
     actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: 'Ver ticket promedio por mes', action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
     return {
-      actions, saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
+      actions: actions.map(card => ({ ...card, note: card.action.startsWith('traffic') ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
+      saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
       saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
       markup: this.trend(metrics.priceVariation), markupPositive: (metrics.priceVariation || 0) >= 0,
       sellThroughStock: metrics.sellThroughStock ? this.number(metrics.sellThroughStock, ' und') : '',
@@ -1520,6 +1529,7 @@ export class CommercialDashboardController implements OnInit {
 
   onReactRankingAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'metric' && (value === 'ROTATION' || value === 'MARKUP' || value === 'TICKET' || value === 'SALE_M2')) this.toggleRankingMetric(value);
+    else if (type === 'retry') void this.loadCompanyRanking(this.goalLoadToken);
   }
 
   readonly genderCardModel = computed<Record<string, unknown>>(() => ({
@@ -1540,7 +1550,7 @@ export class CommercialDashboardController implements OnInit {
     stockUnavailable: this.priceRangeStockPeriod() == null,
     stockCutoff: this.priceRangeStockData()[0]?.cutoff || '',
     rows: this.priceRangeSummary().map(row => ({ label: row.label, year: row.year,
-      net: this.money(row.net, true), stock: row.stockUnits == null ? 'N/A' : this.number(row.stockUnits, ' und'),
+      net: this.money(row.net, true), stock: row.stockUnits == null ? (this.priceRangeStockLoading() && row.year === Math.floor((this.priceRangeStockPeriod() || 0) / 100) ? 'Cargando…' : 'N/A') : this.number(row.stockUnits, ' und'),
       units: this.number(row.units), averagePrice: this.money(row.averagePrice) })),
   }));
 
@@ -2259,7 +2269,9 @@ export class CommercialDashboardController implements OnInit {
       // En ACUMULADO usa Ene..corte; al elegir un mes usa solo los días de ese mes.
       annualGrowth: previousYtd ? net / previousYtd - 1 : null, dailyAverage: dailyAverageDivisor ? net / dailyAverageDivisor : null,
       returnRatio: positive > 0 ? sum(ytd, 'notes') / positive : null,
-      conversion: traffic ? tx / traffic : null, ticket: tx ? net / tx : null, saleM2: area ? net / area : null,
+      conversion: traffic && conversionComparable(this.data()!.metadata.salesCutoff, this.data()?.metadata.trafficCutoff,
+        this.dateRangeActive() ? this.toDate() || this.fromDate() : `${this.year()}-${String(Math.max(...this.activeMonths())).padStart(2, '0')}-${new Date(this.year(), Math.max(...this.activeMonths()), 0).getDate()}`)
+        ? tx / traffic : null, ticket: tx ? net / tx : null, saleM2: area ? net / area : null,
       personnel, saleCollaborator: personnel && net ? net / personnel : null, priceVariation: gross ? (positive - gross) / gross : null,
       sellThrough: canCompareSellThrough && sellThroughStock + sum(ytd, 'received') > 0
         ? units / (sellThroughStock + sum(ytd, 'received'))
@@ -3941,9 +3953,12 @@ export class CommercialDashboardController implements OnInit {
     .filter(year => year >= 2024 && year !== this.year()).sort((a, b) => b - a));
   readonly priceRangeStockPeriod = computed(() => {
     const selectedDate = this.toDate() || this.fromDate();
+    const selectedPeriod = this.year() * 100 + (Math.max(0, ...this.activeMonths()) || 12);
+    const metadata = this.data()?.metadata;
+    const latestSalesPeriod = Number(metadata?.salesCutoff.slice(0, 7).replace('-', ''));
     const targetDate = this.dateRangeActive() && selectedDate
-      ? selectedDate : this.periodEnd(this.year() * 100 + (Math.max(0, ...this.activeMonths()) || 12));
-    return (this.data()?.metadata.stockPeriods || []).filter(period => this.periodEnd(period) <= targetDate).at(-1) || null;
+      ? selectedDate : selectedPeriod === latestSalesPeriod ? metadata!.stockCutoff : this.periodEnd(selectedPeriod);
+    return stockPeriodForDate(metadata?.stockPeriods || [], this.cloud.availableFiles(), targetDate, metadata?.stockCutoff || '');
   });
   readonly effectivePriceRangeComparisonYear = computed(() => this.priceRangeComparisonYears().includes(this.priceRangeComparisonYear())
     ? this.priceRangeComparisonYear() : this.priceRangeComparisonYears()[0] || this.year() - 1);
@@ -4233,18 +4248,47 @@ export class CommercialDashboardController implements OnInit {
     this.priceRangeStockRetry();
     const controller = new AbortController();
     onCleanup(() => controller.abort());
+    this.priceRangeStockError.set('');
+    if (period == null) {
+      this.priceRangeStockData.set([]);
+      this.priceRangeStockLoadedPeriod.set(null);
+      this.priceRangeStockLoading.set(false);
+      return;
+    }
+    const cached = this.priceRangeStockCache.get(period);
+    if (cached) {
+      this.priceRangeStockData.set(cached);
+      this.priceRangeStockLoadedPeriod.set(period);
+      this.priceRangeStockLoading.set(false);
+      return;
+    }
     this.priceRangeStockData.set([]);
     this.priceRangeStockLoadedPeriod.set(null);
-    this.priceRangeStockError.set('');
-    if (period == null) return;
     this.priceRangeStockLoading.set(true);
     const file = `dashboard-stock-price-range-${Math.floor(period / 100)}-${String(period % 100).padStart(2, '0')}.json`;
-    void this.loadDetail<{ stockPriceRange: StockPriceRangeRow[] }>(file, controller.signal).then(payload => {
+    const loadWithRetry = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        controller.signal.throwIfAborted();
+        try { return await this.loadDetail<{ stockPriceRange: StockPriceRangeRow[] }>(file, controller.signal); }
+        catch (error) {
+          lastError = error;
+          if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
+      throw lastError;
+    };
+    void loadWithRetry().then(payload => {
       if (controller.signal.aborted) return;
-      this.priceRangeStockData.set(payload.stockPriceRange || []);
+      const rows = payload.stockPriceRange || [];
+      this.priceRangeStockCache.set(period, rows);
+      this.priceRangeStockData.set(rows);
       this.priceRangeStockLoadedPeriod.set(period);
-    }).catch(() => {
-      if (!controller.signal.aborted) this.priceRangeStockError.set('No se pudo cargar el stock del corte.');
+    }).catch(error => {
+      if (!controller.signal.aborted) {
+        console.warn('Error al cargar stock por rango:', error);
+        this.priceRangeStockError.set('No se pudo cargar el stock del corte. Comprueba la conexión e inténtalo de nuevo.');
+      }
     }).finally(() => { if (!controller.signal.aborted) this.priceRangeStockLoading.set(false); });
   });
 
@@ -4377,17 +4421,7 @@ export class CommercialDashboardController implements OnInit {
       void Promise.race([goalsReady, new Promise<void>(resolve => setTimeout(resolve, 2500))]).then(() => {
         if (goalLoadToken !== this.goalLoadToken) return;
         this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
-        this.cloud.companyRanking().then(ranking => {
-          if (goalLoadToken === this.goalLoadToken) {
-            this.companyRankingData.set(ranking);
-            this.companyRankingState.set('ready');
-          }
-        }).catch(() => {
-          if (goalLoadToken === this.goalLoadToken) {
-            this.companyRankingData.set(null);
-            this.companyRankingState.set('error');
-          }
-        });
+        void this.loadCompanyRanking(goalLoadToken);
         if (this.page() === 1) void this.ensurePriceRangeDetail();
       });
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
@@ -4397,6 +4431,36 @@ export class CommercialDashboardController implements OnInit {
       // NO cargar dashboard-brand.json (~35 MB) al abrir. Se carga solo si el usuario
       // entra a un nivel jerárquico que realmente necesita Marca por Rubro/Línea/SubLínea.
     } catch (error) { this.loadingError.set(`No se pudieron abrir los datos del dashboard: ${error instanceof Error ? error.message : error}`); }
+  }
+
+  private async loadCompanyRanking(loadToken: number): Promise<void> {
+    if (loadToken !== this.goalLoadToken) return;
+    this.companyRankingState.set('loading');
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3 && loadToken === this.goalLoadToken; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new DOMException('Tiempo de espera agotado', 'TimeoutError')), 20_000);
+      try {
+        const ranking = await this.cloud.companyRanking(controller.signal);
+        if (!ranking?.stores?.length) throw new Error('La comparación no contiene tiendas.');
+        if (loadToken !== this.goalLoadToken) return;
+        this.companyRankingData.set(ranking);
+        this.companyRankingState.set('ready');
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2 && loadToken === this.goalLoadToken) {
+          await new Promise(resolve => setTimeout(resolve, 600 * (attempt + 1)));
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    if (loadToken === this.goalLoadToken) {
+      console.warn('No se pudo cargar el ranking general de tiendas:', lastError);
+      this.companyRankingData.set(null);
+      this.companyRankingState.set('error');
+    }
   }
 
   private multiLabel(values: string[], allLabel: string, plural: string): string {

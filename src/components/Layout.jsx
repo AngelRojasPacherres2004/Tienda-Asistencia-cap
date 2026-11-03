@@ -84,7 +84,6 @@ const navByRole = {
     { id: "profile", label: "Mi perfil", icon: UserCircle2 },
   ],
   seguridad: [
-    { id: "seguridad", label: "Inicio", icon: BarChart3 },
     { id: "seguridad-trafico", label: "Tráfico", icon: Users },
     { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
   ],
