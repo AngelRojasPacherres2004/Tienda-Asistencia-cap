@@ -407,6 +407,10 @@
 .chart-expand:hover { border-color: #123a8c; background: #123a8c; color: #fff; }
 .ticket-kpi { cursor: pointer; }
 .ticket-kpi:hover { box-shadow: 0 0 0 2px #123a8c; }
+.primary-kpis .metric-card:hover,
+.kpi-strip article:hover { background:#f3f7fc; box-shadow:0 0 0 2px #123a8c; transform:translateY(-1px); }
+.primary-kpis .actionable-kpi { cursor:pointer; }
+.primary-kpis .actionable-kpi:focus-visible { outline:3px solid #2878d0; outline-offset:3px; }
 .ticket-kpi:focus-visible { outline: 3px solid #2878d0; outline-offset: 3px; }
 .ticket-kpi small { font-size: 9px; color: #123a8c; }
 .kpi-strip article > .kpi-evolution-link { display:block; margin-top:4px; font-size:9px; line-height:1.2; font-weight:400; color:#123a8c; white-space:nowrap; }
@@ -419,6 +423,10 @@
 .ticket-modal-content--seller > dashboard-chart { grid-column: 1; grid-row: 1; }
 .ticket-modal-content--seller > .ticket-monthly-table { grid-column: 1; grid-row: 2; }
 .ticket-modal-content--seller > .kpi-seller-detail { grid-column: 2; grid-row: 1 / 3; }
+[data-react-commercial-module="projection-close-modal"] .ticket-modal-content { grid-template-columns:minmax(0,.9fr) minmax(620px,1.25fr); }
+[data-react-commercial-module="projection-close-modal"] .ticket-monthly-table table { font-size:10px; }
+[data-react-commercial-module="projection-close-modal"] .ticket-monthly-table th,
+[data-react-commercial-module="projection-close-modal"] .ticket-monthly-table td { padding:9px 6px; }
 .ticket-monthly-table { overflow: auto; border: 1px solid #d5deea; border-radius: 10px; }
 .ticket-monthly-table table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
 .ticket-monthly-table th, .ticket-monthly-table td { padding: 12px; text-align: right; border-bottom: 1px solid #e8edf6; }

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -k -n WEB,API -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite --host 127.0.0.1 --port 5180",
-    "dev:api": "node --watch --env-file=.env scripts/dev-api.js",
+    "dev:api": "node --env-file=.env scripts/dev-api.js",
     "build": "npm run generate:commercial-icons && vite build",
     "generate:commercial-icons": "node scripts/generate-commercial-icons.mjs",
     "preview": "vite preview",

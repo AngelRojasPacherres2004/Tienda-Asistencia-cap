@@ -68,6 +68,65 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     };
   }
 
+  async function commercialTrafficSummary(sessionUser) {
+    const access = await currentCommercialAccess(sessionUser);
+    const { data: mappings, error: mappingError } = await supabase.from("commercial_store_map")
+      .select("dashboard_store_id,tienda_id").in("dashboard_store_id", access.storeIds);
+    if (mappingError) throw dbError(mappingError);
+    const dashboardByStore = new Map((mappings || []).filter(row => row.tienda_id != null)
+      .map(row => [Number(row.tienda_id), row.dashboard_store_id]));
+    if (!dashboardByStore.size) return { cutoff: null, daily: [], monthly: [] };
+    const storeIds = [...dashboardByStore.keys()];
+    const sourceText = "Excel seguridad 2026";
+    // Las filas importadas guardan el total diario en observaciones. Basta leer
+    // la primera hora de cada día. Los registros manuales se consultan aparte y
+    // conservan prioridad; así la API baja de ~62 mil a menos de 6 mil filas.
+    const [taggedRows, manualRows, manualNullRows] = await Promise.all([
+      fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,fecha,cantidad,observaciones")
+        .in("tienda_id", storeIds).gte("fecha", "2024-01-01").eq("rango_hora", "09:00-10:00")
+        .ilike("observaciones", `%${sourceText}%`).order("id")),
+      fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,fecha,cantidad,observaciones")
+        .in("tienda_id", storeIds).gte("fecha", "2024-01-01")
+        .not("observaciones", "ilike", `%${sourceText}%`).order("id")),
+      fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,fecha,cantidad,observaciones")
+        .in("tienda_id", storeIds).gte("fecha", "2024-01-01").is("observaciones", null).order("id")),
+    ]);
+    const daily = new Map();
+    let cutoff = null;
+    const manualKeys = new Set();
+    for (const row of [...manualRows, ...manualNullRows]) {
+      const storeId = dashboardByStore.get(Number(row.tienda_id));
+      const date = String(row.fecha || "").slice(0, 10);
+      if (!storeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const key = `${storeId}|${date}`;
+      manualKeys.add(key);
+      daily.set(key, (daily.get(key) || 0) + Math.max(0, Number(row.cantidad) || 0));
+      if (!cutoff || date > cutoff) cutoff = date;
+    }
+    for (const row of taggedRows) {
+      const storeId = dashboardByStore.get(Number(row.tienda_id));
+      const date = String(row.fecha || "").slice(0, 10);
+      if (!storeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const key = `${storeId}|${date}`;
+      if (manualKeys.has(key)) continue;
+      const total = Number(String(row.observaciones || "").match(/total diario\s+(\d+)/i)?.[1]);
+      daily.set(key, Number.isFinite(total) ? total : Math.max(0, Number(row.cantidad) || 0));
+      if (!cutoff || date > cutoff) cutoff = date;
+    }
+    const dailyRows = [...daily].map(([key, traffic]) => {
+      const [storeId, date] = key.split("|"); return { storeId, date, traffic };
+    });
+    const monthly = new Map();
+    for (const row of dailyRows) {
+      const periodId = Number(row.date.slice(0, 4)) * 100 + Number(row.date.slice(5, 7));
+      const key = `${row.storeId}|${periodId}`;
+      monthly.set(key, (monthly.get(key) || 0) + row.traffic);
+    }
+    return { cutoff, daily: dailyRows, monthly: [...monthly].map(([key, traffic]) => {
+      const [storeId, periodId] = key.split("|"); return { storeId, periodId: Number(periodId), traffic };
+    }) };
+  }
+
   async function commercialStoreGoals(sessionUser) {
     const access = await currentCommercialAccess(sessionUser);
     const { data: mappings, error: mappingError } = await supabase.from("commercial_store_map")
@@ -82,34 +141,9 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
         .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
       supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").order("anio"),
     ]);
-    let goalRows = goalsResult.data || []; let annualRows = annualResult.data || [];
-    if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annualResult.error)) {
-      const [legacyResult, document] = await Promise.all([
-        supabase.from("metas_comerciales_tienda").select("tienda_id,anio,mes,meta_venta,actualizado_en")
-          .in("tienda_id", [...dashboardByStore.keys()]).order("anio").order("mes"),
-        readCommercialGoalsDocument(),
-      ]);
-      if (legacyResult.error) throw dbError(legacyResult.error);
-      const merged = new Map((legacyResult.data || []).map(row => [`${row.tienda_id}|${row.anio}|${row.mes}|`, { ...row, rubro: "" }]));
-      for (const row of document.goals || []) merged.set(`${row.tienda_id}|${row.anio}|${row.mes}|${row.rubro || ""}`, row);
-      goalRows = [...merged.values()]; annualRows = document.annualTargets || [];
-    } else if (goalsResult.error || annualResult.error) throw dbError(goalsResult.error || annualResult.error);
-    // Los archivos publicados ya están cargados en el cliente. Consultarlos de
-    // nuevo aquí obliga a descargar y descomprimir todo dashboard.json en cada
-    // arranque frío. Solo se usan como fallback si falta el plan central.
-    const published = !goalRows.length || !annualRows.length
-      ? await commercialCompanyRanking(sessionUser, true)
-      : { monthlyStore: [], monthlyCategoryTarget: [] };
+    if (goalsResult.error || annualResult.error) throw dbError(goalsResult.error || annualResult.error);
+    const goalRows = goalsResult.data || []; const annualRows = annualResult.data || [];
     const mergedGoals = new Map();
-    for (const row of published.monthlyStore || []) {
-      if (!access.storeIds.includes(row.storeId) || row.target == null) continue;
-      mergedGoals.set(`${row.storeId}|${row.periodId}|`, { storeId: row.storeId, periodId: Number(row.periodId), target: Number(row.target), source: "PUBLICACION" });
-    }
-    for (const row of published.monthlyCategoryTarget || []) {
-      const category = cleanText(row.category).toUpperCase();
-      if (!access.storeIds.includes(row.storeId) || !["TEXTIL", "CALZADO"].includes(category) || row.target == null) continue;
-      mergedGoals.set(`${row.storeId}|${row.periodId}|${category}`, { storeId: row.storeId, periodId: Number(row.periodId), category, target: Number(row.target), source: row.source || "PUBLICACION" });
-    }
     for (const row of goalRows) {
       const goal = {
       storeId: dashboardByStore.get(Number(row.tienda_id)), periodId: Number(row.anio) * 100 + Number(row.mes),
@@ -117,12 +151,11 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       };
       if (goal.storeId) mergedGoals.set(`${goal.storeId}|${goal.periodId}|${goal.category || ""}`, goal);
     }
-    const annualTargets = new Map();
-    for (const goal of mergedGoals.values()) if (!goal.category) {
-      const year = Math.floor(goal.periodId / 100); const current = annualTargets.get(year);
-      annualTargets.set(year, (typeof current === "number" ? current : current?.target || 0) + goal.target);
+    const annualTargets = new Map(annualRows.map(row => [Number(row.anio), { year: Number(row.anio), target: Number(row.meta_venta), updatedAt: row.actualizado_en }]));
+    for (const goal of mergedGoals.values()) if (!goal.category && !annualTargets.has(Math.floor(goal.periodId / 100))) {
+      const year = Math.floor(goal.periodId / 100); const current = annualTargets.get(year)?.target || 0;
+      annualTargets.set(year, { year, target: current + goal.target });
     }
-    for (const row of annualRows) annualTargets.set(Number(row.anio), { year: Number(row.anio), target: Number(row.meta_venta), updatedAt: row.actualizado_en });
     const categoryYears = [...new Set([...mergedGoals.values()].filter(goal => goal.category).map(goal => Math.floor(goal.periodId / 100)))];
     for (const year of categoryYears) {
       const aggregate = aggregateCommercialGoalTotals([...mergedGoals.values()].filter(goal => goal.category).map(goal => ({
@@ -130,37 +163,17 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
         anio: Math.floor(goal.periodId / 100), mes: goal.periodId % 100,
         rubro: goal.category, meta_venta: goal.target,
       })), year, null);
+      const authoritativeAnnual = annualTargets.get(year)?.target;
+      const factor = authoritativeAnnual != null && aggregate.annualTarget > 0 ? authoritativeAnnual / aggregate.annualTarget : 1;
       for (const total of aggregate.totalRows) {
         const storeId = dashboardByStore.get(Number(total.tienda_id));
         if (storeId) mergedGoals.set(`${storeId}|${year * 100 + total.mes}|`, {
-          storeId, periodId: year * 100 + total.mes, target: total.meta_venta, source: "CALCULADO",
+          storeId, periodId: year * 100 + total.mes, target: Math.round(total.meta_venta * factor * 100) / 100, source: "CALCULADO_BD",
         });
       }
-      if (aggregate.totalRows.length) annualTargets.set(year, { year, target: aggregate.annualTarget });
+      if (aggregate.totalRows.length && !annualTargets.has(year)) annualTargets.set(year, { year, target: aggregate.annualTarget });
     }
-    for (const [year, value] of annualTargets) if (typeof value === "number") annualTargets.set(year, { year, target: value });
     return { goals: [...mergedGoals.values()], annualTargets: [...annualTargets.values()].sort((a, b) => a.year - b.year) };
-  }
-
-  const commercialGoalsDocumentPath = "configuracion/metas-comerciales.json";
-  const missingCentralGoalsSchema = (error) => !!error && ["42703", "PGRST204", "PGRST205"].includes(error.code);
-
-  async function readCommercialGoalsDocument() {
-    const { data, error } = await supabase.storage.from("dashboard-data").download(commercialGoalsDocumentPath);
-    if (error) {
-      if (String(error.message || "").toLowerCase().includes("not found") || Number(error.statusCode) === 404) return { goals: [], annualTargets: [] };
-      throw httpError("No se pudo leer la configuración de metas comerciales.", 500);
-    }
-    try {
-      const parsed = JSON.parse(await data.text());
-      return { goals: Array.isArray(parsed.goals) ? parsed.goals : [], annualTargets: Array.isArray(parsed.annualTargets) ? parsed.annualTargets : [] };
-    } catch { throw httpError("La configuración de metas comerciales no es válida.", 500); }
-  }
-
-  async function writeCommercialGoalsDocument(document) {
-    const payload = Buffer.from(JSON.stringify({ version: 1, ...document }), "utf8");
-    const { error } = await supabase.storage.from("dashboard-data").upload(commercialGoalsDocumentPath, payload, { contentType: "application/json", upsert: true });
-    if (error) throw httpError("No se pudo guardar la configuración de metas comerciales.", 500);
   }
 
   function commercialGoalsYear(event, body = null) {
@@ -186,42 +199,25 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     return ["TEXTIL", "CALZADO"];
   }
 
-  async function listCommercialGoals(event, sessionUser) {
+  async function listCommercialGoals(event, _sessionUser) {
     const year = commercialGoalsYear(event);
-    const [stores, rubros, goalsResult, annual, published] = await Promise.all([
+    const [stores, rubros, goalsResult, annual] = await Promise.all([
       commercialGoalStores(), commercialGoalRubros(), supabase.from("metas_comerciales_tienda")
         .select("tienda_id,anio,mes,rubro,meta_venta,actualizado_en").eq("anio", year).order("tienda_id").order("mes"),
       supabase.from("metas_comerciales_anuales").select("anio,meta_venta,actualizado_en").eq("anio", year).maybeSingle(),
-      commercialCompanyRanking(sessionUser, true),
     ]);
-    let goals = goalsResult.data || []; let annualTarget = annual.data?.meta_venta ?? "";
-    if (missingCentralGoalsSchema(goalsResult.error) || missingCentralGoalsSchema(annual.error)) {
-      const [legacy, document] = await Promise.all([
-        supabase.from("metas_comerciales_tienda").select("tienda_id,anio,mes,meta_venta,actualizado_en").eq("anio", year).order("tienda_id").order("mes"),
-        readCommercialGoalsDocument(),
-      ]);
-      if (legacy.error) throw dbError(legacy.error);
-      const merged = new Map((legacy.data || []).map(row => [`${row.tienda_id}|${row.mes}|`, { ...row, rubro: "" }]));
-      for (const row of (document.goals || []).filter(row => Number(row.anio) === year)) merged.set(`${row.tienda_id}|${row.mes}|${row.rubro || ""}`, row);
-      goals = [...merged.values()]; annualTarget = (document.annualTargets || []).find(row => Number(row.anio) === year)?.meta_venta ?? "";
-    } else if (goalsResult.error || annual.error) throw dbError(goalsResult.error || annual.error);
-    const allowed = new Set(stores.map(store => Number(store.id))); const internalByDashboard = new Map(stores.map(store => [store.dashboard_store_id, Number(store.id)]));
+    if (goalsResult.error || annual.error) throw dbError(goalsResult.error || annual.error);
+    const goals = goalsResult.data || []; let annualTarget = annual.data?.meta_venta ?? "";
+    const allowed = new Set(stores.map(store => Number(store.id)));
     const merged = new Map();
-    for (const row of published.monthlyStore || []) {
-      const storeId = internalByDashboard.get(row.storeId); const periodId = Number(row.periodId);
-      if (!storeId || Math.floor(periodId / 100) !== year || row.target == null) continue;
-      merged.set(`${storeId}|${periodId % 100}|`, { tienda_id: storeId, anio: year, mes: periodId % 100, rubro: "", meta_venta: Number(row.target), fuente: "PUBLICACION" });
-    }
-    for (const row of published.monthlyCategoryTarget || []) {
-      const storeId = internalByDashboard.get(row.storeId); const periodId = Number(row.periodId); const category = cleanText(row.category).toUpperCase();
-      if (!storeId || Math.floor(periodId / 100) !== year || !["TEXTIL", "CALZADO"].includes(category) || row.target == null) continue;
-      merged.set(`${storeId}|${periodId % 100}|${category}`, { tienda_id: storeId, anio: year, mes: periodId % 100, rubro: category, meta_venta: Number(row.target), fuente: row.source || "PUBLICACION" });
-    }
     for (const row of goals.filter(row => allowed.has(Number(row.tienda_id)))) merged.set(`${row.tienda_id}|${row.mes}|${cleanText(row.rubro)}`, row);
     const aggregate = aggregateCommercialGoalTotals([...merged.values()], year, null);
     if (aggregate.totalRows.length) {
-      for (const row of aggregate.totalRows) merged.set(`${row.tienda_id}|${row.mes}|`, { ...row, fuente: "CALCULADO" });
-      annualTarget = aggregate.annualTarget;
+      const factor = annualTarget !== "" && aggregate.annualTarget > 0 ? Number(annualTarget) / aggregate.annualTarget : 1;
+      for (const row of aggregate.totalRows) merged.set(`${row.tienda_id}|${row.mes}|`, {
+        ...row, meta_venta: Math.round(row.meta_venta * factor * 100) / 100, fuente: "CALCULADO_BD",
+      });
+      if (annualTarget === "" || annualTarget == null) annualTarget = aggregate.annualTarget;
     } else if (annualTarget === "" || annualTarget == null) {
       annualTarget = [...merged.values()].filter(row => !cleanText(row.rubro)).reduce((sum, row) => sum + Number(row.meta_venta || 0), 0);
     }
@@ -238,20 +234,6 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     if (!rubro) throw httpError("Solo se pueden editar metas de TEXTIL o CALZADO.", 400);
     if (!Array.isArray(data.metas)) throw httpError("Las metas mensuales no son válidas.", 400);
     const stores = await commercialGoalStores(); const allowedStores = new Set(stores.map(store => Number(store.id)));
-    const published = await commercialCompanyRanking(user, true); const internalByDashboard = new Map(stores.map(store => [store.dashboard_store_id, Number(store.id)]));
-    const publishedCategoryRows = (published.monthlyCategoryTarget || []).filter(row => Math.floor(Number(row.periodId) / 100) === year
-      && ["TEXTIL", "CALZADO"].includes(cleanText(row.category).toUpperCase()) && internalByDashboard.has(row.storeId)).map(row => ({
-        tienda_id: internalByDashboard.get(row.storeId), anio: year, mes: Number(row.periodId) % 100,
-        rubro: cleanText(row.category).toUpperCase(), meta_venta: Number(row.target) || 0,
-      }));
-    const categoryRowsWithPublishedBase = (savedRows) => {
-      const merged = new Map(publishedCategoryRows.map(row => [`${row.tienda_id}|${row.mes}|${row.rubro}`, row]));
-      for (const row of savedRows || []) {
-        const category = cleanText(row.rubro).toUpperCase();
-        if (Number(row.anio) === year && ["TEXTIL", "CALZADO"].includes(category)) merged.set(`${row.tienda_id}|${row.mes}|${category}`, { ...row, rubro: category });
-      }
-      return [...merged.values()];
-    };
     const seen = new Set(); const rows = [];
     for (const row of data.metas) {
       const storeId = Number(row.tienda_id); const month = Number(row.mes); const key = `${storeId}|${month}`;
@@ -264,23 +246,21 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       rows.push({ tienda_id: storeId, anio: year, mes: month, rubro, meta_venta: Math.round(target * 100) / 100,
         actualizado_por: user.id, actualizado_en: new Date().toISOString() });
     }
-    const schemaCheck = await supabase.from("metas_comerciales_tienda").select("rubro").limit(1);
-    if (missingCentralGoalsSchema(schemaCheck.error)) {
-      const document = await readCommercialGoalsDocument(); const now = new Date().toISOString();
-      document.goals = (document.goals || []).filter(row => Number(row.anio) !== year || cleanText(row.rubro) !== rubro)
-        .concat(rows.map(row => ({ ...row, actualizado_en: now })));
-      const aggregate = aggregateCommercialGoalTotals(categoryRowsWithPublishedBase(document.goals), year, user.id, now);
-      document.goals = document.goals.filter(row => Number(row.anio) !== year || cleanText(row.rubro) !== "").concat(aggregate.totalRows);
-      document.annualTargets = (document.annualTargets || []).filter(row => Number(row.anio) !== year)
-        .concat([{ anio: year, meta_venta: aggregate.annualTarget, actualizado_por: user.id, actualizado_en: now }]);
-      await writeCommercialGoalsDocument(document);
-      return listCommercialGoals({ queryStringParameters: { anio: String(year) } }, user);
-    }
-    if (schemaCheck.error) throw dbError(schemaCheck.error);
     const removed = await supabase.from("metas_comerciales_tienda").delete().eq("anio", year).eq("rubro", rubro);
     if (removed.error) throw dbError(removed.error);
     for (let index = 0; index < rows.length; index += 500) {
       const { error } = await supabase.from("metas_comerciales_tienda").insert(rows.slice(index, index + 500));
+      if (error) throw dbError(error);
+    }
+    const [annualResult, categoryResult] = await Promise.all([
+      supabase.from("metas_comerciales_anuales").select("anio").eq("anio", year).maybeSingle(),
+      supabase.from("metas_comerciales_tienda").select("meta_venta").eq("anio", year).in("rubro", ["TEXTIL", "CALZADO"]),
+    ]);
+    if (annualResult.error || categoryResult.error) throw dbError(annualResult.error || categoryResult.error);
+    if (!annualResult.data) {
+      const target = (categoryResult.data || []).reduce((total, row) => total + Number(row.meta_venta || 0), 0);
+      const { error } = await supabase.from("metas_comerciales_anuales").insert({ anio: year, meta_venta: target,
+        actualizado_por: user.id, actualizado_en: new Date().toISOString() });
       if (error) throw dbError(error);
     }
     return listCommercialGoals({ queryStringParameters: { anio: String(year) } }, user);
@@ -445,5 +425,5 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     return responseValue(value);
   }
 
-  return { currentCommercialAccess, commercialOperationalSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers };
+  return { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers };
 }

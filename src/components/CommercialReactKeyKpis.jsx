@@ -11,9 +11,9 @@ function ActionCard({ card, onAction }) {
 export default function CommercialReactKeyKpis({ model, onAction }) {
   return <div className="kpi-strip" data-react-commercial-module="key-kpis">
     {model.actions.map(card => <ActionCard key={card.label} card={card} onAction={onAction} />)}
-    <ActionCard card={{ label: "VENTA × M²", value: model.saleM2, action: "saleM2", title: "Venta neta ÷ (metraje físico de tiendas filtradas × 80%). Ver evolución mensual." }} onAction={onAction} />
-    <ActionCard card={{ label: <>VENTA × COLAB <em>{model.personnel} COLAB.</em></>, className: "collaborator-kpi", value: model.saleCollaborator, valueClass: model.saleCollaboratorMissing ? "missing" : undefined, action: "saleCollaborator", title: "Venta neta ÷ colaboradores promedio. Ver evolución mensual y ranking de vendedores." }} onAction={onAction} />
-    <ActionCard card={{ label: "MARKUP", value: model.markup, valueClass: model.markupPositive ? "positive" : "negative", action: "markup", title: "(Venta real positiva − venta bruta a precio sugerido) ÷ venta bruta a precio sugerido. Ver evolución mensual." }} onAction={onAction} />
-    <ActionCard card={{ label: <>SELL-THROUGH{model.sellThroughStock && <em>{model.sellThroughStock}</em>}</>, value: model.sellThrough, valueClass: model.sellThroughMissing ? "missing" : undefined, action: "sellThrough", title: "Unidades vendidas ÷ (stock actual + unidades recibidas). Ver evolución mensual." }} onAction={onAction} />
+    <ActionCard card={{ label: "VENTA × M²", value: model.saleM2, action: "saleM2", title: model.saleM2Title }} onAction={onAction} />
+    <ActionCard card={{ label: <>VENTA × COLAB <em>{model.personnel} COLAB.</em></>, className: "collaborator-kpi", value: model.saleCollaborator, valueClass: model.saleCollaboratorMissing ? "missing" : undefined, action: "saleCollaborator", title: model.saleCollaboratorTitle }} onAction={onAction} />
+    <ActionCard card={{ label: "MARKUP", value: model.markup, valueClass: model.markupPositive ? "positive" : "negative", action: "markup", title: model.markupTitle }} onAction={onAction} />
+    <ActionCard card={{ label: <>SELL-THROUGH{model.sellThroughStock && <em>{model.sellThroughStock}</em>}</>, value: model.sellThrough, valueClass: model.sellThroughMissing ? "missing" : undefined, action: "sellThrough", title: model.sellThroughTitle }} onAction={onAction} />
   </div>;
 }

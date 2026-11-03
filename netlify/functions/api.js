@@ -228,7 +228,7 @@ async function authenticatedContext(event, allowFallback = false) {
   return session;
 }
 
-const { currentCommercialAccess, commercialOperationalSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers } = createCommercialDomain({
+const { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers } = createCommercialDomain({
   supabase, commercialAccess, dbError, httpError, readAllResult, fetchAllReportPages, normalizeGoalRubro, aggregateCommercialGoalTotals, bodyOf, cleanText, validCommercialPartPath, gunzipSync,
 });
 
@@ -737,6 +737,9 @@ export async function handler(event) {
     }
     if (path === "/commercial/operational-summary" && method === "GET") {
       return json(200, await commercialOperationalSummary(user));
+    }
+    if (path === "/commercial/traffic-summary" && method === "GET") {
+      return json(200, await commercialTrafficSummary(user));
     }
     if (path === "/commercial/store-goals" && method === "GET") {
       return json(200, await commercialStoreGoals(user));

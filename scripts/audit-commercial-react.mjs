@@ -57,6 +57,8 @@ try {
       });
       if (process.env.AUDIT_INTERACTIONS === "1") page.on("response", response => {
         if (response.url().includes("/commercial/company-ranking")) console.log(JSON.stringify({ role, width, rankingStatus: response.status() }));
+        if (response.url().includes("/commercial/traffic-summary")) console.log(JSON.stringify({ role, width, trafficStatus: response.status() }));
+        if (response.url().includes("/commercial/store-goals")) console.log(JSON.stringify({ role, width, goalsStatus: response.status() }));
       });
       try {
         await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -123,6 +125,19 @@ try {
             await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
           }
           if (process.env.AUDIT_INTERACTIONS === "1" && role === "gerente_comercial" && width === 1440 && panel.button === 0) {
+            const primaryCards = section.locator('[data-react-commercial-module="primary-kpis"] article');
+            assert.equal(await primaryCards.count(), 8);
+            for (let index = 0; index < await primaryCards.count(); index += 1) {
+              assert.match(await primaryCards.nth(index).getAttribute('title'), /Valor exacto:/);
+            }
+            assert.match(await primaryCards.filter({ hasText: 'META' }).getAttribute('title'), /metas_comerciales_anuales/);
+            const conversionCard = section.locator('[data-react-commercial-module="key-kpis"] article').filter({ hasText: 'CONVERSIÓN' });
+            await conversionCard.locator('strong:not(.missing)').waitFor({ timeout: 30_000 });
+            assert.match(await conversionCard.getAttribute('title'), /Fórmula: transacciones ÷ tráfico × 100/);
+            assert.match(await section.locator('[data-react-commercial-module="key-kpis"] article').filter({ hasText: 'TICKET PROMEDIO' }).getAttribute('title'), /Fórmula: venta neta ÷ transacciones/);
+            for (const title of await section.locator('[data-react-commercial-module="key-kpis"] article').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))) {
+              assert.match(title, /Fórmula:/); assert.match(title, /Valor exacto:/);
+            }
             const priceCard = section.locator('.price-range-card');
             const stockStarted = Date.now();
             await priceCard.getByRole('button', { name: 'Ampliar gráfico y ver detalle' }).click();
@@ -133,6 +148,21 @@ try {
             assert.ok((await priceMatrix.locator('.price-range-detail-body .base-year').allInnerTexts()).some(text => /\d+ und/.test(text)), 'El stock por rango no cargó');
             await priceMatrix.screenshot({ path: join(output, 'price-range-stock-detail.png'), animations: 'disabled' });
             await priceCard.getByRole('button', { name: 'Cerrar gráfico' }).click();
+            await section.locator('.projection-kpi').click();
+            const projectionModal = page.locator('[data-react-commercial-module="projection-close-modal"]:visible');
+            await projectionModal.waitFor({ timeout: 30_000 });
+            assert.match(await projectionModal.innerText(), /NOVIEMBRE|DICIEMBRE/);
+            assert.match(await projectionModal.innerText(), /Base 60\/40/);
+            await projectionModal.getByRole('columnheader', { name: 'Proyección', exact: true }).waitFor();
+            await projectionModal.screenshot({ path: join(output, 'projection-close-detail.png'), animations: 'disabled' });
+            await projectionModal.getByRole('button', { name: 'Cerrar detalle de proyección' }).click();
+            await section.locator('[data-react-commercial-module="meta-vs-real-card"]')
+              .getByRole('button', { name: 'Ampliar avance meta versus real' }).click();
+            const metaModal = page.locator('[data-react-commercial-module="meta-vs-real-modal"]:visible');
+            await metaModal.waitFor({ timeout: 30_000 });
+            assert.equal(await metaModal.locator('tbody tr').count(), 12);
+            await metaModal.screenshot({ path: join(output, 'meta-vs-real-detail.png'), animations: 'disabled' });
+            await metaModal.getByRole('button', { name: 'Cerrar avance meta versus real' }).click();
             for (const [label, moduleId] of [
               ["VENTA × M²", "saleM2-modal"],
               ["VENTA × COLAB", "saleCollaborator-modal"],

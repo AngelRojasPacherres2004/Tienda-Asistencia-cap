@@ -8,6 +8,8 @@ import { allocateDailySecurityTraffic, SECURITY_TRAFFIC_HOURS } from '../shared/
 // Dry-run by default. Use --apply only after reviewing the collision report.
 const source = process.argv.find(argument => argument.toLowerCase().endsWith('.xlsx'));
 const apply = process.argv.includes('--apply');
+const trafficOnly = process.argv.includes('--traffic-only');
+const missingOnly = process.argv.includes('--missing-only');
 if (!source) throw new Error('Indica la ruta del Excel de seguridad.');
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw new Error('Falta la conexión de Supabase.');
 const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
@@ -103,7 +105,7 @@ const protectedDays = conflictingDays.filter(([key]) => existingByDay.get(key).s
 const protectedKeys = new Set(protectedDays.map(([key]) => key));
 const changedImportedDays = conflictingDays.filter(([key]) => !protectedKeys.has(key));
 const missingDays = [...trafficDays.entries()].filter(([key]) => !existingByDay.has(key));
-const writeDays = [...missingDays, ...changedImportedDays];
+const writeDays = missingOnly ? missingDays : [...missingDays, ...changedImportedDays];
 const incidentRows = [];
 for (let rowNumber = 3; rowNumber <= incidentsSheet.rowCount; rowNumber += 1) {
   const row = incidentsSheet.getRow(rowNumber);
@@ -128,7 +130,7 @@ for (let rowNumber = 3; rowNumber <= incidentsSheet.rowCount; rowNumber += 1) {
 }
 if (unmappedStores.size) throw new Error(`Tiendas sin homologar: ${[...unmappedStores].join(', ')}`);
 const alreadyImported = incidentRows.filter(item => existingIncidents.some(row => row.descripcion?.includes(item.sourceReference)));
-console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', source: path.basename(source), trafficCutoff: sourceDates.at(-1), incidentCutoff: incidentRows.map(row => row.date).sort().at(-1), weeks: week + 1,
+console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', trafficOnly, missingOnly, source: path.basename(source), trafficCutoff: sourceDates.at(-1), incidentCutoff: incidentRows.map(row => row.date).sort().at(-1), weeks: week + 1,
   dailyTotals: trafficDays.size, hourlyRows: trafficDays.size * hours.length, existingHourlyRows: existingTraffic.length,
   overlappingDays: collisions.length, daysWithDifferentTotals: conflictingDays.length,
   missingDays: missingDays.length, changedImportedDays: changedImportedDays.length, protectedManualDays: protectedDays.length,
@@ -157,7 +159,7 @@ for (let offset = 0; offset < trafficRows.length; offset += 500) {
 
 const brandMap = new Map(existingBrands.map(row => [normalize(row.nombre), row.id]));
 let insertedIncidents = 0;
-for (const item of incidentRows) {
+for (const item of trafficOnly ? [] : incidentRows) {
   if (existingIncidents.some(row => row.descripcion?.includes(item.sourceReference))) continue;
   const { data: incident, error } = await db.from('incidencias').insert({ tienda_id: item.storeId,
     fecha: `${item.date}T12:00:00-05:00`, asunto: item.type === 'robo' ? 'Robo' : item.type === 'robo_frustrado' ? 'Robo frustrado' : item.type === 'cambio_precio' ? 'Cambio de precio' : 'Incidencia de seguridad',

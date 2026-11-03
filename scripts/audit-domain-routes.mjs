@@ -20,6 +20,7 @@ const users = await response.json();
 const cases = [
   ["gerente_comercial", "/commercial/access"],
   ["gerente_comercial", "/commercial/manifest"],
+  ["gerente_comercial", "/commercial/traffic-summary"],
   ["gerente_comercial", "/commercial-goals?year=2026"],
   ["gerente_comercial", "/commercial/annual-reports"],
   ["gerente_comercial", "/commercial/normalized-reports"],
@@ -36,6 +37,10 @@ for (const [role, path] of cases) {
     queryStringParameters: Object.fromEntries(url.searchParams), body: null,
   });
   const bytes = Buffer.byteLength(result.body || "", "utf8");
-  console.log(JSON.stringify({ role, path: url.pathname, status: result.statusCode, bytes }));
+  const traffic = url.pathname === "/commercial/traffic-summary" && result.statusCode === 200 ? JSON.parse(result.body) : null;
+  console.log(JSON.stringify({ role, path: url.pathname, status: result.statusCode, bytes,
+    ...(traffic ? { cutoff: traffic.cutoff, dailyRows: traffic.daily.length,
+      trafficTotal: traffic.daily.reduce((total, row) => total + Number(row.traffic || 0), 0),
+      trafficStores: [...new Set(traffic.daily.map(row => row.storeId))].sort() } : {}) }));
   assert.equal(result.statusCode, 200, `${role} ${url.pathname}`);
 }

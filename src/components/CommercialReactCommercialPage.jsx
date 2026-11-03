@@ -15,14 +15,14 @@ export default function CommercialReactCommercialPage({ model, onAction }) {
   const forward = source => action => onAction({ ...action, source });
   return <section className="page page-one" aria-label="Gestión y comercial" data-react-commercial-module="commercial-page">
     <CommercialReactSectionHeading model={model.headings.commercial} onAction={forward("section")} />
-    <CommercialReactPrimaryKpis model={model.primary} />
+    <CommercialReactPrimaryKpis model={model.primary} onAction={forward("primary")} />
     <CommercialReactSectionHeading model={model.headings.a} onAction={forward("section")} />
     <CommercialReactKeyKpis model={model.key} onAction={forward("key")} />
     <CommercialReactSectionHeading model={model.headings.b} onAction={forward("section")} />
     <CommercialReactProgress model={model.progress} />
     <CommercialReactSectionHeading model={model.headings.c} onAction={forward("section")} />
     <div className="charts-four">
-      <CommercialReactSimpleChartCard model={model.meta} />
+      <CommercialReactSimpleChartCard model={model.meta} onAction={forward("meta")} />
       <CommercialReactCategoryCard model={model.category} onAction={forward("category")} />
       <CommercialReactBrandCard model={model.brand} onAction={forward("brand")} />
     </div>

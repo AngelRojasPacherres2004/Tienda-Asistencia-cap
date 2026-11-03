@@ -49,6 +49,11 @@ export type CompanyRankingData = {
 };
 export type StoreGoal = { storeId: string; periodId: number; category?: string; target: number; updatedAt?: string };
 export type AnnualGoal = { year: number; target: number; updatedAt?: string };
+export type TrafficSummary = {
+  cutoff: string | null;
+  daily: { storeId: string; date: string; traffic: number }[];
+  monthly: { storeId: string; periodId: number; traffic: number }[];
+};
 export type StockInsightFilters = {
   storeIds: string[]; rubros: string[]; lines: string[]; sublines: string[];
   windowDays: number; movementDays: number; healthyDays: number;
@@ -86,6 +91,8 @@ export class CloudDataService {
   private initializePromise?: Promise<void>;
   private fileManifest = new Map<string, DashboardFileRow>();
   private readonly portalGetRequests = new Map<string, Promise<unknown>>();
+  private storeGoalsCache: { goals: StoreGoal[]; annualTargets: AnnualGoal[] } | null = null;
+  private trafficSummaryCache: TrafficSummary | null = null;
 
   readonly authReady = signal(false);
   readonly session = signal<Session | null>(null);
@@ -340,20 +347,17 @@ export class CloudDataService {
 
   async storeGoals(): Promise<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }> {
     if (!this.portalMode) return { goals: [], annualTargets: [] };
-    const read = async (): Promise<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }> => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-      try { return await this.portalRequest('/commercial/store-goals', { signal: controller.signal }); }
-      finally { clearTimeout(timeout); }
-    };
-    let data: { goals: StoreGoal[]; annualTargets: AnnualGoal[] };
-    try { data = await read(); }
-    catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')
-        && !(error instanceof Error && error.message.includes('aborted'))) throw error;
-      data = await read();
-    }
-    return { goals: data.goals || [], annualTargets: data.annualTargets || [] };
+    if (this.storeGoalsCache) return this.storeGoalsCache;
+    const data = await this.criticalPortalGet<{ goals: StoreGoal[]; annualTargets: AnnualGoal[] }>('/commercial/store-goals');
+    this.storeGoalsCache = { goals: data.goals || [], annualTargets: data.annualTargets || [] };
+    return this.storeGoalsCache;
+  }
+
+  async trafficSummary(): Promise<TrafficSummary | null> {
+    if (!this.portalMode) return null;
+    if (this.trafficSummaryCache) return this.trafficSummaryCache;
+    this.trafficSummaryCache = await this.criticalPortalGet<TrafficSummary>('/commercial/traffic-summary');
+    return this.trafficSummaryCache;
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {
@@ -511,6 +515,25 @@ export class CloudDataService {
     this.fileManifest.clear();
     this.availableFiles.set([]);
     this.dataVersion.set(this.client || this.portalMode ? 'SIN CARGAR' : 'LOCAL');
+  }
+
+  private async criticalPortalGet<T>(path: string): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12_000);
+      try {
+        return await this.portalRequest<T>(path, { signal: controller.signal });
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message.toLowerCase() : '';
+        if (message.includes('sesión') || message.includes('acceso') || message.includes('http 401') || message.includes('http 403')) throw error;
+        if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 250));
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    throw lastError;
   }
 
   private async portalRequest<T>(path: string, options: RequestInit = {}): Promise<T> {

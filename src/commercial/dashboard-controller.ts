@@ -175,6 +175,7 @@ export class CommercialDashboardController implements OnInit {
   readonly storeGoalOverrides = signal<StoreGoal[]>([]);
   readonly annualGoalOverrides = signal<AnnualGoal[]>([]);
   readonly storeGoalsReady = signal(false);
+  private readonly trafficRevision = signal(0);
   private goalLoadToken = 0;
   readonly dataWarnings = computed(() => this.data()?.metadata.dataWarnings ?? []);
   readonly salesCutoffYear = computed(() => Number(this.data()?.metadata.salesCutoff?.slice(0, 4)) || new Date().getFullYear());
@@ -248,7 +249,7 @@ export class CommercialDashboardController implements OnInit {
   private dailyDetailPromise?: Promise<void>;
   private dailyDetailRange = '';
   readonly dailyDetailLoaded = signal(false);
-  private dailyTrafficRows: { date: string; storeId: string; traffic: number }[] = [];
+  private readonly dailyTrafficRows = signal<{ date: string; storeId: string; traffic: number }[]>([]);
   private dailyReceivedRows: { date: string; storeId: string; received: number }[] = [];
   private monthlyPersonnelAreaIndex = new Map<string, PersonnelAreaRow[]>();
   private monthlyCategoryIndex = new Map<string, Monthly[]>();
@@ -358,11 +359,15 @@ export class CommercialDashboardController implements OnInit {
   readonly trafficMonthlyRows = computed(() => {
     this.data();
     const year = this.ticketChartYear();
+    const cutoff = this.data()?.metadata.salesCutoff || '';
+    const cutoffYear = Number(cutoff.slice(0, 4));
+    const cutoffMonth = Number(cutoff.slice(5, 7));
+    const visibleMonths = year === cutoffYear ? MONTHS.slice(0, cutoffMonth) : MONTHS;
     const selectedStores = new Set(this.ticketChartSelectedStores());
     const ids = new Set(this.trafficChartStores()
       .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
       .map(store => store.storeId));
-    return MONTHS.map((label, index) => {
+    return visibleMonths.map((label, index) => {
       const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
       const traffic = sum(rows, 'traffic');
       const transactions = sum(rows, 'transactions');
@@ -385,7 +390,7 @@ export class CommercialDashboardController implements OnInit {
           { label: 'Conversión', value: this.percent(row.conversion) },
         ]);
       } },
-      xAxis: { type: 'category', data: MONTHS, axisLabel: { color: C.slate } },
+      xAxis: { type: 'category', data: rows.map(row => row.label), axisLabel: { color: C.slate } },
       yAxis: { type: 'value', axisLabel: { formatter: (value: number) => this.short(value), color: C.slate }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [{ name: this.trafficChartLabel(), type: 'line', data: rows.map(row => row.traffic),
         connectNulls: false, symbolSize: 8, itemStyle: { color: C.navy },
@@ -409,11 +414,15 @@ export class CommercialDashboardController implements OnInit {
   readonly conversionMonthlyRows = computed(() => {
     this.data();
     const year = this.ticketChartYear();
+    const cutoff = this.data()?.metadata.salesCutoff || '';
+    const cutoffYear = Number(cutoff.slice(0, 4));
+    const cutoffMonth = Number(cutoff.slice(5, 7));
+    const visibleMonths = year === cutoffYear ? MONTHS.slice(0, cutoffMonth) : MONTHS;
     const selectedStores = new Set(this.ticketChartSelectedStores());
     const ids = new Set(this.ticketChartStores()
       .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
       .map(store => store.storeId));
-    return MONTHS.map((label, index) => {
+    return visibleMonths.map((label, index) => {
       const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
       const transactions = sum(rows, 'transactions');
       const traffic = sum(rows, 'traffic');
@@ -436,7 +445,7 @@ export class CommercialDashboardController implements OnInit {
           { label: 'Tráfico', value: this.number(row.traffic) },
         ]);
       } },
-      xAxis: { type: 'category', data: MONTHS, axisLabel: { color: C.slate } },
+      xAxis: { type: 'category', data: rows.map(row => row.label), axisLabel: { color: C.slate } },
       yAxis: { type: 'value', axisLabel: { formatter: (value: number) => `${Math.round(value * 100)}%` } },
       series: [{ name: 'Conversión', type: 'line', data: rows.map(row => row.conversion),
         connectNulls: false, symbolSize: 8, itemStyle: { color: C.navy },
@@ -1112,7 +1121,10 @@ export class CommercialDashboardController implements OnInit {
     if (this.selectedMonths().length) return this.yearRows();
     return this.rowsForPeriods([this.selectedPeriod()], this.filteredStoreIds());
   });
-  readonly baseYearRows = computed(() => this.indexedRows(this.monthlyStoreIndex, this.selectedPeriods(), this.filteredStoreIds()));
+  readonly baseYearRows = computed(() => {
+    this.trafficRevision();
+    return this.indexedRows(this.monthlyStoreIndex, this.selectedPeriods(), this.filteredStoreIds());
+  });
   readonly fullYearBaseRows = computed(() => this.baseRows(this.year() * 100 + 1, this.year() * 100 + 12));
 
   private targetCategories(): string[] {
@@ -1129,17 +1141,13 @@ export class CommercialDashboardController implements OnInit {
     return periods.every((period, index) => period === expected[index]);
   }
 
-  // Con TEXTIL/CALZADO usa la meta cargada en la hoja METAS. Para otros rubros
-  // distribuye el remanente de la meta total por su participación de ventas: es
-  // una aproximación explícita, nunca una meta oficial inventada.
+  // Toda meta proviene exclusivamente de las tablas centrales de Supabase.
+  // No se consulta el target del dataset publicado ni archivos de respaldo.
   private targetForPeriods(periods: number[]): number {
     const storeIds = this.filteredStoreIds();
     const configuredGoals = this.storeGoalOverrides();
     const overrides = new Map(configuredGoals.filter(row => !row.category).map(row => [`${row.periodId}|${row.storeId}`, row.target]));
-    const officialFor = (period: number, storeId: string) => {
-      const key = `${period}|${storeId}`;
-      return overrides.has(key) ? overrides.get(key)! : sum(this.monthlyStoreIndex.get(key) || [], 'target');
-    };
+    const officialFor = (period: number, storeId: string) => overrides.get(`${period}|${storeId}`) || 0;
     const official = periods.reduce((total, period) => total + [...storeIds].reduce((subtotal, storeId) => subtotal + officialFor(period, storeId), 0), 0);
     const hierarchyActive = this.selectedCategories().length || this.selectedGenders().length || this.selectedLines().length || this.selectedSublines().length;
     if (!hierarchyActive) {
@@ -1147,6 +1155,14 @@ export class CommercialDashboardController implements OnInit {
       return corporateTarget != null && this.isFullCompanyScope() && this.isFullYear(periods)
         ? corporateTarget
         : official;
+    }
+    const categoryOnly = this.selectedCategories().length > 0
+      && !this.selectedGenders().length && !this.selectedLines().length && !this.selectedSublines().length;
+    if (categoryOnly) {
+      const selected = new Set(this.selectedCategories().map(value => this.normalized(value)));
+      return configuredGoals.filter(row => row.category && periods.includes(row.periodId)
+        && storeIds.has(row.storeId) && selected.has(this.normalized(row.category)))
+        .reduce((total, row) => total + row.target, 0);
     }
     const configuredCategoryGoals = configuredGoals.filter(row => row.category && periods.includes(row.periodId) && storeIds.has(row.storeId));
     const configuredKeys = new Set(configuredCategoryGoals.map(row => `${row.periodId}|${row.storeId}|${this.normalized(row.category)}`));
@@ -1230,28 +1246,53 @@ export class CommercialDashboardController implements OnInit {
     dayLoading: this.dayFilterLoading(), dayError: this.dayFilterError(),
   }));
 
-  // La tarjeta general conserva la meta publicada del año completo. No depende
-  // de los filtros ni de la carga posterior de metas operativas por rubro.
+  // La tarjeta general usa únicamente metas_comerciales_anuales.
   readonly companyAnnualTarget = computed(() => {
-    const year = this.year();
-    const rows = this.data()?.monthlyStore;
-    if (!rows) return null;
-    return rows.reduce((total, row) => Math.floor(row.periodId / 100) === year
-      ? total + (row.target || 0) : total, 0);
+    return this.annualGoalOverrides().find(row => row.year === this.year())?.target ?? null;
+  });
+
+  private goalContextHasFilters(): boolean {
+    return this.dateRangeActive() || this.selectedMonths().length > 0
+      || this.selectedClusters().length > 0 || this.selectedFormats().length > 0 || this.selectedStores().length > 0
+      || this.selectedCategories().length > 0 || this.selectedGenders().length > 0
+      || this.selectedLines().length > 0 || this.selectedSublines().length > 0;
+  }
+
+  // Sin filtros muestra la meta corporativa anual. Cualquier filtro calcula la
+  // meta exacta del mismo contexto: mes(es), tienda/formato/clúster y rubro.
+  readonly contextualGoalTarget = computed(() => {
+    if (!this.storeGoalsReady()) return null;
+    if (!this.goalContextHasFilters()) return this.companyAnnualTarget();
+    const periods = this.selectedMonths().length || this.dateRangeActive()
+      ? [...this.selectedPeriods()]
+      : this.rangePeriods(this.year() * 100 + 1, this.year() * 100 + 12);
+    return this.targetForPeriods(periods);
+  });
+
+  readonly contextualGoalTitle = computed(() => {
+    const value = this.contextualGoalTarget();
+    if (!this.goalContextHasFilters()) {
+      return `Meta anual general sin filtros. Fuente: tabla metas_comerciales_anuales de Supabase. Valor exacto: ${this.money(value)}.`;
+    }
+    const period = this.selectedMonths().length || this.dateRangeActive()
+      ? this.monthFilterLabel()
+      : `AÑO ${this.year()}`;
+    return `Meta del contexto filtrado (${period}; ${this.categoryFilterLabel()}; ${this.storeFilterLabel()}). Fuente: metas_comerciales_tienda de Supabase. Valor exacto: ${this.money(value)}.`;
   });
 
   readonly primaryKpiModel = computed<Record<string, unknown>>(() => {
     const metrics = this.metrics();
     const gap = this.accumulatedGap();
+    const goal = this.contextualGoalTarget();
     return { cards: [
-      { label: 'META', className: 'meta-kpi', title: 'Meta general publicada del año completo, sin filtros de meses, tiendas, clústeres, formatos o productos.', value: this.companyAnnualTarget() == null ? 'Cargando...' : this.money(this.companyAnnualTarget()!, true) },
-      { label: 'VENTA BRUTA', className: 'gross-kpi', title: 'Fórmula: Σ(precio sugerido × cantidad) de las ventas positivas del período filtrado.', value: this.money(metrics.gross, true) },
-      { label: 'NOTAS DE CRÉDITO', title: 'Fórmula: Σ(importe de notas de crédito) del período filtrado.', value: this.money(metrics.notes, true) },
-      { label: 'DESCUENTO TOTAL', title: 'Fórmula: Σ(descuento aplicado) del período filtrado.', value: this.money(metrics.discount, true) },
-      { label: 'VENTA NETA', className: 'net-kpi', title: 'Fórmula: Σ(importe neto de las ventas registradas), incluidas las notas de crédito. No se obtiene restando directamente a la venta bruta sugerida.', value: this.money(metrics.net, true) },
-      { label: 'PROYECCIÓN CIERRE', className: 'projection-kpi', title: 'Fórmula: promedio ponderado del pronóstico YTD, histórico estacional y ritmo diario anualizado; el factor de crecimiento reciente ajusta los meses pendientes.', value: this.money(metrics.projectedClose, true) },
-      { label: 'BRECHA ACUMULADA', className: 'projection-meta-kpi', title: 'Fórmula: meta anual − proyección de cierre. Una brecha positiva indica venta proyectada por debajo de la meta.', value: `${gap != null && gap <= 0 ? '▲ ' : '▼ '}${this.money(Math.abs(gap || 0), true)}`, valueClass: (gap || 0) <= 0 ? 'positive' : 'negative' },
-      { label: 'VENTA PROMEDIO DIARIA', className: 'featured-kpi daily-average-kpi', title: 'Fórmula: venta neta del período filtrado ÷ días calendario correspondientes (hasta el día de corte en un mes parcial).', value: this.money(metrics.dailyAverage, true) },
+      { label: 'META', className: 'meta-kpi', title: this.contextualGoalTitle(), value: goal == null ? (this.storeGoalsReady() ? 'Sin meta' : 'Cargando...') : this.money(goal, true) },
+      { label: 'VENTA BRUTA', className: 'gross-kpi', title: `Fórmula: Σ(precio sugerido × cantidad) de ventas positivas. Valor exacto: ${this.money(metrics.gross)}.`, value: this.money(metrics.gross, true) },
+      { label: 'NOTAS DE CRÉDITO', title: `Fórmula: Σ(valor absoluto de notas de crédito). Valor exacto: ${this.money(metrics.notes)}.`, value: this.money(metrics.notes, true) },
+      { label: 'DESCUENTO TOTAL', title: `Fórmula: venta bruta − venta positiva real. Valor exacto: ${this.money(metrics.discount)}.`, value: this.money(metrics.discount, true) },
+      { label: 'VENTA NETA', className: 'net-kpi', title: `Fórmula validada: venta bruta − descuento total − notas de crédito. Valor exacto: ${this.money(metrics.net)}.`, value: this.money(metrics.net, true) },
+      { label: 'PROYECCIÓN CIERRE', className: 'projection-kpi actionable-kpi', action: 'projection', title: `Fórmula: mezcla ponderada YTD + estacionalidad histórica + ritmo diario. Valor exacto: ${this.money(metrics.projectedClose)}. Haz clic para ver noviembre y diciembre.`, value: this.money(metrics.projectedClose, true) },
+      { label: 'BRECHA ACUMULADA', className: 'projection-meta-kpi', title: `Fórmula: meta acumulada al corte − venta neta acumulada. Valor exacto: ${this.money(gap)}.`, value: `${gap != null && gap <= 0 ? '▲ ' : '▼ '}${this.money(Math.abs(gap || 0), true)}`, valueClass: (gap || 0) <= 0 ? 'positive' : 'negative' },
+      { label: 'VENTA PROMEDIO DIARIA', className: 'featured-kpi daily-average-kpi', title: `Fórmula: venta neta ÷ días calendario del período. Valor exacto: ${this.money(metrics.dailyAverage)}.`, value: this.money(metrics.dailyAverage, true) },
     ] };
   });
 
@@ -1261,18 +1302,21 @@ export class CommercialDashboardController implements OnInit {
     const format = this.filteredStores()[0]?.format?.toUpperCase();
     const actions = [];
     const trafficNote = this.data()?.metadata.trafficCutoff ? ` Tráfico registrado hasta ${this.data()!.metadata.trafficCutoff}.` : '';
-    if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de tiendas METRO', action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
-    if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: 'Ver evolución mensual del tráfico de otras tiendas', action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
-    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: 'Transacciones ÷ tráfico × 100. No disponible si los cortes del período no coinciden.' + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
+    if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: `Fórmula: Σ ingresos registrados en tiendas METRO. Valor exacto: ${this.number(metrics.trafficMetro)}.`, action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
+    if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: `Fórmula: Σ ingresos registrados en las demás tiendas. Valor exacto: ${this.number(metrics.trafficOther)}.`, action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
+    actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: `Fórmula: transacciones ÷ tráfico × 100. Valor exacto: ${this.percent(metrics.conversion)}.` + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
     for (const card of actions) if (card.action.startsWith('traffic')) card.title += trafficNote;
-    actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: 'Ver ticket promedio por mes', action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
+    actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: `Fórmula: venta neta ÷ transacciones. Valor exacto: ${this.money(metrics.ticket)}.`, action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
     return {
       actions: actions.map(card => ({ ...card, note: card.action.startsWith('traffic') ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
-      saleM2: this.money(metrics.saleM2), personnel: this.number(metrics.personnel),
+      saleM2: this.money(metrics.saleM2), saleM2Title: `Fórmula: venta neta ÷ (metraje físico × 80%). Valor exacto: ${this.money(metrics.saleM2)}.`, personnel: this.number(metrics.personnel),
       saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
+      saleCollaboratorTitle: `Fórmula: venta neta ÷ colaboradores promedio. Valor exacto: ${this.money(metrics.saleCollaborator)}.`,
       markup: this.trend(metrics.priceVariation), markupPositive: (metrics.priceVariation || 0) >= 0,
+      markupTitle: `Fórmula: (venta real positiva − venta bruta sugerida) ÷ venta bruta sugerida. Valor exacto: ${this.percent(metrics.priceVariation)}.`,
       sellThroughStock: metrics.sellThroughStock ? this.number(metrics.sellThroughStock, ' und') : '',
       sellThrough: this.percent(metrics.sellThrough), sellThroughMissing: metrics.sellThrough == null,
+      sellThroughTitle: `Fórmula: unidades vendidas ÷ (stock actual + unidades recibidas). Valor exacto: ${this.percent(metrics.sellThrough)}.`,
     };
   });
 
@@ -1371,6 +1415,7 @@ export class CommercialDashboardController implements OnInit {
     moduleId: 'meta-vs-real-card', cardClass: 'meta-vs-real', icon: 'comparison', title: 'AVANCE META VS REAL',
     chartId: 'meta-vs-real', label: 'Venta real y meta por mes', ready: this.storeGoalsReady(),
     loadingText: 'Cargando metas…', option: this.storeGoalsReady() ? blackChartText(this.metaVsRealOption()) : null,
+    expandable: true, expandLabel: 'Ampliar avance meta versus real', action: 'expand',
   }));
   readonly hourlyCardModel = computed<Record<string, unknown>>(() => ({
     moduleId: 'hourly-card', cardClass: 'hourly-performance-card', icon: 'trend', title: 'DESEMPEÑO COMERCIAL POR HORA',
@@ -1740,6 +1785,8 @@ export class CommercialDashboardController implements OnInit {
   onReactCommercialPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
     const action = { type, value };
     if (source === 'section') this.onReactSectionHeadingAction(action);
+    else if (source === 'primary' && type === 'projection') this.toggleChartExpansion('projection-close');
+    else if (source === 'meta' && type === 'expand') this.toggleChartExpansion('meta-vs-real-detail');
     else if (source === 'key') this.onReactKeyKpiAction(action);
     else if (source === 'category') this.onReactCategoryAction(action);
     else if (source === 'brand') this.onReactBrandAction(action);
@@ -1797,6 +1844,8 @@ export class CommercialDashboardController implements OnInit {
         : expanded === 'ticket-average' ? { type: 'monthly', model: this.ticketModalModel() }
         : expanded === 'conversion-average' ? { type: 'monthly', model: this.conversionModalModel() }
         : expanded === 'traffic-average' ? { type: 'monthly', model: this.trafficModalModel() }
+        : expanded === 'projection-close' ? { type: 'monthly', model: this.projectionCloseModalModel() }
+        : expanded === 'meta-vs-real-detail' ? { type: 'monthly', model: this.metaVsRealModalModel() }
         : expanded?.startsWith('kpi-') ? { type: 'monthly', model: this.kpiDetailModel() }
         : expanded === 'size-detail' ? { type: 'size-detail', model: this.sizeDetailModel() } : null,
       assistantEnabled: this.cloud.assistantEnabled,
@@ -1853,6 +1902,58 @@ export class CommercialDashboardController implements OnInit {
   readonly ticketModalModel = computed(() => this.monthlyModalModel('ticket'));
   readonly conversionModalModel = computed(() => this.monthlyModalModel('conversion'));
   readonly trafficModalModel = computed(() => this.monthlyModalModel('traffic'));
+
+  readonly projectionCloseModalModel = computed<Record<string, unknown>>(() => {
+    const detail = this.metrics().projectionDetail;
+    const rows = detail.months;
+    return {
+      moduleId: 'projection-close-modal', year: this.year(), years: [this.year()], storeLocked: true,
+      selectedStores: [], stores: [], allStoresLabel: 'Alcance seleccionado', titleId: 'projection-close-title',
+      title: 'PROYECCIÓN DE CIERRE · VARIABLES DEL MODELO', closeLabel: 'Cerrar detalle de proyección',
+      chartId: 'projection-close-chart', chartLabel: 'Proyección de venta de los meses pendientes',
+      hasData: rows.length > 0, emptyText: 'El año seleccionado ya no tiene meses pendientes.',
+      dataNote: `Venta YTD ${this.money(detail.actualYtd)} · comparable histórico ${this.money(detail.historicYtd)} · `
+        + `forecast YTD ${this.money(detail.ytdForecast)} (${this.percent(detail.weights.ytd)}) · `
+        + `estacional ${this.money(detail.seasonalForecast)} (${this.percent(detail.weights.seasonal)}) · `
+        + `ritmo diario ${this.money(detail.runRateForecast)} (${this.percent(detail.weights.runRate)}).`,
+      option: blackChartText({
+        animation: false, tooltip: { trigger: 'axis' }, grid: { left: 72, right: 24, top: 28, bottom: 42 },
+        xAxis: { type: 'category', data: rows.map(row => MONTHS[row.month - 1]) },
+        yAxis: { type: 'value', axisLabel: { formatter: (value: number) => this.money(value, true) } },
+        series: [{ name: 'Proyección', type: 'bar', data: rows.map(row => row.projected), itemStyle: { color: C.navy, borderRadius: [5, 5, 0, 0] } }],
+      }),
+      tableLabel: 'Variables mensuales usadas en la proyección de cierre',
+      headers: ['Mes', `${this.year() - 1}`, `${this.year() - 2}`, 'Base 60/40', 'Peso pendiente', 'Factor tendencia', 'Proyección'],
+      legend: false,
+      rows: rows.map(row => ({ label: this.monthNamesFull[row.month - 1], cells: [
+        { text: this.money(row.previous) }, { text: this.money(row.twoYearsAgo) }, { text: this.money(row.seasonal) },
+        { text: this.percent(row.weight) }, { text: this.percent((detail.growth ?? 0) + 1) }, { text: this.money(row.projected) },
+      ] })),
+    };
+  });
+
+  readonly metaVsRealModalModel = computed<Record<string, unknown>>(() => {
+    const ids = this.filteredStoreIds();
+    const rows = MONTHS.map((label, index) => {
+      const periodId = this.year() * 100 + index + 1;
+      const real = sum(this.rowsForPeriods([periodId], ids), 'net');
+      const target = this.targetForPeriods([periodId]);
+      return { label: this.monthNamesFull[index], real, target, gap: target - real, compliance: target ? real / target : null };
+    });
+    return {
+      moduleId: 'meta-vs-real-modal', year: this.year(), years: [this.year()], storeLocked: true,
+      selectedStores: [], stores: [], allStoresLabel: 'Alcance seleccionado', titleId: 'meta-vs-real-title',
+      title: 'AVANCE META VS REAL', closeLabel: 'Cerrar avance meta versus real', chartId: 'meta-vs-real-expanded',
+      chartLabel: 'Meta y venta real por mes', hasData: rows.some(row => row.target > 0 || row.real !== 0),
+      emptyText: 'No existen metas en la base de datos para este alcance.', option: blackChartText(this.metaVsRealOption()),
+      tableLabel: 'Matriz mensual de meta, venta real, brecha y cumplimiento',
+      headers: ['Mes', 'Meta (BD)', 'Venta real', 'Brecha', 'Cumplimiento'], legend: false,
+      rows: rows.map(row => ({ label: row.label, cells: [
+        { text: this.money(row.target) }, { text: this.money(row.real) },
+        { text: this.money(row.gap), className: row.gap <= 0 ? 'positive' : 'negative' }, { text: this.percent(row.compliance) },
+      ] })),
+    };
+  });
 
   readonly kpiDetailModel = computed<Record<string, unknown>>(() => {
     const metric = this.expandedChart()?.slice(4) || 'saleM2';
@@ -2141,12 +2242,16 @@ export class CommercialDashboardController implements OnInit {
   // Proyección anual: combina comparables del mismo período, estacionalidad de
   // dos años, ritmo diario del corte parcial y tendencia reciente. No usa la
   // meta como resultado: la meta sirve solo para contrastar el forecast.
-  private salesProjection(actual: number): { value: number | null; base: number | null; growth: number | null; error: number | null } {
+  private salesProjection(actual: number): { value: number | null; base: number | null; growth: number | null; error: number | null;
+    actualYtd: number; historicYtd: number; ytdForecast: number; seasonalForecast: number; runRateForecast: number;
+    weights: { ytd: number; seasonal: number; runRate: number }; months: { month: number; previous: number; twoYearsAgo: number; seasonal: number; weight: number; projected: number }[] } {
     const currentYear = this.year();
     const lastMonth = this.activeMonths().at(-1) ?? this.yearOnlyMonthLimit(currentYear);
     const actualPeriods = Array.from({ length: lastMonth }, (_, index) => currentYear * 100 + index + 1);
     const actualYtd = sum(this.rowsForPeriods(actualPeriods, this.filteredStoreIds()), 'net');
-    if (!lastMonth || lastMonth >= 12) return { value: actualYtd || actual, base: 0, growth: null, error: null };
+    if (!lastMonth || lastMonth >= 12) return { value: actualYtd || actual, base: 0, growth: null, error: null,
+      actualYtd, historicYtd: 0, ytdForecast: actualYtd || actual, seasonalForecast: actualYtd || actual,
+      runRateForecast: actualYtd || actual, weights: { ytd: 1, seasonal: 0, runRate: 0 }, months: [] };
     const cutoff = this.data()?.metadata.salesCutoff || '';
     const cutoffYear = Number(cutoff.slice(0, 4));
     const cutoffDay = Number(cutoff.slice(8, 10));
@@ -2168,12 +2273,13 @@ export class CommercialDashboardController implements OnInit {
       ...(monthProgress < 1 ? [{ month: lastMonth, weight: 1 - monthProgress }] : []),
       ...Array.from({ length: 12 - lastMonth }, (_, index) => ({ month: lastMonth + index + 1, weight: 1 })),
     ];
-    const base = remaining.reduce((total, { month, weight }) => {
+    const projectionMonths = remaining.map(({ month, weight }) => {
       const previous = sum(this.rowsForPeriods([(currentYear - 1) * 100 + month], this.filteredStoreIds()), 'net');
       const twoYearsAgo = sum(this.rowsForPeriods([(currentYear - 2) * 100 + month], this.filteredStoreIds()), 'net');
       const seasonal = previous > 0 && twoYearsAgo > 0 ? previous * .6 + twoYearsAgo * .4 : previous || twoYearsAgo;
-      return total + seasonal * weight;
-    }, 0);
+      return { month, previous, twoYearsAgo, seasonal, weight, projected: seasonal * weight * growth };
+    });
+    const base = projectionMonths.reduce((total, row) => total + row.seasonal * row.weight, 0);
     const historicAnnualValues = [currentYear - 1, currentYear - 2].map(year =>
       sum(this.rowsForPeriods(Array.from({ length: 12 }, (_, month) => year * 100 + month + 1), this.filteredStoreIds()), 'net'));
     const historicAnnual = historicAnnualValues[0] && historicAnnualValues[1] ? historicAnnualValues[0] * .6 + historicAnnualValues[1] * .4 : historicAnnualValues[0] || historicAnnualValues[1];
@@ -2193,12 +2299,14 @@ export class CommercialDashboardController implements OnInit {
     const average = candidates.reduce((sumValue, value) => sumValue + value, 0) / Math.max(1, candidates.length);
     const dispersion = average ? Math.sqrt(candidates.reduce((sumValue, value) => sumValue + (value - average) ** 2, 0) / candidates.length) / average : .2;
     const error = value > 0 ? Math.min(.25, Math.max(.03, dispersion * .7 + (1 - Math.min(1, observedMonths / 8)) * .05)) : null;
-    return { value, base, growth: historicYtd > 0 ? rawGrowth - 1 : null, error };
+    return { value, base, growth: historicYtd > 0 ? rawGrowth - 1 : null, error, actualYtd, historicYtd,
+      ytdForecast, seasonalForecast, runRateForecast,
+      weights: { ytd: ytdWeight, seasonal: seasonalWeight, runRate: runRateWeight }, months: projectionMonths };
   }
 
 
   readonly metrics = computed(() => {
-    const ytd = this.yearRows(); const month = this.monthRows(); const base = this.baseYearRows();
+    const ytd = this.yearRows(); const month = this.monthRows();
     const net = sum(ytd, 'net'); const monthNet = sum(month, 'net');
     const selectedPeriods = [...this.selectedPeriods()];
     const targetYtd = this.targetForPeriods(selectedPeriods); const monthTarget = this.selectedMonths().length ? targetYtd : this.targetForPeriods([this.selectedPeriod()]);
@@ -2213,7 +2321,7 @@ export class CommercialDashboardController implements OnInit {
       const from = this.fromDate();
       const to = this.toDate() || this.fromDate();
       const selectedStoreIds = this.filteredStoreIds();
-      const dailyTrafficFiltered = this.dailyTrafficRows.filter(row =>
+      const dailyTrafficFiltered = this.dailyTrafficRows().filter(row =>
         row.date >= from && row.date <= to && selectedStoreIds.has(row.storeId)
       );
       traffic = dailyTrafficFiltered.reduce((total, row) => total + (row.traffic || 0), 0);
@@ -2222,9 +2330,13 @@ export class CommercialDashboardController implements OnInit {
       trafficMetro = traffic > 0 ? metroVal : null;
       trafficOther = traffic > 0 ? otherVal : null;
     } else {
-      traffic = sum(base, 'traffic');
-      const metroVal = base.filter(r => storeMap.get(r.storeId)?.format === 'METRO').reduce((t, r) => t + (r.traffic || 0), 0);
-      const otherVal = base.filter(r => storeMap.get(r.storeId)?.format !== 'METRO').reduce((t, r) => t + (r.traffic || 0), 0);
+      const selectedStoreIds = this.filteredStoreIds();
+      const selectedMonths = new Set(this.activeMonths());
+      const trafficRows = this.dailyTrafficRows().filter(row => selectedStoreIds.has(row.storeId)
+        && Number(row.date.slice(0, 4)) === this.year() && selectedMonths.has(Number(row.date.slice(5, 7))));
+      traffic = trafficRows.reduce((total, row) => total + (row.traffic || 0), 0);
+      const metroVal = trafficRows.filter(r => storeMap.get(r.storeId)?.format === 'METRO').reduce((t, r) => t + (r.traffic || 0), 0);
+      const otherVal = trafficRows.filter(r => storeMap.get(r.storeId)?.format !== 'METRO').reduce((t, r) => t + (r.traffic || 0), 0);
       trafficMetro = traffic > 0 ? metroVal : null;
       trafficOther = traffic > 0 ? otherVal : null;
     }
@@ -2278,6 +2390,7 @@ export class CommercialDashboardController implements OnInit {
         : null,
       sellThroughStock,
       projectedClose: projection.value, projectionBase: projection.base, projectionGrowth: projection.growth, projectionError: projection.error,
+      projectionDetail: projection,
     };
   });
   // El avance acumulado se lee al mes completo. El selector DÍA sirve para el
@@ -2303,7 +2416,7 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly accumulatedGap = computed(() => {
     const metrics = this.metrics();
-    return metrics.annualTarget > 0 && metrics.projectedClose != null ? metrics.annualTarget - metrics.projectedClose : null;
+    return metrics.targetYtd > 0 ? metrics.targetYtd - metrics.net : null;
   });
 
   readonly talentProfiles = computed(() => {
@@ -2490,7 +2603,7 @@ export class CommercialDashboardController implements OnInit {
     const ids = this.filteredStoreIds();
     const from = this.fromDate(); const to = this.toDate() || from;
     const rows = this.dateRangeActive()
-      ? this.dailyTrafficRows.filter(row => ids.has(row.storeId) && row.date >= from && row.date <= to)
+      ? this.dailyTrafficRows().filter(row => ids.has(row.storeId) && row.date >= from && row.date <= to)
       : this.indexedRows(this.monthlyStoreIndex, this.selectedPeriods(), ids);
     const byStore = grouped(rows, row => row.storeId);
     return this.filteredStores().map(store => {
@@ -4387,14 +4500,62 @@ export class CommercialDashboardController implements OnInit {
     this.companyRankingData.set(null);
     this.companyRankingState.set('loading');
     try {
-      const loaded = await this.loadDetail<DashboardData>('dashboard.json');
+      // Metas y tráfico son parte del primer resumen visible. Se consultan al
+      // mismo tiempo que el archivo base para evitar mostrar cifras antiguas
+      // durante varios segundos y reemplazarlas después.
+      const [dashboardResult, trafficResult, goalsResult] = await Promise.allSettled([
+        this.loadDetail<DashboardData>('dashboard.json'),
+        this.cloud.trafficSummary(),
+        this.cloud.storeGoals(),
+      ]);
+      if (dashboardResult.status === 'rejected') throw dashboardResult.reason;
+      if (goalLoadToken !== this.goalLoadToken) return;
+      let loaded = dashboardResult.value;
       // T014 conserva su ID histórico, pero su nombre comercial visible es AGU.
       // La normalización aquí también protege archivos JSON antiguos regenerados.
       loaded.stores = (loaded.stores || []).map(store => store.storeId === 'T014' ? { ...store, store: 'AGU', alias: 'AGU' } : store);
+      if (trafficResult.status === 'fulfilled' && trafficResult.value) {
+        const summary = trafficResult.value;
+        const salesCutoff = loaded.metadata.salesCutoff;
+        const databaseDaily = (summary.daily || []).filter(row => row.date <= salesCutoff);
+        // Supabase empieza en marzo para varias tiendas. Se reemplaza un mes de
+        // la publicación únicamente cuando la BD tiene ese mes/tienda; enero y
+        // febrero conservan el histórico publicado y nunca se rellenan con cero.
+        const databaseMonths = new Set(databaseDaily.map(row => `${row.storeId}|${row.date.slice(0, 7)}`));
+        const publishedDaily = (loaded.dailyTraffic || []).filter(row => row.date <= salesCutoff
+          && !databaseMonths.has(`${row.storeId}|${row.date.slice(0, 7)}`));
+        const mergedDaily = [...publishedDaily, ...databaseDaily];
+        const trafficByPeriod = new Map<string, number>();
+        for (const row of mergedDaily) {
+          const periodId = Number(row.date.slice(0, 4)) * 100 + Number(row.date.slice(5, 7));
+          const key = `${periodId}|${row.storeId}`;
+          trafficByPeriod.set(key, (trafficByPeriod.get(key) || 0) + (Number(row.traffic) || 0));
+        }
+        const effectiveTrafficCutoff = summary.cutoff && summary.cutoff < salesCutoff ? summary.cutoff : salesCutoff;
+        loaded = {
+          ...loaded,
+          monthlyStore: (loaded.monthlyStore || []).map(row => ({
+            ...row, traffic: trafficByPeriod.get(`${row.periodId}|${row.storeId}`) ?? row.traffic ?? 0,
+          })),
+          dailyTraffic: mergedDaily,
+          metadata: { ...loaded.metadata, trafficCutoff: effectiveTrafficCutoff || loaded.metadata.trafficCutoff },
+        };
+      } else if (trafficResult.status === 'rejected') {
+        console.warn('No se pudo actualizar el tráfico desde Supabase:', trafficResult.reason);
+      }
+      if (goalsResult.status === 'fulfilled') {
+        this.storeGoalOverrides.set(goalsResult.value.goals);
+        this.annualGoalOverrides.set(goalsResult.value.annualTargets);
+      } else {
+        console.warn('No se pudieron cargar las metas centrales:', goalsResult.reason);
+        this.storeGoalOverrides.set([]);
+        this.annualGoalOverrides.set([]);
+      }
+      this.storeGoalsReady.set(true);
       // Índices de las tablas compactas del dashboard base. Así los filtros no recorren
       // decenas de miles de filas completas cada vez que cambia un selector.
       this.monthlyStoreIndex = this.indexPeriodStore(loaded.monthlyStore || []);
-      this.dailyTrafficRows = loaded.dailyTraffic || [];
+      this.dailyTrafficRows.set(loaded.dailyTraffic || []);
       this.dailyReceivedRows = loaded.dailyReceived || [];
       this.monthlyPersonnelAreaIndex = this.indexPeriodStore(loaded.monthlyPersonnelArea || []);
       this.monthlyCategoryIndex = this.indexPeriodStore(loaded.monthlyCategory || []);
@@ -4405,25 +4566,10 @@ export class CommercialDashboardController implements OnInit {
       this.sellerPerformanceData.set(loaded.sellerPerformance || []);
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
       this.data.set(loaded);
-      // Metas desbloquea el gráfico principal; iniciar esta consulta antes de
-      // la analítica secundaria evita que compita por las conexiones del navegador.
-      const goalsReady = this.cloud.storeGoals().then(result => {
-        if (goalLoadToken !== this.goalLoadToken) return;
-        this.storeGoalOverrides.set(result.goals); this.annualGoalOverrides.set(result.annualTargets);
-      }).catch(() => {
-        if (goalLoadToken !== this.goalLoadToken) return;
-        this.storeGoalOverrides.set([]); this.annualGoalOverrides.set([]);
-      }).finally(() => {
-        if (goalLoadToken === this.goalLoadToken) this.storeGoalsReady.set(true);
-      });
-      // Los archivos de detalle compiten por las conexiones HTTP. Dar a metas
-      // una ventana breve para terminar evita que quede esperando tras un 200.
-      void Promise.race([goalsReady, new Promise<void>(resolve => setTimeout(resolve, 2500))]).then(() => {
-        if (goalLoadToken !== this.goalLoadToken) return;
-        this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
-        void this.loadCompanyRanking(goalLoadToken);
-        if (this.page() === 1) void this.ensurePriceRangeDetail();
-      });
+      this.trafficRevision.update(value => value + 1);
+      this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
+      void this.loadCompanyRanking(goalLoadToken);
+      if (this.page() === 1) void this.ensurePriceRangeDetail();
       const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4)); this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
       this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set(''); this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);
       this.applyAccessScope();
