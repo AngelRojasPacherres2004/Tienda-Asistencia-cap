@@ -1,4 +1,5 @@
 import React from "react";
+import CommercialChartSearch from './DashboardChartFinder.jsx';
 import { CommercialChartTypography } from './commercialChartTypography';
 import { SingleBarPresentation } from './singleBarPresentation';
 import CommercialReactAccessState from "./CommercialReactAccessState";
@@ -31,7 +32,10 @@ export default function CommercialReactStandalone({ model, controller, storeOper
     {modal?.type === "size-detail" && <CommercialReactSizeDetailModal model={modal.model} onClose={() => controller.closeExpandedChart()} />}
     <CommercialReactHeader model={model.header} onLogout={() => controller.signOut()} />
     <CommercialReactFilters model={model.filters} onAction={action => controller.onReactFilterAction(action)} />
-    <CommercialReactTabs page={model.page} onNavigate={page => controller.goPage(page)} talentLabel={storeOperations ? 'OPERACIÓN Y EQUIPO' : undefined} />
+    <div className="dashboard-nav-row">
+      <CommercialReactTabs page={model.page} onNavigate={page => controller.goPage(page)} talentLabel={storeOperations ? 'OPERACIÓN Y EQUIPO' : undefined} />
+      <CommercialChartSearch controller={controller} page={model.page} storeAdmin={Boolean(storeOperations)} />
+    </div>
     {model.page === 1 && <CommercialReactCommercialPage model={model.commercial} onAction={action => controller.onReactCommercialPageAction(action)} />}
     {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} storeAdmin={Boolean(storeOperations)} hideTransfers={Boolean(storeOperations)} onAction={action => controller.onReactInventoryPageAction(action)} />}
     {model.page === 3 && <CommercialChartTypography.Provider value={Boolean(storeOperations)}><CommercialReactTalentPage model={model.talent} storeAdmin={Boolean(storeOperations)} onAction={action => controller.onReactTalentPageAction(action)} /></CommercialChartTypography.Provider>}

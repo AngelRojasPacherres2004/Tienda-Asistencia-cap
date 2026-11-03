@@ -167,7 +167,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       // corporativa es independiente y no debe reescalar un alcance parcial.
       for (const total of aggregate.totalRows) {
         const storeId = dashboardByStore.get(Number(total.tienda_id));
-        if (storeId) mergedGoals.set(`${storeId}|${year * 100 + total.mes}|`, {
+        if (storeId && !mergedGoals.has(`${storeId}|${year * 100 + total.mes}|`)) mergedGoals.set(`${storeId}|${year * 100 + total.mes}|`, {
           storeId, periodId: year * 100 + total.mes, target: total.meta_venta, source: "CALCULADO_BD",
         });
       }
@@ -214,7 +214,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     const aggregate = aggregateCommercialGoalTotals([...merged.values()], year, null);
     if (aggregate.totalRows.length) {
       const factor = annualTarget !== "" && aggregate.annualTarget > 0 ? Number(annualTarget) / aggregate.annualTarget : 1;
-      for (const row of aggregate.totalRows) merged.set(`${row.tienda_id}|${row.mes}|`, {
+      for (const row of aggregate.totalRows) if (!merged.has(`${row.tienda_id}|${row.mes}|`)) merged.set(`${row.tienda_id}|${row.mes}|`, {
         ...row, meta_venta: Math.round(row.meta_venta * factor * 100) / 100, fuente: "CALCULADO_BD",
       });
       if (annualTarget === "" || annualTarget == null) annualTarget = aggregate.annualTarget;
@@ -230,8 +230,9 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
   async function saveCommercialGoals(event, user) {
     const data = bodyOf(event); const year = commercialGoalsYear(event, data);
     if (year <= 2025) throw httpError("Las metas de 2024 y 2025 son históricas y no se pueden modificar.", 409);
+    const totalImport = data.rubro === '' && data.importacion_total === true;
     const rubro = normalizeGoalRubro(data.rubro);
-    if (!rubro) throw httpError("Solo se pueden editar metas de TEXTIL o CALZADO.", 400);
+    if (!rubro && !totalImport) throw httpError("Selecciona un rubro o una importación de cuotas totales.", 400);
     if (!Array.isArray(data.metas)) throw httpError("Las metas mensuales no son válidas.", 400);
     const stores = await commercialGoalStores(); const allowedStores = new Set(stores.map(store => Number(store.id)));
     const seen = new Set(); const rows = [];
@@ -245,6 +246,12 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       if (!Number.isFinite(target) || target < 0 || target > 999999999999.99) throw httpError(`La meta del mes ${month} no es válida.`, 400);
       rows.push({ tienda_id: storeId, anio: year, mes: month, rubro, meta_venta: Math.round(target * 100) / 100,
         actualizado_por: user.id, actualizado_en: new Date().toISOString() });
+    }
+    if (totalImport) {
+      if (!rows.length || rows.length > 12000) throw httpError('No hay cuotas válidas para importar.', 400);
+      const { error } = await supabase.from('metas_comerciales_tienda').upsert(rows, { onConflict:'tienda_id,anio,mes,rubro' });
+      if (error) throw dbError(error);
+      return listCommercialGoals({ queryStringParameters:{anio:String(year)} }, user);
     }
     const removed = await supabase.from("metas_comerciales_tienda").delete().eq("anio", year).eq("rubro", rubro);
     if (removed.error) throw dbError(removed.error);

@@ -37,4 +37,8 @@ test('el endpoint conserva las metas de tienda y mes aunque exista una meta corp
   assert.equal(totals.reduce((sum, row) => sum + row.target, 0), 700);
   assert.equal(result.annualTargets[0].target, 70858940.92);
   assert.ok(result.goals.every(row => row.storeId === 'EMA'));
+  tables.metas_comerciales_tienda.push({tienda_id:10,anio:2026,mes:1,rubro:'',meta_venta:123});
+  const imported = await domain.commercialStoreGoals({id:1,tienda_id:10});
+  assert.equal(imported.goals.find(row=>!row.category&&row.periodId===202601).target,123);
+  assert.equal(imported.goals.find(row=>!row.category&&row.periodId===202602).target,400);
 });
