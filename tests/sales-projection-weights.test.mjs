@@ -15,6 +15,22 @@ const code = ts.transpileModule(`export class Subject { ${method.getText(tree)} 
 const exports = {};
 vm.runInNewContext(code, { exports, sum: (rows, key) => rows.reduce((total, row) => total + row[key], 0) });
 
+test('el cierre suma el promedio mensual sin ajustar por tendencia y distingue cero de ausencia', () => {
+  const subject = new exports.Subject();
+  subject.year = () => 2026;
+  subject.activeMonths = () => [10];
+  subject.selectedMonths = () => [10];
+  subject.filteredStoreIds = () => new Set(['store']);
+  subject.data = () => ({ metadata: { salesCutoff: '2026-10-31' } });
+  const amounts = new Map([[202601, 1000], [202511, 200], [202411, 400], [202512, 0], [202412, 600]]);
+  subject.rowsForPeriods = periods => periods.filter(p => amounts.has(p)).map(p => ({net: amounts.get(p)}));
+  assert.equal(subject.salesProjection(0).value, 1600);
+  amounts.delete(202512);
+  assert.equal(subject.salesProjection(0).value, 1900);
+  amounts.delete(202412);
+  assert.equal(subject.salesProjection(0).value, null);
+});
+
 for (const partial of [false, true]) {
   test(`los pesos suman 100% y un ritmo constante conserva el cierre anual (parcial: ${partial})`, () => {
     for (let month = 1; month <= 12; month++) {
