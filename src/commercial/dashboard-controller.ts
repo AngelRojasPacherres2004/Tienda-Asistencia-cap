@@ -1312,10 +1312,10 @@ export class CommercialDashboardController implements OnInit {
     if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficMetro)}. Fórmula: ingresos registrados en METRO.`, action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
     if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficOther)}. Fórmula: ingresos registrados en otras tiendas.`, action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
     actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: `${this.percent(metrics.conversion)}. Fórmula: transacciones ÷ tráfico.` + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
-    for (const card of actions) if (card.action.startsWith('traffic')) card.title += trafficNote;
+    for (const card of actions) if (card.action === 'trafficOther') card.title += trafficNote;
     actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: `${this.money(metrics.ticket)}. Fórmula: venta neta ÷ transacciones.`, action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
     return {
-      actions: actions.map(card => ({ ...card, note: card.action.startsWith('traffic') ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
+      actions: actions.map(card => ({ ...card, note: card.action === 'trafficOther' ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
       saleM2: this.money(metrics.saleM2), saleM2Title: `${this.money(metrics.saleM2)}. Fórmula: venta neta ÷ área comercial.`, personnel: this.number(metrics.personnel),
       saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
       saleCollaboratorTitle: `${this.money(metrics.saleCollaborator)}. Fórmula: venta neta ÷ colaboradores.`,
@@ -1884,7 +1884,7 @@ export class CommercialDashboardController implements OnInit {
       option: blackChartText(this.ticketMonthlyOption()), tableLabel: 'Ticket promedio, transacciones y venta neta por mes',
       headers: ['Mes', 'Ticket promedio', 'Transacciones', 'Venta neta'], legendItems: [{ label: 'Ticket promedio', color: C.navy }],
       rows: this.ticketVisibleMonthlyRows().map(row => ({ label: row.label, cells: [
-        { text: this.money(row.ticket) }, { text: this.number(row.transactions) }, { text: this.money(row.net) },
+        { value: row.ticket, text: this.money(row.ticket) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.net, text: this.money(row.net) },
       ] })) };
     if (kind === 'conversion') return { ...common, titleId: 'conversion-chart-title', title: 'CONVERSIÓN POR MES',
       closeLabel: 'Cerrar gráfico de conversión', chartId: 'modal-conversion', chartLabel: 'Evolución mensual de conversión',
@@ -1892,7 +1892,7 @@ export class CommercialDashboardController implements OnInit {
       option: blackChartText(this.conversionMonthlyOption()), tableLabel: 'Conversión, transacciones y tráfico por mes',
       headers: ['Mes', 'Conversión', 'Transacciones', 'Tráfico'], legendItems: [{ label: 'Conversión', color: C.navy }],
       rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
-        { text: this.percent(row.conversion) }, { text: this.number(row.transactions) }, { text: this.number(row.traffic) },
+        { value: row.conversion, text: this.percent(row.conversion) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.traffic, text: this.number(row.traffic) },
       ] })) };
     return { ...common, titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
       closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
@@ -1900,7 +1900,7 @@ export class CommercialDashboardController implements OnInit {
       option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
       headers: ['Mes', 'Tráfico', 'Transacciones', 'Conversión'], legendItems: [{ label: this.trafficChartLabel(), color: C.navy }],
       rows: this.trafficMonthlyRows().map(row => ({ label: row.label, cells: [
-        { text: this.number(row.traffic) }, { text: this.number(row.transactions) }, { text: this.percent(row.conversion) },
+        { value: row.traffic, text: this.number(row.traffic) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.conversion, text: this.percent(row.conversion) },
       ] })) };
   }
 
@@ -1929,8 +1929,8 @@ export class CommercialDashboardController implements OnInit {
       headers: ['Mes', `Venta ${this.year() - 1}`, `Venta ${this.year() - 2}`, 'Promedio histórico', 'Proyección'],
       legend: false,
       rows: rows.map(row => ({ label: this.monthNamesFull[row.month - 1], cells: [
-        { text: this.money(row.previous) }, { text: this.money(row.twoYearsAgo) },
-        { text: row.available ? this.money(row.seasonal) : "N/A" }, { text: row.available ? this.money(row.projected) : "N/A" },
+        { value: row.previous, text: this.money(row.previous) }, { value: row.twoYearsAgo, text: this.money(row.twoYearsAgo) },
+        { value: row.available ? row.seasonal : null, text: row.available ? this.money(row.seasonal) : "N/A" }, { value: row.available ? row.projected : null, text: row.available ? this.money(row.projected) : "N/A" },
       ] })),
     };
   });
@@ -1952,8 +1952,8 @@ export class CommercialDashboardController implements OnInit {
       tableLabel: 'Matriz mensual de cuota, venta neta, brecha y cumplimiento',
       headers: ['Mes', 'Cuota', 'Venta neta', 'Brecha', 'Cumplimiento'], legend: false,
       rows: rows.map(row => ({ label: row.label, cells: [
-        { text: this.money(row.target) }, { text: this.money(row.real) },
-        { text: this.money(row.gap), className: row.gap <= 0 ? 'positive' : 'negative' }, { text: this.percent(row.compliance) },
+        { value: row.target, text: this.money(row.target) }, { value: row.real, text: this.money(row.real) },
+        { value: row.gap, text: this.money(row.gap), className: row.gap <= 0 ? 'positive' : 'negative' }, { value: row.compliance, text: this.percent(row.compliance) },
       ] })),
     };
   });
@@ -2017,12 +2017,12 @@ export class CommercialDashboardController implements OnInit {
       } as EChartsOption),
       tableLabel: `Comparación mensual de ${titles[metric]}`, headers: ['Mes', titles[metric], 'Venta neta', ...(metric === 'saleCollaborator' ? ['Colaboradores'] : metric === 'sellThrough' ? ['Unidades'] : [])],
       rows: displayMonths.map(row => ({ label: row.label, cells: [
-        { text: percentMetric ? this.percent(row.value) : this.money(row.value) }, { text: this.money(row.net, true) },
-        ...(metric === 'saleCollaborator' ? [{ text: this.number(row.personnel) }] : metric === 'sellThrough' ? [{ text: this.number(row.units) }] : []),
+        { value: row.value, text: percentMetric ? this.percent(row.value) : this.money(row.value) }, { value: row.net, text: this.money(row.net, true) },
+        ...(metric === 'saleCollaborator' ? [{ value: row.personnel, text: this.number(row.personnel) }] : metric === 'sellThrough' ? [{ value: row.units, text: this.number(row.units) }] : []),
       ] })), legendItems: [{ label: titles[metric] || 'Indicador', color: C.navy }],
       sellerDetail: metric === 'saleCollaborator' ? { loading: this.sellerDetailLoading(), month: selectedMonth,
-        rows: [...sellerRows.map(row => ({ seller: row.seller, net: this.money(row.net, true) })),
-          ...(Math.abs(unmatchedNet) > .01 ? [{ seller: 'Sin vendedor asignado / ajuste', net: this.money(unmatchedNet, true) }] : [])],
+        rows: [...sellerRows.map(row => ({ seller: row.seller, value: row.net, net: this.money(row.net, true) })),
+          ...(Math.abs(unmatchedNet) > .01 ? [{ seller: 'Sin vendedor asignado / ajuste', value: unmatchedNet, net: this.money(unmatchedNet, true) }] : [])],
         net: this.money(totalNet, true), personnel: this.number(averagePersonnel), kpi: averagePersonnel ? this.money(totalNet / averagePersonnel) : 'N/A' } : null,
     };
   });

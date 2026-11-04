@@ -1,7 +1,7 @@
 import { attendanceDayIndex, attendancePersonId, PRESENT_STATES } from "../../shared/attendance.js";
 import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, ChevronLeft, ChevronRight, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { demoTrafficTotal, demoZonalComparison, isOperationalDemo } from "../lib/operationalDemo";
@@ -105,25 +105,24 @@ function DashboardSection({ kicker, title }) { return <header className="store-d
 
 const forecastMoney = (value) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", maximumFractionDigits: 0 }).format(Number(value) || 0);
 function SalesForecastMatrix({ forecast, error, storeName, compactTitles = false }) {
-  const [weeklyView, setWeeklyView] = useState(false);
-  const [pagination, setPagination] = useState({ month: "", page: 1 });
+  const [dayWindow, setDayWindow] = useState({ month: "", start: 0 });
   const month = forecast?.monthStart || forecast?.weekStart || "";
-  const pages = Math.max(1, Math.ceil((forecast?.days.length || 0) / 7));
-  const page = pagination.month === month ? Math.min(pagination.page, pages) : 1;
-  const visibleDays = weeklyView ? forecast?.days.slice((page - 1) * 7, page * 7) || [] : forecast?.days || [];
+  const lastStart = Math.max(0, (forecast?.days.length || 0) - 7);
+  const start = dayWindow.month === month ? Math.min(dayWindow.start, lastStart) : 0;
+  const visibleDays = forecast?.days.slice(start, start + 7) || [];
+  const moveWindow = value => setDayWindow({ month, start: Math.max(0, Math.min(lastStart, value)) });
   if (error) return <section className="sales-forecast-panel panel"><header><div>{!compactTitles && <span>Proyección comercial</span>}<h2>Venta esperada del mes</h2></div></header><Notice type="error">{error}</Notice></section>;
   if (!forecast) return <section className="sales-forecast-panel panel"><div className="sales-forecast-loading"><span className="loader" />Calculando pronóstico de venta…</div></section>;
   const direction = (factor) => factor > 1.005 ? "alza" : factor < .995 ? "baja" : "estable";
   return <section className="sales-forecast-panel panel" aria-label={`Pronóstico de ventas de ${storeName}`}>
     <header><div>{!compactTitles && <span>Proyección comercial · corte {formatDate(forecast.salesCutoff)}</span>}<h2>Venta esperada del mes</h2><p>{formatDate(forecast.monthStart)} al {formatDate(forecast.monthEnd)} · {forecast.days.length} días</p>{!compactTitles && <p>{forecast.method}</p>}</div>{!compactTitles && <strong className="sales-forecast-confidence">Confianza {forecast.confidence}%</strong>}</header>
-    <button type="button" className="button button--ghost" onClick={() => setWeeklyView(value => !value)} aria-pressed={weeklyView}>{weeklyView ? "Ver mes completo" : "Ver por semanas"}</button>
     <div className="sales-forecast-kpis"><article><small>Venta esperada</small><strong>{forecastMoney(forecast.expected)}</strong></article><article><small>Rango probable</small><strong>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</strong></article><article><small>Meta mensual</small><strong>{forecast.target ? forecastMoney(forecast.target) : "Sin meta"}</strong></article></div>
+    <div className="sales-forecast-slider">
+      <button type="button" disabled={start === 0} onClick={() => moveWindow(start - 7)} aria-label="Ver siete días anteriores"><ChevronLeft size={18} /></button>
+      <label><span><strong>Días del mes</strong><output aria-live="polite">{formatDate(visibleDays[0]?.date)} al {formatDate(visibleDays.at(-1)?.date)}</output></span><input type="range" aria-label="Deslizar días de venta esperada" aria-valuetext={`Del día ${start + 1} al ${Math.min(start + 7, forecast.days.length)}`} min={0} max={lastStart} step={1} value={start} disabled={!lastStart} onChange={event => moveWindow(Number(event.target.value))} /><small>Desliza para recorrer el mes · 7 días a la vez</small></label>
+      <button type="button" disabled={start === lastStart} onClick={() => moveWindow(start + 7)} aria-label="Ver siete días siguientes"><ChevronRight size={18} /></button>
+    </div>
     <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Venta esperada</th><th>Rango probable</th><th>Meta diaria</th></tr></thead><tbody>{visibleDays.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td>{forecastMoney(day.expected)}</td><td>{forecastMoney(day.lower)} – {forecastMoney(day.upper)}</td><td>{day.target ? forecastMoney(day.target) : "—"}</td></tr>)}</tbody><tfoot><tr><th>Total del mes</th><td>{forecastMoney(forecast.expected)}</td><td>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</td><td>{forecast.target ? forecastMoney(forecast.target) : "—"}</td></tr></tfoot></table></div>
-    {weeklyView && <nav className="pagination sales-forecast-pagination" aria-label="Semanas del pronóstico mensual">
-      <button type="button" disabled={page === 1} onClick={() => setPagination({ month, page: page - 1 })} aria-label="Semana anterior">Anterior</button>
-      <span aria-live="polite">Semana <strong>{page}</strong> de {pages} · {formatDate(visibleDays[0]?.date)} al {formatDate(visibleDays.at(-1)?.date)}</span>
-      <button type="button" disabled={page === pages} onClick={() => setPagination({ month, page: page + 1 })} aria-label="Semana siguiente">Siguiente</button>
-    </nav>}
     <div className="sales-forecast-drivers" aria-label="Variables usadas en el pronóstico">{forecast.drivers.map((driver) => <span key={driver.label} className={!driver.available && driver.available !== undefined ? "is-missing" : direction(driver.factor)}><small>{driver.label}</small><strong>{driver.available === false ? "Sin datos" : `${driver.factor >= 1 ? "+" : ""}${((driver.factor - 1) * 100).toFixed(1)}%`}</strong></span>)}</div>
     <p className="sales-forecast-note">Es una estimación operativa, no una garantía. El rango se amplía automáticamente cuando hay menos historial o mayor variación.</p>
   </section>;
