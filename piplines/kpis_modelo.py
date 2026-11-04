@@ -22,6 +22,7 @@ COLUMNAS_REQUERIDAS_KPI: dict[str, set[str]] = {
     "FactVentas": {
         "fecha_id", "fecha_venta", "tienda_id", "producto_id", "nro_venta",
         "cantidad", "precio_sugerido", "precio_real", "total_venta",
+        "tipo_documento", "estado", "tipo_movimiento", "tienda_rms",
         "vendedor_codigo", "vendedor_nombre"
     },
     "FactIngresos": {
@@ -79,17 +80,25 @@ _m(
 
 _m(
     "Venta Bruta",
-    "SUMX ( FILTER ( FactVentas, FactVentas[cantidad] > 0 && FactVentas[total_venta] >= 0 ), FactVentas[cantidad] * FactVentas[precio_sugerido] )",
+    "SUMX ( FILTER ( FactVentas, FactVentas[estado] <> \"ANULADO\" && NOT ( FactVentas[tipo_movimiento] IN { \"NOTA DE CRÉDITO\", \"MOVIMIENTO NEGATIVO\" } || FactVentas[cantidad] < 0 || FactVentas[total_venta] < 0 ) ), FactVentas[cantidad] * FactVentas[precio_sugerido] )",
     "S/ #,##0.00",
     "01. Resumen ejecutivo",
-    "Venta total de las unidades positivas valorizadas al precio sugerido.",
+    "Venta sugerida sin notas de crédito, multiplicada por la cantidad; excluye estados ANULADO.",
+),
+_m(
+    "Venta Real Sin NC",
+    "SUMX ( FILTER ( FactVentas, FactVentas[estado] <> \"ANULADO\" && NOT ( FactVentas[tipo_movimiento] IN { \"NOTA DE CRÉDITO\", \"MOVIMIENTO NEGATIVO\" } || FactVentas[cantidad] < 0 || FactVentas[total_venta] < 0 ) ), FactVentas[total_venta] )",
+    "S/ #,##0.00",
+    "04. Precio, descuento y devoluciones",
+    "Venta real registrada excluyendo notas de crédito, movimientos negativos y estados ANULADO.",
 ),
 _m(
     "Venta Real Positiva",
-    "CALCULATE ( SUM ( FactVentas[total_venta] ), FactVentas[total_venta] > 0 )",
+    "[Venta Real Sin NC]",
     "S/ #,##0.00",
     "04. Precio, descuento y devoluciones",
-    "Venta positiva efectivamente registrada al precio real.",
+    "Alias de compatibilidad de Venta Real Sin NC.",
+    True,
 ),
 _m(
     "Venta Bruta Positiva",
@@ -275,7 +284,7 @@ _m(
 
 _m(
     "Descuento Total S/",
-    "[Venta Bruta] - [Venta Real Positiva]",
+    "[Venta Bruta] - [Venta Real Sin NC]",
     "S/ #,##0.00;[Red]-S/ #,##0.00",
     "04. Precio, descuento y devoluciones",
     "Diferencia monetaria neta entre el valor sugerido y la venta real positiva. Permite reconciliar exactamente la venta neta.",
@@ -318,14 +327,14 @@ _m(
     ),
     _m(
         "Notas de Crédito S/",
-        "ABS ( CALCULATE ( SUM ( FactVentas[total_venta] ), FactVentas[total_venta] < 0 ) )",
+        "ABS ( SUMX ( FILTER ( FactVentas, FactVentas[estado] <> \"ANULADO\" && ( FactVentas[tipo_movimiento] IN { \"NOTA DE CRÉDITO\", \"MOVIMIENTO NEGATIVO\" } || FactVentas[cantidad] < 0 || FactVentas[total_venta] < 0 ) ), FactVentas[total_venta] ) )",
         "S/ #,##0.00",
         "04. Precio, descuento y devoluciones",
-        "Valor absoluto de los movimientos negativos de venta.",
+        "Valor absoluto de notas de crédito y movimientos negativos similares, excluyendo estados ANULADO.",
     ),
     _m(
         "Cantidad Notas de Crédito",
-        "COUNTROWS ( SUMMARIZE ( FILTER ( FactVentas, FactVentas[total_venta] < 0 ), FactVentas[fecha_id], FactVentas[tienda_id], FactVentas[nro_venta] ) )",
+        "COUNTROWS ( SUMMARIZE ( FILTER ( FactVentas, FactVentas[estado] <> \"ANULADO\" && ( FactVentas[tipo_movimiento] IN { \"NOTA DE CRÉDITO\", \"MOVIMIENTO NEGATIVO\" } || FactVentas[cantidad] < 0 || FactVentas[total_venta] < 0 ) ), FactVentas[fecha_id], FactVentas[tienda_id], FactVentas[nro_venta] ) )",
         "#,##0",
         "04. Precio, descuento y devoluciones",
         "Cantidad de tickets con importe negativo.",
@@ -340,7 +349,7 @@ _m(
 ),
     _m(
         "Unidades Devueltas",
-        "ABS ( SUMX ( FILTER ( FactVentas, FactVentas[cantidad] < 0 || FactVentas[total_venta] < 0 ), FactVentas[cantidad] ) )",
+        "ABS ( SUMX ( FILTER ( FactVentas, FactVentas[estado] <> \"ANULADO\" && ( FactVentas[tipo_movimiento] IN { \"NOTA DE CRÉDITO\", \"MOVIMIENTO NEGATIVO\" } || FactVentas[cantidad] < 0 || FactVentas[total_venta] < 0 ) ), FactVentas[cantidad] ) )",
         "#,##0.00",
         "04. Precio, descuento y devoluciones",
         "Valor absoluto de unidades asociadas a devoluciones o notas de crédito.",

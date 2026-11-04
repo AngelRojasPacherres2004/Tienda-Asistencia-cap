@@ -88,6 +88,7 @@ COLUMNAS_TRAZABILIDAD = [
 COLUMNAS_CAPA2 = [
     # Capa 2 final: solamente campos analíticos limpios.
     # No publica columnas originales, técnicas, de observación ni trazabilidad.
+    "linea_origen_id",
     "fecha_hora_venta",
     "fecha_venta",
     "hora_venta",
@@ -101,6 +102,7 @@ COLUMNAS_CAPA2 = [
     "dia_semana_nombre",
     "nro_venta",
     "tienda",
+    "tienda_rms",
     "codigo_nissei",
     "proveedor",
     "lote",
@@ -1261,12 +1263,13 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
         FROM tipado
     ),
     fechas_validas AS (
-        -- Regla solicitada: no publicar filas sin una fecha/día de venta válido.
+        -- Regla RMS: publicar solo ventas con fecha válida y excluir ANULADO.
         SELECT *
         FROM fechas
         WHERE fecha_hora_venta IS NOT NULL
           AND dia_venta IS NOT NULL
           AND fecha_venta >= make_date({ANIO_INICIO_MODELO}, 1, 1)
+          AND estado <> 'ANULADO'
     ),
     control AS (
         SELECT
@@ -1315,39 +1318,12 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
             ) AS motivo_revision
         FROM fechas_validas
     ),
-    duplicados_exactos_ordenados AS (
-        -- Duplicado exacto: todos los campos comerciales limpios coinciden.
-        -- Se conserva una sola fila de forma determinística.
-        SELECT
-            *,
-            ROW_NUMBER() OVER (
-                PARTITION BY fecha_hora_venta, nro_venta, tienda, codigo_nissei,
-                             proveedor, lote, rubro, linea, sub_linea, marca,
-                             modelo, descripcion, cliente, temporada, cantidad,
-                             precio_sugerido, precio_real, total_venta,
-                             tipo_documento, estado, nro_documento, talla,
-                             mes_lote, anio_lote, vendedor_codigo, moneda,
-                             vendedor_nombre
-                ORDER BY COALESCE(
-                    TRY_CAST(regexp_extract(archivo_origen, '\\(([0-9]+)\\)', 1)
-                             AS INTEGER),
-                    0
-                ) DESC,
-                archivo_origen DESC,
-                COALESCE(
-                    TRY_CAST(regexp_extract(hoja_origen, '([0-9]+)', 1)
-                             AS INTEGER),
-                    999999
-                ) ASC,
-                hoja_origen ASC,
-                fila_origen ASC
-            )::BIGINT AS orden_duplicado_exacto_interno
-        FROM control
-    ),
     sin_duplicados_exactos AS (
-        SELECT * EXCLUDE (orden_duplicado_exacto_interno)
-        FROM duplicados_exactos_ordenados
-        WHERE orden_duplicado_exacto_interno = 1
+        -- En el detalle RMS pueden existir dos líneas comerciales idénticas en
+        -- la misma hoja. Cada fila representa una unidad/movimiento real y no
+        -- debe eliminarse por igualdad de sus valores comerciales.
+        SELECT *
+        FROM control
     ),
     lineas_repetidas_evaluadas AS (
         -- Línea repetida estricta: coincide la identidad de la operación,
@@ -1420,6 +1396,11 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
         )
     )
     SELECT
+        'RMS_' || upper(substr(md5(concat_ws('|',
+            COALESCE(archivo_origen, ''),
+            COALESCE(hoja_origen, ''),
+            COALESCE(CAST(fila_origen AS VARCHAR), '')
+        )), 1, 18)) AS linea_origen_id,
         fecha_hora_venta,
         fecha_venta,
         hora_venta,
@@ -1433,6 +1414,7 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
         dia_semana_nombre,
         nro_venta,
         tienda,
+        COALESCE(tienda_origen, 'N/A') AS tienda_rms,
         codigo_nissei,
         proveedor,
         lote,
@@ -1483,7 +1465,7 @@ def crear_capa2(conexion: duckdb.DuckDBPyConnection) -> None:
     """
 
     print("\nGenerando Capa 2...")
-    print("Aplicando limpieza integral, tiendas estandarizadas y depuración estricta de duplicados.")
+    print("Aplicando reglas RMS: excluyendo ANULADO y preservando cada línea de venta.")
     print(f"Salida temporal: {CAPA2_TEMP}")
     inicio = time.perf_counter()
     try:
@@ -1504,6 +1486,26 @@ def contar_filas_fecha_invalida_capa1(
     return conexion.execute(
         f"SELECT COUNT(*) FROM {origen} WHERE ({fecha_expr}) IS NULL"
     ).fetchone()[0]
+
+
+def contar_filas_elegibles_capa1(
+    conexion: duckdb.DuckDBPyConnection,
+) -> int:
+    """Cuenta filas que cumplen el mismo corte de publicación RMS de Capa 2."""
+    origen = f"read_parquet({sql_texto(CAPA1_FINAL.as_posix())})"
+    fecha_expr = sql_fecha_excel(sql_identificador("FECHA Y HORA VENTA"))
+    estado_expr = sql_limpiar_texto(sql_identificador("ESTADO"))
+    return int(
+        conexion.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM {origen}
+            WHERE ({fecha_expr}) IS NOT NULL
+              AND CAST(({fecha_expr}) AS DATE) >= make_date({ANIO_INICIO_MODELO}, 1, 1)
+              AND COALESCE(({estado_expr}), 'N/A') <> 'ANULADO'
+            """
+        ).fetchone()[0]
+    )
 
 
 def validar_y_publicar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, int]:
@@ -1540,6 +1542,7 @@ def validar_y_publicar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, i
                           OR dia_venta IS NULL OR mes_numero_venta IS NULL
                           OR anio_venta IS NULL
                      THEN 1 ELSE 0 END) AS fechas_incompletas,
+            SUM(CASE WHEN estado = 'ANULADO' THEN 1 ELSE 0 END) AS anuladas,
             SUM(CASE WHEN tienda IN ('AGUAS VERDES', 'AYA', 'PP', 'PU',
                                      'PLAZA UNION', 'PLAZA UNIÓN',
                                      'UNION 797', 'UNIÓN 797', 'JR UNION',
@@ -1566,13 +1569,13 @@ def validar_y_publicar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, i
     filas_capa2 = int(resumen[0] or 0)
     if filas_capa2 <= 0:
         raise RuntimeError("FactVentasLimpio.parquet está vacío.")
-    pendientes = [int(v or 0) for v in resumen[1:6]]
+    pendientes = [int(v or 0) for v in resumen[1:7]]
     if any(pendientes):
         raise RuntimeError(
             "Persisten datos sin normalizar: "
-            f"fechas={pendientes[0]:,}, tiendas={pendientes[1]:,}, "
-            f"proveedores={pendientes[2]:,}, marcas={pendientes[3]:,}, "
-            f"meses={pendientes[4]:,}."
+            f"fechas={pendientes[0]:,}, anuladas={pendientes[1]:,}, "
+            f"tiendas={pendientes[2]:,}, proveedores={pendientes[3]:,}, "
+            f"marcas={pendientes[4]:,}, meses={pendientes[5]:,}."
         )
 
     filas_capa1 = int(
@@ -1590,7 +1593,7 @@ def validar_y_publicar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, i
     duplicados_eliminados = 0
     if validacion_estricta:
         filas_descartadas_fecha = contar_filas_fecha_invalida_capa1(conexion)
-        filas_validas = filas_capa1 - filas_descartadas_fecha
+        filas_validas = contar_filas_elegibles_capa1(conexion)
         if filas_capa2 > filas_validas:
             raise RuntimeError(
                 f"Capa 2={filas_capa2:,} supera filas válidas={filas_validas:,}."
@@ -1607,9 +1610,9 @@ def validar_y_publicar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, i
         "filas_descartadas_fecha": max(0, int(filas_descartadas_fecha)),
         "filas_retiradas_total": max(0, filas_capa1 - filas_capa2),
         "validacion_estricta": int(validacion_estricta),
-        "totales_negativos": int(resumen[6] or 0),
-        "notas_credito": int(resumen[7] or 0),
-        "temporada_na": int(resumen[8] or 0),
+        "totales_negativos": int(resumen[7] or 0),
+        "notas_credito": int(resumen[8] or 0),
+        "temporada_na": int(resumen[9] or 0),
         "tamano_bytes": CAPA2_FINAL.stat().st_size,
     }
 
@@ -1637,6 +1640,7 @@ def verificar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, int]:
             COUNT(*) AS filas,
             SUM(CASE WHEN fecha_hora_venta IS NULL OR dia_venta IS NULL
                      THEN 1 ELSE 0 END) AS fechas_invalidas,
+            SUM(CASE WHEN estado = 'ANULADO' THEN 1 ELSE 0 END) AS anuladas,
             SUM(CASE WHEN total_venta < 0 THEN 1 ELSE 0 END) AS negativos,
             SUM(CASE WHEN tienda IN ('AGUAS VERDES', 'AYA', 'PP', 'PU',
                                      'PLAZA UNION', 'PLAZA UNIÓN',
@@ -1651,9 +1655,13 @@ def verificar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, int]:
         raise RuntimeError(
             f"La Capa 2 contiene {resumen[1]:,} filas sin fecha/día válido."
         )
-    if resumen[3]:
+    if resumen[2]:
         raise RuntimeError(
-            f"La Capa 2 contiene {resumen[3]:,} tiendas conocidas sin estandarizar."
+            f"La Capa 2 contiene {resumen[2]:,} filas con estado ANULADO."
+        )
+    if resumen[4]:
+        raise RuntimeError(
+            f"La Capa 2 contiene {resumen[4]:,} tiendas conocidas sin estandarizar."
         )
 
     print("\nMuestra de Capa 2 final limpia:")
@@ -1672,7 +1680,7 @@ def verificar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, int]:
         f"SELECT COUNT(*) FROM read_parquet({sql_texto(CAPA1_FINAL.as_posix())})"
     ).fetchone()[0]
     filas_descartadas_fecha = contar_filas_fecha_invalida_capa1(conexion)
-    filas_validas_antes_duplicados = filas_capa1 - filas_descartadas_fecha
+    filas_validas_antes_duplicados = contar_filas_elegibles_capa1(conexion)
     duplicados_eliminados = max(0, filas_validas_antes_duplicados - resumen[0])
 
     return {
@@ -1680,7 +1688,7 @@ def verificar_capa2(conexion: duckdb.DuckDBPyConnection) -> dict[str, int]:
         "columnas": len(esquema),
         "duplicados_eliminados": duplicados_eliminados,
         "fechas_invalidas": resumen[1] or 0,
-        "negativos": resumen[2] or 0,
+        "negativos": resumen[3] or 0,
         "tamano_bytes": CAPA2_FINAL.stat().st_size,
     }
 

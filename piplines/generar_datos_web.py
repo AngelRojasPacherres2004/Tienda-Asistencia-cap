@@ -358,13 +358,24 @@ def resumen_mensual_dimension(
         WITH ventas_dim AS (
             SELECT periodo_id, tienda_id,
                 {seleccion_dimensiones},
-                SUM(CASE WHEN cantidad > 0 AND total_venta >= 0
+                SUM(CASE WHEN estado <> 'ANULADO'
+                              AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
                     THEN cantidad * precio_sugerido ELSE 0 END) AS gross,
-                SUM(CASE WHEN total_venta > 0 THEN total_venta ELSE 0 END) AS positive_real,
-                ABS(SUM(CASE WHEN total_venta < 0 THEN total_venta ELSE 0 END)) AS notes,
+                SUM(CASE WHEN estado <> 'ANULADO'
+                              AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
+                    THEN total_venta ELSE 0 END) AS positive_real,
+                ABS(SUM(CASE WHEN estado <> 'ANULADO'
+                                  AND (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
+                    THEN total_venta ELSE 0 END)) AS notes,
                 SUM(total_venta) AS net,
                 COUNT(DISTINCT CAST(fecha_venta AS VARCHAR) || '|' || tienda_id || '|' || nro_venta) AS transactions,
-                SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units
+                SUM(CASE WHEN estado <> 'ANULADO'
+                              AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
+                    THEN cantidad ELSE 0 END) AS units
             FROM {ventas}
             GROUP BY {grupo}
         ), ingresos_dim AS (
@@ -466,13 +477,24 @@ def generar() -> dict:
         WITH ventas_mes AS (
             SELECT
                 periodo_id, tienda_id,
-                SUM(CASE WHEN cantidad > 0 AND total_venta >= 0
+                SUM(CASE WHEN estado <> 'ANULADO'
+                              AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
                     THEN cantidad * precio_sugerido ELSE 0 END) AS gross,
-                SUM(CASE WHEN total_venta > 0 THEN total_venta ELSE 0 END) AS positive_real,
-                ABS(SUM(CASE WHEN total_venta < 0 THEN total_venta ELSE 0 END)) AS notes,
+                SUM(CASE WHEN estado <> 'ANULADO'
+                              AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
+                    THEN total_venta ELSE 0 END) AS positive_real,
+                ABS(SUM(CASE WHEN estado <> 'ANULADO'
+                                  AND (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
+                    THEN total_venta ELSE 0 END)) AS notes,
                 SUM(total_venta) AS net,
                 COUNT(DISTINCT CAST(fecha_venta AS VARCHAR) || '|' || tienda_id || '|' || nro_venta) AS transactions,
-                SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS units
+                SUM(CASE WHEN estado <> 'ANULADO'
+                              AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                       OR cantidad < 0 OR total_venta < 0)
+                    THEN cantidad ELSE 0 END) AS units
             FROM {ventas}
             GROUP BY 1, 2
         ), meta_mes AS (
@@ -577,15 +599,32 @@ def generar() -> dict:
                 WHEN total_venta / cantidad <= 300 THEN 10
                 ELSE 11
             END AS "bandOrder",
-            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0
+            CAST(SUM(CASE WHEN estado <> 'ANULADO'
+                               AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                        OR cantidad < 0 OR total_venta < 0)
                 THEN cantidad * precio_sugerido ELSE 0 END) AS DOUBLE) AS gross,
-            CAST(SUM(CASE WHEN total_venta > 0 THEN total_venta ELSE 0 END) AS DOUBLE) AS "positiveReal",
-            CAST(ABS(SUM(CASE WHEN total_venta < 0 THEN total_venta ELSE 0 END)) AS DOUBLE) AS notes,
-            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad * precio_sugerido ELSE 0 END)
-                - SUM(CASE WHEN total_venta > 0 THEN total_venta ELSE 0 END) AS DOUBLE) AS discount,
+            CAST(SUM(CASE WHEN estado <> 'ANULADO'
+                               AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                        OR cantidad < 0 OR total_venta < 0)
+                THEN total_venta ELSE 0 END) AS DOUBLE) AS "positiveReal",
+            CAST(ABS(SUM(CASE WHEN estado <> 'ANULADO'
+                                   AND (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                        OR cantidad < 0 OR total_venta < 0)
+                THEN total_venta ELSE 0 END)) AS DOUBLE) AS notes,
+            CAST(SUM(CASE WHEN estado <> 'ANULADO'
+                               AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                        OR cantidad < 0 OR total_venta < 0)
+                THEN cantidad * precio_sugerido ELSE 0 END)
+                - SUM(CASE WHEN estado <> 'ANULADO'
+                                AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                         OR cantidad < 0 OR total_venta < 0)
+                    THEN total_venta ELSE 0 END) AS DOUBLE) AS discount,
             CAST(SUM(total_venta) AS DOUBLE) AS net,
             COUNT(DISTINCT CAST(fecha_venta AS VARCHAR) || '|' || tienda_id || '|' || nro_venta) AS transactions,
-            CAST(SUM(CASE WHEN cantidad > 0 AND total_venta >= 0 THEN cantidad ELSE 0 END) AS DOUBLE) AS units,
+            CAST(SUM(CASE WHEN estado <> 'ANULADO'
+                               AND NOT (tipo_movimiento IN ('NOTA DE CRÉDITO', 'MOVIMIENTO NEGATIVO')
+                                        OR cantidad < 0 OR total_venta < 0)
+                THEN cantidad ELSE 0 END) AS DOUBLE) AS units,
             CAST(0 AS DOUBLE) AS target,
             CAST(0 AS DOUBLE) AS traffic,
             CAST(0 AS DOUBLE) AS personnel,

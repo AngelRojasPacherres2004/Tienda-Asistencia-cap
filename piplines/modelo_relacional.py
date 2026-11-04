@@ -237,14 +237,17 @@ def transformar_ventas() -> Path:
             con,
             entrada,
             [
-                "fecha_hora_venta", "fecha_venta", "nro_venta", "tienda",
+                "linea_origen_id", "fecha_hora_venta", "fecha_venta",
+                "nro_venta", "tienda", "tienda_rms",
                 "codigo_nissei", "proveedor", "rubro", "linea", "sub_linea",
-                "marca", "cantidad", "precio_real", "total_venta",
+                "marca", "cantidad", "precio_sugerido", "precio_real",
+                "total_venta", "tipo_documento", "estado", "tipo_movimiento",
             ],
         )
         ruta = sql_literal(entrada.as_posix())
         venta_id_expr = sql_hash_id(
             "V_",
+            "COALESCE(CAST(b.linea_origen_id AS VARCHAR),'') || '|' || "
             "COALESCE(CAST(b.fecha_hora_venta AS VARCHAR),'') || '|' || "
             "COALESCE(CAST(b.nro_venta AS VARCHAR),'') || '|' || "
              "COALESCE(t.tienda_id,'') || '|' || COALESCE(p.producto_id,'') || '|' || "
@@ -308,7 +311,8 @@ def transformar_ventas() -> Path:
             b.fecha_hora_venta, b.fecha_venta, b.hora_venta, b.dia_venta,
             b.mes_numero_venta, b.mes_nombre_venta, b.trimestre_venta, b.anio_venta,
             b.semana_venta, b.dia_semana_numero, b.dia_semana_nombre,
-            b.nro_venta, b.tienda, b.codigo_nissei, b.proveedor, b.lote, b.rubro,
+            b.linea_origen_id, b.nro_venta, b.tienda, b.tienda_rms,
+            b.codigo_nissei, b.proveedor, b.lote, b.rubro,
             b.linea, b.sub_linea, b.marca, b.modelo, b.descripcion, b.cliente, b.temporada,
             b.cantidad, b.precio_sugerido, b.precio_real, b.total_venta,
             b.tipo_documento, b.estado, b.nro_documento, b.talla,
@@ -337,7 +341,7 @@ def transformar_ventas() -> Path:
         validar_claves(
             salida,
             ["venta_linea_id", "fecha_id", "tienda_id", "producto_id"],
-            validar_unicidad=False,
+            validar_unicidad=True,
             conexion=con,
         )
         return salida
