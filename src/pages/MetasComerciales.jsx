@@ -55,13 +55,18 @@ export default function MetasComerciales() {
     && [store.nombre, store.codigo, store.cluster].join(" ").toLowerCase().includes(search.toLowerCase())),
   [stores, cluster, search]);
   const valueOf = (storeId, month) => values[`${storeId}|${month}`] ?? "";
-  const setValue = (storeId, month, value) => setValues((current) => ({ ...current, [`${storeId}|${month}`]: value }));
+  const setValue = (storeId, month, value) => {
+    const key = `${storeId}|${month}`;
+    setValues(current => ({ ...current, [key]:value }));
+    if (!rubro) setTotalDraft(current => ({ ...current, [key]:value }));
+  };
   const rowTotal = (storeId) => MONTHS.reduce((sum, _, index) => sum + (Number(valueOf(storeId, index + 1)) || 0), 0);
   const monthTotals = MONTHS.map((_, index) => stores.reduce((sum, store) => sum + (Number(valueOf(store.id, index + 1)) || 0), 0));
   const matrixTotal = monthTotals.reduce((sum, value) => sum + value, 0);
   const historical = year <= 2025;
   const automaticScope = !rubro;
-  const readOnly = historical || (automaticScope && !totalDraft);
+  const readOnly = historical;
+  const noTotalChanges = automaticScope && !Object.keys(totalDraft || {}).length;
 
   const template = async () => {
     try {
@@ -86,19 +91,20 @@ export default function MetasComerciales() {
       for (let r = 1; r <= sheet.rowCount; r++) { const row = []; for (let c = 1; c <= Math.min(sheet.columnCount, 40); c++) row.push(sheet.getRow(r).getCell(c).value); rows.push(row); }
       const parsed = parseGoalMatrix(rows, stores);
       if (parsed.year && parsed.year !== year) throw new Error(`Este archivo corresponde a ${parsed.year}. Selecciona ese año antes de importarlo.`);
-      if (parsed.totalScope && rubro) throw new Error('CUOTA TIENDAS contiene cuotas totales. Selecciona Total automático en Alcance para importarlo.');
+      if (parsed.totalScope && rubro) throw new Error('CUOTA TIENDAS contiene cuotas totales. Selecciona Cuota total en Alcance para importarlo.');
       setPreview({ ...parsed, year, rubro, name:file.name });
     } catch (error) { setNotice({ type:'error', text:error.message }); }
     finally { setImporting(false); }
   };
 
   const save = async () => {
-    if (readOnly) return;
+    if (readOnly || noTotalChanges || busy || loading || importing) return;
     setBusy(true); setNotice(null);
     try {
       const metas = automaticScope ? Object.entries(totalDraft || {}).map(([key, value]) => { const [store, month] = key.split('|'); return {tienda_id:Number(store), mes:Number(month), meta_venta:value}; }) : stores.flatMap((store) => MONTHS.map((_, index) => ({
         tienda_id: store.id, mes: index + 1, meta_venta: valueOf(store.id, index + 1),
       })));
+      if (automaticScope && metas.some(row => row.meta_venta === '' || !Number.isFinite(Number(row.meta_venta)) || Number(row.meta_venta) < 0)) throw new Error('Completa las cuotas editadas con un monto válido. Usa 0 si la meta es cero.');
       const result = await api("/commercial-goals", {
         method: "PUT", body: { anio: year, rubro, metas, importacion_total:automaticScope },
       });
@@ -109,7 +115,7 @@ export default function MetasComerciales() {
   };
 
   return <section className="commercial-goals-page" style={{ "--primary": "var(--gold)", "--surface-soft": "color-mix(in srgb, var(--surface) 88%, var(--gold))" }}>
-    <PageHeader eyebrow="Gerencia comercial" title="Metas comerciales" action={<div style={{display:'flex', gap:8, flexWrap:'wrap'}}><button className="button button--ghost" disabled={historical || busy || importing || loading} onClick={() => setImportOpen(v => !v)}><Upload size={17}/>Importar Excel</button><button className="button button--primary" disabled={busy || importing || loading || readOnly} onClick={save}><Save size={17}/>{busy ? "Guardando…" : readOnly ? "Solo lectura" : "Guardar metas"}</button></div>} />
+    <PageHeader eyebrow="Gerencia comercial" title="Metas comerciales" action={<div style={{display:'flex', gap:8, flexWrap:'wrap'}}><button className="button button--ghost" disabled={historical || busy || importing || loading} onClick={() => setImportOpen(v => !v)}><Upload size={17}/>Importar Excel</button><button className="button button--primary" disabled={busy || importing || loading || readOnly || noTotalChanges} onClick={save}><Save size={17}/>{busy ? "Guardando…" : readOnly ? "Solo lectura" : "Guardar metas"}</button></div>} />
     {notice && <Notice type={notice.type} onClose={() => setNotice(null)}>{notice.text}</Notice>}
     {importOpen && <section className="panel" aria-label="Importar metas desde Excel" style={{padding:20, marginBottom:16, display:'grid', gap:12}}>
       <strong>Importar metas · {year} · {rubro || 'Cuotas totales'}</strong>
@@ -120,15 +126,15 @@ export default function MetasComerciales() {
 
     <section className="commercial-goals-controls panel">
       <label><span>Año</span><select value={year} onChange={(event) => { const nextYear = Number(event.target.value); setYear(nextYear); if (nextYear <= 2025) setRubro(""); }}>{Array.from({ length: currentYear + 6 - 2024 }, (_, index) => 2024 + index).map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-      <label><span>Alcance</span><select value={rubro} onChange={(event) => setRubro(event.target.value)} disabled={historical}><option value="">Total automático</option><option value="TEXTIL">Rubro · TEXTIL</option><option value="CALZADO">Rubro · CALZADO</option></select></label>
+      <label><span>Alcance</span><select value={rubro} onChange={(event) => setRubro(event.target.value)} disabled={historical}><option value="">Cuota total</option><option value="TEXTIL">Rubro · TEXTIL</option><option value="CALZADO">Rubro · CALZADO</option></select></label>
       {!rubro && <label className="commercial-goals-annual"><span>Meta anual corporativa · calculada</span><output>{money(annualTarget)}</output></label>}
-      <p className="commercial-goals-mode">{historical ? `${year} es un año histórico: sus metas se pueden consultar, pero no modificar.` : automaticScope ? "Las cuotas totales importadas tienen prioridad; los meses sin cuota se calculan desde TEXTIL y CALZADO." : `Editando únicamente las metas de ${rubro}.`}</p>
+      <p className="commercial-goals-mode">{historical ? `${year} es un año histórico: sus metas se pueden consultar, pero no modificar.` : automaticScope ? "Puedes editar las cuotas totales directamente y pulsar Guardar metas. Solo se guardan las celdas modificadas; usa 0 para una meta cero. Las cuotas explícitas tienen prioridad sobre el desglose por rubro." : `Editando únicamente las metas de ${rubro}.`}</p>
     </section>
 
     <div className="commercial-goals-summary" aria-label="Resumen del plan">
       <article><small>{rubro ? `Meta anual · ${rubro}` : "Suma anual"}</small><strong>{money(matrixTotal)}</strong></article>
       <article><small>Tiendas</small><strong>{stores.length}</strong></article>
-      <article><small>Modo</small><strong>{historical ? "Histórico" : automaticScope ? "Automático" : "Editable"}</strong></article>
+      <article><small>Modo</small><strong>{historical ? "Histórico" : "Editable"}</strong></article>
     </div>
 
     <div className="commercial-goals-toolbar toolbar">
@@ -144,7 +150,7 @@ export default function MetasComerciales() {
           <tbody>
             {visibleStores.map((store) => <tr key={store.id}>
               <th><strong>{store.nombre}</strong><small>{store.cluster || "Sin clúster"}{store.estado !== "activo" ? " · Inactiva" : ""}</small></th>
-              {MONTHS.map((month, index) => <td key={month}><div className={`commercial-goals-cell ${readOnly ? "is-readonly" : ""}`}><span>S/</span><input type="number" min="0" step="100" inputMode="decimal" aria-label={`${store.nombre}, ${month}`} value={valueOf(store.id, index + 1)} onChange={(event) => setValue(store.id, index + 1, event.target.value)} placeholder="0" readOnly={historical || automaticScope} /></div></td>)}
+              {MONTHS.map((month, index) => <td key={month}><div className={`commercial-goals-cell ${readOnly ? "is-readonly" : ""}`}><span>S/</span><input type="number" min="0" step="0.01" inputMode="decimal" aria-label={`${store.nombre}, ${month}`} value={valueOf(store.id, index + 1)} onChange={(event) => setValue(store.id, index + 1, event.target.value)} placeholder="0" readOnly={readOnly} disabled={busy || importing || loading} /></div></td>)}
               <td className="commercial-goals-total">{money(rowTotal(store.id))}</td>
             </tr>)}
           </tbody>
