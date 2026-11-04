@@ -2,7 +2,7 @@ import React from "react";
 import CommercialReactChart from "./CommercialReactChart";
 
 const ignoreClick = () => {};
-const metrics = [["ROTATION", "ROTACIÓN"], ["MARKUP", "MARKUP"], ["TICKET", "TICKET PROM."], ["SALE_M2", "VENTA × M²"]];
+const metrics = [["ROTATION", "ROTACIÓN"], ["MARKUP", "MARKUP"], ["TICKET", "TICKET PROM."], ["SALE_M2", "VENTA × M²"], ["SALES", "VENTA"]];
 
 export default function CommercialReactRankingCard({ model, onAction }) {
   return <article className="card chart-card commercial-ranking-card" data-react-commercial-module="ranking-card">

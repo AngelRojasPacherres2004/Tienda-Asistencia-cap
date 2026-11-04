@@ -16,11 +16,11 @@ const input = {
   attendance: Array.from({ length: 30 }, (_, index) => ({ fecha: new Date(Date.UTC(2026, 8, 24 + index)).toISOString().slice(0, 10), estado: index % 12 ? "presente" : "falta" })),
 };
 
-test("pronostica siete días, conserva totales y expone incertidumbre", () => {
+test("pronostica una quincena, conserva totales y expone incertidumbre", () => {
   const result = buildStoreSalesForecast(input);
   assert.equal(result.weekStart, "2026-10-26");
-  assert.equal(result.weekEnd, "2026-11-01");
-  assert.equal(result.days.length, 7);
+  assert.equal(result.weekEnd, "2026-11-08");
+  assert.equal(result.days.length, 14);
   assert.equal(result.expected, Math.round(result.days.reduce((sum, day) => sum + day.expected, 0) * 100) / 100);
   assert.ok(result.lower < result.expected);
   assert.ok(result.upper > result.expected);

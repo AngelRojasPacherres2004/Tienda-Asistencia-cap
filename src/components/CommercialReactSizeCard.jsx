@@ -6,7 +6,7 @@ export default function CommercialReactSizeCard({ model, onAction }) {
   const emit = (type, value) => onAction({ type, value });
   return <article className={`card chart-card size-distribution-card${model.expanded ? " chart-expanded" : ""}`} data-react-commercial-module="size-card">
     <button type="button" className="chart-expand" onClick={() => emit("expand")} aria-label={model.expanded ? "Cerrar gráfico" : "Ampliar gráfico"}>{model.expanded ? "×" : "⛶"}</button>
-    <div className="inventory-chart-heading"><h2><svg><use href="/comercial/assets/icons.svg#comparison" /></svg> VENTA, STOCK Y TRASLADOS POR TALLA</h2><small>Venta: 90 días hasta {model.periodLabel} · Stock: {model.stockCutoff}</small></div>
+    <div className="inventory-chart-heading"><h2>VENTA POR TALLA</h2><small>{model.periodLabel}</small></div>
     <CommercialReactSizeControls model={model.controls} onAction={onAction} />
     {model.transferError ? <div className="card-inline-loader" role="alert"><strong>{model.transferError}</strong><button type="button" className="retry-button" onClick={() => emit("retry-transfers")}>REINTENTAR</button></div>
       : model.loading ? <div className="card-inline-loader"><span className="loader" />{model.metric === "TRANSFERS" ? "Preparando traslados por talla…" : "Preparando gráfico de tallas…"}</div> : <>

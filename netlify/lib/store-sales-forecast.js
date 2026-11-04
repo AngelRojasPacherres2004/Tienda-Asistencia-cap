@@ -80,22 +80,22 @@ export function buildStoreSalesForecast({ monthlySales = [], salesCutoff, monthl
   const trafficWeightTotal = trafficWeights.reduce((sum, value) => sum + value, 0) || 1;
   const normalizedTrafficWeights = trafficWeights.map(value => value / trafficWeightTotal);
   const blendedWeights = normalizedTrafficWeights.map((value, day) => value * 0.7 + RETAIL_DAY_WEIGHTS[day] * 0.3);
-  const weekWeights = Array.from({ length: 7 }, (_, index) => blendedWeights[(start.getUTCDay() + index) % 7]);
-  const weekWeightTotal = weekWeights.reduce((sum, value) => sum + value, 0) || 1;
+  const fortnightWeights = Array.from({ length: 14 }, (_, index) => blendedWeights[(start.getUTCDay() + index) % 7]);
+  const fortnightWeightTotal = fortnightWeights.reduce((sum, value) => sum + value, 0) || 1;
 
   const sources = [recentRates.length > 0, priorYearRate > 0, predictiveRate > 0, recentTraffic.length >= 7, attendanceRows.length >= 10, firstTarget > 0].filter(Boolean).length;
   const variability = coefficientOfVariation(recentRates);
   const confidence = Math.round(clamp(48 + sources * 7 - variability * 30, 45, 91));
   const uncertainty = clamp(0.25 - confidence / 1000 + variability * 0.18, 0.10, 0.24);
-  const weeklyExpected = adjustedDaily * 7;
-  const days = Array.from({ length: 7 }, (_, index) => {
+  const fortnightExpected = adjustedDaily * 14;
+  const days = Array.from({ length: 14 }, (_, index) => {
     const date = new Date(start); date.setUTCDate(start.getUTCDate() + index);
-    const expected = weeklyExpected * weekWeights[index] / weekWeightTotal;
+    const expected = fortnightExpected * fortnightWeights[index] / fortnightWeightTotal;
     const periodId = date.getUTCFullYear() * 100 + date.getUTCMonth() + 1;
     const target = (targetByPeriod.get(periodId) || 0) / daysInMonth(date.getUTCFullYear(), date.getUTCMonth() + 1);
     return { date: dateISO(date), day: DAY_NAMES[date.getUTCDay()], expected: roundMoney(expected),
       lower: roundMoney(expected * (1 - uncertainty)), upper: roundMoney(expected * (1 + uncertainty)), target: roundMoney(target),
-      demandIndex: Math.round(weekWeights[index] / (weekWeightTotal / 7) * 100) };
+      demandIndex: Math.round(fortnightWeights[index] / (fortnightWeightTotal / 14) * 100) };
   });
   return {
     salesCutoff, weekStart: days[0].date, weekEnd: days.at(-1).date,
@@ -111,6 +111,6 @@ export function buildStoreSalesForecast({ monthlySales = [], salesCutoff, monthl
       { label: "Asistencia operativa", factor: attendanceFactor, available: attendanceRate != null },
       { label: "Meta comercial", factor: goalFactor, available: firstTarget > 0 },
     ],
-    method: "Promedio ponderado de 3 meses, misma temporada del año anterior y venta de 30 días; ajustado por tendencia, tráfico, asistencia y metas del sistema.",
+    method: "Estimación quincenal basada en ventas recientes, misma temporada del año anterior y venta de 30 días; ajustada por tendencia, tráfico, asistencia y metas del sistema.",
   };
 }

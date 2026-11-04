@@ -22,7 +22,7 @@ export default function CommercialReactMonthlyModal({ model, onAction }) {
     </div>
     {!model.hasData && <p role="status">{model.emptyText}</p>}
     {model.dataNote && <p className="kpi-data-note">{model.dataNote}</p>}
-    <div className={`ticket-modal-content${model.sellerDetail ? " ticket-modal-content--seller" : ""}`}><dashboard-chart style={{ boxSizing: "border-box", display: "block", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: 0, overflow: "hidden", flex: 1 }}><div className="chart-host" style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}><CommercialReactChart chartId={model.chartId} label={model.chartLabel} option={model.option} onClick={ignoreClick} /></div></dashboard-chart>
+    <div className={`ticket-modal-content${model.sellerDetail ? " ticket-modal-content--seller" : ""}${model.hideChart ? " ticket-modal-content--matrix" : ""}`}>{!model.hideChart && <dashboard-chart style={{ boxSizing: "border-box", display: "block", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: 0, overflow: "hidden", flex: 1 }}><div className="chart-host" style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}><CommercialReactChart chartId={model.chartId} label={model.chartLabel} option={model.option} onClick={ignoreClick} /></div></dashboard-chart>}
       <div className="ticket-monthly-table"><table aria-label={model.tableLabel}><thead><tr>{model.headers.map(header => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{model.rows.map(row => <tr key={row.label}><th scope="row">{row.label}</th>{row.cells.map((cell, index) => <td key={index} className={cell.className} title={cell.title}>{cell.text}</td>)}</tr>)}</tbody></table></div>
       {model.sellerDetail && <section className="kpi-seller-detail" aria-label="Ranking de ventas por vendedor">
       <div className="kpi-seller-detail__heading"><h3>RANKING DE VENTAS POR VENDEDOR</h3><label>Período <select value={model.sellerDetail.month} onChange={event => onAction({ type: "month", value: Number(event.target.value) })}><option value={0}>Filtros actuales</option>{model.rows.map((row, index) => <option key={row.label} value={index + 1}>{row.label}</option>)}</select></label></div>
@@ -30,6 +30,6 @@ export default function CommercialReactMonthlyModal({ model, onAction }) {
       <p className="kpi-seller-detail__total">Venta por colaborador: <strong>{model.sellerDetail.kpi}</strong></p>
     </section>}
     </div>
-    {model.legend && <><div className="ticket-extremes-legend" aria-label="Leyenda de valores destacados"><span className="ticket-extreme-max">↑ Máximo</span><span className="ticket-extreme-min">↓ Mínimo</span><span className="ticket-extreme-equal">↕ Máximo y mínimo iguales</span></div><p>Se resaltan todos los empates. Los meses sin transacciones no participan en los máximos y mínimos.</p></>}
+    {model.legendItems?.length ? <div className="kpi-chart-legend" aria-label="Leyenda del gráfico">{model.legendItems.map(item => <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>)}</div> : null}
   </section>;
 }

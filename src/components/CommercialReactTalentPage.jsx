@@ -19,7 +19,7 @@ export default function CommercialReactTalentPage({ model, onAction, storeAdmin 
       {heading('A', 'DEMANDA Y PLANIFICACIÓN')}
       <slot name="store-demand" />
       {heading('B', 'DOTACIÓN Y PRODUCTIVIDAD')}
-      <div className="talent-overview-grid talent-performance-grid"><CommercialReactTalentCapacity model={model.capacity} /><CommercialReactSimpleChartCard model={model.history} /><CommercialReactSimpleChartCard model={model.team} /><CommercialReactSellerCard model={model.seller} onAction={sellerAction} /><CommercialReactSimpleChartCard model={model.traffic} /><CommercialReactSimpleChartCard model={model.store} /></div>
+      <div className="talent-overview-grid talent-performance-grid"><CommercialReactTalentCapacity model={model.capacity} /><CommercialReactSimpleChartCard model={model.history} /><CommercialReactSimpleChartCard model={model.team} /><CommercialReactSellerCard model={model.seller} onAction={sellerAction} /></div>
       {heading('C', 'ASISTENCIA, CONTINUIDAD Y SEGUIMIENTO')}
       <slot name="store-attendance" />
       {heading('D', 'FORMACIÓN Y DESARROLLO')}
@@ -39,11 +39,7 @@ export default function CommercialReactTalentPage({ model, onAction, storeAdmin 
       <CommercialReactSimpleChartCard model={model.team} />
     </div>
     <CommercialReactSectionHeading model={model.headings.b} onAction={sectionAction} />
-    <div className="talent-performance-grid">
-      <CommercialReactSellerCard model={model.seller} onAction={sellerAction} />
-      <CommercialReactSimpleChartCard model={model.traffic} />
-      <CommercialReactSimpleChartCard model={model.store} />
-    </div>
+    <div className="talent-performance-grid"><CommercialReactSellerCard model={model.seller} onAction={sellerAction} /></div>
     <slot name="commercial-traffic" />
     <CommercialReactSectionHeading model={model.headings.c} onAction={sectionAction} />
     <div className="talent-development-grid">
