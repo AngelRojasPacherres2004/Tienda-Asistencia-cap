@@ -1286,7 +1286,7 @@ export class CommercialDashboardController implements OnInit {
     const gap = this.accumulatedGap();
     const goal = this.contextualGoalTarget();
     return { cards: [
-      { label: 'META', className: 'meta-kpi', title: this.contextualGoalTitle(), value: goal == null ? (this.storeGoalsReady() ? 'Sin meta' : 'Cargando...') : this.money(goal, true) },
+      { label: 'META', className: 'meta-kpi', title: `${this.contextualGoalTitle()}${goal == null ? '' : ` Importe completo: S/ ${goal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`}`, value: goal == null ? (this.storeGoalsReady() ? 'Sin meta' : 'Cargando...') : this.truncatedGoalMoney(goal) },
       { label: 'VENTA BRUTA', className: 'gross-kpi', title: `Fórmula: Σ(precio sugerido × cantidad) de ventas positivas. Valor exacto: ${this.money(metrics.gross)}.`, value: this.money(metrics.gross, true) },
       { label: 'NOTAS DE CRÉDITO', title: `Fórmula: Σ(valor absoluto de notas de crédito). Valor exacto: ${this.money(metrics.notes)}.`, value: this.money(metrics.notes, true) },
       { label: 'DESCUENTO TOTAL', title: `Fórmula: venta bruta − venta positiva real. Valor exacto: ${this.money(metrics.discount)}.`, value: this.money(metrics.discount, true) },
@@ -5098,6 +5098,14 @@ export class CommercialDashboardController implements OnInit {
     if (compact && Math.abs(value) >= 1_000_000) return `S/ ${(value / 1_000_000).toFixed(2)} mill.`;
     if (compact && Math.abs(value) >= 1_000) return `S/ ${(value / 1_000).toFixed(1)} mil`;
     return dashboardMoneyFormat.format(value);
+  }
+  truncatedGoalMoney(value: number): string {
+    // Truncar en céntimos evita que el formato compacto redondee hacia arriba.
+    const cents = Math.round(Math.abs(value) * 100);
+    const sign = value < 0 ? '-' : '';
+    if (cents >= 100_000_000) return `S/ ${sign}${(Math.floor(cents / 1_000_000) / 100).toFixed(2)} mill.`;
+    if (cents >= 100_000) return `S/ ${sign}${(Math.floor(cents / 10_000) / 10).toFixed(1)} mil`;
+    return this.money(value);
   }
   number(value: number | null, suffix = ''): string { return value == null || !Number.isFinite(value) ? 'N/A' : `${dashboardNumberFormat.format(value)}${suffix}`; }
   timeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 365 : 30))); }

@@ -1531,6 +1531,7 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .chart-search-toggle:focus-visible { outline:3px solid #267bd1; outline-offset:3px; }
 .dashboard-chart-finder .chart-search { position:absolute; right:0; top:calc(100% + 10px); width:min(680px,calc(100vw - 48px)); max-width:none; margin:0; padding:16px; box-sizing:border-box; border:1px solid #bdcde0; border-radius:14px; background:#f7faff; box-shadow:0 12px 36px #17355126; }
 .chart-search[hidden] { display:none; }
+.primary-kpis .metric-card.meta-kpi > strong { font-size:clamp(1rem,1.3vw,1.35rem); white-space:normal; overflow:visible; overflow-wrap:anywhere; text-overflow:clip; }
 .dashboard-chart-finder .chart-search-results { top:calc(100% - 1px); }
 @media(max-width:777px) { .dashboard-nav-row { align-items:flex-start; gap:8px; }.dashboard-nav-row .page-tabs { flex:1; }.dashboard-chart-finder { align-self:flex-start; }.dashboard-chart-finder .chart-search { width:min(680px,calc(100vw - 40px)); padding:12px; } }
 .chart-search-highlight { outline:3px solid #267bd1!important; outline-offset:4px; scroll-margin-top:24px; }
