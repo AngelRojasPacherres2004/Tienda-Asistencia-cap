@@ -35,7 +35,7 @@ export function Modal({ open, title, subtitle, children, onClose, wide = false, 
   );
 }
 
-export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy, error }) {
+export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy, error, confirmLabel = "Sí, eliminar", busyLabel = "Eliminando…" }) {
   return (
     <Modal open={open} title={title} onClose={onClose}>
       {error && <div role="alert"><Notice type="error">{error}</Notice></div>}
@@ -46,7 +46,7 @@ export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy, 
       <div className="form-actions">
         <button className="button button--ghost" onClick={onClose}>Cancelar</button>
         <button className="button button--danger" disabled={busy} onClick={onConfirm}>
-          {busy ? "Eliminando…" : "Sí, eliminar"}
+          {busy ? busyLabel : confirmLabel}
         </button>
       </div>
     </Modal>

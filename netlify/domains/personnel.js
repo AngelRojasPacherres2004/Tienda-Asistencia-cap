@@ -388,24 +388,35 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     if (error) throw dbError(error);
   }
 
-  async function deleteUser(id, actor) {
+  async function userDeletionStatus(id, actor) {
     const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
     if (error) throw dbError(error);
-    if (!target) throw httpError("Usuario no encontrado.", 404);
+    if (target) await assertUserScope(actor, target.rol, target.tienda_id);
+    return { existe: Boolean(target) };
+  }
+
+  async function deleteUser(id, actor) {
+    const historyBlocked = () => ({
+      eliminado: false, inhabilitado: false, tiene_historial: true,
+      mensaje: "Este trabajador tiene historial o registros vinculados. No se eliminó ni se cambió su estado. Por seguridad, su eliminación solo puede realizarse directamente en la base de datos.",
+    });
+    const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
+    if (error) throw dbError(error);
+    if (!target) return { eliminado: false, ya_no_existe: true };
     await assertUserScope(actor, target.rol, target.tienda_id);
     if (Number(id) === Number(actor.id)) throw httpError("No puedes eliminarte a ti mismo.", 400);
     const [asistenciasCheck, progresoCheck] = await Promise.all([
       supabase.from("asistencias").select("id", { count: "exact", head: true }).eq("usuario_id", id),
       supabase.from("capacitacion_progreso").select("id", { count: "exact", head: true }).eq("usuario_id", id),
     ]);
+    if (asistenciasCheck.error || progresoCheck.error) throw dbError(asistenciasCheck.error || progresoCheck.error);
     const tieneHistorial = (asistenciasCheck.count || 0) > 0 || (progresoCheck.count || 0) > 0;
-    if (tieneHistorial) {
-      const { error: updateError } = await supabase.from("usuarios").update({ estado: "inactivo" }).eq("id", id);
-      if (updateError) throw dbError(updateError);
-      return { eliminado: false, inhabilitado: true };
-    }
-    const { error: deleteError } = await supabase.from("usuarios").delete().eq("id", id);
+    if (tieneHistorial) return historyBlocked();
+    const { data: deleted, error: deleteError } = await supabase.from("usuarios").delete().eq("id", id).select("id");
+    if (deleteError?.code === "23503" || (deleteError?.code === "P0001" && deleteError.message === "WORKER_HAS_HISTORY")) return historyBlocked();
     if (deleteError) throw dbError(deleteError);
+    if (!Array.isArray(deleted)) throw httpError("No se pudo confirmar el resultado de la eliminación. Verifica el estado del trabajador.", 500);
+    if (!deleted?.some(row => Number(row.id) === Number(id))) return { eliminado: false, ya_no_existe: true };
     return { eliminado: true, inhabilitado: false };
   }
 
@@ -457,5 +468,5 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     return excelResponse(workbook, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx");
   }
 
-  return { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin };
+  return { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, userDeletionStatus, importUsersAdmin, exportUsersExcelAdmin };
 }

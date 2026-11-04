@@ -2,6 +2,7 @@ import { districts, storePersonnelColumns, normalizePersonnelHeader } from '../.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Edit3, Eye, FileSpreadsheet, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
+import { removePersonnel } from "../lib/personnelDeletion";
 import { clusterLabel, isCommercialCluster } from "../lib/clusters";
 import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
 import { departureReasonOptions, normalizeDepartureReason, validDepartureReason } from "../lib/personnelCatalogs";
@@ -52,6 +53,9 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [deleteIssue, setDeleteIssue] = useState("");
+  const [historyBlocked, setHistoryBlocked] = useState(null);
+  const [deletionChecks, setDeletionChecks] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -255,19 +259,32 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   };
 
   const remove = async () => {
-    setBusy(true); setNotice(null);
+    if (busy || !deleting) return;
+    setBusy(true); setNotice(null); setDeleteIssue("");
     try {
-      const result = await api(`/usuarios/${deleting.id}`, { method: "DELETE" });
+      const result = await removePersonnel(api, deleting.id, { verifyOnly: deletionChecks.has(deleting.id) });
+      setDeletionChecks(current => {
+        const next = new Set(current);
+        if (result.kind === "unknown") next.add(deleting.id); else next.delete(deleting.id);
+        return next;
+      });
+      if (["unknown", "retained"].includes(result.kind)) {
+        setDeleteIssue(result.message);
+        return;
+      }
+      if (result.kind === "history") {
+        setHistoryBlocked({ name: `${deleting.nombres} ${deleting.apellidos}`, message: result.message });
+        setDeleting(null);
+        return;
+      }
       setDeleting(null);
       await load();
       setNotice({
-        type: "success",
-        text: result.inhabilitado
-          ? "Ese usuario ya tiene historial registrado, así que se inhabilitó en vez de eliminarse."
-          : "Usuario eliminado.",
+        type: result.kind === "deleted" ? "success" : "info",
+        text: result.kind === "deleted" ? "Usuario eliminado." : "El trabajador ya no está registrado. Se actualizó la lista; no se realizó otra eliminación.",
       });
     } catch (err) {
-      setNotice({ type: "error", text: err.message });
+      setDeleteIssue(err.message);
     } finally {
       setBusy(false);
     }
@@ -385,7 +402,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
                 <div className="row-actions">
                   <button onClick={() => openView(item)} title="Ver ficha" aria-label="Ver ficha"><Eye size={15} /></button>
                   {(!isStoreAdmin || item.rol !== "jefe_tienda") && (!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit3 size={15} /></button>}
-                  {!zonalTeam && (!isStoreAdmin || item.rol !== "jefe_tienda") && <button className="danger" onClick={() => setDeleting(item)} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
+                  {!zonalTeam && (!isStoreAdmin || item.rol !== "jefe_tienda") && <button className="danger" onClick={() => { setDeleteIssue(""); setDeleting(item); }} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
                 </div>
               </div>
             ))}
@@ -506,11 +523,19 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       <ConfirmDialog
         open={!!deleting}
         title="Eliminar usuario"
-        message={`¿Seguro que quieres eliminar a ${deleting?.nombres} ${deleting?.apellidos}? Si ya tiene asistencias o capacitaciones registradas, se inhabilitará en vez de eliminarse.`}
+        message={`¿Seguro que quieres eliminar a ${deleting?.nombres} ${deleting?.apellidos}? Solo se eliminará si no tiene ningún registro vinculado. Si tiene historial, se conservará sin cambios.`}
         busy={busy}
-        onClose={() => setDeleting(null)}
+        error={deleteIssue}
+        confirmLabel={deletionChecks.has(deleting?.id) ? "Verificar estado" : "Sí, eliminar"}
+        busyLabel={deletionChecks.has(deleting?.id) ? "Verificando…" : "Eliminando…"}
+        onClose={() => { if (!busy) setDeleting(null); }}
         onConfirm={remove}
       />
+      <Modal open={!!historyBlocked} title="Trabajador con historial" onClose={() => setHistoryBlocked(null)}>
+        <p><strong>{historyBlocked?.name}</strong></p>
+        <p role="status">{historyBlocked?.message}</p>
+        <div className="form-actions"><button type="button" className="button button--primary" onClick={() => setHistoryBlocked(null)}>Entendido</button></div>
+      </Modal>
       <ConfirmDialog open={!!rehire} title="Reingreso de personal" message={`El DNI ${rehire?.dni || ""} ya tiene una ficha inactiva. ¿Estás seguro de reactivar a ${rehire?.nombres || ""} ${rehire?.apellidos || ""} y conservar su historial?`} busy={busy} onClose={() => setRehire(null)} onConfirm={() => save(null, true)} />
       <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>
