@@ -2299,14 +2299,9 @@ export class CommercialDashboardController implements OnInit {
       .reduce((total, month) => total + (month === lastMonth ? Math.max(1, Math.round(new Date(currentYear, month, 0).getDate() * monthProgress)) : new Date(currentYear, month, 0).getDate()), 0);
     const annualDays = new Date(currentYear, 1, 29).getMonth() === 1 ? 366 : 365;
     const runRateForecast = elapsedDays ? actualYtd / elapsedDays * annualDays : ytdForecast;
-    const rawRunRateWeight = Math.min(.28, .10 + observedMonths / 55);
-    const rawYtdWeight = Math.min(.7, .42 + observedMonths / 28);
-    const rawSeasonalWeight = Math.max(.1, 1 - rawYtdWeight - rawRunRateWeight);
-    // Normalizar también el mínimo estacional para evitar inflar el cierre.
-    const weightTotal = rawYtdWeight + rawSeasonalWeight + rawRunRateWeight;
-    const ytdWeight = rawYtdWeight / weightTotal;
-    const seasonalWeight = rawSeasonalWeight / weightTotal;
-    const runRateWeight = rawRunRateWeight / weightTotal;
+    const ytdWeight = .62;
+    const seasonalWeight = .10;
+    const runRateWeight = .28;
     const value = ytdForecast * ytdWeight + seasonalForecast * seasonalWeight + runRateForecast * runRateWeight;
     const candidates = [ytdForecast, seasonalForecast, runRateForecast].filter(value => value > 0);
     const average = candidates.reduce((sumValue, value) => sumValue + value, 0) / Math.max(1, candidates.length);

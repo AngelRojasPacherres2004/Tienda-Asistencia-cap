@@ -33,6 +33,11 @@ for (const partial of [false, true]) {
       });
       const result = subject.salesProjection(0);
       assert.ok(Math.abs(Object.values(result.weights).reduce((a, b) => a + b, 0) - 1) < 1e-12);
+      if (month < 12) {
+        assert.equal(result.weights.ytd, .62);
+        assert.equal(result.weights.seasonal, .10);
+        assert.equal(result.weights.runRate, .28);
+      }
       const expected = result.ytdForecast * result.weights.ytd + result.seasonalForecast * result.weights.seasonal + result.runRateForecast * result.weights.runRate;
       assert.ok(Math.abs(result.value - expected) < 1e-8);
       if (!partial) assert.ok(Math.abs(result.value - 36500) < 1e-8, `mes ${month}: ${result.value}`);

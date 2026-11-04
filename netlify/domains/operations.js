@@ -584,7 +584,7 @@ export function createOperationsDomain({
     const monthlyTargets = goals.goals.filter(row => row.storeId === dashboardStoreId && !row.category);
     const predictive = company.predictiveStore.find(row => row.storeId === dashboardStoreId) || null;
     return { storeId, dashboardStoreId, ...buildStoreSalesForecast({ monthlySales, monthlyTargets, predictive,
-      salesCutoff, traffic, attendance }) };
+      salesCutoff, forecastMonth: todayISO().slice(0, 7), traffic, attendance }) };
   }
 
   async function listTrafficMatrix(event, user) {
