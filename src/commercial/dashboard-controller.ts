@@ -8,6 +8,7 @@ import { adaptiveValueScale } from './chart-scale';
 import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-refresh';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
+import { currentCommercialPeriod } from '../lib/currentCommercialPeriod';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
 import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
@@ -809,6 +810,8 @@ export class CommercialDashboardController implements OnInit {
       .filter(row => this.year() !== cutoffYear || row.periodId % 100 <= cutoffMonth)
       .filter(row => storeIds.has(row.storeId) && this.hasMonthlyData(row))
       .map(row => row.periodId % 100);
+    const current = currentCommercialPeriod();
+    if (this.year() === current.year) periods.push(current.month);
     return [...new Set(periods)].sort((a, b) => a - b);
   });
   readonly activeMonths = computed(() => {
@@ -1229,7 +1232,7 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   readonly filtersModel = computed<DashboardFiltersModel>(() => ({
-    open: this.filtersOpen(), year: this.year(), years: (this.data()?.metadata.years ?? []).filter(y => y >= 2024),
+    open: this.filtersOpen(), year: this.year(), years: [...new Set([...(this.data()?.metadata.years ?? []), currentCommercialPeriod().year])].filter(y => y >= 2024).sort((a, b) => b - a),
     openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
     selected: {
       month: this.selectedMonths(), cluster: this.selectedClusters(), format: this.selectedFormats(),
@@ -1784,9 +1787,14 @@ export class CommercialDashboardController implements OnInit {
       d: this.sectionHeadingModel('commercial-d'),
     },
     primary: this.primaryKpiModel(), key: this.keyKpiModel(), progress: this.progressModel(),
-    meta: this.metaVsRealCardModel(), category: this.categoryCardModel(), brand: this.brandCardModel(),
-    hourly: this.hourlyCardModel(), ranking: this.rankingCardModel(), gender: this.genderCardModel(),
-    growth: this.growthCardModel(), price: this.priceRangeCardModel(),
+    meta: { ...this.metaVsRealCardModel(), periodLabel: this.periodContextLabel(this.historicalYearPeriods().map(period => period % 100), this.year()) },
+    category: { ...this.categoryCardModel(), periodLabel: this.chartPeriodLabel() },
+    brand: { ...this.brandCardModel(), periodLabel: this.chartPeriodLabel() },
+    hourly: { ...this.hourlyCardModel(), periodLabel: this.chartPeriodLabel() },
+    ranking: { ...this.rankingCardModel(), periodLabel: this.periodContextLabel(this.activeMonths(), this.year()) },
+    gender: { ...this.genderCardModel(), periodLabel: this.chartPeriodLabel() },
+    growth: { ...this.growthCardModel(), periodLabel: `${this.periodContextLabel(Array.from({ length: this.yearOnlyMonthLimit(this.year()) }, (_, index) => index + 1), this.year())} vs ${this.year() - 1}` },
+    price: { ...this.priceRangeCardModel(), periodLabel: this.chartPeriodLabel() },
   }));
 
   onReactCommercialPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
@@ -4567,12 +4575,10 @@ export class CommercialDashboardController implements OnInit {
       this.monthlyBrandIndex = this.indexPeriodStore(loaded.monthlyBrand || []);
       this.sellerPerformanceData.set(loaded.sellerPerformance || []);
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
-      // El rango de precios carga el año base y el comparativo a la vez. Fijar
-      // el corte antes de iniciar esa descarga evita pedir 2025/2024 al abrir
-      // y dejar a 2026 sin filas en Administrador o Comercial.
-      const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4));
-      this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
-      this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
+      // Abrir en el mes calendario de Lima, incluso si aún no tiene ventas.
+      const current = currentCommercialPeriod();
+      this.year.set(current.year);
+      this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
       this.data.set(loaded);
       this.trafficRevision.update(value => value + 1);
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
@@ -4633,6 +4639,9 @@ export class CommercialDashboardController implements OnInit {
     if (ordered.length === 1) return `${this.monthNamesFull[ordered[0] - 1]} ${year}`;
     if (ordered.length === 2) return `${MONTHS[ordered[0] - 1].toUpperCase()} + ${MONTHS[ordered[1] - 1].toUpperCase()} ${year}`;
     return `${MONTHS[ordered[0] - 1].toUpperCase()}–${MONTHS[ordered.at(-1)! - 1].toUpperCase()} ${year}`;
+  }
+  private chartPeriodLabel(): string {
+    return this.dateRangeActive() ? this.dayFilterLabel() : this.periodContextLabel(this.activeMonths(), this.year());
   }
   toggleFilter(key: FilterKey, event: Event): void {
     event.preventDefault();
@@ -5067,7 +5076,7 @@ export class CommercialDashboardController implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
-    const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
+    const current = currentCommercialPeriod(); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);

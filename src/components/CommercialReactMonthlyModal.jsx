@@ -1,11 +1,11 @@
 import React from "react";
 import CommercialReactChart from "./CommercialReactChart";
-import { highlightNumericColumns, isTopKpiModal } from '../lib/monthlyTableExtremes';
+import { highlightNumericColumns } from '../lib/monthlyTableExtremes';
 
 const ignoreClick = () => {};
 
 export default function CommercialReactMonthlyModal({ model, onAction }) {
-  const highlight = isTopKpiModal(model.moduleId);
+  const highlight = model.moduleId === 'projection-close-modal';
   const rows = highlight ? highlightNumericColumns(model.rows) : model.rows;
   const sellerRows = (model.sellerDetail?.rows || []).map(row => ({ label: row.seller, cells: [{ text: row.net, value: row.value }] }));
   const sellers = highlight ? highlightNumericColumns(sellerRows) : sellerRows;
