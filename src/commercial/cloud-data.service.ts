@@ -70,13 +70,19 @@ export type StockInsights = {
 };
 
 const LOCAL_ACCESS: DashboardAccessProfile = {
-  roleCode: 'jefe_comercial',
-  roleName: 'Jefe comercial',
+  roleCode: 'gerente_comercial',
+  roleName: 'Gerente comercial',
   canAccessDashboard: true,
   scopeType: 'all',
   stores: [],
   clusters: [],
 };
+
+const normalizeDashboardRole = (value: unknown): string => ({
+  jefe_comercial: 'gerente_comercial',
+  administrador_tienda: 'jefe_tienda',
+  zonal: 'jefe_zonal',
+}[String(value || '').trim().toLowerCase()] || String(value || '').trim().toLowerCase());
 
 @Injectable({ providedIn: 'root' })
 export class CloudDataService {
@@ -132,10 +138,11 @@ export class CloudDataService {
           this.portalRequest<{ access: { role: string; scopeType: AccessScopeType; scopeValue: string | null; storeIds: string[] } }>('/commercial/access'),
         ]);
         const access = scope.access;
+        const roleCode = normalizeDashboardRole(access.role);
         this.portalUser.set(account.user);
         this.accessProfile.set({
-          roleCode: access.role,
-          roleName: access.role === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
+          roleCode,
+          roleName: roleCode === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
           canAccessDashboard: true,
           scopeType: access.scopeType,
           stores: access.scopeType === 'store' ? [access.scopeValue || ''] : [],
@@ -459,17 +466,20 @@ export class CloudDataService {
       return false;
     }
 
-    const [{ data: role, error: roleError }, { data: scopes, error: scopesError }] = await Promise.all([
+    const rawRoleCode = String(user.role);
+    const canonicalRoleCode = normalizeDashboardRole(rawRoleCode);
+    const [{ data: roles, error: roleError }, { data: scopes, error: scopesError }] = await Promise.all([
       this.client
         .from('dashboard_roles')
         .select('code,name,can_access_dashboard,scope_type,is_active')
-        .eq('code', user.role)
-        .maybeSingle(),
+        .in('code', [...new Set([rawRoleCode, canonicalRoleCode])]),
       this.client
         .from('dashboard_user_scopes')
         .select('scope_type,scope_value')
         .eq('user_id', userId),
     ]);
+    const role = (roles ?? []).find(item => String(item.code) === canonicalRoleCode)
+      || (roles ?? []).find(item => String(item.code) === rawRoleCode);
     if (roleError || scopesError || !role?.is_active) {
       this.accessProfile.set(null);
       return false;
@@ -477,7 +487,7 @@ export class CloudDataService {
 
     const scopeRows = (scopes ?? []) as Array<{ scope_type: 'store' | 'cluster'; scope_value: string }>;
     const access: DashboardAccessProfile = {
-      roleCode: String(role.code),
+      roleCode: canonicalRoleCode,
       roleName: String(role.name),
       canAccessDashboard: role.can_access_dashboard === true,
       scopeType: role.scope_type as AccessScopeType,

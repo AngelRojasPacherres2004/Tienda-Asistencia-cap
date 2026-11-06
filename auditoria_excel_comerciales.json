@@ -6,8 +6,8 @@
     "METAS: 54 filas con meta 0 se publicarán como SIN META.",
     "PERSONAL: 3 filas sin fecha de ingreso se conservan en la fuente, pero se excluyen del histórico mensual hasta contar con una fecha real.",
     "TRAFICO: 27 conteos NULL sin estado informativo (se conservan como NULL).",
-    "TRAFICO: 319 conteos NULL se conservaran segun estado_registro.",
-    "MERMA: 25 filas sin código conservarán producto_id NULL.",
+    "TRAFICO: 330 conteos NULL se conservaran segun estado_registro.",
+    "MERMA: 48 filas sin código conservarán producto_id NULL.",
     "GUIAS: 540 filas anteriores a 2023 serán excluidas de Capa 2.",
     "GUIAS: 1 totales fuente difieren de cantidad × precio; se recalcularán."
   ],
@@ -36,7 +36,7 @@
     "merma": {
       "archivo": "MERMA.xlsx",
       "hoja": "MERMA",
-      "filas": 51,
+      "filas": 74,
       "columnas": 14,
       "estado": "OK"
     },
@@ -57,7 +57,7 @@
     "trafico": {
       "archivo": "TRAFICO_CLIENTES.xlsx",
       "hoja": "TRAFICO_CLIENTE",
-      "filas": 5184,
+      "filas": 5364,
       "columnas": 4,
       "estado": "OK"
     }

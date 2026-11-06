@@ -1918,7 +1918,7 @@ export class CommercialDashboardController implements OnInit {
       chartId: 'projection-close-chart', chartLabel: 'Proyección de venta de los meses pendientes',
       hideChart: true,
       hasData: rows.length > 0, emptyText: 'El año seleccionado ya no tiene meses pendientes.',
-      dataNote: `Proyección basada en ventas ${this.year() - 1} y ${this.year() - 2}, ajustadas por la tendencia actual.`,
+      dataNote: `Factor = venta acumulada ${this.year()} ÷ histórico comparable (60% ${this.year() - 1} + 40% ${this.year() - 2}). Cierre = venta acumulada real + (histórico de meses pendientes × factor).`,
       option: blackChartText({
         animation: false, tooltip: { trigger: 'axis' }, grid: { left: 72, right: 24, top: 28, bottom: 42 },
         xAxis: { type: 'category', data: rows.map(row => MONTHS[row.month - 1]) },
@@ -2247,9 +2247,9 @@ export class CommercialDashboardController implements OnInit {
       : rows;
   }
 
-  // Proyección anual: combina comparables del mismo período, estacionalidad de
-  // dos años, ritmo diario del corte parcial y tendencia reciente. No usa la
-  // meta como resultado: la meta sirve solo para contrastar el forecast.
+  // Proyección anual estándar: venta acumulada real más los meses pendientes
+  // del histórico comparable ajustados por un único factor. La meta sirve solo
+  // para contrastar el forecast, nunca para calcularlo.
   private salesProjection(actual: number): { value: number | null; base: number | null; growth: number | null; error: number | null;
     actualYtd: number; historicYtd: number; ytdForecast: number; seasonalForecast: number; runRateForecast: number;
     weights: { ytd: number; seasonal: number; runRate: number }; months: { month: number; previous: number; twoYearsAgo: number; seasonal: number; weight: number; projected: number }[] } {
@@ -2271,12 +2271,9 @@ export class CommercialDashboardController implements OnInit {
     const twoYearsComparable = historicalToDate(currentYear - 2);
     const historicYtd = priorComparable && twoYearsComparable ? priorComparable * .6 + twoYearsComparable * .4 : priorComparable || twoYearsComparable;
     const rawGrowth = historicYtd > 0 ? actualYtd / historicYtd : 1;
-    const recentMonths = Array.from({ length: Math.min(3, lastMonth) }, (_, index) => lastMonth - index);
-    const recentActual = recentMonths.reduce((total, month) => total + sum(this.rowsForPeriods([currentYear * 100 + month], this.filteredStoreIds()), 'net'), 0);
-    const recentHistoric = recentMonths.reduce((total, month) => total + (sum(this.rowsForPeriods([(currentYear - 1) * 100 + month], this.filteredStoreIds()), 'net') || sum(this.rowsForPeriods([(currentYear - 2) * 100 + month], this.filteredStoreIds()), 'net')), 0);
-    const recentGrowth = recentHistoric > 0 ? recentActual / recentHistoric : rawGrowth;
-    // Límites prudentes: protegen contra una campaña puntual o un mes incompleto.
-    const growth = Math.min(1.3, Math.max(.7, rawGrowth * .72 + recentGrowth * .28));
+    // Factor único y auditable: crecimiento acumulado contra el mismo período
+    // histórico. El límite protege contra datos atípicos o meses incompletos.
+    const factor = Math.min(1.3, Math.max(.7, rawGrowth));
     const remaining = [
       ...(monthProgress < 1 ? [{ month: lastMonth, weight: 1 - monthProgress }] : []),
       ...Array.from({ length: 12 - lastMonth }, (_, index) => ({ month: lastMonth + index + 1, weight: 1 })),
@@ -2285,31 +2282,15 @@ export class CommercialDashboardController implements OnInit {
       const previous = sum(this.rowsForPeriods([(currentYear - 1) * 100 + month], this.filteredStoreIds()), 'net');
       const twoYearsAgo = sum(this.rowsForPeriods([(currentYear - 2) * 100 + month], this.filteredStoreIds()), 'net');
       const seasonal = previous > 0 && twoYearsAgo > 0 ? previous * .6 + twoYearsAgo * .4 : previous || twoYearsAgo;
-      return { month, previous, twoYearsAgo, seasonal, weight, projected: seasonal * weight * growth };
+      return { month, previous, twoYearsAgo, seasonal, weight, projected: seasonal * weight * factor };
     });
     const base = projectionMonths.reduce((total, row) => total + row.seasonal * row.weight, 0);
-    const historicAnnualValues = [currentYear - 1, currentYear - 2].map(year =>
-      sum(this.rowsForPeriods(Array.from({ length: 12 }, (_, month) => year * 100 + month + 1), this.filteredStoreIds()), 'net'));
-    const historicAnnual = historicAnnualValues[0] && historicAnnualValues[1] ? historicAnnualValues[0] * .6 + historicAnnualValues[1] * .4 : historicAnnualValues[0] || historicAnnualValues[1];
-    const annualGrowth = Math.min(1.18, Math.max(.82, 1 + (growth - 1) * .7));
-    const seasonalForecast = historicAnnual * annualGrowth;
-    const ytdForecast = actualYtd + base * growth;
-    const observedMonths = lastMonth - 1 + monthProgress;
-    const elapsedDays = Array.from({ length: lastMonth }, (_, index) => index + 1)
-      .reduce((total, month) => total + (month === lastMonth ? Math.max(1, Math.round(new Date(currentYear, month, 0).getDate() * monthProgress)) : new Date(currentYear, month, 0).getDate()), 0);
-    const annualDays = new Date(currentYear, 1, 29).getMonth() === 1 ? 366 : 365;
-    const runRateForecast = elapsedDays ? actualYtd / elapsedDays * annualDays : ytdForecast;
-    const runRateWeight = Math.min(.28, .10 + observedMonths / 55);
-    const ytdWeight = Math.min(.7, .42 + observedMonths / 28);
-    const seasonalWeight = Math.max(.1, 1 - ytdWeight - runRateWeight);
-    const value = ytdForecast * ytdWeight + seasonalForecast * seasonalWeight + runRateForecast * runRateWeight;
-    const candidates = [ytdForecast, seasonalForecast, runRateForecast].filter(value => value > 0);
-    const average = candidates.reduce((sumValue, value) => sumValue + value, 0) / Math.max(1, candidates.length);
-    const dispersion = average ? Math.sqrt(candidates.reduce((sumValue, value) => sumValue + (value - average) ** 2, 0) / candidates.length) / average : .2;
-    const error = value > 0 ? Math.min(.25, Math.max(.03, dispersion * .7 + (1 - Math.min(1, observedMonths / 8)) * .05)) : null;
-    return { value, base, growth: historicYtd > 0 ? rawGrowth - 1 : null, error, actualYtd, historicYtd,
-      ytdForecast, seasonalForecast, runRateForecast,
-      weights: { ytd: ytdWeight, seasonal: seasonalWeight, runRate: runRateWeight }, months: projectionMonths };
+    const ytdForecast = actualYtd + base * factor;
+    const value = ytdForecast;
+    const error = value > 0 ? .03 : null;
+    return { value, base, growth: historicYtd > 0 ? factor - 1 : null, error, actualYtd, historicYtd,
+      ytdForecast, seasonalForecast: ytdForecast, runRateForecast: ytdForecast,
+      weights: { ytd: 1, seasonal: 0, runRate: 0 }, months: projectionMonths };
   }
 
 
@@ -2833,9 +2814,9 @@ export class CommercialDashboardController implements OnInit {
         cumplimientoMeta: 'venta neta ÷ meta del mismo período',
       },
       metodologiaProyeccionCierre: {
-        formula: 'Mezcla ponderada del forecast YTD y el forecast anual histórico, ajustados por crecimiento comparable',
+        formula: 'Cierre = venta acumulada real + (histórico de meses pendientes × factor)',
         promedioHistorico: '60% del mismo período del año anterior + 40% de dos años antes',
-        factorCrecimiento: 'Venta YTD actual ÷ YTD histórico ponderado, acotado entre 75% y 125%',
+        factorCrecimiento: 'Factor = venta acumulada actual ÷ venta acumulada histórica comparable; limitado entre 70% y 130%',
         ventaHistoricaMesesRestantes: metrics.projectionBase,
         factorCrecimientoActual: metrics.projectionGrowth,
         resultado: metrics.projectedClose,

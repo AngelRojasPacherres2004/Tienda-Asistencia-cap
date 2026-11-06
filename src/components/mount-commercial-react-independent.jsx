@@ -20,7 +20,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate } = {})
   const operationsHosts = user?.rol === 'jefe_tienda' ? Object.fromEntries(['demand', 'attendance', 'training'].map(name => {
     const target = document.createElement('div');
     target.slot = `store-${name}`;
-    target.className = 'store-commercial-panels store-dashboard-shell is-light';
+    target.className = `store-commercial-panels store-dashboard-shell is-light${name === 'demand' ? ' store-demand-host' : ''}`;
     shell.append(target);
     return [name, target];
   })) : null;

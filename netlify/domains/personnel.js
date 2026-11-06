@@ -1,4 +1,5 @@
 import { storePersonnelColumns, storePersonnelLists, personnelChoiceLabel } from '../../shared/store-personnel.js';
+import { normalizeDashboardRole } from '../../shared/roleCatalog.js';
 
 export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, storeStaffRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse }) {
   function mapUserRow(row) {
@@ -117,6 +118,41 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
       || `${a.nombres} ${a.apellidos}`.localeCompare(`${b.nombres} ${b.apellidos}`, "es"));
   }
 
+  async function listPeopleDirectory(actor) {
+    if (!["gerencia_general", "gerente_comercial", "jefe_zonal"].includes(actor.rol)) {
+      throw httpError("No tienes permisos para consultar el directorio global.", 403);
+    }
+    const [operational, dashboardResult, scopesResult] = await Promise.all([
+      listUsers(actor),
+      readAllResult(supabase.from("dashboard_users")
+        .select("user_id,display_name,usuario,cargo,role,is_active,updated_at")
+        .order("usuario")),
+      readAllResult(supabase.from("dashboard_user_scopes")
+        .select("user_id,scope_type,scope_value")).catch(() => ({ data: [], error: null })),
+    ]);
+    const dashboardRows = dashboardResult.data || [];
+    const scopes = scopesResult.data || [];
+    const scopeByUser = new Map();
+    for (const scope of scopes) {
+      const values = scopeByUser.get(scope.user_id) || [];
+      values.push(`${scope.scope_type}: ${scope.scope_value}`);
+      scopeByUser.set(scope.user_id, values);
+    }
+    return {
+      operational,
+      dashboard: dashboardRows.map((row) => ({
+        id: row.user_id,
+        nombre: row.display_name || row.usuario || "Sin nombre",
+        usuario: row.usuario || "—",
+        cargo: row.cargo || "—",
+        rol: normalizeDashboardRole(row.role) || "—",
+        alcance: (scopeByUser.get(row.user_id) || []).join(" · ") || "Global / sin alcance adicional",
+        estado: row.is_active ? "activo" : "inactivo",
+        actualizado: row.updated_at || null,
+      })),
+    };
+  }
+
   async function ensureUniqueUser(usuario, dni, excludeId) {
     let byUsuario = usuario ? supabase.from("usuarios").select("id").eq("usuario", usuario) : null;
     let byDni = supabase.from("usuarios").select("id").eq("dni", dni);
@@ -129,9 +165,10 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     if (dniResult.data?.length) throw httpError("Ese DNI ya está registrado.", 409);
   }
 
-  async function ensureTiendaActiva(tiendaId) {
+  async function ensureTiendaActiva(tiendaId, requireActive = false) {
     const { data: tienda } = await supabase.from("tiendas").select("id,estado").eq("id", tiendaId).maybeSingle();
     if (!tienda) throw httpError("La tienda seleccionada no existe.", 400);
+    if (requireActive && tienda.estado !== "activo") throw httpError("No se puede asignar un jefe de tienda a una tienda inactiva.", 400);
     return tienda;
   }
 
@@ -192,7 +229,9 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     const usuario = cleanUsuario(data.usuario) || null;
     const dni = cleanText(data.dni);
     await ensureUniqueUser(usuario, dni);
-    if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
+    if (!centralRoles.has(data.rol) && data.tienda_id) {
+      await ensureTiendaActiva(data.tienda_id, data.rol === "jefe_tienda" && data.estado !== "inactivo" && !data.fecha_salida);
+    }
     if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id));
     const password = await hashOperationalPassword(data.password);
     const personnel = normalizedPersonnelFields(data);
@@ -322,9 +361,11 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     const usuario = cleanUsuario(data.usuario) || null;
     const dni = cleanText(data.dni);
     await ensureUniqueUser(usuario, dni, id);
-    if (!centralRoles.has(data.rol) && data.tienda_id) await ensureTiendaActiva(data.tienda_id);
     if (data.rol === "jefe_tienda" && data.tienda_id) await ensureStoreWithoutOtherChief(Number(data.tienda_id), id);
     const nextState = data.fecha_salida ? "inactivo" : data.estado;
+    if (!centralRoles.has(data.rol) && data.tienda_id) {
+      await ensureTiendaActiva(data.tienda_id, data.rol === "jefe_tienda" && nextState === "activo");
+    }
     const personnel = normalizedPersonnelFields(data);
     const nextStoreId = data.rol === "jefe_tienda" && nextState === "inactivo" ? null : data.tienda_id;
     const payload = {
@@ -457,5 +498,5 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     return excelResponse(workbook, template ? "plantilla-usuarios.xlsx" : "usuarios.xlsx");
   }
 
-  return { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin };
+  return { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, listPeopleDirectory, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin };
 }

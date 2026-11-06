@@ -87,5 +87,20 @@
 .store-commercial-panels :is(.sales-forecast-scroll th,.sales-forecast-scroll td,.traffic-matrix-grid>div,.traffic-matrix-cell strong,.attendance-matrix-person,.attendance-matrix-date,.attendance-matrix-cell,.rotation-comparison-row,.rotation-comparison-legend button,.personnel-reasons,.dashboard-worker-table>div>*,.dashboard-worker-legend,.training-history>div>*,.training-worker,.recharts-text) { font-size:12px!important; line-height:1.4; }
 .store-commercial-panels :is(.sales-forecast-drivers small,.sales-forecast-drivers strong,.sales-forecast-note,.traffic-matrix-legend,.training-development-legend) { font-size:12px; line-height:1.4; }
 .store-commercial-panels .sales-forecast-scroll :is(th,td) { padding:10px 12px; }
+.store-commercial-panels .sales-forecast-panel { width:min(100%,1180px); margin-inline:auto; }
+.store-commercial-panels.store-demand-host { grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr); align-items:stretch; }
+.store-commercial-panels.store-demand-host > :is(.sales-forecast-panel,.traffic-matrix-card) { width:100%; height:100%; min-width:0; }
+.store-commercial-panels.store-demand-host .sales-forecast-panel { max-width:none; }
+.store-commercial-panels .sales-forecast-week-nav { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-bottom:1px solid #d8e2eb; background:#fff; color:#123a6a; font-size:13px; }
+.store-commercial-panels .sales-forecast-week-nav button { min-height:32px; padding:5px 10px; border:1px solid #9bb2cb; border-radius:7px; background:#fff; color:#123a6a; font:inherit; cursor:pointer; }
+.store-commercial-panels .sales-forecast-week-nav button:disabled { cursor:default; opacity:.45; }
+.store-commercial-panels .sales-forecast-week-nav strong { font-size:14px; text-align:center; }
+.store-commercial-panels .sales-forecast-scroll table { min-width:0; }
+.store-commercial-panels .sales-forecast-scroll :is(th,td) { font-size:13px!important; }
+.store-commercial-panels .sales-forecast-scroll thead th { font-size:11px!important; }
+.store-commercial-panels .sales-forecast-scroll tbody td[rowspan] { vertical-align:middle; background:#f8fbfe; font-weight:700; color:#123a6a; }
+.store-commercial-panels .sales-forecast-scroll tbody td:nth-child(2) { display:table-cell; }
+.store-commercial-panels .sales-forecast-scroll tfoot :is(th,td) { font-size:13px!important; }
 .store-commercial-panels .training-development-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media(max-width:800px) { .store-commercial-panels .personnel-charts-grid,.store-commercial-panels .training-development-grid { grid-template-columns:1fr; } }
+@media(max-width:900px) { .store-commercial-panels.store-demand-host { grid-template-columns:1fr; } }

@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from project_paths import SCRIPT_DIR
+from maestros import ANIO_FIN_MODELO as ANIO_FIN
 from runtime_config import finalizar_proceso
 
 ARCHIVOS_OBLIGATORIOS = {
@@ -189,15 +190,15 @@ def main() -> int:
         all(
             condicion
             for condicion in (
-                "ANIO_INICIO_MODELO = 2024" in maestros,
-                "ANIO_FIN_MODELO = 2026" in maestros,
+                "ANIO_INICIO_MODELO = 2023" in maestros,
+                f"ANIO_FIN_MODELO = {ANIO_FIN}" in maestros,
                 "INTERVAL '1 month' - INTERVAL '1 day'" in dim_fecha,
                 "1 month - 1 day" not in dim_fecha,
                 "anio_inicio_efectivo = args.anio_inicio" in dimensiones,
                 "CAST(fecha_hora_transferencia AS DATE) >= make_date({ANIO_INICIO_MODELO}, 1, 1)" in guias,
             )
         ),
-        "política temporal 2024-2026 actual y expansión automática futura",
+        f"política temporal 2023-{ANIO_FIN} actual y expansión automática futura",
     )
 
     generador_tmdl = (SCRIPT_DIR / "generar_modelo_powerbi.py").read_text(encoding="utf-8")

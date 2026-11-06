@@ -1,17 +1,29 @@
 import { fieldWarning, marketingError } from "./marketingErrors";
 import { MarketingFeedback } from "./marketingFeedback";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Field, Modal } from "../components/UI";
+import OptionalProfileField from "../components/OptionalProfileField";
 import { todayISO } from "../lib/api";
 
 export default function MarketingStaffModal({ open, editing, setEditing, roles, saving, onClose, onSubmit, error }) {
   const [validationError, setValidationError] = useState(null);
+  const [optionalFields, setOptionalFields] = useState({ email: false, telefono_emergencia: false, numero_hijos: false, alergia: false, condicion_salud: false });
+  useEffect(() => {
+    setOptionalFields({
+      email: Boolean(String(editing?.email || "").trim()),
+      telefono_emergencia: Boolean(String(editing?.telefono_emergencia || "").trim()),
+      numero_hijos: editing?.numero_hijos !== "" && editing?.numero_hijos != null && Number(editing?.numero_hijos) > 0,
+      alergia: Boolean(String(editing?.alergia || "").trim()),
+      condicion_salud: Boolean(String(editing?.condicion_salud || "").trim()),
+    });
+  }, [open, editing?.id, editing?.email, editing?.telefono_emergencia, editing?.numero_hijos, editing?.alergia, editing?.condicion_salud]);
   if (!open) return null;
   const fieldErrors = {};
   const isStoreAdmin = true;
   const availableRoles = roles;
   const roleLabels = Object.fromEntries(roles.map(role => [role, role.replaceAll("_", " ")]));
   const set = (key, value) => setEditing(current => ({ ...current, [key]: value }));
+  const toggleOptional = (key, enabled) => { setOptionalFields(current => ({ ...current, [key]: enabled })); if (!enabled) set(key, ""); };
   return <Modal open={open} wide title={editing.id ? "Editar personal de Marketing" : "Agregar personal"} subtitle="Completa la ficha personal y laboral." onClose={saving ? () => {} : onClose}>
     <form className="form-grid" noValidate onSubmit={async event => {
       event.preventDefault();
@@ -31,7 +43,7 @@ export default function MarketingStaffModal({ open, editing, setEditing, roles, 
             <Field label="Tipo de documento"><select value={editing.tipo_documento || "dni"} onChange={(e) => { set("tipo_documento", e.target.value); set("dni", ""); }}><option value="dni">DNI</option><option value="ce">Carné de extranjería (CE)</option></select></Field>
             <Field label={editing.tipo_documento === "ce" ? "Número de CE" : "Número de DNI"} error={fieldErrors.dni} hint={`${editing.tipo_documento === "ce" ? 9 : 8} dígitos`}><input required inputMode="numeric" maxLength={editing.tipo_documento === "ce" ? 9 : 8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
             <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
-            <Field label="Correo" hint="Se usa para notificaciones de incidencias"><input type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
+            <OptionalProfileField label="Correo" checked={optionalFields.email} onChange={(enabled) => toggleOptional("email", enabled)}><Field label="Correo" hint="Se usa para notificaciones de incidencias"><input required type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field></OptionalProfileField>
             <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
             <Field label="Fecha de nacimiento"><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
             <Field label="Edad" hint="Se calcula según la fecha de nacimiento"><input readOnly value={editing.fecha_nacimiento ? Math.max(0, Math.floor((Date.now() - new Date(`${editing.fecha_nacimiento}T12:00:00`).getTime()) / 31557600000)) : ""} /></Field>
@@ -56,7 +68,7 @@ export default function MarketingStaffModal({ open, editing, setEditing, roles, 
             <Field label="Sexo"><select value={editing.sexo || "no_especificado"} onChange={(e) => set("sexo", e.target.value)}><option value="no_especificado">Sin especificar</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option></select></Field>
             <Field label="Mes de cumpleaños"><input readOnly value={editing.fecha_nacimiento ? new Intl.DateTimeFormat("es-PE", { month: "long", timeZone: "UTC" }).format(new Date(`${editing.fecha_nacimiento}T12:00:00Z`)) : ""} /></Field>
             <Field label="Nacionalidad"><input value={editing.nacionalidad || ""} onChange={(e) => set("nacionalidad", e.target.value)} /></Field>
-            <Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia}><input maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field>
+            <OptionalProfileField label="Teléfono de emergencia" checked={optionalFields.telefono_emergencia} onChange={(enabled) => toggleOptional("telefono_emergencia", enabled)}><Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia}><input required maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field></OptionalProfileField>
             <Field label="Contacto de emergencia" hint="Nombres y apellidos"><input value={editing.contacto_emergencia || ""} onChange={(e) => set("contacto_emergencia", e.target.value)} /></Field>
             <Field label="Distrito"><input value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)} /></Field>
             <Field label="Dirección" className="span-2"><textarea rows={2} value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} /></Field>
@@ -72,13 +84,11 @@ export default function MarketingStaffModal({ open, editing, setEditing, roles, 
               <Field label="Familiar / vínculo" error={fieldErrors.familiar_vinculo}><input required placeholder="Nombre completo" value={editing.familiar_vinculo || ""} onChange={(e) => set("familiar_vinculo", e.target.value)} /></Field>
             </>}
             <Field label="Estado civil"><select value={editing.estado_civil || "sin_especificar"} onChange={(e) => set("estado_civil", e.target.value)}><option value="sin_especificar">Sin especificar</option><option value="soltero">Soltero(a)</option><option value="casado">Casado(a)</option><option value="conviviente">Conviviente</option><option value="divorciado">Divorciado(a)</option><option value="viudo">Viudo(a)</option></select></Field>
-            <Field label="Número de hijos"><input type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field>
+            <OptionalProfileField label="Número de hijos" checked={optionalFields.numero_hijos} onChange={(enabled) => toggleOptional("numero_hijos", enabled)}><Field label="Número de hijos"><input required type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field></OptionalProfileField>
             <Field label="Talla de zapatillas"><input type="number" min="0" step="0.5" value={editing.talla_zapatillas ?? ""} onChange={(e) => set("talla_zapatillas", e.target.value)} /></Field>
             <Field label="Talla de polo"><select value={editing.talla_polo || "sin_especificar"} onChange={(e) => set("talla_polo", e.target.value)}><option value="sin_especificar">Sin especificar</option>{["s", "m", "l", "xl", "xxl"].map((size) => <option key={size} value={size}>{size.toUpperCase()}</option>)}</select></Field>
-            <Field label="Alergia" className="span-2"><textarea rows={2} maxLength={500} placeholder="Ej. Ninguna, o detalla la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field>
-            <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
-              <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />
-            </Field>
+            <OptionalProfileField label="Alergia" className="span-2" checked={optionalFields.alergia} onChange={(enabled) => toggleOptional("alergia", enabled)}><Field label="Alergia"><textarea required rows={2} maxLength={500} placeholder="Describe la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field></OptionalProfileField>
+            <OptionalProfileField label="Condición de salud" className="span-2" checked={optionalFields.condicion_salud} onChange={(enabled) => toggleOptional("condicion_salud", enabled)}><Field label="Condición de salud" hint="Tratamientos, restricciones o consideraciones médicas relevantes."><textarea required rows={3} maxLength={500} placeholder="Describe la condición, tratamiento o restricción" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} /></Field></OptionalProfileField>
 
       <div className="form-actions span-2"><button type="button" className="button button--ghost" disabled={saving} onClick={onClose}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button></div>
     </form>

@@ -105,15 +105,25 @@ function DashboardSection({ kicker, title }) { return <header className="store-d
 
 const forecastMoney = (value) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", maximumFractionDigits: 0 }).format(Number(value) || 0);
 function SalesForecastMatrix({ forecast, error, storeName, compactTitles = false }) {
-  if (error) return <section className="sales-forecast-panel panel"><header><div>{!compactTitles && <span>Proyección comercial</span>}<h2>{compactTitles ? "Venta esperada" : "Venta esperada de la próxima quincena"}</h2></div></header><Notice type="error">{error}</Notice></section>;
+  const [weekIndex, setWeekIndex] = useState(0);
+  useEffect(() => { setWeekIndex(0); }, [forecast?.salesCutoff, forecast?.weekStart]);
+  if (error) return <section className="sales-forecast-panel panel"><header><div>{!compactTitles && <span>Proyección comercial</span>}<h2>{compactTitles ? "Venta esperada" : "Venta esperada semanal"}</h2></div></header><Notice type="error">{error}</Notice></section>;
   if (!forecast) return <section className="sales-forecast-panel panel"><div className="sales-forecast-loading"><span className="loader" />Calculando pronóstico de venta…</div></section>;
-  const direction = (factor) => factor > 1.005 ? "alza" : factor < .995 ? "baja" : "estable";
+  const weeks = Array.from({ length: Math.max(1, Math.ceil((forecast.days || []).length / 7)) }, (_, index) => (forecast.days || []).slice(index * 7, index * 7 + 7));
+  const safeWeekIndex = Math.min(weekIndex, Math.max(0, weeks.length - 1));
+  const selectedWeek = weeks[safeWeekIndex] || [];
+  const sum = (rows, key) => rows.reduce((total, row) => total + (Number(row?.[key]) || 0), 0);
+  const weekExpected = sum(selectedWeek, "expected");
+  const weekTarget = sum(selectedWeek, "target");
+  const monthlyQuota = Number(forecast.monthlyTarget ?? forecast.target) || 0;
+  const firstDate = selectedWeek[0]?.date || forecast.weekStart;
+  const lastDate = selectedWeek.at(-1)?.date || forecast.weekEnd;
+  const weekLabel = `${formatDate(firstDate)} – ${formatDate(lastDate)}`;
   return <section className="sales-forecast-panel panel" aria-label={`Pronóstico de ventas de ${storeName}`}>
-    <header><div>{!compactTitles && <span>Proyección comercial · corte {formatDate(forecast.salesCutoff)}</span>}<h2>{compactTitles ? "Venta esperada" : `Venta esperada · ${formatDate(forecast.weekStart)} al ${formatDate(forecast.weekEnd)}`}</h2>{!compactTitles && <p>{forecast.method}</p>}</div>{!compactTitles && <strong className="sales-forecast-confidence">Confianza {forecast.confidence}%</strong>}</header>
-    <div className="sales-forecast-kpis"><article><small>Venta esperada</small><strong>{forecastMoney(forecast.expected)}</strong></article><article><small>Rango probable</small><strong>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</strong></article><article><small>Meta quincenal</small><strong>{forecast.target ? forecastMoney(forecast.target) : "Sin meta"}</strong></article></div>
-    <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Venta esperada</th><th>Rango probable</th><th>Meta diaria</th></tr></thead><tbody>{forecast.days.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td>{forecastMoney(day.expected)}</td><td>{forecastMoney(day.lower)} – {forecastMoney(day.upper)}</td><td>{day.target ? forecastMoney(day.target) : "—"}</td></tr>)}</tbody><tfoot><tr><th>Total quincena</th><td>{forecastMoney(forecast.expected)}</td><td>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</td><td>{forecast.target ? forecastMoney(forecast.target) : "—"}</td></tr></tfoot></table></div>
-    <div className="sales-forecast-drivers" aria-label="Variables usadas en el pronóstico">{forecast.drivers.map((driver) => <span key={driver.label} className={!driver.available && driver.available !== undefined ? "is-missing" : direction(driver.factor)}><small>{driver.label}</small><strong>{driver.available === false ? "Sin datos" : `${driver.factor >= 1 ? "+" : ""}${((driver.factor - 1) * 100).toFixed(1)}%`}</strong></span>)}</div>
-    <p className="sales-forecast-note">Es una estimación operativa, no una garantía. El rango se amplía automáticamente cuando hay menos historial o mayor variación.</p>
+    <header><div>{!compactTitles && <span>Proyección comercial · corte {formatDate(forecast.salesCutoff)}</span>}<h2>{compactTitles ? "Venta esperada" : `Venta esperada · ${weekLabel}`}</h2>{!compactTitles && <p>{forecast.method}</p>}</div>{!compactTitles && <strong className="sales-forecast-confidence">Semana {safeWeekIndex + 1}/{weeks.length}</strong>}</header>
+    <div className="sales-forecast-week-nav"><button type="button" onClick={() => setWeekIndex((value) => Math.max(0, value - 1))} disabled={safeWeekIndex === 0}>‹ Semana anterior</button><strong>{weekLabel}</strong><button type="button" onClick={() => setWeekIndex((value) => Math.min(weeks.length - 1, value + 1))} disabled={safeWeekIndex >= weeks.length - 1}>Semana siguiente ›</button></div>
+    <div className="sales-forecast-kpis"><article><small>Venta esperada</small><strong>{forecastMoney(weekExpected)}</strong></article><article><small>Meta mensual</small><strong>{monthlyQuota ? forecastMoney(monthlyQuota) : "Sin meta"}</strong></article><article><small>Meta semanal</small><strong>{weekTarget ? forecastMoney(weekTarget) : "Sin meta"}</strong></article></div>
+    <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Venta esperada</th></tr></thead><tbody>{selectedWeek.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td>{forecastMoney(day.expected)}</td></tr>)}</tbody><tfoot><tr><th>Total semana</th><td>{forecastMoney(weekExpected)}</td></tr></tfoot></table></div>
   </section>;
 }
 

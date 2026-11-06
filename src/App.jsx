@@ -41,7 +41,7 @@ const SecurityAdmin = lazy(() => import("./pages/SecurityAdmin"));
 const CredentialPermissions = lazy(() => import("./pages/CredentialPermissions"));
 
 const homePageByRole = {
-  gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
+  gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", asistente_comercial: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
   jefe_tienda: "dashboard", asistente_tienda: "dashboard", trabajador: "mi-asistencia", vendedor: "mi-asistencia", asistente: "mi-asistencia", caja: "mi-asistencia", almacenero: "mi-asistencia", jefe_area: "mi-asistencia", seguridad: "seguridad-trafico", jefe_seguridad: "seguridad-trafico",
 };
 
@@ -191,7 +191,7 @@ export default function App() {
     "marketing-capacitaciones": <Marketing section="capacitaciones" />,
     "marketing-campanas": <Marketing section="campanas" />,
     "marketing-seguidores": <Marketing section="seguidores" />,
-    sistemas: user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+    sistemas: ["sistemas", "asistente_comercial"].includes(user.rol) ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "sistemas-credenciales": user.rol === "sistemas" ? <CredentialPermissions /> : <Dashboard user={user} />,
   }[page] || <Dashboard user={user} />;
 

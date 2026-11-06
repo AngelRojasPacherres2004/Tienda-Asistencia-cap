@@ -50,7 +50,11 @@ ARCHIVOS_MANUALES_REQUERIDOS = (
 )
 
 
-def validar_entorno_previo(fecha_corte: date | None, solo_capa2: bool) -> None:
+def validar_entorno_previo(
+    fecha_corte: date | None,
+    solo_capa2: bool,
+    solo_operacion_comercial: bool = False,
+) -> None:
     """Falla temprano ante problemas de entorno, rutas o espacio en disco."""
 
     print("\n" + "=" * 80)
@@ -79,14 +83,15 @@ def validar_entorno_previo(fecha_corte: date | None, solo_capa2: bool) -> None:
         for advertencia in validar_fecha_corte(fecha_corte):
             print(f"ADVERTENCIA: {advertencia}", flush=True)
 
-    manuales_faltantes = [
-        nombre for nombre in ARCHIVOS_MANUALES_REQUERIDOS
-        if not (CAPA1_DIR / nombre).exists()
-    ]
-    if manuales_faltantes:
-        raise FileNotFoundError(
-            "Faltan Excel estructurados en capa1: " + ", ".join(manuales_faltantes)
-        )
+    if not solo_operacion_comercial:
+        manuales_faltantes = [
+            nombre for nombre in ARCHIVOS_MANUALES_REQUERIDOS
+            if not (CAPA1_DIR / nombre).exists()
+        ]
+        if manuales_faltantes:
+            raise FileNotFoundError(
+                "Faltan Excel estructurados en capa1: " + ", ".join(manuales_faltantes)
+            )
 
     if solo_capa2:
         parquet_requeridos = (
@@ -421,7 +426,7 @@ def fase_capa1(
             ["--verificar-capa1"],
             False,
         ),
-        ("stock_pipeline.py", ["--solo-capa1"], ["--verificar-capa1"], True),
+        ("stock_pipeline.py", ["--solo-capa1"], ["--verificar-capa1"], False),
     ]
     pendientes: list[tuple[str, list[str], list[str] | None, bool]] = []
     for script, argumentos, validacion, opcional in pasos_base:
@@ -449,22 +454,34 @@ def fase_capa2(
     omitir_faltantes: bool,
     paralelismo: int = 2,
     anio_inicio: int = ANIO_INICIO_MODELO,
+    solo_operacion_comercial: bool = False,
 ) -> str:
     print("\n" + "#" * 80)
     print("FASE 2 - CAPA 1 -> CAPA 2 MODELO")
     print("#" * 80)
 
-    limpiar_capa2_generada()
-    limpiar_modelo_powerbi()
+    if solo_operacion_comercial:
+        # Las tablas administrativas ya se publican desde la base de datos.
+        # Conservamos sus Parquet vigentes y reemplazamos únicamente los cuatro
+        # hechos que el asistente comercial carga como archivos operativos.
+        for nombre in ("DimTiendas.parquet", "DimClasificacionProducto.parquet"):
+            if not (CAPA2_DIR / nombre).exists():
+                raise FileNotFoundError(
+                    f"Falta {nombre}. Sin las tablas maestras de base de datos no se puede actualizar la operación comercial."
+                )
+    else:
+        limpiar_capa2_generada()
+        limpiar_modelo_powerbi()
     limpiar_temporales()
 
-    # Las dimensiones maestras deben existir antes de validar hechos manuales.
-    ejecutar("tiendas_pipeline.py", [], ["--verificar-capa2"])
-    ejecutar(
-        "clasificacion_producto_pipeline.py",
-        ["--solo-capa2"],
-        ["--verificar-capa2"],
-    )
+    if not solo_operacion_comercial:
+        # Las dimensiones maestras deben existir antes de validar hechos manuales.
+        ejecutar("tiendas_pipeline.py", [], ["--verificar-capa2"])
+        ejecutar(
+            "clasificacion_producto_pipeline.py",
+            ["--solo-capa2"],
+            ["--verificar-capa2"],
+        )
 
     # Ventas domina CPU, disco y memoria. Ejecutarla sola permite que DuckDB use
     # todos los hilos disponibles y evita la degradación observada al competir
@@ -499,32 +516,29 @@ def fase_capa2(
         _entorno_paralelo(1),
     )
 
-    # Metas se ejecuta de forma aislada. Aunque contiene pocas filas, es una
-    # tabla crítica para KPIs y debe fallar temprano antes de procesar Guías.
-    # La transformación usa Python para la homologación y una consulta DuckDB
-    # plana únicamente para escribir el Parquet, evitando árboles SQL profundos.
-    ejecutar(
-        "metas_tiendas_pipeline.py",
-        ["--solo-capa2", "--anio-inicio", str(anio_inicio)],
-        ["--verificar-capa2"],
-    )
-
-    # Guías y las demás fuentes manuales son independientes. Se procesan con
-    # concurrencia controlada después de validar Metas.
-    ejecutar_grupo_paralelo(
-        [
-            (
-                "guias_transito_pipeline.py",
-                ["--solo-capa2", "--fecha-corte", fecha_efectiva],
-                ["--verificar-capa2"],
-                False,
-            ),
-            ("merma_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
-            ("personal_tiendas_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
-            ("trafico_clientes_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
-        ],
-        min(paralelismo, 2),
-    )
+    if not solo_operacion_comercial:
+        # Metas, guías, merma, personal y tráfico se procesan únicamente en la
+        # reconstrucción integral. En operación normal llegan desde las tablas
+        # de base de datos y no se sustituyen con archivos locales.
+        ejecutar(
+            "metas_tiendas_pipeline.py",
+            ["--solo-capa2", "--anio-inicio", str(anio_inicio)],
+            ["--verificar-capa2"],
+        )
+        ejecutar_grupo_paralelo(
+            [
+                (
+                    "guias_transito_pipeline.py",
+                    ["--solo-capa2", "--fecha-corte", fecha_efectiva],
+                    ["--verificar-capa2"],
+                    False,
+                ),
+                ("merma_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
+                ("personal_tiendas_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
+                ("trafico_clientes_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
+            ],
+            min(paralelismo, 2),
+        )
     return fecha_efectiva
 
 
@@ -570,6 +584,14 @@ def main() -> int:
         help="Fuerza la reconstrucción de Capa 1 aunque las salidas estén actualizadas.",
     )
     parser.add_argument(
+        "--solo-operacion-comercial",
+        action="store_true",
+        help=(
+            "Actualiza solamente ventas, ingresos, transferencias y stock. "
+            "Conserva las demás tablas vigentes provenientes de la base de datos."
+        ),
+    )
+    parser.add_argument(
         "--omitir-faltantes",
         action="store_true",
         help="Permite continuar sin fuentes opcionales, actualmente Stock.",
@@ -593,15 +615,20 @@ def main() -> int:
 
     try:
         solo_capa2 = args.solo_capa2 or args.reutilizar_capa1
-        validar_entorno_previo(args.fecha_corte, solo_capa2)
+        validar_entorno_previo(
+            args.fecha_corte,
+            solo_capa2,
+            args.solo_operacion_comercial,
+        )
 
         if not solo_capa2:
             fase_capa1(args.omitir_faltantes, args.reconstruir_capa1, args.paralelismo)
 
-        # Los Excel comerciales estructurados permanecen en Capa 1 y se auditan
-        # junto con los Parquet RMS antes de modelar.
-        ejecutar("auditar_entradas.py")
-        ejecutar("auditar_excel_comerciales.py")
+        if not args.solo_operacion_comercial:
+            # Los Excel administrativos se auditan solo en una reconstrucción
+            # integral; la operación diaria no los recibe por archivo.
+            ejecutar("auditar_entradas.py")
+            ejecutar("auditar_excel_comerciales.py")
 
         if args.solo_capa1:
             limpiar_temporales()
@@ -615,7 +642,11 @@ def main() -> int:
         crear_backup_salida()
         try:
             fecha_efectiva = fase_capa2(
-                fecha, args.omitir_faltantes, args.paralelismo, args.anio_inicio
+                fecha,
+                args.omitir_faltantes,
+                args.paralelismo,
+                args.anio_inicio,
+                args.solo_operacion_comercial,
             )
 
             ejecutar(

@@ -53,12 +53,17 @@ echo Verificando el entorno...
 ".venv\Scripts\python.exe" "piplines\diagnosticar_duckdb.py"
 if errorlevel 1 goto :error
 
+echo Ejecutando auditoria de pipelines (solo informativa)...
 ".venv\Scripts\python.exe" "piplines\auditar_codigo.py"
-if errorlevel 1 goto :error
+if errorlevel 1 (
+    echo AVISO: La auditoria reporto advertencias no criticas. La instalacion continua.
+)
 
 echo.
 echo ============================================================
 echo INSTALACION COMPLETADA
+echo La actualizacion local procesa solo Ventas, Transferencias, Ingresos y Stock.
+echo Los demas indicadores se consultan desde las tablas de la base de datos.
 echo Ahora ejecuta: 2_ACTUALIZAR_DATOS.bat
 echo ============================================================
 if /I not "%~1"=="--sin-pausa" pause

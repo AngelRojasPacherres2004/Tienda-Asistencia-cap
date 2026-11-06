@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-"""Panel gráfico mínimo para operar los BAT sin usar la consola manualmente."""
+"""Panel gráfico simplificado para operar los BAT sin usar la consola manualmente.
+
+Solo actualiza: ventas, transferencias, ingresos y stock (stock: 1 vez al mes).
+"""
 
 import subprocess
 import tkinter as tk
@@ -11,101 +14,133 @@ from tkinter import messagebox, ttk
 from project_paths import PROJECT_ROOT
 from runtime_config import finalizar_proceso
 
-
 NUEVA_CONSOLA = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+ANIO_ACTUAL = date.today().year
+ANIOS_DISPONIBLES = list(range(2024, ANIO_ACTUAL + 1))
 
 
 class PanelDashboard(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Dashboard General · Panel de control")
-        self.geometry("650x520")
-        self.minsize(620, 500)
+        self.geometry("680x560")
+        self.minsize(640, 520)
         self.configure(background="#f3f6fb")
-        self.fecha = tk.StringVar(value="")
+        self.anio = tk.StringVar(value=str(ANIO_ACTUAL))
+        self.fecha_inicio = tk.StringVar(value="")
+        self.fecha_fin = tk.StringVar(value="")
         self.estado = tk.StringVar(value="Listo para ejecutar una tarea.")
         self._crear_interfaz()
 
+    # ------------------------------------------------------------------ #
+    #  Interfaz                                                            #
+    # ------------------------------------------------------------------ #
+
     def _crear_interfaz(self) -> None:
         estilo = ttk.Style(self)
-        estilo.configure("Title.TLabel", font=("Segoe UI", 18, "bold"), foreground="#18213a")
-        estilo.configure("Hint.TLabel", font=("Segoe UI", 9), foreground="#5f6b7a")
-        estilo.configure("Action.TButton", font=("Segoe UI", 10, "bold"), padding=10)
+        estilo.configure("Title.TLabel",   font=("Segoe UI", 18, "bold"), foreground="#18213a")
+        estilo.configure("Section.TLabel", font=("Segoe UI", 10, "bold"), foreground="#18213a")
+        estilo.configure("Hint.TLabel",    font=("Segoe UI", 9),          foreground="#5f6b7a")
+        estilo.configure("Action.TButton", font=("Segoe UI", 10, "bold"),  padding=10)
+        estilo.configure("Danger.TButton", font=("Segoe UI", 10, "bold"),  padding=10)
 
         marco = ttk.Frame(self, padding=24)
         marco.pack(fill="both", expand=True)
+
+        # Título
         ttk.Label(marco, text="Panel del Dashboard Comercial", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             marco,
             text=(
-                "Sin fecha, se usa el último día con tráfico suficiente y ventas disponibles. "
-                "Puedes indicar un corte manual si ya completaste los archivos."
+                "Actualiza ventas, transferencias, ingresos y stock (solo 1 vez al mes).\n"
+                "Selecciona el año de los datos y, opcionalmente, un rango de fechas dentro del año."
             ),
             style="Hint.TLabel",
-            wraplength=570,
-        ).pack(anchor="w", pady=(5, 18))
+            wraplength=590,
+        ).pack(anchor="w", pady=(4, 16))
 
-        fecha_marco = ttk.LabelFrame(marco, text="Fecha de corte", padding=12)
-        fecha_marco.pack(fill="x")
-        ttk.Entry(fecha_marco, textvariable=self.fecha, width=18, font=("Segoe UI", 12)).pack(side="left")
-        ttk.Label(fecha_marco, text="  Formato: AAAA-MM-DD", style="Hint.TLabel").pack(side="left")
-        ttk.Button(fecha_marco, text="Corte automático", command=self._restablecer_automatico).pack(side="right")
+        # Sección: Año y fechas
+        filtro_marco = ttk.LabelFrame(marco, text="Año y rango de corte", padding=12)
+        filtro_marco.pack(fill="x")
 
-        botones = ttk.Frame(marco)
-        botones.pack(fill="x", pady=18)
-        acciones = (
-            ("Actualizar datos locales", self._actualizar),
-            ("Actualizar y publicar en la web", self._actualizar_y_publicar),
-            ("Publicar datos ya procesados", lambda: self._ejecutar_bat("6_ACTUALIZAR_DASHBOARD_WEB.bat")),
-            ("Abrir dashboard local", lambda: self._ejecutar_bat("4_EJECUTAR_DASHBOARD_WEB.bat")),
-            ("Crear paquete portable", lambda: self._ejecutar_bat("3_CREAR_PAQUETE_PORTABLE.bat")),
-            ("Instalar requisitos", lambda: self._ejecutar_bat("1_INSTALAR_REQUISITOS.bat")),
+        fila1 = ttk.Frame(filtro_marco)
+        fila1.pack(fill="x", pady=(0, 6))
+        ttk.Label(fila1, text="Año:", style="Section.TLabel").pack(side="left")
+        cb_anio = ttk.Combobox(
+            fila1,
+            textvariable=self.anio,
+            values=[str(a) for a in ANIOS_DISPONIBLES],
+            state="readonly",
+            width=8,
+            font=("Segoe UI", 11),
         )
-        for fila, (texto, accion) in enumerate(acciones):
-            ttk.Button(botones, text=texto, command=accion, style="Action.TButton").grid(
-                row=fila // 2, column=fila % 2, padx=5, pady=5, sticky="ew"
-            )
-        botones.columnconfigure(0, weight=1)
-        botones.columnconfigure(1, weight=1)
+        cb_anio.pack(side="left", padx=(6, 20))
 
-        reglas = ttk.LabelFrame(marco, text="Reglas de actualización", padding=12)
-        reglas.pack(fill="x")
+        ttk.Label(fila1, text="Fecha inicio (opcional):", style="Hint.TLabel").pack(side="left")
+        ttk.Entry(fila1, textvariable=self.fecha_inicio, width=13, font=("Segoe UI", 10)).pack(side="left", padx=(4, 12))
+        ttk.Label(fila1, text="Fecha fin (opcional):", style="Hint.TLabel").pack(side="left")
+        ttk.Entry(fila1, textvariable=self.fecha_fin, width=13, font=("Segoe UI", 10)).pack(side="left", padx=4)
+
+        ttk.Label(
+            filtro_marco,
+            text="Formato de fechas: AAAA-MM-DD. Si no se indica rango, se usa todo el año seleccionado.",
+            style="Hint.TLabel",
+        ).pack(anchor="w")
+        ttk.Button(filtro_marco, text="Limpiar fechas", command=self._limpiar_fechas).pack(anchor="e", pady=(4, 0))
+
+        # Sección: Botones principales
+        botones_marco = ttk.LabelFrame(marco, text="Acciones", padding=12)
+        botones_marco.pack(fill="x", pady=(12, 0))
+
+        acciones = (
+            ("⟳  Actualizar datos locales",        self._actualizar,       0, 0),
+            ("▶  Abrir dashboard local",            lambda: self._bat("4_EJECUTAR_DASHBOARD_WEB.bat"), 0, 1),
+            ("📦  Crear paquete portable",           lambda: self._bat("3_CREAR_PAQUETE_PORTABLE.bat"), 1, 0),
+            ("🔧  Instalar / reparar requisitos",   lambda: self._bat("1_INSTALAR_REQUISITOS.bat"),    1, 1),
+        )
+        for texto, accion, fila, col in acciones:
+            ttk.Button(botones_marco, text=texto, command=accion, style="Action.TButton").grid(
+                row=fila, column=col, padx=5, pady=5, sticky="ew"
+            )
+        botones_marco.columnconfigure(0, weight=1)
+        botones_marco.columnconfigure(1, weight=1)
+
+        # Reglas
+        reglas = ttk.LabelFrame(marco, text="Qué se actualiza", padding=10)
+        reglas.pack(fill="x", pady=(10, 0))
         ttk.Label(
             reglas,
             text=(
-                "• El corte exige ventas y tráfico del día seleccionado.\n"
-                "• Stock conserva su fecha de fotografía; no se inventa un corte nuevo.\n"
-                "• La publicación incluye dashboard y reportes anuales privados."
+                "• Ventas        → se actualiza cada vez que hay datos nuevos del RMS.\n"
+                "• Transferencias → igual que ventas.\n"
+                "• Ingresos      → igual que ventas.\n"
+                "• Stock         → solo 1 vez al mes (fotografía mensual).\n"
+                "• El resto de dimensiones ya están fijas y no se reconstruyen."
             ),
             style="Hint.TLabel",
             justify="left",
         ).pack(anchor="w")
-        ttk.Label(marco, textvariable=self.estado, style="Hint.TLabel", wraplength=570).pack(
-            anchor="w", pady=(16, 0)
+
+        ttk.Label(marco, textvariable=self.estado, style="Hint.TLabel", wraplength=590).pack(
+            anchor="w", pady=(12, 0)
         )
 
-    def _restablecer_automatico(self) -> None:
-        self.fecha.set("")
+    # ------------------------------------------------------------------ #
+    #  Helpers                                                             #
+    # ------------------------------------------------------------------ #
 
-    def _fecha_valida(self) -> str | None:
-        texto = self.fecha.get().strip()
+    def _limpiar_fechas(self) -> None:
+        self.fecha_inicio.set("")
+        self.fecha_fin.set("")
+
+    def _validar_fecha(self, valor: str, nombre: str) -> str | None:
+        texto = valor.strip()
         if not texto:
             return ""
         try:
-            elegida = date.fromisoformat(texto)
+            date.fromisoformat(texto)
         except ValueError:
-            messagebox.showerror("Fecha inválida", "Escribe la fecha como AAAA-MM-DD.")
-            return None
-        if elegida < date(2023, 1, 1):
-            messagebox.showerror("Fecha fuera del modelo", "El modelo comercial comienza el 2023-01-01.")
-            return None
-        avisos: list[str] = []
-        if elegida > date.today():
-            avisos.append("La fecha está en el futuro.")
-        if avisos and not messagebox.askyesno(
-            "Confirmar fecha manual",
-            "\n".join(avisos) + "\n\n¿Deseas usarla de todas formas?",
-        ):
+            messagebox.showerror("Fecha inválida", f"{nombre}: usa el formato AAAA-MM-DD.")
             return None
         return texto
 
@@ -115,29 +150,43 @@ class PanelDashboard(tk.Tk):
             cwd=PROJECT_ROOT,
             creationflags=NUEVA_CONSOLA,
         )
-        self.estado.set(f"En ejecución: {descripcion}. Revisa la ventana que acaba de abrirse.")
+        self.estado.set(f"En ejecución: {descripcion}. Revisa la ventana que se abrió.")
 
-    def _ejecutar_bat(self, nombre: str, *argumentos: str) -> None:
+    def _bat(self, nombre: str, *args: str) -> None:
         ruta = PROJECT_ROOT / nombre
         if not ruta.exists():
             messagebox.showerror("Archivo no encontrado", f"No se encontró {nombre}.")
             return
-        argumentos_cmd = " ".join(f'"{a}"' if " " in a else a for a in argumentos)
-        self._lanzar(f'call "{ruta}" {argumentos_cmd}'.strip(), nombre)
+        args_str = " ".join(f'"{a}"' if " " in a else a for a in args)
+        self._lanzar(f'call "{ruta}" {args_str}'.strip(), nombre)
+
+    # ------------------------------------------------------------------ #
+    #  Acciones de botones                                                 #
+    # ------------------------------------------------------------------ #
 
     def _actualizar(self) -> None:
-        corte = self._fecha_valida()
-        if corte is not None:
-            argumentos = ("--fecha-corte", corte) if corte else ()
-            self._ejecutar_bat("2_ACTUALIZAR_DATOS.bat", *argumentos)
-
-    def _actualizar_y_publicar(self) -> None:
-        corte = self._fecha_valida()
-        if corte is None:
+        anio = self.anio.get().strip()
+        inicio = self._validar_fecha(self.fecha_inicio.get(), "Fecha inicio")
+        fin    = self._validar_fecha(self.fecha_fin.get(),    "Fecha fin")
+        if inicio is None or fin is None:
             return
-        argumentos = ("--fecha-corte", corte) if corte else ()
-        self._ejecutar_bat("7_ACTUALIZAR_TODO.bat", *argumentos)
 
+        args: list[str] = []
+
+        # Pasar fecha de corte si se indica fecha fin, si no usar la del año
+        if fin:
+            args += ["--fecha-corte", fin]
+        elif inicio:
+            # Sin fin pero con inicio: usar inicio como corte inicial del rango
+            args += ["--fecha-corte", inicio]
+
+        # Pasar el año seleccionado al script
+        # El BAT acepta --anio-fin; usaremos esa variable de entorno alternativa
+        # mediante el parámetro de paso directo al ejecutor
+        if anio:
+            args += ["--anio-fin", anio]
+
+        self._bat("2_ACTUALIZAR_DATOS.bat", *args)
 
 
 def main() -> None:

@@ -11,8 +11,10 @@ import {
 import Reportes from "./Reportes";
 import ApoyoTienda from "./ApoyoTienda";
 import StoreNewPersonForm from "../components/StoreNewPersonForm";
+import OptionalProfileField from "../components/OptionalProfileField";
+import { OPERATIONAL_ROLE_LABELS } from "../../shared/roleCatalog.js";
 
-const roleLabels = { gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", coach: "Coach", jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda", jefe_seguridad: "Jefe de seguridad", jefe_area: "Jefe de área", seguridad: "Seguridad", caja: "Caja", almacenero: "Almacenero", vendedor: "Vendedor", asistente: "Asistente", trabajador: "Trabajador" };
+const roleLabels = OPERATIONAL_ROLE_LABELS;
 const rolesByManager = { gerencia_general: ["gerente_comercial", "coach", "administrador_seguridad"], gerente_comercial: ["jefe_zonal"], jefe_zonal: ["jefe_tienda"], jefe_tienda: ["asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"], asistente_tienda: ["jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente"] };
 const birthdayMonths = [["01", "Enero"], ["02", "Febrero"], ["03", "Marzo"], ["04", "Abril"], ["05", "Mayo"], ["06", "Junio"], ["07", "Julio"], ["08", "Agosto"], ["09", "Septiembre"], ["10", "Octubre"], ["11", "Noviembre"], ["12", "Diciembre"]];
 
@@ -42,6 +44,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const isStoreAdmin = user?.rol === "jefe_tienda";
   const availableRoles = rolesByManager[user?.rol] || [];
   const [items, setItems] = useState(null);
+  const [directory, setDirectory] = useState(null);
   const [tiendas, setTiendas] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [search, setSearch] = useState("");
@@ -51,6 +54,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [workspace, setWorkspace] = useState("equipo");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null);
+  const [optionalFields, setOptionalFields] = useState({ email: false, telefono_emergencia: false, numero_hijos: false, alergia: false, condicion_salud: false });
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -72,6 +76,10 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       .then((rows) => setItems(rows))
       .catch((err) => { setItems([]); setLoadError(err.message || "No se pudo cargar el personal."); });
   }, [zonalTeam]);
+  const loadDirectory = useCallback(() => {
+    if (!isCentral || zonalTeam) return Promise.resolve();
+    return api("/personas/directorio").then(setDirectory).catch(() => setDirectory(null));
+  }, [isCentral, zonalTeam]);
   const loadTiendas = useCallback(
     () => (isCentral ? api("/tiendas").then(setTiendas).catch(() => {}) : Promise.resolve()),
     [isCentral],
@@ -80,7 +88,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
     () => (user?.rol === "gerente_comercial" ? api("/clusters").then(setClusters).catch(() => {}) : Promise.resolve()),
     [user?.rol],
   );
-  useEffect(() => { load(); loadTiendas(); loadClusters(); }, [load, loadTiendas, loadClusters]);
+  useEffect(() => { load(); loadTiendas(); loadClusters(); loadDirectory(); }, [load, loadTiendas, loadClusters, loadDirectory]);
 
   const filtered = useMemo(() => (items || []).filter((item) => (statusFilter === "todos" || item.estado === statusFilter) &&
     (storeFilter === "todos" || String(item.tienda_id || "sin_asignar") === storeFilter) &&
@@ -95,11 +103,21 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   useEffect(() => setPage(1), [search, statusFilter, storeFilter, roleFilter]);
 
   const clearErrors = () => { setFormError(""); setFieldErrors({}); };
-  const closeEditor = () => { setEditing(null); clearErrors(); };
-  const openNew = () => { clearErrors(); setEditing({ ...blank, rol: availableRoles[0] || "trabajador", fecha_ingreso: todayISO() }); };
+  const closeEditor = () => { setEditing(null); setOptionalFields({ email: false, telefono_emergencia: false, numero_hijos: false, alergia: false, condicion_salud: false }); clearErrors(); };
+  const optionalStateFor = (value) => ({
+    email: Boolean(String(value.email || "").trim()),
+    telefono_emergencia: Boolean(String(value.telefono_emergencia || "").trim()),
+    numero_hijos: value.numero_hijos !== "" && value.numero_hijos != null && Number(value.numero_hijos) > 0,
+    alergia: Boolean(String(value.alergia || "").trim()),
+    condicion_salud: Boolean(String(value.condicion_salud || "").trim()),
+  });
+  const toggleOptionalField = (name, enabled) => { setOptionalFields((current) => ({ ...current, [name]: enabled })); if (!enabled) set(name, ""); };
+  const openNew = () => { clearErrors(); setOptionalFields(optionalStateFor(blank)); setEditing({ ...blank, rol: availableRoles.includes("vendedor") ? "vendedor" : (availableRoles[0] || "trabajador"), fecha_ingreso: todayISO() }); };
   const openEdit = (item) => {
     clearErrors();
-    setEditing({ ...item, motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "" });
+    const normalized = { ...item, numero_hijos: Number(item.numero_hijos) > 0 ? item.numero_hijos : "", motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "" };
+    setOptionalFields(optionalStateFor(normalized));
+    setEditing(normalized);
   };
   const openView = async (item) => {
     setViewing(item); setWorkerFile(null); setWarningForm({ tipo: "verbal", motivo: "", fecha: todayISO() }); setWarningEvidenceFile(null);
@@ -359,6 +377,15 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         <span>{filtered.length} usuarios</span>
       </div>
 
+      {isCentral && !zonalTeam && directory && <section className="table-panel people-directory" aria-label="Directorio de accesos">
+        <div className="section-heading"><div><span className="eyebrow">Seguridad y acceso</span><h3>Personas y cuentas dentro del sistema</h3></div><button className="button button--ghost button--small" onClick={loadDirectory}>Actualizar</button></div>
+        <p className="muted">Se separa la ficha operativa de la cuenta técnica del dashboard para no confundir a seguridad, jefaturas zonales y personal de tienda.</p>
+        {directory.dashboard?.length ? <div className="data-table data-table--directory">
+          <div className="data-table__head"><span>Persona / cuenta</span><span>Rol de acceso</span><span>Alcance</span><span>Estado</span><span>Actualizado</span></div>
+          {directory.dashboard.map((row) => <div className="data-table__row" key={row.id}><div><strong>{row.nombre}</strong><small className="muted">@{row.usuario} · {row.cargo}</small></div><span>{row.rol}</span><span>{row.alcance}</span><span><StatusBadge value={row.estado} /></span><span>{row.actualizado ? new Date(row.actualizado).toLocaleDateString("es-PE") : "—"}</span></div>)}
+        </div> : <EmptyState icon={UsersRound} title="Sin cuentas técnicas" text="No hay cuentas de dashboard separadas de las fichas operativas." />}
+      </section>}
+
       {!items ? <Loading /> : filtered.length ? (
         <div className="table-panel">
           <div className={`data-table ${zonalTeam ? "data-table--usuarios-zonal" : isCentral ? "data-table--usuarios" : "data-table--usuarios-tienda"}`}>
@@ -403,7 +430,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
         subtitle={zonalTeam ? "Completa la ficha laboral y, si tendrá acceso, sus credenciales de administrador." : "Los campos marcados son obligatorios."}
         onClose={closeEditor}
       >
-        {editing && (isStoreAdmin || zonalTeam) && !editing.id ? <StoreNewPersonForm value={editing} set={set} errors={fieldErrors} formError={formError} onSubmit={save} onClose={closeEditor} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} stores={zonalTeam ? tiendaOptions : undefined} /> : editing && (
+        {editing && (isStoreAdmin || zonalTeam) ? <StoreNewPersonForm value={editing} editing={Boolean(editing.id)} set={set} errors={fieldErrors} formError={formError} onSubmit={save} onClose={closeEditor} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} stores={zonalTeam ? tiendaOptions : undefined} /> : editing && (
           <form className="form-grid" onSubmit={save} noValidate>
             {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
             <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
@@ -411,7 +438,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Tipo de documento"><select value={editing.tipo_documento || "dni"} onChange={(e) => { set("tipo_documento", e.target.value); set("dni", ""); }}><option value="dni">DNI</option><option value="ce">Carné de extranjería (CE)</option></select></Field>
             <Field label={editing.tipo_documento === "ce" ? "Número de CE" : "Número de DNI"} error={fieldErrors.dni} hint={`${editing.tipo_documento === "ce" ? 9 : 8} dígitos`}><input required inputMode="numeric" maxLength={editing.tipo_documento === "ce" ? 9 : 8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
             <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
-            <Field label="Correo" hint="Se usa para notificaciones de incidencias"><input type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
+            <OptionalProfileField label="Correo" checked={optionalFields.email} onChange={(enabled) => toggleOptionalField("email", enabled)}><Field label="Correo" hint="Se usa para notificaciones de incidencias"><input required type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field></OptionalProfileField>
             {zonalTeam && <div className="form-section-title span-2"><strong>Credenciales de acceso</strong><span>Define usuario y contraseña para que el administrador pueda ingresar con su rol.</span></div>}
             <Field label="Usuario" error={fieldErrors.usuario} hint="Opcional. Sin usuario no podrá iniciar sesión."><input value={editing.usuario || ""} onChange={(e) => set("usuario", e.target.value)} /></Field>
             <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual." : "Opcional; mínimo 3 caracteres si se asigna."}>
@@ -456,14 +483,14 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Sexo"><select value={editing.sexo || "no_especificado"} onChange={(e) => set("sexo", e.target.value)}><option value="no_especificado">Sin especificar</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option></select></Field>
             <Field label="Mes de cumpleaños"><select value={editing.mes_cumpleanos || ""} onChange={(e) => set("mes_cumpleanos", e.target.value)}><option value="">Sin registrar</option>{birthdayMonths.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
             <Field label="Nacionalidad"><input value={editing.nacionalidad || ""} onChange={(e) => set("nacionalidad", e.target.value)} /></Field>
-            <Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia}><input maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field>
+            <OptionalProfileField label="Teléfono de emergencia" checked={optionalFields.telefono_emergencia} onChange={(enabled) => toggleOptionalField("telefono_emergencia", enabled)}><Field label="Teléfono de emergencia" error={fieldErrors.telefono_emergencia}><input required maxLength={9} value={editing.telefono_emergencia || ""} onChange={(e) => set("telefono_emergencia", e.target.value.replace(/\D/g, ""))} /></Field></OptionalProfileField>
             <Field label="Contacto de emergencia" hint="Nombres y apellidos"><input value={editing.contacto_emergencia || ""} onChange={(e) => set("contacto_emergencia", e.target.value)} /></Field>
             <Field label="Distrito"><select value={editing.distrito || ""} onChange={(e) => set("distrito", e.target.value)}><option value="">Selecciona un distrito</option>{editing.distrito && !districts.includes(String(editing.distrito).toUpperCase()) && <option value={editing.distrito}>{editing.distrito}</option>}{districts.map((district) => <option key={district} value={district}>{district}</option>)}</select></Field>
             <Field label="Dirección" className="span-2"><textarea rows={2} value={editing.direccion || ""} onChange={(e) => set("direccion", e.target.value)} /></Field>
-            <Field label="Nivel de estudio"><select value={editing.grado_academico || "sin_especificar"} onChange={(e) => { set("grado_academico", e.target.value); if (e.target.value !== "universitario") set("ciclo_semestre", ""); }}><option value="sin_especificar">Sin especificar</option><option value="primaria">Primaria</option><option value="secundaria">Secundaria</option><option value="tecnico">Técnico</option><option value="universitario">Universitario</option>{!isStoreAdmin && <option value="postgrado">Posgrado</option>}</select></Field>
+            <Field label="Nivel de estudio"><select value={editing.grado_academico || "sin_especificar"} onChange={(e) => { const grado = e.target.value; set("grado_academico", grado); if (!["tecnico", "universitario", "postgrado"].includes(grado)) { set("ciclo_semestre", ""); set("carrera", ""); } }}><option value="sin_especificar">Sin especificar</option><option value="primaria">Primaria</option><option value="secundaria">Secundaria</option><option value="tecnico">Técnico</option><option value="universitario">Universitario</option>{!isStoreAdmin && <option value="postgrado">Posgrado</option>}</select></Field>
             {editing.grado_academico === "universitario" && <Field label="Ciclo / semestre"><input placeholder="Ej. 8vo ciclo" value={editing.ciclo_semestre || ""} onChange={(e) => set("ciclo_semestre", e.target.value)} /></Field>}
             {!isStoreAdmin && <Field label="Área"><select value={normalizeLaborArea(editing.area_laboral)} onChange={(e) => set("area_laboral", e.target.value)}><option value="">Selecciona un área</option>{laborAreaOptions([editing.area_laboral]).map((area) => <option key={area} value={area}>{area}</option>)}</select></Field>}
-            <Field label="Carrera"><input placeholder="Carrera técnica o profesional" value={editing.carrera || ""} onChange={(e) => set("carrera", e.target.value)} /></Field>
+            {["tecnico", "universitario", "postgrado"].includes(editing.grado_academico) && <Field label="Carrera"><input placeholder="Carrera técnica o profesional" value={editing.carrera || ""} onChange={(e) => set("carrera", e.target.value)} /></Field>}
             <Field label="Régimen / jornada (horas)"><input type="number" min="0.01" max="24" step="0.01" value={editing.regimen_jornada || ""} onChange={(e) => set("regimen_jornada", e.target.value)} /></Field>
             <Field label="Tipo de turno"><select value={editing.tipo_turno || ""} onChange={(e) => set("tipo_turno", e.target.value)}><option value="">Sin especificar</option><option value="apertura">Apertura</option>{!isStoreAdmin && <option value="intermedio">Intermedio</option>}<option value="cierre">Cierre</option>{!isStoreAdmin && <option value="part_time">Part time</option>}</select></Field>
             <Field label="¿Tiene parentesco?"><select value={editing.tiene_parentesco ? "si" : "no"} onChange={(e) => { const hasRelationship = e.target.value === "si"; set("tiene_parentesco", hasRelationship); if (!hasRelationship) setEditing((current) => ({ ...current, tipo_parentesco: "", familiar_vinculo: "" })); }}><option value="no">No</option><option value="si">Sí</option></select></Field>
@@ -472,13 +499,11 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
               <Field label="Familiar / vínculo" error={fieldErrors.familiar_vinculo}><input required placeholder="Nombre completo" value={editing.familiar_vinculo || ""} onChange={(e) => set("familiar_vinculo", e.target.value)} /></Field>
             </>}
             <Field label="Estado civil"><select value={editing.estado_civil || "sin_especificar"} onChange={(e) => set("estado_civil", e.target.value)}><option value="sin_especificar">Sin especificar</option><option value="soltero">Soltero(a)</option><option value="casado">Casado(a)</option><option value="conviviente">Conviviente</option><option value="divorciado">Divorciado(a)</option><option value="viudo">Viudo(a)</option></select></Field>
-            <Field label="Número de hijos"><input type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field>
+            <OptionalProfileField label="Número de hijos" checked={optionalFields.numero_hijos} onChange={(enabled) => toggleOptionalField("numero_hijos", enabled)}><Field label="Número de hijos"><input required type="number" min="0" step="1" value={editing.numero_hijos ?? ""} onChange={(e) => set("numero_hijos", e.target.value)} /></Field></OptionalProfileField>
             <Field label="Talla de zapatillas"><input type="number" min="0" step="0.5" value={editing.talla_zapatillas ?? ""} onChange={(e) => set("talla_zapatillas", e.target.value)} /></Field>
             <Field label="Talla polo/casaca"><select value={editing.talla_polo || "sin_especificar"} onChange={(e) => set("talla_polo", e.target.value)}><option value="sin_especificar">Sin especificar</option>{["s", "m", "l", "xl", "xxl"].map((size) => <option key={size} value={size}>{size.toUpperCase()}</option>)}</select></Field>
-            <Field label="Alergia" className="span-2"><textarea rows={2} maxLength={500} placeholder="Ej. Ninguna, o detalla la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field>
-            <Field label="Condición de salud" className="span-2" hint="Opcional. Registra tratamientos, restricciones o consideraciones médicas relevantes.">
-              <textarea rows={3} maxLength={500} placeholder="Ej. Ninguna, tratamiento o consideración médica" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} />
-            </Field>
+            <OptionalProfileField label="Alergia" className="span-2" checked={optionalFields.alergia} onChange={(enabled) => toggleOptionalField("alergia", enabled)}><Field label="Alergia"><textarea required rows={2} maxLength={500} placeholder="Describe la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field></OptionalProfileField>
+            <OptionalProfileField label="Condición de salud" className="span-2" checked={optionalFields.condicion_salud} onChange={(enabled) => toggleOptionalField("condicion_salud", enabled)}><Field label="Condición de salud" hint="Tratamientos, restricciones o consideraciones médicas relevantes."><textarea required rows={3} maxLength={500} placeholder="Describe la condición, tratamiento o restricción" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} /></Field></OptionalProfileField>
             <div className="form-actions span-2">
               <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>
               <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>

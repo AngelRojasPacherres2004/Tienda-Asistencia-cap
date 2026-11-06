@@ -121,16 +121,24 @@ def main() -> int:
         return 1
     cargo = input("Cargo [GENERAL]: ").strip() or "GENERAL"
     dispositivo = input("Dispositivo [xxxxxxx]: ").strip() or "xxxxxxx"
-    role = (input("Rol [jefe_comercial | administrador_tienda | zonal | seguridad]: ").strip().lower() or "jefe_comercial")
-    if role not in {"jefe_comercial", "administrador_tienda", "zonal", "seguridad"}:
-        print("ERROR: el rol indicado no existe en dashboard_roles.", file=sys.stderr)
+    role_input = (input("Rol [gerente_comercial | jefe_tienda | jefe_zonal | seguridad]: ").strip().lower() or "gerente_comercial")
+    role = {
+        "jefe_comercial": "gerente_comercial",
+        "administrador_tienda": "jefe_tienda",
+        "zonal": "jefe_zonal",
+    }.get(role_input, role_input)
+    if role not in {"gerente_comercial", "jefe_tienda", "jefe_zonal", "seguridad"}:
+        print("ERROR: el rol indicado no existe en el catálogo canónico de dashboard_roles.", file=sys.stderr)
+        return 1
+    if role == "seguridad":
+        print("ERROR: seguridad es un rol operativo sin acceso al dashboard. Crea la ficha en Usuarios.", file=sys.stderr)
         return 1
     scope_type = ""
     scope_value = ""
-    if role == "administrador_tienda":
+    if role == "jefe_tienda":
         scope_type = "store"
         scope_value = input("Tienda permitida (ID, alias o nombre; ejemplo T012): ").strip()
-    elif role == "zonal":
+    elif role == "jefe_zonal":
         scope_type = "cluster"
         scope_value = input("Clúster permitido (ejemplo A o B): ").strip().upper()
     if scope_type and not scope_value:
@@ -142,7 +150,7 @@ def main() -> int:
         if username_key != publisher_username:
             print(f"ERROR: el publicador debe usar el usuario {publisher_username}.", file=sys.stderr)
             return 1
-        role = "jefe_comercial"
+        role = "gerente_comercial"
         scope_type = ""
         scope_value = ""
 

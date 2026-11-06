@@ -36,6 +36,7 @@ import { normalizedPersonnelFields } from "../../shared/personnelNormalization.j
 import { isSecurityIncident } from "../../shared/securityIncidents.js";
 import { randomUUID } from "node:crypto";
 import { resolveAdministratorContext, storeSupportCatalog, saveStoreSupport } from "../lib/store-support.js";
+import { OPERATIONAL_ROLES } from "../../shared/roleCatalog.js";
 import { SYSTEM_UPLOAD_CHUNK_SIZE, SYSTEM_SOURCES, validateSystemUpload, systemPartPath, systemManifestPath } from "../../shared/systemUpload.js";
 import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchPath, commercialBatchSources, validateBatchId, validateCutoff } from "../../shared/commercialBatch.js";
 import { NORMALIZED_REPORTS, normalizedReportPath } from "../../shared/normalizedReports.js";
@@ -62,7 +63,7 @@ const headers = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
-const userRoles = new Set(["gerencia_general", "gerente_comercial", "administrador_seguridad", "sistemas", "marketing", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda", "jefe_seguridad", "jefe_area", "seguridad", "caja", "almacenero", "vendedor", "asistente", "trabajador"]);
+const userRoles = new Set(OPERATIONAL_ROLES);
 const centralRoles = new Set(["gerencia_general", "gerente_comercial", "administrador_seguridad", "sistemas", "marketing", "coach", "jefe_zonal"]);
 const storeManagementRoles = new Set(["jefe_tienda", "asistente_tienda"]);
 const oversightRoles = new Set(["gerencia_general", "gerente_comercial", "marketing", "coach", "jefe_zonal"]);
@@ -368,7 +369,7 @@ const { authAccount, login, credentialPermissions, setCredentialPermission, chan
 });
 
 // ---------- Usuarios ----------
-const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
+const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, listPeopleDirectory, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
   supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, storeStaffRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse,
 });
 
@@ -861,6 +862,10 @@ export async function handler(event) {
     if (path === "/usuarios" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listUsers(user));
+    }
+    if (path === "/personas/directorio" && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]);
+      return json(200, await listPeopleDirectory(user));
     }
     if (path === "/usuarios" && method === "POST") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);

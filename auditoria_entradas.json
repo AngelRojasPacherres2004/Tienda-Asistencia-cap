@@ -3,7 +3,7 @@
     "archivo": "Fact_Ventas.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 4008943,
+    "filas": 4071667,
     "columnas": 35,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -12,7 +12,7 @@
     "archivo": "Fact_Ingresos.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 431742,
+    "filas": 512828,
     "columnas": 26,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -21,7 +21,7 @@
     "archivo": "Fact_Transferencias.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 1304397,
+    "filas": 1339158,
     "columnas": 25,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -30,7 +30,7 @@
     "archivo": "Fact_Stock.parquet",
     "tipo": "parquet",
     "estado": "OK",
-    "filas": 874844,
+    "filas": 1132635,
     "columnas": 20,
     "faltantes": [],
     "creado_por": "DuckDB version v1.5.5 (build d8cdaa33fd)"
@@ -70,10 +70,10 @@
     "tipo": "excel",
     "hoja": "MERMA",
     "estado": "OK",
-    "filas": 51,
+    "filas": 74,
     "columnas": 14,
     "faltantes": [],
-    "staging": ".etl_work\\xlsx_staging\\MERMA__MERMA__1785895986000000000_14268.csv"
+    "staging": ".etl_work\\xlsx_staging\\MERMA__MERMA__1793625441427616900_13252.csv"
   },
   {
     "archivo": "METAS_TIENDAS.xlsx",
@@ -100,9 +100,9 @@
     "tipo": "excel",
     "hoja": "TRAFICO_CLIENTE",
     "estado": "OK",
-    "filas": 5184,
+    "filas": 5364,
     "columnas": 4,
     "faltantes": [],
-    "staging": ".etl_work\\xlsx_staging\\TRAFICO_CLIENTES__TRAFICO_CLIENTE__1792346106341945400_98617.csv"
+    "staging": ".etl_work\\xlsx_staging\\TRAFICO_CLIENTES__TRAFICO_CLIENTE__1793625441311086600_110103.csv"
   }
 ]

@@ -14,7 +14,7 @@ export function createIntakeDomain({
   const systemsStorage = () => supabase.storage.from("dashboard-data");
 
   async function assertSystemsUser(sessionUser) {
-    if (sessionUser.rol !== "sistemas") throw httpError("Solo el rol Sistemas puede cargar archivos.", 403);
+    if (sessionUser.rol !== "sistemas") throw httpError("Solo el rol Sistemas puede administrar cargas generales.", 403);
     const { data, error } = await supabase.from("usuarios").select("rol,estado")
       .eq("id", sessionUser.id).maybeSingle();
     if (error) throw dbError(error);
@@ -127,7 +127,15 @@ export function createIntakeDomain({
   }
 
   async function assertBatchPublisher(sessionUser) {
-    await assertSystemsUser(sessionUser);
+    if (!["sistemas", "asistente_comercial"].includes(sessionUser.rol)) {
+      throw httpError("Solo Sistemas o Asistente Comercial pueden cargar el lote operativo.", 403);
+    }
+    const { data, error } = await supabase.from("usuarios").select("rol,estado")
+      .eq("id", sessionUser.id).maybeSingle();
+    if (error) throw dbError(error);
+    if (!["sistemas", "asistente_comercial"].includes(data?.rol) || data.estado !== "activo") {
+      throw httpError("Tu usuario no está activo para cargar datos comerciales.", 403);
+    }
   }
 
   function commercialBatchTicket(receipt, sessionUser) {
@@ -151,6 +159,9 @@ export function createIntakeDomain({
     let validated;
     try { validated = validateSystemUpload(input); }
     catch (error) { throw httpError(error.message, 400); }
+    if (validated.extension !== ".parquet") {
+      throw httpError("El lote operativo solo acepta archivos .parquet.", 400);
+    }
     const { data: registeredBatch } = await systemsStorage().info(commercialBatchPath(input.batchId));
     if (registeredBatch) throw httpError("El lote ya fue registrado.", 409);
     const uploadId = randomUUID();
@@ -193,6 +204,9 @@ export function createIntakeDomain({
       let validated;
       try { validated = validateSystemUpload(ticket); }
       catch (error) { throw httpError(error.message, 400); }
+      if (validated.extension !== ".parquet") {
+        throw httpError("El lote operativo solo acepta archivos .parquet.", 400);
+      }
       if (ticket.chunks !== validated.chunks) throw httpError("La cantidad de partes no coincide.", 400);
       const paths = Array.from({ length: ticket.chunks }, (_, index) => systemPartPath(ticket.uploadId, index));
       for (let offset = 0; offset < paths.length; offset += 8) {

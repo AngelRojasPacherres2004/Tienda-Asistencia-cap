@@ -101,15 +101,18 @@ navByRole.asistente = navByRole.trabajador;
 navByRole.caja = navByRole.trabajador;
 navByRole.almacenero = navByRole.trabajador;
 navByRole.jefe_area = navByRole.trabajador;
+navByRole.asistente_comercial = [
+  { id: "sistemas", label: "Carga de archivos", icon: FileSpreadsheet },
+];
 const roleLabels = {
-  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", sistemas: "Sistemas", marketing: "Marketing", coach: "Coach",
+  gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", sistemas: "Sistemas", asistente_comercial: "Asistente comercial", marketing: "Marketing", coach: "Coach",
   jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
   trabajador: "Trabajador", vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacenero", jefe_area: "Jefe de área", seguridad: "Seguridad", jefe_seguridad: "Jefe de seguridad",
 };
 
 const compactRoleLabels = {
   gerencia_general: "Ger. general", gerente_comercial: "Ger. comercial", administrador_seguridad: "Ad. seguridad",
-  sistemas: "Sistemas", marketing: "Marketing", coach: "Coach", jefe_zonal: "Jef. zonal",
+  sistemas: "Sistemas", asistente_comercial: "Asistente comercial", marketing: "Marketing", coach: "Coach", jefe_zonal: "Jef. zonal",
   jefe_tienda: "Ad. tienda", asistente_tienda: "Asist. tienda", trabajador: "Trabajador",
   vendedor: "Vendedor", asistente: "Asistente", caja: "Caja", almacenero: "Almacén",
   jefe_area: "Jef. área", seguridad: "Seguridad", jefe_seguridad: "Jef. seguridad",
