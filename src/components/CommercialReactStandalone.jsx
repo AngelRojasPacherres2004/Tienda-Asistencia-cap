@@ -15,6 +15,7 @@ import CommercialReactStockOriginModal from "./CommercialReactStockOriginModal";
 import CommercialReactMonthlyModal from "./CommercialReactMonthlyModal";
 import CommercialReactSizeDetailModal from "./CommercialReactSizeDetailModal";
 import CommercialReactAssistantController from "./CommercialReactAssistantController";
+import CommercialTransferCart from "./CommercialTransferCart";
 
 export default function CommercialReactStandalone({ model, controller, storeOperations = null }) {
   const accessAction = action => controller.onReactCommercialAccessAction(action);
@@ -24,6 +25,7 @@ export default function CommercialReactStandalone({ model, controller, storeOper
 
   const modal = model.modal;
   return <SingleBarPresentation.Provider value={Boolean(storeOperations)}><main className={`app-shell portal-embed${storeOperations ? ' store-admin-dashboard' : ''}`} data-react-commercial-shell="true">
+    <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
     {model.expanded && <button type="button" className="chart-backdrop" aria-label="Cerrar gráfico ampliado" onClick={() => controller.closeExpandedChart()} />}
     {modal?.type === "birthday" && <CommercialReactBirthdayModal model={modal.model} onAction={action => controller.onReactBirthdayAction(action)} />}
     {modal?.type === "transfer" && <CommercialReactTransferModal model={modal.model} onAction={action => controller.onReactTransferAction(action)} />}

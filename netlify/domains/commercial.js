@@ -363,7 +363,6 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
 
   async function commercialStoreTransfers(sessionUser) {
     const access = await currentCommercialAccess(sessionUser);
-    if (access.scopeType !== 'store') throw httpError('Esta consulta requiere una tienda asignada.', 403);
     const release = await publishedCommercialRelease();
     const allAccess = { scopeType: 'all' };
     let logicalName = 'dashboard-stock-transfers.json';

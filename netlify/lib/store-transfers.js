@@ -13,7 +13,7 @@ export function storeTransferOpportunities(compact, storeIds) {
   });
   const allowed = new Set(storeIds);
   const routes = stockTransfers(products, 30, 90, false)
-    .filter(row => allowed.has(row.source) || allowed.has(row.destination));
+    .filter(row => allowed.has(row.source));
   const positions = new Set(routes.flatMap(row => [JSON.stringify([row.productId, row.source]), JSON.stringify([row.productId, row.destination])]));
   return { routes, products: products.filter(row => positions.has(JSON.stringify([row.productId, row.storeId]))) };
 }

@@ -37,6 +37,73 @@ function fixture() {
 }
 const totals = subject => ({ ...subject.transferSummary() });
 
+test('cart groups different products by destination and preserves selection across filters', () => {
+  const subject = fixture();
+  const routes = subject.transferAllRecommendations();
+  const toB = routes.filter(route => route.destination === 'B');
+  assert.equal(toB.length, 2);
+  subject.transferCartAdd(subject.transferCartRouteKey(toB[0]));
+  subject.transferCartAdd(subject.transferCartRouteKey(toB[1]));
+  subject.transferCartAdd(subject.transferCartRouteKey(toB[0]));
+  const model = subject.transferCartModel();
+  assert.equal(model.count, 2);
+  assert.equal(model.destinations, 1);
+  assert.equal(model.groups[0].id, 'B');
+  assert.equal(model.quantity, toB[0].suggested + toB[1].suggested);
+  subject.transferBrand.set('NIKE');
+  subject.resetTransferFilters();
+  assert.equal(subject.transferCartModel().count, 2);
+  subject.transferCartAdd('invalid-route');
+  assert.equal(subject.transferCartModel().count, 2);
+});
+
+test('cart keeps alternate destinations separate for the same product', () => {
+  const subject = fixture();
+  const routes = subject.transferAllRecommendations().filter(route => route.productId === 'P1');
+  assert.equal(routes.length, 2);
+  routes.forEach(route => subject.transferCartAdd(subject.transferCartRouteKey(route)));
+  assert.equal(subject.transferCartModel().destinations, 2);
+  assert.equal(subject.transferCartModel().groups.every(group => group.items.length === 1), true);
+});
+
+test('cart quantities are whole units bounded by the route maximum', () => {
+  const subject = fixture();
+  const route = subject.transferAllRecommendations()[0];
+  const key = subject.transferCartRouteKey(route);
+  subject.transferCartAdd(key);
+  subject.transferCartSetQuantity(key, 999999);
+  assert.equal(subject.transferCartItems()[0].quantity, route.suggested);
+  subject.transferCartSetQuantity(key, 1.9);
+  assert.equal(subject.transferCartItems()[0].quantity, 1);
+  assert.equal(subject.transferCartModel().quantity, 1);
+  subject.transferCartSetQuantity(key, -10);
+  assert.equal(subject.transferCartItems()[0].quantity, 1);
+  subject.transferCartSetQuantity(key, 'invalid');
+  assert.equal(subject.transferCartItems()[0].quantity, 1);
+});
+
+test('cart reserves shared source stock and destination need across selected routes', () => {
+  const subject = fixture();
+  const route = { productId: 'SKU', product: 'Product', productCode: '', category: 'TEXTIL',
+    source: 'A', sourceName: 'A', sourceStock: 12, sourceSales: 0,
+    destination: 'B', destinationName: 'B', destinationStock: 0, destinationSales: 10, suggested: 10 };
+  const second = { ...route, destination: 'C', destinationName: 'C' };
+  const third = { ...route, source: 'D', sourceName: 'D' };
+  subject.transferAllRecommendations = () => [route, second, third];
+  const key = item => subject.transferCartRouteKey(item);
+  subject.transferCartAdd(key(route));
+  subject.transferCartAdd(key(second));
+  assert.equal(subject.transferCartItems()[1].quantity, 2);
+  assert.equal(subject.transferCartAvailable(third), 0);
+  subject.transferCartSetQuantity(key(route), 5);
+  assert.equal(subject.transferCartAvailable(third), 5);
+  subject.transferCartSetQuantity(key(second), 100);
+  assert.equal(subject.transferCartItems()[1].quantity, 7);
+  subject.transferCartAdd(key(third));
+  assert.equal(subject.transferCartItems()[2].quantity, 5);
+  assert.equal(subject.transferCartModel().quantity, 17);
+});
+
 test('store scope retains the opposite store of a server-authorized transfer and applies filters', () => {
   const subject = fixture();
   const products = [product('A', 100, 10), product('B', 0, 20)];
@@ -67,15 +134,16 @@ test('brand, line, category, product search and reset update both routes and tot
   assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 60 });
 });
 
-test('choosing a destination preserves available donors and sums only that store', () => {
+test('store filter keeps only the origin and preserves all eligible destinations', () => {
   const subject = fixture();
   subject.transferStore.set('C');
-  assert.equal(subject.transferRecommendations().length, 1);
-  assert.equal(subject.transferRecommendations()[0].source, 'A');
-  assert.deepEqual(totals(subject), { stockUnits: 12, salesUnits: 20 });
-  subject.transferPriority.set('CRITICAL');
   assert.equal(subject.transferRecommendations().length, 0);
   assert.deepEqual(totals(subject), { stockUnits: 0, salesUnits: 0 });
+  subject.transferStore.set('A');
+  assert.equal(subject.transferRecommendations().length, 3);
+  assert(subject.transferRecommendations().every(route => route.source === 'A'));
+  assert.deepEqual(Array.from(new Set(subject.transferRecommendations().map(route => route.destination))).sort(), ['B', 'C']);
+  assert.deepEqual(totals(subject), { stockUnits: 180, salesUnits: 10 });
 });
 
 test('summary covers all filtered pages and page is clamped when filters reduce the list', () => {

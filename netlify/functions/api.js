@@ -13,6 +13,7 @@ import { allowedAnnualStores, commercialAccess, validCommercialPartPath } from "
 import { commercialAssistantMessages } from "../lib/commercial-assistant.js";
 import { createProductCodeLookup } from "../lib/commercial-product-codes.js";
 import { commercialStockInsights } from "../lib/commercial-stock-insights.js";
+import { createTransferGroupsDomain } from "../lib/transfer-groups.js";
 import { createAuthenticationDomain } from "../domains/authentication.js";
 import { createMarketingDomain } from "../domains/marketing.js";
 import { createStoresDomain } from "../domains/stores.js";
@@ -231,6 +232,9 @@ async function authenticatedContext(event, allowFallback = false) {
 
 const { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers } = createCommercialDomain({
   supabase, commercialAccess, dbError, httpError, readAllResult, fetchAllReportPages, normalizeGoalRubro, aggregateCommercialGoalTotals, bodyOf, cleanText, validCommercialPartPath, gunzipSync,
+});
+const { listTransferGroups, saveTransferGroup, updateTransferGroup } = createTransferGroupsDomain({
+  supabase, currentCommercialAccess, commercialStoreTransfers, commercialCompanyRanking, readAllResult, bodyOf, httpError, dbError,
 });
 
 // ---------- Validación ----------
@@ -699,6 +703,9 @@ export async function handler(event) {
     if (path === "/commercial/access" && method === "GET") {
       return json(200, { access: await currentCommercialAccess(user) });
     }
+    if (path === "/commercial/transfer-groups" && method === "GET") return json(200, await listTransferGroups(user));
+    if (path === "/commercial/transfer-groups" && method === "POST") return json(201, await saveTransferGroup(event, user));
+    if (path === "/commercial/transfer-groups" && method === "PATCH") return json(200, await updateTransferGroup(event, user));
     if (path === "/commercial-goals" && method === "GET") {
       ensureAuth(event, "gerente_comercial");
       return json(200, await listCommercialGoals(event, user));

@@ -6,7 +6,7 @@ import type { DashboardHeaderModel, DashboardFilterAction, DashboardFiltersModel
 import { readRuntimeConfig } from './runtime-config';
 import { adaptiveValueScale } from './chart-scale';
 import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-refresh';
-import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
+import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal, type SavedTransferGroup } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { currentCommercialPeriod } from '../lib/currentCommercialPeriod';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
@@ -45,6 +45,11 @@ type ProductRow = {
   storeId: string; productId: string; productCode?: string; product: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits?: number; mermaStockUnits?: number; desmedroStockUnits?: number;
   units30: number; sales30: number; units12: number; sales12: number;
+};
+type TransferCartItem = {
+  key: string; productId: string; code: string; product: string; size: string;
+  source: string; sourceName: string; destination: string; destinationName: string; quantity: number;
+  maxQuantity: number; sourceCapacity: number; destinationCapacity: number;
 };
 type StockOrigin = { storeId: string; category: string; line: string; subline: string; originPeriodId: number; units: number; value: number };
 type StockHierarchyRow = { storeId: string; category: string; line: string; subline: string; brand: string;
@@ -1506,6 +1511,7 @@ export class CommercialDashboardController implements OnInit {
     return {
       expanded: this.expandedChart() === 'size-distribution', rubro, metric,
       controls: this.sizeControlsModel(), loading, transferError, productCodeLoading: this.productCodeLoading(),
+      cartCount: this.transferCartItems().length,
       textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
       label: `${this.sizeMetricLabel()} por talla ${rubro.toLowerCase()} · corte ${this.sizeSalesPeriod()}`,
       periodLabel: this.periodLabel(this.sizeSalesPeriod()), stockCutoff: this.formatDate(this.data()?.metadata.stockCutoff || ''),
@@ -1850,6 +1856,7 @@ export class CommercialDashboardController implements OnInit {
     const page = this.page(); const expanded = this.expandedChart();
     return {
       mode: 'ready', page, expanded, header: this.headerModel(), filters: this.filtersModel(),
+      transferCart: this.transferCartModel(),
       commercial: page === 1 ? this.commercialPageModel() : null,
       inventory: page === 2 ? this.inventoryPageModel() : null,
       talent: page === 3 ? this.talentPageModel() : null,
@@ -2071,8 +2078,11 @@ export class CommercialDashboardController implements OnInit {
       sizeSystem: this.transferSizeSystem(), size: this.transferSize(), sizes: this.transferSizes().map(value => ({ value, label: value })),
       line: this.transferLine(), lines: this.transferLines().map(value => ({ value, label: value })),
       brand: this.transferBrand(), brands: this.transferBrands().map(value => ({ value, label: value })),
-      store: this.transferStore(), stores: this.transferStores().map(store => ({ value: store.storeId, label: `${store.alias || store.store} · ${store.store}` })),
+      store: this.transferStore(), stores: this.transferStores()
+        .filter(store => this.storeTransferRoutes() === null || this.storeTransferRoutes()!.some(route => route.source === store.storeId))
+        .map(store => ({ value: store.storeId, label: `${store.alias || store.store} · ${store.store}` })),
       priority: this.transferPriority(), search: this.transferSearch(), codeError: this.transferCodeError(),
+      cartCount: this.transferCartItems().length,
       stockCutoff: this.formatDate(this.data()!.metadata.stockCutoff),
       salesCutoff: this.formatDate(this.data()!.metadata.salesCutoff),
       busy: this.transferBusy(), calculationError: this.transferCalculationError(),
@@ -2093,7 +2103,13 @@ export class CommercialDashboardController implements OnInit {
         bestDescription: this.transferRouteDescription(row.best), bestName: row.best.destinationName,
         bestStock: this.number(row.best.destinationStock), bestSales: this.number(row.best.destinationSales),
         bestDays: `${this.number(row.best.destinationDays)} días`, quantity: this.number(row.best.suggested),
+        bestCartKey: this.transferCartRouteKey(row.best),
+        bestInCart: this.transferCartItems().some(item => item.key === this.transferCartRouteKey(row.best)),
+        bestCartAvailable: this.transferCartAvailable(row.best),
         options: row.options.map(route => ({ destination: route.destination,
+          cartKey: this.transferCartRouteKey(route),
+          inCart: this.transferCartItems().some(item => item.key === this.transferCartRouteKey(route)),
+          cartAvailable: this.transferCartAvailable(route),
           best: route.destination === row.best.destination, name: route.destinationName,
           stock: this.number(route.destinationStock), sales: this.number(route.destinationSales),
           days: this.number(route.destinationDays), critical: route.critical, suggested: this.number(route.suggested) })),
@@ -2102,7 +2118,26 @@ export class CommercialDashboardController implements OnInit {
   });
 
   onReactTransferAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'close') this.closeExpandedChart();
+    if (this.transferCartBusy() && ['cart-add', 'cart-remove', 'cart-clear', 'cart-quantity'].includes(type)) return;
+    if (type === 'cart-open') this.transferCartOpenPanel();
+    else if (type === 'cart-close') this.transferCartOpen.set(false);
+    else if (type === 'cart-add' && typeof value === 'string') this.transferCartAdd(value);
+    else if (type === 'cart-tab' && (value === 'draft' || value === 'saved')) this.transferCartTab.set(value);
+    else if (type === 'cart-refresh') void this.transferCartLoadSaved();
+    else if (type === 'cart-save' && typeof value === 'string') void this.transferCartSave(value);
+    else if (type === 'cart-validate' && typeof value === 'string') void this.transferCartUpdateSaved(value, 'validate');
+    else if (type === 'cart-guide' && typeof value === 'string') {
+      try { const [id, guide] = JSON.parse(value); if (typeof id === 'string' && typeof guide === 'string') void this.transferCartUpdateSaved(id, 'guide', guide); } catch { /* Acción inválida. */ }
+    }
+    else if (type === 'cart-quantity' && typeof value === 'string') {
+      try {
+        const [key, quantity] = JSON.parse(value);
+        if (typeof key === 'string') this.transferCartSetQuantity(key, quantity);
+      } catch { /* Una acción incompleta no modifica la selección. */ }
+    }
+    else if (type === 'cart-remove' && typeof value === 'string') this.transferCartItems.set(this.transferCartItems().filter(item => item.key !== value));
+    else if (type === 'cart-clear') this.transferCartItems.set([]);
+    else if (type === 'close') this.closeExpandedChart();
     else if (type === 'chart') this.openSizeChart();
     else if (type === 'reset') this.resetTransferFilters();
     else if (type === 'retry-codes') this.retryProductCodes();
@@ -2129,7 +2164,8 @@ export class CommercialDashboardController implements OnInit {
   }
 
   onReactSizeCardAction(action: { type: string; value?: string | number }): void {
-    if (action.type === 'expand') this.toggleChartExpansion('size-distribution');
+    if (action.type === 'cart-open') this.transferCartOpenPanel();
+    else if (action.type === 'expand') this.toggleChartExpansion('size-distribution');
     else if (action.type === 'detail' && typeof action.value === 'string') {
       this.sizeDetailSelected.set(action.value); this.expandedChart.set('size-detail'); this.setPageScrollLocked(true);
       void this.ensureSizeDetail(this.sizeRubro());
@@ -3018,6 +3054,107 @@ export class CommercialDashboardController implements OnInit {
   readonly transferStore = signal('');
   readonly transferSearch = signal('');
   readonly transferPriority = signal('');
+  readonly transferCartItems = signal<TransferCartItem[]>([]);
+  readonly transferCartOpen = signal(false);
+  readonly transferCartTab = signal<'draft' | 'saved'>('draft');
+  readonly transferSavedGroups = signal<SavedTransferGroup[]>([]);
+  readonly transferSavedLoading = signal(false);
+  readonly transferCanValidate = signal(false);
+  readonly transferCartBusy = signal('');
+  readonly transferCartError = signal('');
+  private transferSavedLoadToken = 0;
+  private transferPendingGroupIds = new Map<string, string>();
+  transferCartOpenPanel(): void {
+    this.transferCartOpen.set(true);
+    void this.transferCartLoadSaved();
+  }
+  async transferCartLoadSaved(): Promise<void> {
+    const token = ++this.transferSavedLoadToken;
+    this.transferCartError.set('');
+    this.transferSavedLoading.set(true);
+    try {
+      const result = await this.cloud.transferGroups();
+      if (token !== this.transferSavedLoadToken) return;
+      this.transferSavedGroups.set(result.groups); this.transferCanValidate.set(result.canValidate);
+    } catch (error) {
+      if (token === this.transferSavedLoadToken) this.transferCartError.set(error instanceof Error ? error.message : 'No se pudieron consultar los grupos guardados.');
+    } finally { if (token === this.transferSavedLoadToken) this.transferSavedLoading.set(false); }
+  }
+  async transferCartSave(destination: string): Promise<void> {
+    if (this.transferCartBusy()) return;
+    const items = this.transferCartItems().filter(row => row.destination === destination);
+    if (!items.length) return;
+    const id = this.transferPendingGroupIds.get(destination) || crypto.randomUUID();
+    this.transferPendingGroupIds.set(destination, id);
+    this.transferCartBusy.set(destination); this.transferCartError.set('');
+    try {
+      await this.cloud.saveTransferGroup(id, items);
+      this.transferCartItems.set(this.transferCartItems().filter(row => row.destination !== destination));
+      this.transferPendingGroupIds.delete(destination);
+      this.transferCartTab.set('saved');
+      await this.transferCartLoadSaved();
+    } catch (error) { this.transferCartError.set(error instanceof Error ? error.message : 'No se pudo guardar el grupo.'); }
+    finally { this.transferCartBusy.set(''); }
+  }
+  async transferCartUpdateSaved(id: string, action: 'validate' | 'guide', guide?: string): Promise<void> {
+    if (this.transferCartBusy()) return;
+    this.transferCartBusy.set(id); this.transferCartError.set('');
+    try { await this.cloud.updateTransferGroup(id, action, guide); await this.transferCartLoadSaved(); }
+    catch (error) { this.transferCartError.set(error instanceof Error ? error.message : 'No se pudo actualizar el grupo.'); }
+    finally { this.transferCartBusy.set(''); }
+  }
+  transferCartRouteKey(route: { productId: string; source: string; destination: string }): string {
+    return JSON.stringify([route.productId, route.source, route.destination]);
+  }
+  transferCartAdd(key: string): void {
+    if (this.transferCartItems().some(item => item.key === key)) return;
+    const route = this.transferAllRecommendations().find(row => this.transferCartRouteKey(row) === key);
+    if (!route || route.suggested <= 0) return;
+    const item: TransferCartItem = {
+      key, productId: route.productId, code: route.productCode || '', product: route.product,
+      size: this.transferSizeLabel(route), source: route.source, sourceName: route.sourceName,
+      destination: route.destination, destinationName: route.destinationName, quantity: route.suggested,
+      maxQuantity: route.suggested,
+      sourceCapacity: Math.max(0, Math.floor(route.sourceStock - route.sourceSales)),
+      destinationCapacity: Math.max(0, Math.ceil(route.destinationSales - route.destinationStock)),
+    };
+    item.quantity = this.transferCartMaximum(item);
+    if (item.quantity > 0) this.transferCartItems.set([...this.transferCartItems(), item]);
+  }
+  transferCartAvailable(route: ReturnType<typeof stockTransfers>[number]): number {
+    return this.transferCartMaximum({ key: this.transferCartRouteKey(route), productId: route.productId,
+      source: route.source, destination: route.destination, maxQuantity: route.suggested,
+      sourceCapacity: Math.max(0, Math.floor(route.sourceStock - route.sourceSales)),
+      destinationCapacity: Math.max(0, Math.ceil(route.destinationSales - route.destinationStock)),
+    });
+  }
+  transferCartMaximum(item: Pick<TransferCartItem, 'key' | 'productId' | 'source' | 'destination' | 'maxQuantity' | 'sourceCapacity' | 'destinationCapacity'>): number {
+    const others = this.transferCartItems().filter(row => row.key !== item.key && row.productId === item.productId);
+    const outgoing = others.filter(row => row.source === item.source).reduce((sum, row) => sum + row.quantity, 0);
+    const incoming = others.filter(row => row.destination === item.destination).reduce((sum, row) => sum + row.quantity, 0);
+    return Math.max(0, Math.min(item.maxQuantity, item.sourceCapacity - outgoing, item.destinationCapacity - incoming));
+  }
+  transferCartSetQuantity(key: string, value: unknown): void {
+    const item = this.transferCartItems().find(row => row.key === key);
+    const quantity = Number(value);
+    if (!item || !Number.isFinite(quantity)) return;
+    const maximum = this.transferCartMaximum(item);
+    if (maximum < 1) return;
+    this.transferCartItems.set(this.transferCartItems().map(row => row.key === key
+      ? { ...row, quantity: Math.min(maximum, Math.max(1, Math.floor(quantity))) } : row));
+  }
+  readonly transferCartModel = computed(() => {
+    const items = this.transferCartItems();
+    const groups = new Map<string, { id: string; name: string; quantity: number; items: (TransferCartItem & { maximum: number })[] }>();
+    for (const item of items) {
+      const group = groups.get(item.destination) || { id: item.destination, name: item.destinationName, quantity: 0, items: [] };
+      group.items.push({ ...item, maximum: this.transferCartMaximum(item) }); group.quantity += item.quantity; groups.set(item.destination, group);
+    }
+    return { open: this.transferCartOpen(), count: items.length, destinations: groups.size,
+      tab: this.transferCartTab(), savedGroups: this.transferSavedGroups(), savedLoading: this.transferSavedLoading(),
+      canValidate: this.transferCanValidate(), busy: this.transferCartBusy(), error: this.transferCartError(),
+      quantity: items.reduce((total, item) => total + item.quantity, 0), groups: [...groups.values()] };
+  });
   readonly transferPage = signal(0);
   readonly transferExpandedRow = signal('');
   toggleTransferRow(key: string): void {
@@ -3134,8 +3271,9 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly transferRecommendations = computed(() => this.transferAllRecommendations().filter(row =>
     (!this.transferPriority() || (this.transferPriority() === 'CRITICAL' ? row.critical : !row.critical))
-    && (!this.transferStore() || row.source === this.transferStore() || row.destination === this.transferStore())));
-  readonly transferSummary = computed(() => transferTotals(this.transferFilteredProducts(), this.transferRecommendations(), this.transferStore()));
+    && (!this.transferStore() || row.source === this.transferStore())));
+  readonly transferSummary = computed(() => transferTotals(this.transferFilteredProducts(), this.transferRecommendations(),
+    this.transferStore() || this.storeTransferRoutes()?.[0]?.source || ''));
   readonly transferHasEstimates = computed(() => this.transferRecommendations().some(row => row.estimated));
   readonly transferMatrixRows = computed(() => {
     type Route = ReturnType<typeof this.transferRecommendations>[number];
@@ -4485,6 +4623,9 @@ export class CommercialDashboardController implements OnInit {
 
   async signOut(): Promise<void> {
     this.goalLoadToken += 1;
+    this.transferCartItems.set([]); this.transferCartOpen.set(false);
+    this.transferSavedLoadToken++; this.transferSavedGroups.set([]); this.transferSavedLoading.set(false); this.transferPendingGroupIds.clear();
+    this.transferCartTab.set('draft'); this.transferCartBusy.set(''); this.transferCartError.set(''); this.transferCanValidate.set(false);
     await this.cloud.signOut();
     this.releaseSectionDetails();
     this.data.set(null);
@@ -5544,6 +5685,7 @@ export class CommercialDashboardController implements OnInit {
             this.stockTransferProductsData.set(scoped.products as ProductRow[]);
             this.storeTransferStores.set(scoped.stores);
             this.storeTransferRoutes.set(scoped.routes);
+            this.transferStore.set(this.cloud.accessProfile()?.stores[0] || scoped.routes[0]?.source || '');
             this.stockTransfersLoaded.set(true);
             return;
           }

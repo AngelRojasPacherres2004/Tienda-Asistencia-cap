@@ -12,6 +12,12 @@ type ReleaseRow = {
 };
 
 type FileEncoding = 'identity' | 'gzip';
+export type SavedTransferGroup = {
+  id: string; destination: string; name: string; status: 'pendiente' | 'validado'; guide: string;
+  createdAt: string; validatedAt: string | null; quantity: number;
+  items: { id: string; productId: string; product: string; code: string; size: string;
+    source: string; sourceName: string; quantity: number }[];
+};
 type FilePart = { path: string; bytes: number; sha256: string; encoding?: FileEncoding };
 type DashboardFileRow = { logical_name: string; checksum_sha256: string; parts: FilePart[] };
 export type DashboardFileSource = {
@@ -345,6 +351,17 @@ export class CloudDataService {
   } | null> {
     if (!this.portalMode) return null;
     return this.portalRequest('/commercial/store-transfers', { signal });
+  }
+
+  async transferGroups(): Promise<{ groups: SavedTransferGroup[]; canValidate: boolean }> {
+    if (!this.portalMode) throw new Error('El guardado de traslados requiere iniciar sesión en el portal.');
+    return this.portalRequest('/commercial/transfer-groups');
+  }
+  async saveTransferGroup(groupId: string, items: unknown[]): Promise<{ groupId: string }> {
+    return this.portalRequest('/commercial/transfer-groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId, items }) });
+  }
+  async updateTransferGroup(groupId: string, action: 'validate' | 'guide', guide?: string): Promise<{ groupId: string }> {
+    return this.portalRequest('/commercial/transfer-groups', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId, action, guide }) });
   }
 
   async companyRanking(signal?: AbortSignal): Promise<CompanyRankingData | null> {

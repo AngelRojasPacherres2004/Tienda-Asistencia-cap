@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright-core';
+import { createClient } from '@supabase/supabase-js';
+import jwt from 'jsonwebtoken';
+import { mkdir } from 'node:fs/promises';
+
+const origin = process.env.AUDIT_ORIGIN || 'http://127.0.0.1:5180';
+const client = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
+const { data: users, error } = await client.from('usuarios').select('id,rol,tienda_id,estado,cambio_credenciales_pendiente')
+  .eq('rol', 'gerente_comercial').eq('estado', 'activo').limit(10);
+if (error) throw error;
+const user = users.find(candidate => !candidate.cambio_credenciales_pendiente);
+assert.ok(user, 'Se requiere una cuenta comercial activa para la auditoría.');
+await mkdir('artifacts', { recursive: true });
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'America/Lima' });
+await context.addCookies([{ name: 'asiste_session', value: jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '10m' }), url: origin, httpOnly: true, sameSite: 'Lax' }]);
+const page = await context.newPage();
+const errors = [];
+page.on('pageerror', event => errors.push(event.message));
+try {
+  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-react-commercial-shell="true"]').waitFor({ timeout: 60_000 });
+  await page.locator('.page-tabs button').nth(1).click();
+  await page.locator('.size-distribution-card .transfer-cart-trigger').click();
+  await page.locator('.transfer-cart-empty').waitFor();
+  await page.getByRole('button', { name: 'Cerrar selección de traslados' }).click();
+  await page.locator('.size-distribution-card .size-view-switch button').nth(1).click();
+  const filters = page.locator('.transfer-modal .transfer-filters select');
+  await filters.first().selectOption('CALZADO', { timeout: 90_000 });
+  await page.locator('.transfer-product-row').first().waitFor({ timeout: 90_000 });
+  await page.locator('.transfer-product-row .transfer-compare').first().click();
+  await page.locator('.transfer-comparison .transfer-cart-add:not(:disabled)').first().click();
+  await page.locator('.transfer-product-row .transfer-cart-add:not(:disabled)').first().click();
+  await page.locator('.transfer-modal .transfer-cart-trigger').click();
+  const dialog = page.locator('.transfer-cart-dialog');
+  await dialog.waitFor();
+  assert.equal(await dialog.locator('li').count(), 0, 'Los productos deben empezar ocultos.');
+  await page.screenshot({ path: 'artifacts/transfer-cart-stores.png' });
+  for (const toggle of await dialog.locator('.transfer-cart-group-toggle').all()) await toggle.click();
+  assert.equal(await dialog.locator('li').count(), 2);
+  const quantity = dialog.locator('input[type="number"]').first();
+  const maximum = Number(await quantity.getAttribute('max'));
+  await quantity.fill('999999');
+  assert.equal(Number(await quantity.inputValue()), maximum);
+  await quantity.fill('1');
+  assert.equal(await quantity.inputValue(), '1');
+  await page.screenshot({ path: 'artifacts/transfer-cart-local.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'artifacts/transfer-cart-mobile.png' });
+  const bounds = await dialog.boundingBox();
+  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 391, 'El carrito debe caber en móvil.');
+  await dialog.locator('.is-remove').first().click();
+  assert.equal(await dialog.locator('li').count(), 1);
+  await dialog.getByRole('button', { name: 'Vaciar selección' }).click();
+  await dialog.locator('.transfer-cart-empty').waitFor();
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator('.transfer-modal .chart-expand').click();
+  await page.locator('.size-distribution-card .transfer-cart-trigger').click();
+  await page.locator('.transfer-cart-empty').waitFor();
+  assert.deepEqual(errors, []);
+  console.log('OK: carrito vacío, agregar, agrupar, quitar, vaciar, Escape, acceso desde gráfico y vista móvil.');
+} catch (error) {
+  await page.screenshot({ path: 'artifacts/transfer-cart-error.png' });
+  throw error;
+} finally {
+  await browser.close();
+}
