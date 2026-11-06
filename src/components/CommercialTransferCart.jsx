@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ShoppingCart, Package, Store, ArrowRight, Trash2, X, ChevronDown, Save, RefreshCw } from "lucide-react";
+import { Package, Store, Truck, ArrowRight, Trash2, X, ChevronDown, Save, RefreshCw } from "lucide-react";
 import CommercialSavedTransferGroups from "./CommercialSavedTransferGroups";
 
 export function TransferCartButton({ count = 0, onClick, compact = false }) {
   return <button type="button" className={`transfer-cart-trigger${compact ? " is-compact" : ""}`} onClick={onClick}
     aria-label={`Ver selección de traslados, ${count} productos`} title="Ver selección de traslados">
-    <ShoppingCart size={17} aria-hidden="true" />{!compact && <span>Mi selección</span>}
+    <Truck size={17} aria-hidden="true" />{!compact && <span>Mi selección</span>}
     <span className="transfer-cart-count">{count}</span>
   </button>;
 }
@@ -39,7 +39,7 @@ export default function CommercialTransferCart({ model, onAction }) {
   const saved = model.tab === "saved";
   return <div className="transfer-cart-backdrop" onClick={event => { if (event.target === event.currentTarget) close(); }} onKeyDown={keyboard}>
     <section className="transfer-cart-dialog" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="transfer-cart-title">
-      <header className="transfer-cart-header"><div className="transfer-cart-heading"><span className="transfer-cart-heading-icon"><ShoppingCart size={22} /></span><div><h2 id="transfer-cart-title">Mi selección de traslados</h2><p>Productos agrupados por tienda destino</p></div></div>
+      <header className="transfer-cart-header"><div className="transfer-cart-heading"><span className="transfer-cart-heading-icon"><Truck size={22} /></span><div><h2 id="transfer-cart-title">Mi selección de traslados</h2><p>Productos agrupados por tienda destino</p></div></div>
         <button type="button" className="transfer-cart-icon-button" aria-label="Cerrar selección de traslados" onClick={close}><X size={20} /></button>
       </header>
       <div className="transfer-cart-sections" role="group" aria-label="Secciones de grupos"><button type="button" className={!saved ? "active" : ""} aria-pressed={!saved} onClick={() => onAction({ type: "cart-tab", value: "draft" })}>Por guardar <span>{model.groups.length}</span></button><button type="button" className={saved ? "active" : ""} aria-pressed={saved} onClick={() => onAction({ type: "cart-tab", value: "saved" })}>Guardados <span>{model.savedGroups?.length || 0}</span></button><button type="button" className="transfer-cart-refresh" disabled={Boolean(model.busy) || model.savedLoading} aria-label="Actualizar grupos guardados" onClick={() => onAction({ type: "cart-refresh" })}><RefreshCw size={15} /></button></div>
