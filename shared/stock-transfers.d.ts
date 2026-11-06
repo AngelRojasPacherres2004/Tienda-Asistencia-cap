@@ -9,6 +9,7 @@ export type TransferProduct = {
     stockUnits: number;
     goodUnits?: number;
     units30: number;
+    units90?: number;
 };
 /** With allocate=false, routes are independent alternatives, never an additive dispatch plan. */
 export declare function stockTransfers(rows: TransferProduct[], healthyDays?: number, excessDays?: number, allocate?: boolean): {

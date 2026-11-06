@@ -51,8 +51,8 @@ export function createTransferGroupsDomain({ supabase, currentCommercialAccess, 
       const sourceKey = JSON.stringify([route.source, route.productId]); const destinationKey = JSON.stringify([route.destination, route.productId]);
       outgoing.set(sourceKey, (outgoing.get(sourceKey) || 0) + item.quantity);
       incoming.set(destinationKey, (incoming.get(destinationKey) || 0) + item.quantity);
-      if (outgoing.get(sourceKey) > Math.max(0, Math.floor(route.sourceStock - route.sourceSales))
-        || incoming.get(destinationKey) > Math.max(0, Math.ceil(route.destinationSales - route.destinationStock))) fail('La selección supera el excedente o la necesidad disponible.');
+      if (outgoing.get(sourceKey) > Math.max(0, Math.floor(route.sourceStock - route.sourceSales / 90 * 60))
+        || incoming.get(destinationKey) > Math.max(0, Math.ceil(route.destinationSales / 90 * 60 - route.destinationStock))) fail('La selección supera el excedente o la necesidad disponible.');
       return { grupo_id: input.groupId, tienda_origen: route.source, tienda_destino: route.destination,
         producto_id: route.productId, codigo_producto: route.productCode || '', producto: route.product,
         talla: typeof item.size === 'string' ? item.size.slice(0, 40) : '', cantidad: item.quantity, creado_por: user.id };

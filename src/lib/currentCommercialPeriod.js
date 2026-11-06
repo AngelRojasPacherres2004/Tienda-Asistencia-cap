@@ -7,3 +7,11 @@ export function currentCommercialPeriod(now = new Date()) {
     month: Number(parts.find(part => part.type === 'month').value),
   };
 }
+
+export function closingCommercialPeriod(salesCutoff) {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(salesCutoff || '');
+  if (match && Number(match[2]) >= 1 && Number(match[2]) <= 12) {
+    return { year: Number(match[1]), month: Number(match[2]) };
+  }
+  return currentCommercialPeriod();
+}

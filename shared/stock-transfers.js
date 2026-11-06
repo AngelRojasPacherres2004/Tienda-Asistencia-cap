@@ -3,14 +3,14 @@
 
 
 /** With allocate=false, routes are independent alternatives, never an additive dispatch plan. */
-export function stockTransfers(rows                   , healthyDays = 30, excessDays = 90, allocate = true) {
+export function stockTransfers(rows                   , healthyDays = 60, excessDays = 90, allocate = true) {
   const products = new Map                                      ();
   for (const row of rows) {
     if (!row.productId.trim()) continue;
     const stores = products.get(row.productId) || new Map                         ();
     const previous = stores.get(row.storeId);
     stores.set(row.storeId, previous ? {
-      ...previous, stockUnits: previous.stockUnits + row.stockUnits, units30: previous.units30 + row.units30,
+      ...previous, stockUnits: previous.stockUnits + row.stockUnits, units90: (previous.units90 || 0) + (row.units90 || 0),
       goodUnits: previous.goodUnits !== undefined && row.goodUnits !== undefined ? previous.goodUnits + row.goodUnits : undefined
     } : { ...row });
     products.set(row.productId, stores);
@@ -24,7 +24,7 @@ export function stockTransfers(rows                   , healthyDays = 30, excess
   for (const [productId, stores] of products) {
     const positions = [...stores.values()].map(row => {
       const stock = Math.max(0, row.goodUnits ?? row.stockUnits * .82);
-      const sales = Math.max(0, row.units30), daily = sales / 30;
+      const sales = Math.max(0, row.units90 || 0), daily = sales / 90;
       return { row, stock, sales, daily, days: daily > 0 ? stock / daily : null,
         available: Math.max(0, Math.floor(stock - daily * healthyDays)),
         need: Math.max(0, Math.ceil(daily * healthyDays - stock)) };
@@ -65,7 +65,7 @@ export function transferTotals(products                            , opportuniti
     if (storeId && row.storeId !== storeId) continue;
     if (!storesByProduct.get(row.productId)?.has(row.storeId)) continue;
     stockUnits += row.stockUnits;
-    salesUnits += row.units30;
+    salesUnits += row.units90 || 0;
   }
   return { stockUnits, salesUnits };
 }

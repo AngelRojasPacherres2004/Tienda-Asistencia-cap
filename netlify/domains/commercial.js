@@ -365,10 +365,11 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     const access = await currentCommercialAccess(sessionUser);
     const release = await publishedCommercialRelease();
     const allAccess = { scopeType: 'all' };
-    let logicalName = 'dashboard-stock-transfers.json';
+    // El archivo de candidatos de 30 días puede excluir rutas válidas a 90 días.
+    let logicalName = 'dashboard-stock-products.json';
     let rows = await commercialFileRows(release.id, allAccess, logicalName);
     if (!rows.length) {
-      logicalName = 'dashboard-stock-products.json';
+      logicalName = 'dashboard-stock-transfers.json';
       rows = await commercialFileRows(release.id, allAccess, logicalName);
     }
     if (!rows.length) {
@@ -386,7 +387,20 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     }));
     const bytes = Buffer.concat(chunks);
     const payload = JSON.parse((parts.every(part => part.encoding === 'gzip') ? gunzipSync(bytes) : bytes).toString('utf8'));
-    const value = storeTransferOpportunities(payload.stockCompact || payload.stockProducts, access.storeIds);
+    const predictiveName = 'dashboard-predictive-compact.json';
+    const predictiveFiles = await commercialFileRows(release.id, allAccess, predictiveName);
+    const predictiveParts = predictiveFiles[0]?.parts || [];
+    if (!predictiveParts.length || !predictiveParts.every(part => validCommercialPartPath(part.path, allAccess, predictiveName))) {
+      throw httpError('Las ventas de 90 días para traslados no están disponibles.', 503);
+    }
+    const predictiveChunks = await Promise.all(predictiveParts.map(async part => {
+      const result = await supabase.storage.from('dashboard-data').download(part.path);
+      if (result.error || !result.data) throw httpError('No se pudieron leer las ventas de 90 días.', 503);
+      return Buffer.from(await result.data.arrayBuffer());
+    }));
+    const predictiveBytes = Buffer.concat(predictiveChunks);
+    const predictivePayload = JSON.parse((predictiveParts.every(part => part.encoding === 'gzip') ? gunzipSync(predictiveBytes) : predictiveBytes).toString('utf8'));
+    const value = storeTransferOpportunities(payload.stockCompact || payload.stockProducts, access.storeIds, predictivePayload.predictiveCompact);
     const ranking = await commercialCompanyRanking(sessionUser);
     const involved = new Set(value.routes.flatMap(row => [row.source, row.destination]));
     return { ...value, stores: ranking.stores.filter(store => involved.has(store.storeId)) };

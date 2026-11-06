@@ -23,7 +23,7 @@ const signal = initial => {
 };
 const exports = {};
 vm.runInNewContext(code, { exports, signal, computed: fn => fn, stockTransfers, transferTotals, resolveProductSize, dashboardNumberFormat });
-const product = (storeId, stockUnits, units30, productId = 'P1', brand = 'ADIDAS', category = 'TEXTIL') => ({ storeId, stockUnits, goodUnits: stockUnits, units30, productId, product: productId === 'P1' ? 'Polo caballero' : 'Zapatilla', brand, category, line: category === 'TEXTIL' ? 'ROPA CABALLERO' : 'CALZADO CABALLERO' });
+const product = (storeId, stockUnits, units30, productId = 'P1', brand = 'ADIDAS', category = 'TEXTIL') => ({ storeId, stockUnits, goodUnits: stockUnits, units30, units90: units30 * 3, productId, product: productId === 'P1' ? 'Polo caballero' : 'Zapatilla', brand, category, line: category === 'TEXTIL' ? 'ROPA CABALLERO' : 'CALZADO CABALLERO' });
 function fixture() {
   const subject = new exports.Subject();
   subject.predictiveStoreOptions = () => ['A', 'B', 'C'].map(storeId => ({ storeId, alias: storeId, isStore: true }));
@@ -86,7 +86,7 @@ test('cart reserves shared source stock and destination need across selected rou
   const subject = fixture();
   const route = { productId: 'SKU', product: 'Product', productCode: '', category: 'TEXTIL',
     source: 'A', sourceName: 'A', sourceStock: 12, sourceSales: 0,
-    destination: 'B', destinationName: 'B', destinationStock: 0, destinationSales: 10, suggested: 10 };
+    destination: 'B', destinationName: 'B', destinationStock: 0, destinationSales: 15, suggested: 10 };
   const second = { ...route, destination: 'C', destinationName: 'C' };
   const third = { ...route, source: 'D', sourceName: 'D' };
   subject.transferAllRecommendations = () => [route, second, third];
@@ -110,7 +110,7 @@ test('store scope retains the opposite store of a server-authorized transfer and
   subject.predictiveStoreOptions = () => [{ storeId: 'B', alias: 'Mi tienda', isStore: true }];
   subject.stockTransfersLoaded.set(true);
   subject.stockTransferProductsData.set(products);
-  subject.storeTransferRoutes.set(stockTransfers(products, 30, 90, false));
+  subject.storeTransferRoutes.set(stockTransfers(products, 60, 90, false));
   subject.storeTransferStores.set([{ storeId: 'A', alias: 'Origen', isStore: true }, { storeId: 'B', alias: 'Mi tienda', isStore: true }]);
   assert.equal(subject.transferProducts().length, 2);
   assert.equal(subject.transferRecommendations()[0].sourceName, 'Origen');
@@ -121,17 +121,17 @@ test('store scope retains the opposite store of a server-authorized transfer and
 
 test('brand, line, category, product search and reset update both routes and totals', () => {
   const subject = fixture();
-  assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 60 });
+  assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 180 });
   subject.transferBrand.set('ADIDAS');
-  assert.deepEqual(totals(subject), { stockUnits: 112, salesUnits: 40 });
+  assert.deepEqual(totals(subject), { stockUnits: 112, salesUnits: 120 });
   subject.transferBrand.set(''); subject.transferRubro.set('CALZADO');
-  assert.deepEqual(totals(subject), { stockUnits: 80, salesUnits: 20 });
+  assert.deepEqual(totals(subject), { stockUnits: 80, salesUnits: 60 });
   subject.transferRubro.set(''); subject.transferLine.set('ROPA CABALLERO');
-  assert.deepEqual(totals(subject), { stockUnits: 112, salesUnits: 40 });
+  assert.deepEqual(totals(subject), { stockUnits: 112, salesUnits: 120 });
   subject.transferLine.set(''); subject.transferSearch.set('P2');
-  assert.deepEqual(totals(subject), { stockUnits: 80, salesUnits: 20 });
+  assert.deepEqual(totals(subject), { stockUnits: 80, salesUnits: 60 });
   subject.resetTransferFilters();
-  assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 60 });
+  assert.deepEqual(totals(subject), { stockUnits: 192, salesUnits: 180 });
 });
 
 test('store filter keeps only the origin and preserves all eligible destinations', () => {
@@ -143,7 +143,7 @@ test('store filter keeps only the origin and preserves all eligible destinations
   assert.equal(subject.transferRecommendations().length, 3);
   assert(subject.transferRecommendations().every(route => route.source === 'A'));
   assert.deepEqual(Array.from(new Set(subject.transferRecommendations().map(route => route.destination))).sort(), ['B', 'C']);
-  assert.deepEqual(totals(subject), { stockUnits: 180, salesUnits: 10 });
+  assert.deepEqual(totals(subject), { stockUnits: 180, salesUnits: 30 });
 });
 
 test('summary covers all filtered pages and page is clamped when filters reduce the list', () => {
@@ -151,11 +151,11 @@ test('summary covers all filtered pages and page is clamped when filters reduce 
   subject.stockProductsData = () => Array.from({ length: 12 }, (_, i) => [product('A', 100, 0, `P${i}`), product('B', 0, 20, `P${i}`)]).flat();
   subject.transferPage.set(1);
   assert.equal(subject.transferPageRows().length, 2);
-  assert.deepEqual(totals(subject), { stockUnits: 1200, salesUnits: 240 });
+  assert.deepEqual(totals(subject), { stockUnits: 1200, salesUnits: 720 });
   subject.transferSearch.set('P11');
   assert.equal(subject.transferCurrentPage(), 0);
   assert.equal(subject.transferPageRows().length, 1);
-  assert.deepEqual(totals(subject), { stockUnits: 100, salesUnits: 20 });
+  assert.deepEqual(totals(subject), { stockUnits: 100, salesUnits: 60 });
 });
 
 test('matrix groups a product and origin with all eligible destinations', () => {
@@ -167,7 +167,7 @@ test('matrix groups a product and origin with all eligible destinations', () => 
   assert.deepEqual(Array.from(matrix.destinations.keys()), ['B', 'C']);
   assert.deepEqual(Array.from(subject.transferMatrixStores(), store => store.id), ['B', 'C']);
   subject.transferPriority.set('CRITICAL');
-  assert.deepEqual(Array.from(subject.transferPageRows()[0].destinations.keys()), ['B']);
+  assert.deepEqual(Array.from(subject.transferPageRows()[0].destinations.keys()), ['B', 'C']);
 });
 
 test('matrix retains Nissei codes and keeps identical product names separate', () => {
@@ -198,7 +198,7 @@ test('all inventory categories can be selected with their own lines, brands and 
     assert.deepEqual(Array.from(subject.transferBrands()), [`Marca ${category}`]);
     assert.equal(subject.transferRecommendations().length, 1);
     assert.equal(subject.transferRecommendations()[0].category, category);
-    assert.deepEqual(totals(subject), { stockUnits: 50, salesUnits: 10 });
+    assert.deepEqual(totals(subject), { stockUnits: 50, salesUnits: 30 });
   }
   subject.resetTransferFilters();
   assert.equal(subject.transferRecommendations().length, 6);
@@ -247,7 +247,7 @@ test('matrix reset starts without a selected rubro and prefers compact transfer 
   subject.stockTransfersLoaded.set(true);
   subject.stockTransferProductsData.set(candidates);
   assert.equal(subject.transferProducts().length, 2);
-  assert.equal(subject.transferRecommendations()[0].suggested, 10);
+  assert.equal(subject.transferRecommendations()[0].suggested, 20);
 });
 
 test('sales and stock chart do not read or calculate transfer data', () => {

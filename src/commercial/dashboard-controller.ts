@@ -8,7 +8,7 @@ import { adaptiveValueScale } from './chart-scale';
 import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-refresh';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal, type SavedTransferGroup } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
-import { currentCommercialPeriod } from '../lib/currentCommercialPeriod';
+import { closingCommercialPeriod } from '../lib/currentCommercialPeriod';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
 import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
@@ -44,7 +44,7 @@ type ClientPerformanceRow = { periodId: number; storeId: string; category: strin
 type ProductRow = {
   storeId: string; productId: string; productCode?: string; product: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits?: number; mermaStockUnits?: number; desmedroStockUnits?: number;
-  units30: number; sales30: number; units12: number; sales12: number;
+  units30: number; units90?: number; sales30: number; units12: number; sales12: number;
 };
 type TransferCartItem = {
   key: string; productId: string; code: string; product: string; size: string;
@@ -815,8 +815,6 @@ export class CommercialDashboardController implements OnInit {
       .filter(row => this.year() !== cutoffYear || row.periodId % 100 <= cutoffMonth)
       .filter(row => storeIds.has(row.storeId) && this.hasMonthlyData(row))
       .map(row => row.periodId % 100);
-    const current = currentCommercialPeriod();
-    if (this.year() === current.year) periods.push(current.month);
     return [...new Set(periods)].sort((a, b) => a - b);
   });
   readonly activeMonths = computed(() => {
@@ -1237,7 +1235,7 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   readonly filtersModel = computed<DashboardFiltersModel>(() => ({
-    open: this.filtersOpen(), year: this.year(), years: [...new Set([...(this.data()?.metadata.years ?? []), currentCommercialPeriod().year])].filter(y => y >= 2024).sort((a, b) => b - a),
+    open: this.filtersOpen(), year: this.year(), years: [...new Set(this.data()?.metadata.years ?? [])].filter(y => y >= 2024).sort((a, b) => b - a),
     openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
     selected: {
       month: this.selectedMonths(), cluster: this.selectedClusters(), format: this.selectedFormats(),
@@ -3038,7 +3036,7 @@ export class CommercialDashboardController implements OnInit {
     return [
       route.destinationName,
       `Stock vendible destino: ${this.number(route.destinationStock)} und`,
-      `Ventas destino 30D: ${this.number(route.destinationSales)} und`,
+      `Ventas destino 90D: ${this.number(route.destinationSales)} und`,
       `Cobertura destino: ${this.number(route.destinationDays)} días`,
       `Prioridad: ${route.critical ? 'Crítico' : 'Alerta'}`,
       'Se prioriza menor cobertura y luego mayores ventas en 30 días.',
@@ -3115,8 +3113,8 @@ export class CommercialDashboardController implements OnInit {
       size: this.transferSizeLabel(route), source: route.source, sourceName: route.sourceName,
       destination: route.destination, destinationName: route.destinationName, quantity: route.suggested,
       maxQuantity: route.suggested,
-      sourceCapacity: Math.max(0, Math.floor(route.sourceStock - route.sourceSales)),
-      destinationCapacity: Math.max(0, Math.ceil(route.destinationSales - route.destinationStock)),
+      sourceCapacity: Math.max(0, Math.floor(route.sourceStock - route.sourceSales / 90 * 60)),
+      destinationCapacity: Math.max(0, Math.ceil(route.destinationSales / 90 * 60 - route.destinationStock)),
     };
     item.quantity = this.transferCartMaximum(item);
     if (item.quantity > 0) this.transferCartItems.set([...this.transferCartItems(), item]);
@@ -3124,8 +3122,8 @@ export class CommercialDashboardController implements OnInit {
   transferCartAvailable(route: ReturnType<typeof stockTransfers>[number]): number {
     return this.transferCartMaximum({ key: this.transferCartRouteKey(route), productId: route.productId,
       source: route.source, destination: route.destination, maxQuantity: route.suggested,
-      sourceCapacity: Math.max(0, Math.floor(route.sourceStock - route.sourceSales)),
-      destinationCapacity: Math.max(0, Math.ceil(route.destinationSales - route.destinationStock)),
+      sourceCapacity: Math.max(0, Math.floor(route.sourceStock - route.sourceSales / 90 * 60)),
+      destinationCapacity: Math.max(0, Math.ceil(route.destinationSales / 90 * 60 - route.destinationStock)),
     });
   }
   transferCartMaximum(item: Pick<TransferCartItem, 'key' | 'productId' | 'source' | 'destination' | 'maxQuantity' | 'sourceCapacity' | 'destinationCapacity'>): number {
@@ -3226,7 +3224,7 @@ export class CommercialDashboardController implements OnInit {
     const names = new Map(this.transferStores().map(store => [store.storeId, store.alias || store.store]));
     const selected = new Set(this.transferFilteredProducts().map(row => JSON.stringify([row.productId, row.storeId])));
     const scoped = this.storeTransferRoutes()?.filter(row => selected.has(JSON.stringify([row.productId, row.source])) && selected.has(JSON.stringify([row.productId, row.destination])));
-    const routes = scoped ?? (typeof Worker === 'undefined' ? stockTransfers(this.transferFilteredProducts(), 30, 90, false)
+    const routes = scoped ?? (typeof Worker === 'undefined' ? stockTransfers(this.transferFilteredProducts(), 60, 90, false)
       : this.transferWorkerRoutes() || []);
     return routes.map(row => ({ ...row, sourceName: names.get(row.source) || row.source,
       destinationName: names.get(row.destination) || row.destination }));
@@ -3259,8 +3257,8 @@ export class CommercialDashboardController implements OnInit {
           this.transferBusy.set(false);
           worker?.terminate();
         };
-        worker.postMessage(products.map(({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30 }) =>
-          ({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30 })));
+        worker.postMessage(products.map(({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30, units90 }) =>
+          ({ productId, productCode, product, storeId, category, line, brand, stockUnits, goodUnits, units30, units90 })));
       } catch {
         this.transferCalculationError.set('No se pudo iniciar el cálculo de traslados. Recarga la página para reintentar.');
         this.transferBusy.set(false);
@@ -4716,8 +4714,8 @@ export class CommercialDashboardController implements OnInit {
       this.monthlyBrandIndex = this.indexPeriodStore(loaded.monthlyBrand || []);
       this.sellerPerformanceData.set(loaded.sellerPerformance || []);
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
-      // Abrir en el mes calendario de Lima, incluso si aún no tiene ventas.
-      const current = currentCommercialPeriod();
+      // Abrir en el cierre publicado, aunque el calendario ya haya cambiado de mes.
+      const current = closingCommercialPeriod(loaded.metadata.salesCutoff);
       this.year.set(current.year);
       this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
       this.data.set(loaded);
@@ -5217,7 +5215,7 @@ export class CommercialDashboardController implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
-    const current = currentCommercialPeriod(); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
+    const current = closingCommercialPeriod(this.data()?.metadata.salesCutoff); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
@@ -5690,9 +5688,22 @@ export class CommercialDashboardController implements OnInit {
             return;
           }
         }
-        const payload = await this.loadDetail<{ stockCompact: StockCompact }>('dashboard-stock-transfers.json', signal);
+        const loadProducts = async (): Promise<ProductRow[]> => {
+          if (!this.cloud.remoteEnabled() || this.cloud.availableFiles().includes('dashboard-stock-products.json')) {
+            await this.ensureStockDetail();
+            if (!this.stockDetailLoaded()) throw new Error('No se pudo cargar el stock para los traslados.');
+            return this.stockProductsData();
+          }
+          // Las publicaciones ligeras solo distribuyen el conjunto de candidatos.
+          const payload = await this.loadDetail<{ stockCompact: StockCompact }>('dashboard-stock-transfers.json', signal);
+          return decodeStockCompact<ProductRow>(payload.stockCompact, signal);
+        };
+        const [products] = await Promise.all([loadProducts(), this.ensurePredictiveDetail()]);
         signal.throwIfAborted();
-        this.stockTransferProductsData.set(decodeStockCompact<ProductRow>(payload.stockCompact, signal));
+        if (!this.predictiveDetailLoaded()) throw new Error('No se pudieron cargar las ventas de 90 días para los traslados.');
+        this.stockTransferProductsData.set(products.map(row => ({
+          ...row, units90: this.predictiveIndex().get(`${row.storeId}|${row.productId}`)?.units90 ?? 0,
+        })));
         this.stockTransfersLoaded.set(true);
       } catch (error) {
         if (signal.aborted) return;
@@ -5700,8 +5711,7 @@ export class CommercialDashboardController implements OnInit {
           this.stockTransfersError.set(error instanceof Error ? error.message : 'No se pudieron cargar los traslados de la tienda.');
           return;
         }
-        // Una publicación anterior conserva el detalle completo.
-        await this.ensureStockDetail();
+        this.stockTransfersError.set(error instanceof Error ? error.message : 'No se pudieron cargar las ventas de 90 días para los traslados.');
       } finally {
         if (this.stockTransfersPromise === promise) this.stockTransfersPromise = undefined;
       }

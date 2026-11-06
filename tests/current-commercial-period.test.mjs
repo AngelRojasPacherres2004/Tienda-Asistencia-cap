@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { currentCommercialPeriod } from '../src/lib/currentCommercialPeriod.js';
+import { closingCommercialPeriod, currentCommercialPeriod } from '../src/lib/currentCommercialPeriod.js';
+
+test('opens the published closing month instead of the calendar month', () => {
+  assert.deepEqual(closingCommercialPeriod('2026-10-31'), { year: 2026, month: 10 });
+  assert.deepEqual(closingCommercialPeriod('2025-12-31'), { year: 2025, month: 12 });
+});
 
 test('defaults to the current month in Lima', () => {
   assert.deepEqual(currentCommercialPeriod(new Date('2026-11-05T12:00:00Z')), { year: 2026, month: 11 });
