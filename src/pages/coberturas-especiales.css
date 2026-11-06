@@ -1,0 +1,20 @@
+.special-coverage-list { display: grid; gap: 14px; }
+.special-coverage-card { overflow: hidden; border: 1px solid #dbe4ee; border-radius: 12px; background: #fff; color: #18354f; }
+.special-coverage-card__header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; border-bottom: 1px solid #e8eef5; }
+.special-coverage-card__header h2 { margin: 0 0 5px; font-size: 15px; color: #173c65; overflow-wrap: anywhere; }
+.special-coverage-card__header p { margin: 0; color: #718096; font-size: 12px; }
+.special-coverage-card__people { display: grid; }
+.special-coverage-person { min-width: 0; padding: 14px 18px; }
+.special-coverage-person + .special-coverage-person { border-top: 1px solid #edf1f6; }
+.special-coverage-person__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.special-coverage-person__heading > div { min-width: 0; }
+.special-coverage-person h3 { margin: 0 0 4px; font-size: 13px; color: #203f60; overflow-wrap: anywhere; }
+.special-coverage-person__heading > div > span { color: #718299; font-size: 11px; }
+.special-coverage-person__hours { padding: 5px 9px; border-radius: 6px; background: #f0f5fa; color: #315a7b; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.special-coverage-person__route { margin: 9px 0 0; color: #65788c; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.special-coverage-person__route > span:not(.sr-only) { padding: 0 5px; color: #97a7b7; }
+.special-coverage-person__note { margin: 6px 0 0; color: #7a899a; font-size: 12px; line-height: 1.5; }
+.special-coverage-empty { border: 1px dashed #d4dfea; border-radius: 12px; background: #fafcfe; }
+.special-coverage-modal .coverage-worker { border-color: #dbe5ef; background: #fafcfe; gap: 12px; padding: 16px; }
+.special-coverage-modal .coverage-worker label > span { color: #546d85; }
+@media (max-width: 600px) { .special-coverage-card__header { padding: 14px; flex-wrap: wrap; } .special-coverage-person { padding: 14px; } }

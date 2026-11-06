@@ -369,7 +369,7 @@ const { authAccount, login, credentialPermissions, setCredentialPermission, chan
 });
 
 // ---------- Usuarios ----------
-const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, listPeopleDirectory, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
+const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, listPeopleDirectory, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, userDeletionStatus, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
   supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, storeStaffRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse,
 });
 
@@ -886,6 +886,11 @@ export async function handler(event) {
         : await exportStoreUsersExcel(user, event.queryStringParameters?.plantilla === "1");
     }
     const userMatch = path.match(/^\/usuarios\/(\d+)$/);
+    const userDeletionStatusMatch = path.match(/^\/usuarios\/(\d+)\/estado-eliminacion$/);
+    if (userDeletionStatusMatch && method === "GET") {
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"]);
+      return json(200, await userDeletionStatus(Number(userDeletionStatusMatch[1]), user));
+    }
     if (userMatch && method === "PUT") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       await updateUser(event, Number(userMatch[1]), user);
@@ -1096,7 +1101,7 @@ export async function handler(event) {
       return json(200, await storeSalesForecast(event, user));
     }
     if (path === "/trafico/matriz" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listTrafficMatrix(event, user));
     }
     if (path === "/trafico" && method === "GET") {

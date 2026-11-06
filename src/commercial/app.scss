@@ -423,6 +423,14 @@
 .ticket-modal-filters { display: flex; flex-wrap: wrap; gap: 16px; }
 .ticket-modal-content { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(380px, 1fr); gap: 20px; flex: 1; min-height: 0; }
 .ticket-modal-content > dashboard-chart { height:100%; min-height:320px; }
+.page-one .chart-card:has(.commercial-filter-scope--partial) {
+  border: 2px solid #c59a39;
+  border-radius: 12px;
+  box-shadow: 0 0 0 3px rgba(197,154,57,.12), 0 6px 18px rgba(197,154,57,.14);
+}
+.commercial-filter-scope { margin: 0 0 6px; color: #475569; font-size: 10px; line-height: 1.4; }
+.commercial-filter-scope--partial { color: #795b1c; }
+.chart-title-period { font-weight: 600; text-transform: uppercase; }
 .ticket-modal-content--seller { grid-template-rows: minmax(220px, 1.15fr) minmax(180px, .85fr); }
 .ticket-modal-content--seller > dashboard-chart { grid-column: 1; grid-row: 1; }
 .ticket-modal-content--seller > .ticket-monthly-table { grid-column: 1; grid-row: 2; }
@@ -466,6 +474,8 @@
 .size-detail-table .size-detail-product { text-align: left; white-space: normal; min-width: 320px; font-weight: 500; }
 .ticket-extreme-max { background: #dcfce7; color: #166534; --extreme: '↑ '; }
 .ticket-extreme-min { background: #fee2e2; color: #991b1b; --extreme: '↓ '; }
+.ticket-monthly-table td.ticket-extreme-min { background: #fee2e2; color: #991b1b; font-weight: 700; }
+.ticket-monthly-table td.ticket-extreme-max { background: #dcfce7; color: #166534; font-weight: 700; }
 .ticket-extreme-equal { background: #ede9fe; color: #5b21b6; --extreme: '↕ '; }
 .ticket-monthly-table td[class^='ticket-extreme'] { font-weight: 700; }
 .ticket-monthly-table td::before { content: var(--extreme, ''); }

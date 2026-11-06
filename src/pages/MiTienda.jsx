@@ -1,7 +1,7 @@
 import { attendanceDayIndex, attendancePersonId, PRESENT_STATES } from "../../shared/attendance.js";
 import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CalendarCheck2, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, ChevronLeft, ChevronRight, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { demoTrafficTotal, demoZonalComparison, isOperationalDemo } from "../lib/operationalDemo";
@@ -104,26 +104,27 @@ function DashboardUpcomingDocumentsKpi({ documents, total }) {
 function DashboardSection({ kicker, title }) { return <header className="store-dashboard-section"><div><span>{kicker}</span><h2>{title}</h2></div></header>; }
 
 const forecastMoney = (value) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", maximumFractionDigits: 0 }).format(Number(value) || 0);
+const direction = (factor) => Number(factor) > 1 ? "alta" : Number(factor) < 1 ? "baja" : "neutral";
 function SalesForecastMatrix({ forecast, error, storeName, compactTitles = false }) {
-  const [weekIndex, setWeekIndex] = useState(0);
-  useEffect(() => { setWeekIndex(0); }, [forecast?.salesCutoff, forecast?.weekStart]);
-  if (error) return <section className="sales-forecast-panel panel"><header><div>{!compactTitles && <span>Proyección comercial</span>}<h2>{compactTitles ? "Venta esperada" : "Venta esperada semanal"}</h2></div></header><Notice type="error">{error}</Notice></section>;
+  const [dayWindow, setDayWindow] = useState({ month: "", start: 0 });
+  const month = forecast?.monthStart || forecast?.weekStart || "";
+  const lastStart = Math.max(0, (forecast?.days.length || 0) - 7);
+  const start = dayWindow.month === month ? Math.min(dayWindow.start, lastStart) : 0;
+  const visibleDays = forecast?.days.slice(start, start + 7) || [];
+  const moveWindow = value => setDayWindow({ month, start: Math.max(0, Math.min(lastStart, value)) });
+  if (error) return <section className="sales-forecast-panel panel"><header><div>{!compactTitles && <span>Proyección comercial</span>}<h2>Venta esperada del mes</h2></div></header><Notice type="error">{error}</Notice></section>;
   if (!forecast) return <section className="sales-forecast-panel panel"><div className="sales-forecast-loading"><span className="loader" />Calculando pronóstico de venta…</div></section>;
-  const weeks = Array.from({ length: Math.max(1, Math.ceil((forecast.days || []).length / 7)) }, (_, index) => (forecast.days || []).slice(index * 7, index * 7 + 7));
-  const safeWeekIndex = Math.min(weekIndex, Math.max(0, weeks.length - 1));
-  const selectedWeek = weeks[safeWeekIndex] || [];
-  const sum = (rows, key) => rows.reduce((total, row) => total + (Number(row?.[key]) || 0), 0);
-  const weekExpected = sum(selectedWeek, "expected");
-  const weekTarget = sum(selectedWeek, "target");
-  const monthlyQuota = Number(forecast.monthlyTarget ?? forecast.target) || 0;
-  const firstDate = selectedWeek[0]?.date || forecast.weekStart;
-  const lastDate = selectedWeek.at(-1)?.date || forecast.weekEnd;
-  const weekLabel = `${formatDate(firstDate)} – ${formatDate(lastDate)}`;
   return <section className="sales-forecast-panel panel" aria-label={`Pronóstico de ventas de ${storeName}`}>
-    <header><div>{!compactTitles && <span>Proyección comercial · corte {formatDate(forecast.salesCutoff)}</span>}<h2>{compactTitles ? "Venta esperada" : `Venta esperada · ${weekLabel}`}</h2>{!compactTitles && <p>{forecast.method}</p>}</div>{!compactTitles && <strong className="sales-forecast-confidence">Semana {safeWeekIndex + 1}/{weeks.length}</strong>}</header>
-    <div className="sales-forecast-week-nav"><button type="button" onClick={() => setWeekIndex((value) => Math.max(0, value - 1))} disabled={safeWeekIndex === 0}>‹ Semana anterior</button><strong>{weekLabel}</strong><button type="button" onClick={() => setWeekIndex((value) => Math.min(weeks.length - 1, value + 1))} disabled={safeWeekIndex >= weeks.length - 1}>Semana siguiente ›</button></div>
-    <div className="sales-forecast-kpis"><article><small>Venta esperada</small><strong>{forecastMoney(weekExpected)}</strong></article><article><small>Meta mensual</small><strong>{monthlyQuota ? forecastMoney(monthlyQuota) : "Sin meta"}</strong></article><article><small>Meta semanal</small><strong>{weekTarget ? forecastMoney(weekTarget) : "Sin meta"}</strong></article></div>
-    <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Venta esperada</th></tr></thead><tbody>{selectedWeek.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td>{forecastMoney(day.expected)}</td></tr>)}</tbody><tfoot><tr><th>Total semana</th><td>{forecastMoney(weekExpected)}</td></tr></tfoot></table></div>
+    <header><div>{!compactTitles && <span>Proyección comercial · corte {formatDate(forecast.salesCutoff)}</span>}<h2>Venta esperada del mes</h2><p>{formatDate(forecast.monthStart)} al {formatDate(forecast.monthEnd)} · {forecast.days.length} días</p>{!compactTitles && <p>{forecast.method}</p>}</div>{!compactTitles && <strong className="sales-forecast-confidence">Confianza {forecast.confidence}%</strong>}</header>
+    <div className="sales-forecast-kpis"><article><small>Venta esperada</small><strong>{forecastMoney(forecast.expected)}</strong></article><article><small>Rango probable</small><strong>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</strong></article><article><small>Meta mensual</small><strong>{forecast.target ? forecastMoney(forecast.target) : "Sin meta"}</strong></article></div>
+    <div className="sales-forecast-slider">
+      <button type="button" disabled={start === 0} onClick={() => moveWindow(start - 7)} aria-label="Ver siete días anteriores"><ChevronLeft size={18} /></button>
+      <label><span><strong>Días del mes</strong><output aria-live="polite">{formatDate(visibleDays[0]?.date)} al {formatDate(visibleDays.at(-1)?.date)}</output></span><input type="range" aria-label="Deslizar días de venta esperada" aria-valuetext={`Del día ${start + 1} al ${Math.min(start + 7, forecast.days.length)}`} min={0} max={lastStart} step={1} value={start} disabled={!lastStart} onChange={event => moveWindow(Number(event.target.value))} /><small>Desliza para recorrer el mes · 7 días a la vez</small></label>
+      <button type="button" disabled={start === lastStart} onClick={() => moveWindow(start + 7)} aria-label="Ver siete días siguientes"><ChevronRight size={18} /></button>
+    </div>
+    <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Venta esperada</th><th>Rango probable</th><th>Meta diaria</th></tr></thead><tbody>{visibleDays.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td>{forecastMoney(day.expected)}</td><td>{forecastMoney(day.lower)} – {forecastMoney(day.upper)}</td><td>{day.target ? forecastMoney(day.target) : "—"}</td></tr>)}</tbody><tfoot><tr><th>Total del mes</th><td>{forecastMoney(forecast.expected)}</td><td>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</td><td>{forecast.target ? forecastMoney(forecast.target) : "—"}</td></tr></tfoot></table></div>
+    <div className="sales-forecast-drivers" aria-label="Variables usadas en el pronóstico">{forecast.drivers.map((driver) => <span key={driver.label} className={!driver.available && driver.available !== undefined ? "is-missing" : direction(driver.factor)}><small>{driver.label}</small><strong>{driver.available === false ? "Sin datos" : `${driver.factor >= 1 ? "+" : ""}${((driver.factor - 1) * 100).toFixed(1)}%`}</strong></span>)}</div>
+    <p className="sales-forecast-note">Es una estimación operativa, no una garantía. El rango se amplía automáticamente cuando hay menos historial o mayor variación.</p>
   </section>;
 }
 

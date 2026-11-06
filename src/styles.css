@@ -467,6 +467,19 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .assignment-date.overdue strong { color: #aa4d49; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 13px; padding: 15px; color: #8490a0; font-size: 10px; }
 .pagination button { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; color: #59687c; background: #fff; }
+.sales-forecast-pagination { flex-wrap: wrap; background: #fff; color: #53677d; }
+.sales-forecast-pagination button { width: auto; min-width: 80px; min-height: 36px; padding: 0 10px; cursor: pointer; }
+.sales-forecast-pagination button:disabled { opacity: .45; cursor: default; }
+.sales-forecast-pagination span { text-align: center; }
+.sales-forecast-slider { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #e1e8ef; background: #fff; }
+.sales-forecast-slider button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #d6e1ec; border-radius: 9px; color: #24568a; background: #f3f7fc; cursor: pointer; }
+.sales-forecast-slider button:disabled { opacity: .35; cursor: default; }
+.sales-forecast-slider label { min-width: 0; }
+.sales-forecast-slider label > span { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; color: #42617e; font-size: 12px; }
+.sales-forecast-slider output { color: #173c65; font-variant-numeric: tabular-nums; }
+.sales-forecast-slider input[type=range] { display: block; width: 100%; min-height: 28px; padding: 0; margin: 6px 0; accent-color: #245b91; cursor: pointer; }
+.sales-forecast-slider small { display: block; color: #768a9e; font-size: 11px; }
+@media (max-width: 600px) { .sales-forecast-slider { gap: 8px; padding: 12px; } }
 
 .modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 25px; background: rgba(11,22,38,.55); backdrop-filter: blur(4px); animation: fadeIn .15s ease; }
 @keyframes fadeIn { from { opacity: 0; } }

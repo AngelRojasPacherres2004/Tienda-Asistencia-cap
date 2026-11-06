@@ -2,6 +2,7 @@ import { districts, storePersonnelColumns, normalizePersonnelHeader } from '../.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Edit3, Eye, FileSpreadsheet, Trash2, Upload, UsersRound } from "lucide-react";
 import { api, downloadFile, todayISO } from "../lib/api";
+import { removePersonnel } from "../lib/personnelDeletion";
 import { clusterLabel, isCommercialCluster } from "../lib/clusters";
 import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
 import { departureReasonOptions, normalizeDepartureReason, validDepartureReason } from "../lib/personnelCatalogs";
@@ -56,6 +57,9 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const [editing, setEditing] = useState(null);
   const [optionalFields, setOptionalFields] = useState({ email: false, telefono_emergencia: false, numero_hijos: false, alergia: false, condicion_salud: false });
   const [deleting, setDeleting] = useState(null);
+  const [deleteIssue, setDeleteIssue] = useState("");
+  const [historyBlocked, setHistoryBlocked] = useState(null);
+  const [deletionChecks, setDeletionChecks] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -273,19 +277,32 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   };
 
   const remove = async () => {
-    setBusy(true); setNotice(null);
+    if (busy || !deleting) return;
+    setBusy(true); setNotice(null); setDeleteIssue("");
     try {
-      const result = await api(`/usuarios/${deleting.id}`, { method: "DELETE" });
+      const result = await removePersonnel(api, deleting.id, { verifyOnly: deletionChecks.has(deleting.id) });
+      setDeletionChecks(current => {
+        const next = new Set(current);
+        if (result.kind === "unknown") next.add(deleting.id); else next.delete(deleting.id);
+        return next;
+      });
+      if (["unknown", "retained"].includes(result.kind)) {
+        setDeleteIssue(result.message);
+        return;
+      }
+      if (result.kind === "history") {
+        setHistoryBlocked({ name: `${deleting.nombres} ${deleting.apellidos}`, message: result.message });
+        setDeleting(null);
+        return;
+      }
       setDeleting(null);
       await load();
       setNotice({
-        type: "success",
-        text: result.inhabilitado
-          ? "Ese usuario ya tiene historial registrado, así que se inhabilitó en vez de eliminarse."
-          : "Usuario eliminado.",
+        type: result.kind === "deleted" ? "success" : "info",
+        text: result.kind === "deleted" ? "Usuario eliminado." : "El trabajador ya no está registrado. Se actualizó la lista; no se realizó otra eliminación.",
       });
     } catch (err) {
-      setNotice({ type: "error", text: err.message });
+      setDeleteIssue(err.message);
     } finally {
       setBusy(false);
     }
@@ -412,7 +429,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
                 <div className="row-actions">
                   <button onClick={() => openView(item)} title="Ver ficha" aria-label="Ver ficha"><Eye size={15} /></button>
                   {(!isStoreAdmin || item.rol !== "jefe_tienda") && (!zonalTeam || item.rol === "jefe_tienda") && <button onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit3 size={15} /></button>}
-                  {!zonalTeam && (!isStoreAdmin || item.rol !== "jefe_tienda") && <button className="danger" onClick={() => setDeleting(item)} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
+                  {!zonalTeam && (!isStoreAdmin || item.rol !== "jefe_tienda") && <button className="danger" onClick={() => { setDeleteIssue(""); setDeleting(item); }} title="Eliminar" aria-label="Eliminar"><Trash2 size={15} /></button>}
                 </div>
               </div>
             ))}
@@ -448,7 +465,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Fecha de nacimiento"><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
             <Field label="Edad" hint="Se calcula según la fecha de nacimiento"><input readOnly value={editing.fecha_nacimiento ? Math.max(0, Math.floor((Date.now() - new Date(`${editing.fecha_nacimiento}T12:00:00`).getTime()) / 31557600000)) : ""} /></Field>
             <Field label="Sueldo"><input type="number" min="0" step="0.01" placeholder="0,00" value={editing.sueldo ?? ""} onChange={(e) => set("sueldo", e.target.value)} /></Field>
-            {!isStoreAdmin && <><Field label="Fecha de salida" error={fieldErrors.fecha_salida}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => setEditing((current) => ({ ...current, fecha_salida:e.target.value, estado:e.target.value ? "inactivo" : "activo", motivo_salida:e.target.value ? current.motivo_salida : "" }))} /></Field>
+            {editing.id && <><Field label="Fecha de salida" error={fieldErrors.fecha_salida}><input type="date" disabled={!editing.id} min={editing.fecha_ingreso || undefined} value={editing.fecha_salida || ""} onChange={(e) => setEditing((current) => ({ ...current, fecha_salida:e.target.value, estado:e.target.value ? "inactivo" : "activo", motivo_salida:e.target.value ? current.motivo_salida : "" }))} /></Field>
             <Field label="Motivo de salida" error={fieldErrors.motivo_salida}><select required={Boolean(editing.fecha_salida)} disabled={!editing.id || !editing.fecha_salida} value={normalizeDepartureReason(editing.motivo_salida)} onChange={(e) => set("motivo_salida", e.target.value)}><option value="">Selecciona un motivo</option>{departureReasonOptions(editing.motivo_salida).map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></Field>
             </>}
             {availableRoles.length > 0 && (
@@ -531,11 +548,19 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
       <ConfirmDialog
         open={!!deleting}
         title="Eliminar usuario"
-        message={`¿Seguro que quieres eliminar a ${deleting?.nombres} ${deleting?.apellidos}? Si ya tiene asistencias o capacitaciones registradas, se inhabilitará en vez de eliminarse.`}
+        message={`¿Seguro que quieres eliminar a ${deleting?.nombres} ${deleting?.apellidos}? Solo se eliminará si no tiene ningún registro vinculado. Si tiene historial, se conservará sin cambios.`}
         busy={busy}
-        onClose={() => setDeleting(null)}
+        error={deleteIssue}
+        confirmLabel={deletionChecks.has(deleting?.id) ? "Verificar estado" : "Sí, eliminar"}
+        busyLabel={deletionChecks.has(deleting?.id) ? "Verificando…" : "Eliminando…"}
+        onClose={() => { if (!busy) setDeleting(null); }}
         onConfirm={remove}
       />
+      <Modal open={!!historyBlocked} title="Trabajador con historial" onClose={() => setHistoryBlocked(null)}>
+        <p><strong>{historyBlocked?.name}</strong></p>
+        <p role="status">{historyBlocked?.message}</p>
+        <div className="form-actions"><button type="button" className="button button--primary" onClick={() => setHistoryBlocked(null)}>Entendido</button></div>
+      </Modal>
       <ConfirmDialog open={!!rehire} title="Reingreso de personal" message={`El DNI ${rehire?.dni || ""} ya tiene una ficha inactiva. ¿Estás seguro de reactivar a ${rehire?.nombres || ""} ${rehire?.apellidos || ""} y conservar su historial?`} busy={busy} onClose={() => setRehire(null)} onConfirm={() => save(null, true)} />
       <SuccessDialog open={!!success} title={success?.title} message={success?.message} onContinue={() => setSuccess(null)} />
     </>

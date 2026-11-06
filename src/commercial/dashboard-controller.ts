@@ -8,6 +8,7 @@ import { adaptiveValueScale } from './chart-scale';
 import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-refresh';
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
+import { currentCommercialPeriod } from '../lib/currentCommercialPeriod';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
 import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
@@ -809,6 +810,8 @@ export class CommercialDashboardController implements OnInit {
       .filter(row => this.year() !== cutoffYear || row.periodId % 100 <= cutoffMonth)
       .filter(row => storeIds.has(row.storeId) && this.hasMonthlyData(row))
       .map(row => row.periodId % 100);
+    const current = currentCommercialPeriod();
+    if (this.year() === current.year) periods.push(current.month);
     return [...new Set(periods)].sort((a, b) => a - b);
   });
   readonly activeMonths = computed(() => {
@@ -1229,7 +1232,7 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   readonly filtersModel = computed<DashboardFiltersModel>(() => ({
-    open: this.filtersOpen(), year: this.year(), years: (this.data()?.metadata.years ?? []).filter(y => y >= 2024),
+    open: this.filtersOpen(), year: this.year(), years: [...new Set([...(this.data()?.metadata.years ?? []), currentCommercialPeriod().year])].filter(y => y >= 2024).sort((a, b) => b - a),
     openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
     selected: {
       month: this.selectedMonths(), cluster: this.selectedClusters(), format: this.selectedFormats(),
@@ -1297,7 +1300,7 @@ export class CommercialDashboardController implements OnInit {
       { label: 'NOTAS DE CRÉDITO', title: `${this.money(metrics.notes)}. Fórmula: notas de crédito.`, value: this.money(metrics.notes, true) },
       { label: 'DESCUENTO TOTAL', title: `${this.money(metrics.discount)}. Fórmula: venta sugerida − venta real.`, value: this.money(metrics.discount, true) },
       { label: 'VENTA NETA', className: 'net-kpi', title: `${this.money(metrics.net)}. Fórmula: bruta − descuentos − NC.`, value: this.money(metrics.net, true) },
-      { label: 'PROYECCIÓN CIERRE', className: 'projection-kpi actionable-kpi', action: 'projection', title: `${this.money(metrics.projectedClose)}. Fórmula: histórico ajustado por tendencia.`, value: this.money(metrics.projectedClose, true) },
+      { label: 'PROYECCIÓN CIERRE', className: 'projection-kpi actionable-kpi', action: 'projection', title: `${this.money(metrics.projectedClose)}. Fórmula: venta neta acumulada + promedio histórico de los meses pendientes.`, value: this.money(metrics.projectedClose, true) },
       { label: 'BRECHA ACUMULADA', className: 'projection-meta-kpi', title: `${this.money(gap)}. Fórmula: cuota − venta neta.`, value: `${gap != null && gap <= 0 ? '▲ ' : '▼ '}${this.money(Math.abs(gap || 0), true)}`, valueClass: (gap || 0) <= 0 ? 'positive' : 'negative' },
       { label: 'VENTA PROMEDIO DIARIA', className: 'featured-kpi daily-average-kpi', title: `${this.money(metrics.dailyAverage)}. Fórmula: venta neta ÷ días del período.`, value: this.money(metrics.dailyAverage, true) },
     ] };
@@ -1312,10 +1315,10 @@ export class CommercialDashboardController implements OnInit {
     if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficMetro)}. Fórmula: ingresos registrados en METRO.`, action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
     if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficOther)}. Fórmula: ingresos registrados en otras tiendas.`, action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
     actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: `${this.percent(metrics.conversion)}. Fórmula: transacciones ÷ tráfico.` + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
-    for (const card of actions) if (card.action.startsWith('traffic')) card.title += trafficNote;
+    for (const card of actions) if (card.action === 'trafficOther') card.title += trafficNote;
     actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: `${this.money(metrics.ticket)}. Fórmula: venta neta ÷ transacciones.`, action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
     return {
-      actions: actions.map(card => ({ ...card, note: card.action.startsWith('traffic') ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
+      actions: actions.map(card => ({ ...card, note: card.action === 'trafficOther' ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
       saleM2: this.money(metrics.saleM2), saleM2Title: `${this.money(metrics.saleM2)}. Fórmula: venta neta ÷ área comercial.`, personnel: this.number(metrics.personnel),
       saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
       saleCollaboratorTitle: `${this.money(metrics.saleCollaborator)}. Fórmula: venta neta ÷ colaboradores.`,
@@ -1784,9 +1787,14 @@ export class CommercialDashboardController implements OnInit {
       d: this.sectionHeadingModel('commercial-d'),
     },
     primary: this.primaryKpiModel(), key: this.keyKpiModel(), progress: this.progressModel(),
-    meta: this.metaVsRealCardModel(), category: this.categoryCardModel(), brand: this.brandCardModel(),
-    hourly: this.hourlyCardModel(), ranking: this.rankingCardModel(), gender: this.genderCardModel(),
-    growth: this.growthCardModel(), price: this.priceRangeCardModel(),
+    meta: { ...this.metaVsRealCardModel(), periodLabel: this.periodContextLabel(this.historicalYearPeriods().map(period => period % 100), this.year()) },
+    category: { ...this.categoryCardModel(), periodLabel: this.chartPeriodLabel() },
+    brand: { ...this.brandCardModel(), periodLabel: this.chartPeriodLabel() },
+    hourly: { ...this.hourlyCardModel(), periodLabel: this.chartPeriodLabel() },
+    ranking: { ...this.rankingCardModel(), periodLabel: this.periodContextLabel(this.activeMonths(), this.year()) },
+    gender: { ...this.genderCardModel(), periodLabel: this.chartPeriodLabel() },
+    growth: { ...this.growthCardModel(), periodLabel: `${this.periodContextLabel(Array.from({ length: this.yearOnlyMonthLimit(this.year()) }, (_, index) => index + 1), this.year())} vs ${this.year() - 1}` },
+    price: { ...this.priceRangeCardModel(), periodLabel: this.chartPeriodLabel() },
   }));
 
   onReactCommercialPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
@@ -1884,7 +1892,7 @@ export class CommercialDashboardController implements OnInit {
       option: blackChartText(this.ticketMonthlyOption()), tableLabel: 'Ticket promedio, transacciones y venta neta por mes',
       headers: ['Mes', 'Ticket promedio', 'Transacciones', 'Venta neta'], legendItems: [{ label: 'Ticket promedio', color: C.navy }],
       rows: this.ticketVisibleMonthlyRows().map(row => ({ label: row.label, cells: [
-        { text: this.money(row.ticket) }, { text: this.number(row.transactions) }, { text: this.money(row.net) },
+        { value: row.ticket, text: this.money(row.ticket) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.net, text: this.money(row.net) },
       ] })) };
     if (kind === 'conversion') return { ...common, titleId: 'conversion-chart-title', title: 'CONVERSIÓN POR MES',
       closeLabel: 'Cerrar gráfico de conversión', chartId: 'modal-conversion', chartLabel: 'Evolución mensual de conversión',
@@ -1892,7 +1900,7 @@ export class CommercialDashboardController implements OnInit {
       option: blackChartText(this.conversionMonthlyOption()), tableLabel: 'Conversión, transacciones y tráfico por mes',
       headers: ['Mes', 'Conversión', 'Transacciones', 'Tráfico'], legendItems: [{ label: 'Conversión', color: C.navy }],
       rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
-        { text: this.percent(row.conversion) }, { text: this.number(row.transactions) }, { text: this.number(row.traffic) },
+        { value: row.conversion, text: this.percent(row.conversion) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.traffic, text: this.number(row.traffic) },
       ] })) };
     return { ...common, titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
       closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
@@ -1900,7 +1908,7 @@ export class CommercialDashboardController implements OnInit {
       option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
       headers: ['Mes', 'Tráfico', 'Transacciones', 'Conversión'], legendItems: [{ label: this.trafficChartLabel(), color: C.navy }],
       rows: this.trafficMonthlyRows().map(row => ({ label: row.label, cells: [
-        { text: this.number(row.traffic) }, { text: this.number(row.transactions) }, { text: this.percent(row.conversion) },
+        { value: row.traffic, text: this.number(row.traffic) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.conversion, text: this.percent(row.conversion) },
       ] })) };
   }
 
@@ -1918,7 +1926,7 @@ export class CommercialDashboardController implements OnInit {
       chartId: 'projection-close-chart', chartLabel: 'Proyección de venta de los meses pendientes',
       hideChart: true,
       hasData: rows.length > 0, emptyText: 'El año seleccionado ya no tiene meses pendientes.',
-      dataNote: `Factor = venta acumulada ${this.year()} ÷ histórico comparable (60% ${this.year() - 1} + 40% ${this.year() - 2}). Cierre = venta acumulada real + (histórico de meses pendientes × factor).`,
+      dataNote: `Venta neta acumulada + promedio de los meses pendientes de ${this.year() - 1} y ${this.year() - 2}. Si falta un año, se usa el disponible.`,
       option: blackChartText({
         animation: false, tooltip: { trigger: 'axis' }, grid: { left: 72, right: 24, top: 28, bottom: 42 },
         xAxis: { type: 'category', data: rows.map(row => MONTHS[row.month - 1]) },
@@ -1926,11 +1934,11 @@ export class CommercialDashboardController implements OnInit {
         series: [{ name: 'Proyección', type: 'bar', data: rows.map(row => row.projected), itemStyle: { color: C.navy, borderRadius: [5, 5, 0, 0] } }],
       }),
       tableLabel: 'Matriz mensual de proyección de cierre',
-      headers: ['Mes', `Venta ${this.year() - 1}`, `Venta ${this.year() - 2}`, 'Factor', 'Proyección'],
+      headers: ['Mes', `Venta ${this.year() - 1}`, `Venta ${this.year() - 2}`, 'Promedio histórico', 'Proyección'],
       legend: false,
       rows: rows.map(row => ({ label: this.monthNamesFull[row.month - 1], cells: [
-        { text: this.money(row.previous) }, { text: this.money(row.twoYearsAgo) },
-        { text: this.percent((detail.growth ?? 0) + 1) }, { text: this.money(row.projected) },
+        { value: row.previous, text: this.money(row.previous) }, { value: row.twoYearsAgo, text: this.money(row.twoYearsAgo) },
+        { value: row.available ? row.seasonal : null, text: row.available ? this.money(row.seasonal) : "N/A" }, { value: row.available ? row.projected : null, text: row.available ? this.money(row.projected) : "N/A" },
       ] })),
     };
   });
@@ -1952,8 +1960,8 @@ export class CommercialDashboardController implements OnInit {
       tableLabel: 'Matriz mensual de cuota, venta neta, brecha y cumplimiento',
       headers: ['Mes', 'Cuota', 'Venta neta', 'Brecha', 'Cumplimiento'], legend: false,
       rows: rows.map(row => ({ label: row.label, cells: [
-        { text: this.money(row.target) }, { text: this.money(row.real) },
-        { text: this.money(row.gap), className: row.gap <= 0 ? 'positive' : 'negative' }, { text: this.percent(row.compliance) },
+        { value: row.target, text: this.money(row.target) }, { value: row.real, text: this.money(row.real) },
+        { value: row.gap, text: this.money(row.gap), className: row.gap <= 0 ? 'positive' : 'negative' }, { value: row.compliance, text: this.percent(row.compliance) },
       ] })),
     };
   });
@@ -2017,12 +2025,12 @@ export class CommercialDashboardController implements OnInit {
       } as EChartsOption),
       tableLabel: `Comparación mensual de ${titles[metric]}`, headers: ['Mes', titles[metric], 'Venta neta', ...(metric === 'saleCollaborator' ? ['Colaboradores'] : metric === 'sellThrough' ? ['Unidades'] : [])],
       rows: displayMonths.map(row => ({ label: row.label, cells: [
-        { text: percentMetric ? this.percent(row.value) : this.money(row.value) }, { text: this.money(row.net, true) },
-        ...(metric === 'saleCollaborator' ? [{ text: this.number(row.personnel) }] : metric === 'sellThrough' ? [{ text: this.number(row.units) }] : []),
+        { value: row.value, text: percentMetric ? this.percent(row.value) : this.money(row.value) }, { value: row.net, text: this.money(row.net, true) },
+        ...(metric === 'saleCollaborator' ? [{ value: row.personnel, text: this.number(row.personnel) }] : metric === 'sellThrough' ? [{ value: row.units, text: this.number(row.units) }] : []),
       ] })), legendItems: [{ label: titles[metric] || 'Indicador', color: C.navy }],
       sellerDetail: metric === 'saleCollaborator' ? { loading: this.sellerDetailLoading(), month: selectedMonth,
-        rows: [...sellerRows.map(row => ({ seller: row.seller, net: this.money(row.net, true) })),
-          ...(Math.abs(unmatchedNet) > .01 ? [{ seller: 'Sin vendedor asignado / ajuste', net: this.money(unmatchedNet, true) }] : [])],
+        rows: [...sellerRows.map(row => ({ seller: row.seller, value: row.net, net: this.money(row.net, true) })),
+          ...(Math.abs(unmatchedNet) > .01 ? [{ seller: 'Sin vendedor asignado / ajuste', value: unmatchedNet, net: this.money(unmatchedNet, true) }] : [])],
         net: this.money(totalNet, true), personnel: this.number(averagePersonnel), kpi: averagePersonnel ? this.money(totalNet / averagePersonnel) : 'N/A' } : null,
     };
   });
@@ -2247,50 +2255,36 @@ export class CommercialDashboardController implements OnInit {
       : rows;
   }
 
-  // Proyección anual estándar: venta acumulada real más los meses pendientes
-  // del histórico comparable ajustados por un único factor. La meta sirve solo
-  // para contrastar el forecast, nunca para calcularlo.
-  private salesProjection(actual: number): { value: number | null; base: number | null; growth: number | null; error: number | null;
-    actualYtd: number; historicYtd: number; ytdForecast: number; seasonalForecast: number; runRateForecast: number;
-    weights: { ytd: number; seasonal: number; runRate: number }; months: { month: number; previous: number; twoYearsAgo: number; seasonal: number; weight: number; projected: number }[] } {
+  // Venta neta acumulada + promedio de los mismos meses pendientes de los dos años anteriores.
+  private salesProjection(actual: number) {
     const currentYear = this.year();
     const lastMonth = this.activeMonths().at(-1) ?? this.yearOnlyMonthLimit(currentYear);
+    const ids = this.filteredStoreIds();
     const actualPeriods = Array.from({ length: lastMonth }, (_, index) => currentYear * 100 + index + 1);
-    const actualYtd = sum(this.rowsForPeriods(actualPeriods, this.filteredStoreIds()), 'net');
-    if (!lastMonth || lastMonth >= 12) return { value: actualYtd || actual, base: 0, growth: null, error: null,
-      actualYtd, historicYtd: 0, ytdForecast: actualYtd || actual, seasonalForecast: actualYtd || actual,
-      runRateForecast: actualYtd || actual, weights: { ytd: 1, seasonal: 0, runRate: 0 }, months: [] };
+    const actualYtd = sum(this.rowsForPeriods(actualPeriods, ids), 'net');
     const cutoff = this.data()?.metadata.salesCutoff || '';
-    const cutoffYear = Number(cutoff.slice(0, 4));
     const cutoffDay = Number(cutoff.slice(8, 10));
-    const isPartialCutoffMonth = currentYear === cutoffYear && !this.selectedMonths().length && cutoffDay > 0;
-    const monthProgress = isPartialCutoffMonth ? Math.min(1, cutoffDay / new Date(currentYear, lastMonth, 0).getDate()) : 1;
-    const historicalToDate = (year: number): number => Array.from({ length: lastMonth }, (_, index) => index + 1)
-      .reduce((total, month) => total + sum(this.rowsForPeriods([year * 100 + month], this.filteredStoreIds()), 'net') * (month === lastMonth ? monthProgress : 1), 0);
-    const priorComparable = historicalToDate(currentYear - 1);
-    const twoYearsComparable = historicalToDate(currentYear - 2);
-    const historicYtd = priorComparable && twoYearsComparable ? priorComparable * .6 + twoYearsComparable * .4 : priorComparable || twoYearsComparable;
-    const rawGrowth = historicYtd > 0 ? actualYtd / historicYtd : 1;
-    // Factor único y auditable: crecimiento acumulado contra el mismo período
-    // histórico. El límite protege contra datos atípicos o meses incompletos.
-    const factor = Math.min(1.3, Math.max(.7, rawGrowth));
+    const partial = currentYear === Number(cutoff.slice(0, 4)) && !this.selectedMonths().length && cutoffDay > 0;
+    const progress = partial ? Math.min(1, cutoffDay / new Date(currentYear, lastMonth, 0).getDate()) : 1;
     const remaining = [
-      ...(monthProgress < 1 ? [{ month: lastMonth, weight: 1 - monthProgress }] : []),
-      ...Array.from({ length: 12 - lastMonth }, (_, index) => ({ month: lastMonth + index + 1, weight: 1 })),
+      ...(lastMonth && progress < 1 ? [{ month: lastMonth, weight: 1 - progress }] : []),
+      ...Array.from({ length: Math.max(0, 12 - lastMonth) }, (_, index) => ({ month: lastMonth + index + 1, weight: 1 })),
     ];
-    const projectionMonths = remaining.map(({ month, weight }) => {
-      const previous = sum(this.rowsForPeriods([(currentYear - 1) * 100 + month], this.filteredStoreIds()), 'net');
-      const twoYearsAgo = sum(this.rowsForPeriods([(currentYear - 2) * 100 + month], this.filteredStoreIds()), 'net');
-      const seasonal = previous > 0 && twoYearsAgo > 0 ? previous * .6 + twoYearsAgo * .4 : previous || twoYearsAgo;
-      return { month, previous, twoYearsAgo, seasonal, weight, projected: seasonal * weight * factor };
+    const months = remaining.map(({ month, weight }) => {
+      const previousRows = this.rowsForPeriods([(currentYear - 1) * 100 + month], ids);
+      const olderRows = this.rowsForPeriods([(currentYear - 2) * 100 + month], ids);
+      const previous = sum(previousRows, 'net');
+      const twoYearsAgo = sum(olderRows, 'net');
+      const yearsAvailable = Number(previousRows.length > 0) + Number(olderRows.length > 0);
+      const seasonal = yearsAvailable ? (previous + twoYearsAgo) / yearsAvailable : 0;
+      return { month, weight, previous, twoYearsAgo, seasonal, projected: seasonal * weight, available: yearsAvailable > 0 };
     });
-    const base = projectionMonths.reduce((total, row) => total + row.seasonal * row.weight, 0);
-    const ytdForecast = actualYtd + base * factor;
-    const value = ytdForecast;
-    const error = value > 0 ? .03 : null;
-    return { value, base, growth: historicYtd > 0 ? factor - 1 : null, error, actualYtd, historicYtd,
-      ytdForecast, seasonalForecast: ytdForecast, runRateForecast: ytdForecast,
-      weights: { ytd: 1, seasonal: 0, runRate: 0 }, months: projectionMonths };
+    const complete = months.every(row => row.available);
+    const base = months.reduce((total, row) => total + row.projected, 0);
+    const forecast = actualYtd + base;
+    return { value: complete ? forecast : null, base: complete ? base : null, growth: null, error: null,
+      actualYtd, historicYtd: 0, ytdForecast: forecast, seasonalForecast: forecast, runRateForecast: forecast,
+      weights: { ytd: 1, seasonal: 0, runRate: 0 }, months };
   }
 
 
@@ -4581,12 +4575,10 @@ export class CommercialDashboardController implements OnInit {
       this.monthlyBrandIndex = this.indexPeriodStore(loaded.monthlyBrand || []);
       this.sellerPerformanceData.set(loaded.sellerPerformance || []);
       this.sellerDetailLoaded.set((loaded.sellerPerformance || []).length > 0);
-      // El rango de precios carga el año base y el comparativo a la vez. Fijar
-      // el corte antes de iniciar esa descarga evita pedir 2025/2024 al abrir
-      // y dejar a 2026 sin filas en Administrador o Comercial.
-      const cutoffYear = Number(loaded.metadata.salesCutoff.slice(0, 4));
-      this.year.set(loaded.metadata.years.includes(cutoffYear) ? cutoffYear : Math.max(...loaded.metadata.years));
-      this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
+      // Abrir en el mes calendario de Lima, incluso si aún no tiene ventas.
+      const current = currentCommercialPeriod();
+      this.year.set(current.year);
+      this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
       this.data.set(loaded);
       this.trafficRevision.update(value => value + 1);
       this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
@@ -4647,6 +4639,9 @@ export class CommercialDashboardController implements OnInit {
     if (ordered.length === 1) return `${this.monthNamesFull[ordered[0] - 1]} ${year}`;
     if (ordered.length === 2) return `${MONTHS[ordered[0] - 1].toUpperCase()} + ${MONTHS[ordered[1] - 1].toUpperCase()} ${year}`;
     return `${MONTHS[ordered[0] - 1].toUpperCase()}–${MONTHS[ordered.at(-1)! - 1].toUpperCase()} ${year}`;
+  }
+  private chartPeriodLabel(): string {
+    return this.dateRangeActive() ? this.dayFilterLabel() : this.periodContextLabel(this.activeMonths(), this.year());
   }
   toggleFilter(key: FilterKey, event: Event): void {
     event.preventDefault();
@@ -5081,7 +5076,7 @@ export class CommercialDashboardController implements OnInit {
   }
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
-    const cutoff = this.data()?.metadata.salesCutoff || ''; this.year.set(Number(cutoff.slice(0, 4))); this.selectedMonths.set([]); this.fromDate.set(''); this.toDate.set('');
+    const current = currentCommercialPeriod(); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);

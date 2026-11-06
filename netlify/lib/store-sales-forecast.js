@@ -24,8 +24,10 @@ function coefficientOfVariation(values) {
   return Math.sqrt(variance) / mean;
 }
 
-export function buildStoreSalesForecast({ monthlySales = [], salesCutoff, monthlyTargets = [], traffic = [], attendance = [], predictive = null }) {
+export function buildStoreSalesForecast({ monthlySales = [], salesCutoff, forecastMonth: requestedMonth, monthlyTargets = [], traffic = [], attendance = [], predictive = null }) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(salesCutoff || ""))) throw new Error("El corte de ventas no es válido.");
+  const month = requestedMonth || salesCutoff.slice(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("El mes del pronóstico no es válido.");
   const cutoffPeriod = Number(salesCutoff.replaceAll("-", "").slice(0, 6));
   const history = monthlySales.filter(row => Number(row.periodId) <= cutoffPeriod && Number(row.net) >= 0)
     .sort((a, b) => Number(a.periodId) - Number(b.periodId));
@@ -34,11 +36,8 @@ export function buildStoreSalesForecast({ monthlySales = [], salesCutoff, monthl
     ? recentRates.reduce((sum, value, index) => sum + value * [0.2, 0.3, 0.5].slice(-recentRates.length)[index], 0)
       / [0.2, 0.3, 0.5].slice(-recentRates.length).reduce((sum, value) => sum + value, 0)
     : 0;
-  // El corte es el último día disponible; la matriz proyecta el mes siguiente
-  // completo para poder navegar por semanas (01–07, 08–14, etc.).
-  const cutoffDate = isoDate(salesCutoff);
-  const start = new Date(Date.UTC(cutoffDate.getUTCFullYear(), cutoffDate.getUTCMonth() + 1, 1));
-  const forecastMonth = start.getUTCMonth() + 1;
+  const start = isoDate(`${month}-01`); const forecastMonth = start.getUTCMonth() + 1;
+  const monthDays = daysInMonth(start.getUTCFullYear(), forecastMonth);
   const priorYearPeriod = (start.getUTCFullYear() - 1) * 100 + forecastMonth;
   const priorYearRow = history.find(row => Number(row.periodId) === priorYearPeriod);
   const priorYearRate = priorYearRow ? dailyRate(priorYearRow, salesCutoff) : 0;
@@ -78,32 +77,37 @@ export function buildStoreSalesForecast({ monthlySales = [], salesCutoff, monthl
   const trafficWeightTotal = trafficWeights.reduce((sum, value) => sum + value, 0) || 1;
   const normalizedTrafficWeights = trafficWeights.map(value => value / trafficWeightTotal);
   const blendedWeights = normalizedTrafficWeights.map((value, day) => value * 0.7 + RETAIL_DAY_WEIGHTS[day] * 0.3);
-  const forecastDays = daysInMonth(start.getUTCFullYear(), forecastMonth);
-  const monthWeights = Array.from({ length: forecastDays }, (_, index) => blendedWeights[(start.getUTCDay() + index) % 7]);
+  const monthWeights = Array.from({ length: monthDays }, (_, index) => blendedWeights[(start.getUTCDay() + index) % 7]);
   const monthWeightTotal = monthWeights.reduce((sum, value) => sum + value, 0) || 1;
 
   const sources = [recentRates.length > 0, priorYearRate > 0, predictiveRate > 0, recentTraffic.length >= 7, attendanceRows.length >= 10, firstTarget > 0].filter(Boolean).length;
   const variability = coefficientOfVariation(recentRates);
   const confidence = Math.round(clamp(48 + sources * 7 - variability * 30, 45, 91));
   const uncertainty = clamp(0.25 - confidence / 1000 + variability * 0.18, 0.10, 0.24);
-  const monthlyExpected = adjustedDaily * forecastDays;
-  const days = Array.from({ length: forecastDays }, (_, index) => {
+  const monthExpected = adjustedDaily * monthDays;
+  const monthlyTargetCents = Math.round(firstTarget * 100);
+  const days = Array.from({ length: monthDays }, (_, index) => {
     const date = new Date(start); date.setUTCDate(start.getUTCDate() + index);
-    const expected = monthlyExpected * monthWeights[index] / monthWeightTotal;
-    const periodId = date.getUTCFullYear() * 100 + date.getUTCMonth() + 1;
-    const target = (targetByPeriod.get(periodId) || 0) / daysInMonth(date.getUTCFullYear(), date.getUTCMonth() + 1);
+    const expected = monthExpected * monthWeights[index] / monthWeightTotal;
+    const target = (Math.round(monthlyTargetCents * (index + 1) / monthDays) - Math.round(monthlyTargetCents * index / monthDays)) / 100;
     return { date: dateISO(date), day: DAY_NAMES[date.getUTCDay()], expected: roundMoney(expected),
       lower: roundMoney(expected * (1 - uncertainty)), upper: roundMoney(expected * (1 + uncertainty)), target: roundMoney(target),
-      demandIndex: Math.round(monthWeights[index] / (monthWeightTotal / forecastDays) * 100) };
+      demandIndex: Math.round(monthWeights[index] / (monthWeightTotal / monthDays) * 100) };
   });
   return {
-    salesCutoff, weekStart: days[0].date, weekEnd: days.at(-1).date,
+    salesCutoff, monthStart: days[0].date, monthEnd: days.at(-1).date, weekStart: days[0].date, weekEnd: days.at(-1).date,
     expected: roundMoney(days.reduce((sum, day) => sum + day.expected, 0)),
     lower: roundMoney(days.reduce((sum, day) => sum + day.lower, 0)),
     upper: roundMoney(days.reduce((sum, day) => sum + day.upper, 0)),
     target: roundMoney(days.reduce((sum, day) => sum + day.target, 0)), monthlyTarget: roundMoney(firstTarget), confidence, days,
     variables: { baselineDaily: roundMoney(baselineDaily), trend: trendFactor, traffic: trafficFactor, attendance: attendanceFactor, goal: goalFactor,
       attendanceRate, recentTrafficAverage: roundMoney(average(recentTraffic)), priorTrafficAverage: roundMoney(average(priorTraffic)) },
-    method: "Estimación mensual basada en ventas recientes y comparables históricos.",
+    drivers: [
+      { label: "Tendencia de venta", factor: trendFactor },
+      { label: "Tráfico de clientes", factor: trafficFactor, available: recentTraffic.length >= 7 },
+      { label: "Asistencia operativa", factor: attendanceFactor, available: attendanceRate != null },
+      { label: "Meta comercial", factor: goalFactor, available: firstTarget > 0 },
+    ],
+    method: "Estimación mensual basada en ventas recientes, misma temporada del año anterior y venta de 30 días; ajustada por tendencia, tráfico, asistencia y metas del sistema.",
   };
 }

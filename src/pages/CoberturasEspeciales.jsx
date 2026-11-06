@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { CalendarDays, Plus, Trash2 } from "lucide-react";
-import { api, todayISO } from "../lib/api";
+import { api, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Loading, Modal, Notice, PageHeader, StatusBadge } from "../components/UI";
 import { laborAreaOptions, normalizeLaborArea } from "../lib/laborAreas";
+import './coberturas-especiales.css';
 
 const blankWorker = () => ({ usuario_id: "", dni: "", manual: true, tienda_id: "", nombre_manual: "", origen_manual: "", area: "", horas: "", observacion: "", lookup_error: "" });
 
@@ -54,11 +55,18 @@ export default function CoberturasEspeciales() {
   return <>
     <PageHeader eyebrow="Personal" title="Cobertura del día" subtitle="Registra al personal de apoyo de hoy. Su asistencia se marcará automáticamente como Apoyo (ingreso)." action={<button className="button button--primary" onClick={() => { setError(""); setWorkers([blankWorker()]); }}><Plus size={16} /> Registrar apoyo</button>} />
     {!Array.isArray(rows) && <Notice type="error">{rows.error}</Notice>}
-    {Array.isArray(rows) && rows.length ? <div className="coverage-list">{rows.map(row => <section className="panel" key={row.id}>
-      <header><div><strong>{row.motivo}</strong><span>{row.fecha_inicio}{row.fecha_fin !== row.fecha_inicio ? " al " + row.fecha_fin : ""}</span></div><StatusBadge value={row.estado} /></header>
-      <div>{row.cobertura_trabajadores.map(person => <p key={person.id}>{person.usuario_id ? [person.usuarios?.nombres, person.usuarios?.apellidos].filter(Boolean).join(" ") : person.nombre_manual} · {person.area || "Sin área"}{person.horas != null && <> · {new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(Number(person.horas))} h</>} · {person.origen?.nombre || person.origen_manual || "Nuevo trabajador"} → {person.destino?.nombre}</p>)}</div>
-    </section>)}</div> : <EmptyState icon={CalendarDays} title="Sin coberturas" text="Registra al personal que está apoyando hoy en tu tienda." />}
-    <Modal open={workers !== null} extraWide title="Registrar apoyo del día" subtitle={"Fecha: " + todayISO() + " · Se añadirá a Asistencias con Apoyo (ingreso) seleccionado y bloqueado."} onClose={() => { if (!busy) setWorkers(null); }}>
+    {Array.isArray(rows) && rows.length ? <div className="special-coverage-list">{rows.map(row => <section className="special-coverage-card" key={row.id}>
+      <header className="special-coverage-card__header"><div><h2>{row.motivo}</h2><p>{formatDate(row.fecha_inicio)}{row.fecha_fin !== row.fecha_inicio ? ` al ${formatDate(row.fecha_fin)}` : ""}</p></div><StatusBadge value={row.estado} /></header>
+      <div className="special-coverage-card__people">{row.cobertura_trabajadores.map(person => {
+        const name = person.usuario_id ? [person.usuarios?.nombres, person.usuarios?.apellidos].filter(Boolean).join(" ") : person.nombre_manual;
+        return <article className="special-coverage-person" key={person.id}>
+          <div className="special-coverage-person__heading"><div><h3>{name || "Personal de apoyo"}</h3><span>{person.area || "Sin área registrada"}</span></div>{person.horas != null && <span className="special-coverage-person__hours">{new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(Number(person.horas))} h</span>}</div>
+          <p className="special-coverage-person__route">{person.origen?.nombre || person.origen_manual || "Nuevo trabajador"}<span aria-hidden="true"> → </span><span className="sr-only"> hacia </span>{person.destino?.nombre || "Tienda asignada"}</p>
+          {person.observacion && <p className="special-coverage-person__note">{person.observacion}</p>}
+        </article>;
+      })}</div>
+    </section>)}</div> : Array.isArray(rows) && <div className="special-coverage-empty"><EmptyState icon={CalendarDays} title="Aún no hay coberturas" text="Organiza aquí el apoyo de tu equipo entre tiendas. Los registros mostrarán el personal, sus horas y la tienda de destino." /></div>}
+    <Modal open={workers !== null} extraWide className="special-coverage-modal" title="Registrar apoyo del día" subtitle={"Fecha: " + todayISO() + " · Se añadirá a Asistencias con Apoyo (ingreso) seleccionado y bloqueado."} onClose={() => { if (!busy) setWorkers(null); }}>
       {workers && <div className="form-grid">
         {error && <div className="span-2"><Notice type="error" onClose={() => setError("")}>{error}</Notice></div>}
         <div className="form-section-title span-2"><strong>Datos del personal</strong><button type="button" disabled={busy} className="button button--ghost" onClick={() => setWorkers(current => [...current, blankWorker()])}><Plus size={14} /> Agregar persona</button></div>
