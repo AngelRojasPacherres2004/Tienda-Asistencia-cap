@@ -109,18 +109,20 @@ Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz
 
 ## Operación diaria
 
-1. Abre `0_ABRIR_PANEL.bat`. Deja la fecha vacía para seleccionar automáticamente el último día con tráfico suficiente, o escribe un corte confirmado.
-2. **Actualizar datos locales** reconstruye y valida Capa 1, Capa 2 y el dashboard. **Actualizar y publicar en la web** hace eso y publica el dashboard y los reportes privados en `bd-app`.
-3. La web detecta la versión publicada sin volver a desplegar Netlify.
+1. En `input\` reemplaza únicamente `VENTAS.xlsx`, `INGRESO.xlsx` y `TRANSFERENCIAS.xlsx` por la entrega del día nuevo. Los históricos ya están en los Parquet y no se vuelven a copiar.
+2. Abre `0_ABRIR_PANEL.bat`, selecciona con el calendario la fecha de la entrega y usa **Actualizar datos locales**. La actualización incorpora solo esa entrega, reconstruye y valida Capa 1, Capa 2 y el dashboard.
+3. En el cierre de cada mes agrega `input\STOCK.xlsx` y selecciona obligatoriamente el último día calendario (28/29/30/31). En los demás días no dejes `STOCK.xlsx` en `input\`: se conserva la última fotografía mensual.
+4. **Actualizar y publicar en la web** ejecuta el mismo flujo y publica el dashboard y los reportes privados en `bd-app`.
+5. La web detecta la versión publicada sin volver a desplegar Netlify.
 
 `4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste desde esta misma raíz en `http://127.0.0.1:5180/`.
 
-Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y `6_ACTUALIZAR_DASHBOARD_WEB.bat` publica el corte preparado. `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --sin-pausa` ejecuta ambos pasos. Si llega un Excel diario nuevo de tráfico, usa `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --trafico-excel "RUTA_DEL_ARCHIVO.xlsx"`; primero valida e importa los conteos diarios a `bd-app` y Capa 1, reparte cada total en horas manteniendo la suma y después reconstruye y publica. `--trafico-desde AAAA-MM-DD` permite acotar el intervalo. Añade `--solo-verificar` para revisar el Excel, la base y el modelo sin escribir ni publicar. No reimportes un Excel si solo quieres reconstruir el corte.
+Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y `6_ACTUALIZAR_DASHBOARD_WEB.bat` publica el corte preparado. `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --sin-pausa` ejecuta ambos pasos. La actualización local solo recibe Ventas, Ingresos, Transferencias y Stock. Personal, tiendas, tráfico, metas, catálogo, mermas y guías se administran desde Supabase. Añade `--solo-verificar` para revisar el modelo sin escribir ni publicar.
 
 ## Reglas de corte y actualización
 
-- El corte elegido se aplica a ventas, ingresos, transferencias y demás movimientos; no se cuentan registros posteriores. El corte automático se basa en la cobertura diaria de tráfico, no en el día de la semana. Antes de publicar se comprueba que ventas y tráfico lleguen al corte. Las metas planificadas del año se conservan completas para comparar avance contra el objetivo anual.
-- Ventas y movimientos se esperan semanalmente. Stock, personal y merma se esperan mensualmente. Metas e históricos se reprocesan cuando cambia el archivo.
+- El corte elegido se aplica a ventas, ingresos, transferencias y stock; no se cuentan registros posteriores. Las metas se consultan desde Supabase para comparar el avance contra el objetivo anual.
+- Ventas, ingresos y transferencias se procesan diariamente. Stock se actualiza únicamente con la fotografía RMS del cierre mensual. El resto de datos se actualiza en Supabase y se consulta desde allí.
 - Stock utiliza la fotografía más reciente cuya fecha sea anterior o igual al corte. Ya no se obliga a que su fecha coincida con la última venta.
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.

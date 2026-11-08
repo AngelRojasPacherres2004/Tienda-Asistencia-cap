@@ -27,6 +27,10 @@ supabase/.temp/
 
 # Datos comerciales y artefactos regenerables
 input/
+!input/
+input/*
+!input/.gitkeep
+!input/LEEME_OPERATIVO.md
 capa1/
 capa2/
 dashboard-data/

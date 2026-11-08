@@ -4,6 +4,8 @@ from runtime_config import finalizar_proceso
 """Orquestador completo: input RMS -> Capa 1 -> Capa 2 -> modelo TMDL."""
 
 import argparse
+import hashlib
+import duckdb
 import importlib.util
 import json
 import os
@@ -13,6 +15,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from calendar import monthrange
 from datetime import date, datetime
 from time import perf_counter
 
@@ -37,23 +40,21 @@ from project_paths import (
 from reglas_corte import fecha_corte_automatica, validar_fecha_corte
 
 CODIGO_STACK_OVERFLOW_WINDOWS = 0xC00000FD
+CODIGO_SIN_NOVEDADES = 3
 
-
-ARCHIVOS_MANUALES_REQUERIDOS = (
-    "TIENDAS.xlsx",
-    "CATALOGO_TIENDAS.xlsx",
-    "GUIAS_EN_TRANSITO.xlsx",
-    "MERMA.xlsx",
-    "METAS_TIENDAS.xlsx",
-    "PERSONAL_TIENDAS.xlsx",
-    "TRAFICO_CLIENTES.xlsx",
-)
+ARCHIVOS_OPERATIVOS_DIARIOS = {
+    "ventas_pipeline.py": "VENTAS.xlsx",
+    "ingreso_pipeline.py": "INGRESO.xlsx",
+    "transferencia_pipeline.py": "TRANSFERENCIAS.xlsx",
+    "stock_pipeline.py": "STOCK.xlsx",
+}
 
 
 def validar_entorno_previo(
     fecha_corte: date | None,
     solo_capa2: bool,
     solo_operacion_comercial: bool = False,
+    entrada_incremental: bool = False,
 ) -> None:
     """Falla temprano ante problemas de entorno, rutas o espacio en disco."""
 
@@ -83,17 +84,7 @@ def validar_entorno_previo(
         for advertencia in validar_fecha_corte(fecha_corte):
             print(f"ADVERTENCIA: {advertencia}", flush=True)
 
-    if not solo_operacion_comercial:
-        manuales_faltantes = [
-            nombre for nombre in ARCHIVOS_MANUALES_REQUERIDOS
-            if not (CAPA1_DIR / nombre).exists()
-        ]
-        if manuales_faltantes:
-            raise FileNotFoundError(
-                "Faltan Excel estructurados en capa1: " + ", ".join(manuales_faltantes)
-            )
-
-    if solo_capa2:
+    if solo_capa2 or entrada_incremental:
         parquet_requeridos = (
             "Fact_Ventas.parquet",
             "Fact_Ingresos.parquet",
@@ -112,6 +103,31 @@ def validar_entorno_previo(
             raise FileNotFoundError(
                 "Faltan fuentes RMS en input para: " + ", ".join(sin_fuente)
             )
+
+    if entrada_incremental:
+        faltantes_diarios = [
+            nombre for script, nombre in ARCHIVOS_OPERATIVOS_DIARIOS.items()
+            if script != "stock_pipeline.py" and not (INPUT_DIR / nombre).is_file()
+        ]
+        if faltantes_diarios:
+            raise FileNotFoundError(
+                "Faltan archivos diarios en input: " + ", ".join(faltantes_diarios)
+            )
+        stock = INPUT_DIR / ARCHIVOS_OPERATIVOS_DIARIOS["stock_pipeline.py"]
+        if stock.is_file():
+            if fecha_corte is None:
+                raise ValueError("Con STOCK.xlsx indica obligatoriamente la fecha de cierre mensual.")
+            ultimo_dia = monthrange(fecha_corte.year, fecha_corte.month)[1]
+            if fecha_corte.day != ultimo_dia:
+                raise ValueError(
+                    "STOCK.xlsx solo se procesa en el último día del mes "
+                    f"({fecha_corte.year}-{fecha_corte.month:02d}-{ultimo_dia:02d})."
+                )
+        print(
+            "Entrada operativa: input\\ (VENTAS.xlsx, INGRESO.xlsx, "
+            "TRANSFERENCIAS.xlsx" + (", STOCK.xlsx)" if stock.is_file() else ")"),
+            flush=True,
+        )
 
     uso = shutil.disk_usage(PROJECT_ROOT)
     libres_gb = uso.free / (1024 ** 3)
@@ -235,26 +251,80 @@ def conservar_salida_parcial(error: BaseException) -> None:
 # Excel y que el código que la genera, se reutiliza automáticamente.
 CAPA1_INCREMENTAL = {
     "ventas_pipeline.py": {
-        "patrones": ("VENTAS*.xlsx",),
+        "patrones": ("VENTAS.xlsx",),
         "salida": "Fact_Ventas.parquet",
         "dependencias": ("ventas_pipeline.py", "_base_ventas.py", "xlsx_fast.py", "capa1_cache.py"),
     },
     "ingreso_pipeline.py": {
-        "patrones": ("INGRESO*.xlsx",),
+        "patrones": ("INGRESO.xlsx",),
         "salida": "Fact_Ingresos.parquet",
         "dependencias": ("ingreso_pipeline.py", "_base_ingresos.py", "xlsx_fast.py", "capa1_cache.py"),
     },
     "transferencia_pipeline.py": {
-        "patrones": ("TRANF*.xlsx", "TRANSFER*.xlsx"),
+        "patrones": ("TRANSFERENCIAS.xlsx",),
         "salida": "Fact_Transferencias.parquet",
         "dependencias": ("transferencia_pipeline.py", "_base_transferencias.py", "xlsx_fast.py", "capa1_cache.py"),
     },
     "stock_pipeline.py": {
-        "patrones": ("STOCK*.xlsx",),
+        "patrones": ("STOCK.xlsx",),
         "salida": "Fact_Stock.parquet",
         "dependencias": ("stock_pipeline.py", "_base_stock.py"),
     },
 }
+
+ESTADO_ENTRADA_OPERATIVA = WORK_DIR / "estado_entrada_operativa.json"
+
+
+def _huella_archivo(archivo: Path) -> str:
+    resumen = hashlib.sha256()
+    with archivo.open("rb") as origen:
+        for bloque in iter(lambda: origen.read(1024 * 1024), b""):
+            resumen.update(bloque)
+    return resumen.hexdigest()
+
+
+def _leer_estado_entrada_operativa() -> dict[str, object]:
+    try:
+        contenido = json.loads(ESTADO_ENTRADA_OPERATIVA.read_text(encoding="utf-8"))
+        return contenido if isinstance(contenido, dict) else {}
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _guardar_estado_entrada_operativa(estado: dict[str, object]) -> None:
+    ESTADO_ENTRADA_OPERATIVA.parent.mkdir(parents=True, exist_ok=True)
+    temporal = ESTADO_ENTRADA_OPERATIVA.with_suffix(".tmp")
+    temporal.write_text(
+        json.dumps(estado, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    temporal.replace(ESTADO_ENTRADA_OPERATIVA)
+
+
+def _registrar_entregas_operativas(ejecutados: list[str], input_dir: Path) -> None:
+    """Marca las entregas incorporadas para que nunca se sumen dos veces."""
+    estado = _leer_estado_entrada_operativa()
+    fuentes = estado.setdefault("fuentes", {})
+    if not isinstance(fuentes, dict):
+        fuentes = {}
+        estado["fuentes"] = fuentes
+    for script in ejecutados:
+        archivos = _archivos_fuente(CAPA1_INCREMENTAL[script]["patrones"], input_dir)
+        if archivos:
+            fuentes[script] = _huella_archivo(archivos[0])
+    estado["modelo_pendiente"] = True
+    _guardar_estado_entrada_operativa(estado)
+
+
+def _modelo_operativo_pendiente() -> bool:
+    return bool(_leer_estado_entrada_operativa().get("modelo_pendiente"))
+
+
+def _confirmar_modelo_operativo() -> None:
+    estado = _leer_estado_entrada_operativa()
+    if estado:
+        estado["modelo_pendiente"] = False
+        _guardar_estado_entrada_operativa(estado)
 
 
 def parsear_fecha(valor: str) -> date:
@@ -378,8 +448,7 @@ def ejecutar_grupo_paralelo(
         raise errores[0]
 
 
-def _archivos_fuente(patrones: tuple[str, ...]) -> list[Path]:
-    input_dir = PROJECT_ROOT / "input"
+def _archivos_fuente(patrones: tuple[str, ...], input_dir: Path = INPUT_DIR) -> list[Path]:
     encontrados: dict[str, Path] = {}
     for patron in patrones:
         for archivo in input_dir.glob(patron):
@@ -388,16 +457,29 @@ def _archivos_fuente(patrones: tuple[str, ...]) -> list[Path]:
     return sorted(encontrados.values(), key=lambda x: x.name.lower())
 
 
-def capa1_puede_reutilizarse(script: str) -> tuple[bool, str]:
+def capa1_puede_reutilizarse(
+    script: str,
+    input_dir: Path = INPUT_DIR,
+    entrada_operativa: bool = False,
+) -> tuple[bool, str]:
     config = CAPA1_INCREMENTAL.get(script)
     if not config:
         return False, "sin configuración incremental"
     salida = CAPA1_DIR / str(config["salida"])
     if not salida.exists() or salida.stat().st_size == 0:
         return False, "salida inexistente"
-    fuentes = _archivos_fuente(config["patrones"])
+    fuentes = _archivos_fuente(config["patrones"], input_dir)
     if not fuentes:
         return False, "sin archivos de entrada"
+    if entrada_operativa:
+        fuentes_procesadas = _leer_estado_entrada_operativa().get("fuentes", {})
+        huella_anterior = (
+            fuentes_procesadas.get(script)
+            if isinstance(fuentes_procesadas, dict)
+            else None
+        )
+        if huella_anterior != _huella_archivo(fuentes[0]):
+            return False, "llegó una entrega nueva"
     dependencias = [SCRIPT_DIR / nombre for nombre in config["dependencias"]]
     dependencias.extend(
         [SCRIPT_DIR / "runtime_config.py", SCRIPT_DIR / "project_paths.py"]
@@ -413,7 +495,9 @@ def fase_capa1(
     omitir_faltantes: bool,
     forzar: bool = False,
     paralelismo: int = 2,
-) -> None:
+    input_dir: Path = INPUT_DIR,
+    incremental: bool = False,
+) -> list[str]:
     print("\n" + "#" * 80)
     print("FASE 1 - INPUT RMS -> CAPA 1")
     print("#" * 80)
@@ -429,8 +513,13 @@ def fase_capa1(
         ("stock_pipeline.py", ["--solo-capa1"], ["--verificar-capa1"], False),
     ]
     pendientes: list[tuple[str, list[str], list[str] | None, bool]] = []
+    ejecutados: list[str] = []
     for script, argumentos, validacion, opcional in pasos_base:
-        reutilizar, motivo = capa1_puede_reutilizarse(script)
+        fuentes = _archivos_fuente(CAPA1_INCREMENTAL[script]["patrones"], input_dir)
+        if incremental and not fuentes:
+            print(f"[SIN NOVEDAD] {script}: no hay archivo nuevo para esta fuente.", flush=True)
+            continue
+        reutilizar, motivo = capa1_puede_reutilizarse(script, input_dir, incremental)
         if reutilizar and not forzar:
             print(f"[REUTILIZADA] {script}: {motivo}", flush=True)
             continue
@@ -442,11 +531,61 @@ def fase_capa1(
         pendientes.append(
             (script, argumentos, validacion, omitir_faltantes and opcional)
         )
+        ejecutados.append(script)
     ejecutar_grupo_paralelo(
         pendientes,
         paralelismo,
-        {"ETL_FORCE_C1_CACHE": "1"} if forzar else {"ETL_FORCE_C1_CACHE": "0"},
+        {
+            "ETL_FORCE_C1_CACHE": "1" if forzar else "0",
+            "DASHBOARD_INPUT_DIR": str(input_dir),
+            "DASHBOARD_FIXED_INPUT": "1" if incremental else "0",
+        },
     )
+    return ejecutados
+
+
+def respaldar_capa1_incremental() -> dict[str, Path]:
+    """Respalda los cuatro hechos antes de incorporar una entrega delta."""
+    destino = WORK_BACKUP_DIR / "capa1"
+    shutil.rmtree(destino, ignore_errors=True)
+    destino.mkdir(parents=True, exist_ok=True)
+    respaldos: dict[str, Path] = {}
+    for config in CAPA1_INCREMENTAL.values():
+        nombre = str(config["salida"])
+        origen = CAPA1_DIR / nombre
+        if origen.exists() and origen.stat().st_size:
+            copia = destino / nombre
+            shutil.copy2(origen, copia)
+            respaldos[nombre] = copia
+    return respaldos
+
+
+def mezclar_capa1_incremental(ejecutados: list[str], respaldos: dict[str, Path]) -> None:
+    """Une la entrega nueva con el histórico sin releer los Excel anteriores."""
+    for script in ejecutados:
+        nombre = str(CAPA1_INCREMENTAL[script]["salida"])
+        anterior = respaldos.get(nombre)
+        actual = CAPA1_DIR / nombre
+        if anterior is None or not actual.exists():
+            continue
+        temporal = WORK_DIR / "temporales" / f"{actual.stem}_incremental.parquet"
+        temporal.unlink(missing_ok=True)
+        con = duckdb.connect(database=":memory:")
+        try:
+            ruta_anterior = str(anterior).replace("\\", "/").replace("'", "''")
+            ruta_actual = str(actual).replace("\\", "/").replace("'", "''")
+            ruta_temporal = str(temporal).replace("\\", "/").replace("'", "''")
+            con.execute(
+                "COPY (SELECT * FROM read_parquet('" + ruta_anterior
+                + "') UNION ALL BY NAME SELECT * FROM read_parquet('" + ruta_actual
+                + "')) TO '" + ruta_temporal + "' (FORMAT PARQUET, COMPRESSION SNAPPY)"
+            )
+        finally:
+            con.close()
+        if not temporal.exists() or not temporal.stat().st_size:
+            raise RuntimeError(f"No se pudo integrar el histórico de {nombre}.")
+        shutil.move(str(temporal), str(actual))
+        print(f"[INCREMENTAL] Histórico + novedades integrados: {nombre}", flush=True)
 
 
 def fase_capa2(
@@ -461,27 +600,14 @@ def fase_capa2(
     print("#" * 80)
 
     if solo_operacion_comercial:
-        # Las tablas administrativas ya se publican desde la base de datos.
-        # Conservamos sus Parquet vigentes y reemplazamos únicamente los cuatro
-        # hechos que el asistente comercial carga como archivos operativos.
-        for nombre in ("DimTiendas.parquet", "DimClasificacionProducto.parquet"):
-            if not (CAPA2_DIR / nombre).exists():
-                raise FileNotFoundError(
-                    f"Falta {nombre}. Sin las tablas maestras de base de datos no se puede actualizar la operación comercial."
-                )
+        # Dimensiones y hechos se reconstruyen desde los cuatro RMS. Los
+        # atributos administrativos del dashboard se consultan en Supabase.
+        for nombre in ("DimTiendas.parquet", "DimClasificacionProducto.parquet", "DimProducto.parquet"):
+            (CAPA2_DIR / nombre).unlink(missing_ok=True)
     else:
         limpiar_capa2_generada()
         limpiar_modelo_powerbi()
     limpiar_temporales()
-
-    if not solo_operacion_comercial:
-        # Las dimensiones maestras deben existir antes de validar hechos manuales.
-        ejecutar("tiendas_pipeline.py", [], ["--verificar-capa2"])
-        ejecutar(
-            "clasificacion_producto_pipeline.py",
-            ["--solo-capa2"],
-            ["--verificar-capa2"],
-        )
 
     # Ventas domina CPU, disco y memoria. Ejecutarla sola permite que DuckDB use
     # todos los hilos disponibles y evita la degradación observada al competir
@@ -516,29 +642,6 @@ def fase_capa2(
         _entorno_paralelo(1),
     )
 
-    if not solo_operacion_comercial:
-        # Metas, guías, merma, personal y tráfico se procesan únicamente en la
-        # reconstrucción integral. En operación normal llegan desde las tablas
-        # de base de datos y no se sustituyen con archivos locales.
-        ejecutar(
-            "metas_tiendas_pipeline.py",
-            ["--solo-capa2", "--anio-inicio", str(anio_inicio)],
-            ["--verificar-capa2"],
-        )
-        ejecutar_grupo_paralelo(
-            [
-                (
-                    "guias_transito_pipeline.py",
-                    ["--solo-capa2", "--fecha-corte", fecha_efectiva],
-                    ["--verificar-capa2"],
-                    False,
-                ),
-                ("merma_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
-                ("personal_tiendas_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
-                ("trafico_clientes_pipeline.py", ["--solo-capa2"], ["--verificar-capa2"], False),
-            ],
-            min(paralelismo, 2),
-        )
     return fecha_efectiva
 
 
@@ -584,12 +687,17 @@ def main() -> int:
         help="Fuerza la reconstrucción de Capa 1 aunque las salidas estén actualizadas.",
     )
     parser.add_argument(
-        "--solo-operacion-comercial",
+        "--incremental",
         action="store_true",
         help=(
-            "Actualiza solamente ventas, ingresos, transferencias y stock. "
-            "Conserva las demás tablas vigentes provenientes de la base de datos."
+            "Incorpora los archivos operativos fijos de input\\ sobre los "
+            "Parquet históricos de Capa 1."
         ),
+    )
+    parser.add_argument(
+        "--solo-operacion-comercial",
+        action="store_true",
+        help="Compatibilidad: la actualización siempre procesa solo las cuatro fuentes RMS.",
     )
     parser.add_argument(
         "--omitir-faltantes",
@@ -615,20 +723,45 @@ def main() -> int:
 
     try:
         solo_capa2 = args.solo_capa2 or args.reutilizar_capa1
+        # Las fuentes administrativas viven en Supabase. Esta ruta nunca lee
+        # Excel de tráfico, personal, metas, merma, guías, catálogo o tiendas.
+        solo_operacion_comercial = True
         validar_entorno_previo(
             args.fecha_corte,
             solo_capa2,
-            args.solo_operacion_comercial,
+            solo_operacion_comercial,
+            args.incremental,
         )
 
+        ejecutados_incrementales: list[str] = []
         if not solo_capa2:
-            fase_capa1(args.omitir_faltantes, args.reconstruir_capa1, args.paralelismo)
-
-        if not args.solo_operacion_comercial:
-            # Los Excel administrativos se auditan solo en una reconstrucción
-            # integral; la operación diaria no los recibe por archivo.
-            ejecutar("auditar_entradas.py")
-            ejecutar("auditar_excel_comerciales.py")
+            if args.incremental:
+                respaldos_capa1 = respaldar_capa1_incremental()
+                ejecutados_incrementales = fase_capa1(
+                    args.omitir_faltantes,
+                    args.reconstruir_capa1,
+                    args.paralelismo,
+                    INPUT_DIR,
+                    True,
+                )
+                if not ejecutados_incrementales:
+                    if not _modelo_operativo_pendiente():
+                        print(
+                            "\nSIN NOVEDADES: los archivos operativos no cambiaron desde "
+                            "la última ejecución. No se reconstruirá el modelo.",
+                            flush=True,
+                        )
+                        return CODIGO_SIN_NOVEDADES
+                    print(
+                        "\n[RECUPERACIÓN] La entrega ya está en Capa 1; se completará "
+                        "la actualización pendiente del modelo.",
+                        flush=True,
+                    )
+                else:
+                    mezclar_capa1_incremental(ejecutados_incrementales, respaldos_capa1)
+                    _registrar_entregas_operativas(ejecutados_incrementales, INPUT_DIR)
+            else:
+                fase_capa1(args.omitir_faltantes, args.reconstruir_capa1, args.paralelismo)
 
         if args.solo_capa1:
             limpiar_temporales()
@@ -646,7 +779,7 @@ def main() -> int:
                 args.omitir_faltantes,
                 args.paralelismo,
                 args.anio_inicio,
-                args.solo_operacion_comercial,
+                solo_operacion_comercial,
             )
 
             ejecutar(
@@ -666,7 +799,10 @@ def main() -> int:
 
             opcional = ["--omitir-faltantes"] if args.omitir_faltantes else []
             ejecutar("validar_modelo.py", opcional)
-            ejecutar("generar_modelo_powerbi.py", opcional)
+            # Metas, personal, tráfico, merma y guías ya no son tablas del
+            # modelo local; las medidas históricas que dependían de ellas se
+            # sustituyen por los endpoints de Supabase del dashboard web.
+            ejecutar("generar_modelo_powerbi.py", [*opcional, "--sin-kpis"])
 
             limpiar_temporales()
             encontrados, extras = validar_contenido_capa2()
@@ -676,6 +812,8 @@ def main() -> int:
                     + ", ".join(extras)
                 )
             confirmar_salida()
+            if args.incremental:
+                _confirmar_modelo_operativo()
         except BaseException as exc:
             conservar_salida_parcial(exc)
             raise

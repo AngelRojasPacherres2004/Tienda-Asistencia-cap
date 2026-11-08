@@ -25,16 +25,15 @@ export default function CredentialPermissions() {
       `${account.nombres} ${account.apellidos} ${account.usuario} ${account.rol}`.toLocaleLowerCase("es").includes(term));
   }, [accounts, search]);
 
-  async function toggle(account) {
+  async function resetCredentials(account) {
+    if (!window.confirm(`Se restablecerá el acceso de ${account.usuario} a la clave temporal 123. Al ingresar deberá cambiar usuario y contraseña. ¿Continuar?`)) return;
     setBusyId(account.id); setError(""); setMessage("");
     try {
       const { account: updated } = await api(`/systems/credential-permissions/${account.id}`, {
-        method: "PATCH", body: { enabled: !account.cambio_credenciales_pendiente },
+        method: "PATCH", body: { enabled: true },
       });
       setAccounts(previous => previous.map(item => item.id === updated.id ? { ...item, ...updated } : item));
-      setMessage(updated.cambio_credenciales_pendiente
-        ? `Cambio habilitado para ${account.usuario}. Al iniciar sesión deberá actualizar sus credenciales.`
-        : `Permiso retirado para ${account.usuario}.`);
+      setMessage(`Acceso restablecido para ${account.usuario}. La clave temporal es 123; al iniciar sesión deberá cambiar usuario y contraseña.`);
     } catch (failure) { setError(failure.message); }
     finally { setBusyId(null); }
   }
@@ -44,14 +43,15 @@ export default function CredentialPermissions() {
     {error && <Notice type="error" onClose={() => setError("")}>{error}</Notice>}
     {message && <Notice onClose={() => setMessage("")}>{message}</Notice>}
     <section className="credential-permissions__card">
-      <div className="credential-permissions__heading"><KeyRound size={22}/><h2>Habilitar cambio por cuenta</h2></div>
+      <div className="credential-permissions__heading"><KeyRound size={22}/><h2>Restablecer acceso por cuenta</h2></div>
+      <p>Al restablecer, la contraseña temporal será <strong>123</strong>. Se solicitará obligatoriamente un nuevo usuario y una contraseña segura en el siguiente ingreso.</p>
       <label className="credential-permissions__search"><Search size={18}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar persona, usuario o rol" aria-label="Buscar cuenta"/></label>
       {loading ? <Loading /> : <div className="credential-permissions__table-wrap"><table>
-        <thead><tr><th>Persona</th><th>Usuario</th><th>Rol</th><th>Cambio</th><th>Acción</th></tr></thead>
+        <thead><tr><th>Persona</th><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acción</th></tr></thead>
         <tbody>{filtered.map(account => <tr key={account.id}>
           <td>{account.nombres} {account.apellidos}</td><td>{account.usuario}</td><td>{account.rol.replaceAll("_", " ")}</td>
-          <td>{account.cambio_credenciales_pendiente ? "Pendiente" : "No habilitado"}</td>
-          <td><button type="button" className={`button ${account.cambio_credenciales_pendiente ? "button--ghost" : "button--primary"} button--small`} disabled={busyId === account.id} onClick={() => toggle(account)}>{busyId === account.id ? "Guardando…" : account.cambio_credenciales_pendiente ? "Deshabilitar" : "Habilitar"}</button></td>
+          <td>{account.cambio_credenciales_pendiente ? "Cambio obligatorio pendiente" : "Activo"}</td>
+          <td><button type="button" className="button button--primary button--small" disabled={busyId === account.id} onClick={() => resetCredentials(account)}>{busyId === account.id ? "Restableciendo…" : "Restablecer a 123"}</button></td>
         </tr>)}</tbody>
       </table>{!filtered.length && <p className="credential-permissions__empty">No hay cuentas que coincidan.</p>}</div>}
     </section>

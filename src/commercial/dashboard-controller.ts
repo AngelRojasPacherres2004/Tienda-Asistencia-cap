@@ -1178,10 +1178,10 @@ export class CommercialDashboardController implements OnInit {
         .reduce((total, row) => total + row.target, 0);
     }
     const configuredCategoryGoals = configuredGoals.filter(row => row.category && periods.includes(row.periodId) && storeIds.has(row.storeId));
-    const configuredKeys = new Set(configuredCategoryGoals.map(row => `${row.periodId}|${row.storeId}|${this.normalized(row.category)}`));
-    const direct = this.indexedRows(this.monthlyCategoryTargetIndex, periods, storeIds)
-      .filter(row => !configuredKeys.has(`${row.periodId}|${row.storeId}|${this.normalized(row.category)}`))
-      .concat(configuredCategoryGoals.map(row => ({ periodId: row.periodId, storeId: row.storeId, category: row.category!, target: row.target, source: 'DEFINIDA' as const })));
+    // Los targets por rubro también son administrativos: no se usa ningún
+    // respaldo publicado. Para niveles inferiores se prorratea su meta oficial
+    // según las ventas RMS del contexto filtrado.
+    const direct = configuredCategoryGoals.map(row => ({ periodId: row.periodId, storeId: row.storeId, category: row.category!, target: row.target, source: 'DEFINIDA' as const }));
     const categorySales = this.indexedRows(this.monthlyCategoryIndex, periods, storeIds);
     const selectedSales = this.currentDimensionFilter(this.indexedRows(this.currentDimensionIndex(), periods, storeIds));
     const byKey = grouped(direct, row => `${row.periodId}|${row.storeId}`);
@@ -4666,16 +4666,11 @@ export class CommercialDashboardController implements OnInit {
       if (trafficResult.status === 'fulfilled' && trafficResult.value) {
         const summary = trafficResult.value;
         const salesCutoff = loaded.metadata.salesCutoff;
+        // Tráfico es una fuente administrativa: se muestra exclusivamente lo
+        // registrado en trafico_tienda, sin completar períodos con JSON legado.
         const databaseDaily = (summary.daily || []).filter(row => row.date <= salesCutoff);
-        // Supabase empieza en marzo para varias tiendas. Se reemplaza un mes de
-        // la publicación únicamente cuando la BD tiene ese mes/tienda; enero y
-        // febrero conservan el histórico publicado y nunca se rellenan con cero.
-        const databaseMonths = new Set(databaseDaily.map(row => `${row.storeId}|${row.date.slice(0, 7)}`));
-        const publishedDaily = (loaded.dailyTraffic || []).filter(row => row.date <= salesCutoff
-          && !databaseMonths.has(`${row.storeId}|${row.date.slice(0, 7)}`));
-        const mergedDaily = [...publishedDaily, ...databaseDaily];
         const trafficByPeriod = new Map<string, number>();
-        for (const row of mergedDaily) {
+        for (const row of databaseDaily) {
           const periodId = Number(row.date.slice(0, 4)) * 100 + Number(row.date.slice(5, 7));
           const key = `${periodId}|${row.storeId}`;
           trafficByPeriod.set(key, (trafficByPeriod.get(key) || 0) + (Number(row.traffic) || 0));
@@ -4684,9 +4679,9 @@ export class CommercialDashboardController implements OnInit {
         loaded = {
           ...loaded,
           monthlyStore: (loaded.monthlyStore || []).map(row => ({
-            ...row, traffic: trafficByPeriod.get(`${row.periodId}|${row.storeId}`) ?? row.traffic ?? 0,
+            ...row, traffic: trafficByPeriod.get(`${row.periodId}|${row.storeId}`) ?? 0,
           })),
-          dailyTraffic: mergedDaily,
+          dailyTraffic: databaseDaily,
           metadata: { ...loaded.metadata, trafficCutoff: effectiveTrafficCutoff || loaded.metadata.trafficCutoff },
         };
       } else if (trafficResult.status === 'rejected') {
@@ -4720,7 +4715,23 @@ export class CommercialDashboardController implements OnInit {
       this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
       this.data.set(loaded);
       this.trafficRevision.update(value => value + 1);
-      this.cloud.operationalSummary().then(summary => this.operationalSummary.set(summary)).catch(() => this.operationalSummary.set(null));
+      this.cloud.operationalSummary().then(summary => {
+        if (!summary) { this.operationalSummary.set(null); return; }
+        this.operationalSummary.set(summary);
+        const currentData = this.data();
+        if (!currentData) return;
+        // Tiendas y personal son maestros administrativos y su única fuente es
+        // Supabase. Las ventas/stock continúan viniendo del batch RMS publicado.
+        const next = {
+          ...currentData,
+          stores: summary.stores?.length ? summary.stores : currentData.stores,
+          monthlyPersonnelArea: summary.monthlyPersonnelArea || [],
+          personnelProfiles: summary.personnelProfiles || [],
+        };
+        this.monthlyPersonnelAreaIndex = this.indexPeriodStore(next.monthlyPersonnelArea);
+        this.data.set(next);
+        this.applyAccessScope();
+      }).catch(() => this.operationalSummary.set(null));
       void this.loadCompanyRanking(goalLoadToken);
       if (this.page() === 1) void this.ensurePriceRangeDetail();
       this.orderCost.set(loaded.metadata.eoq.orderCost); this.holdingCost.set(loaded.metadata.eoq.annualHoldingCost);

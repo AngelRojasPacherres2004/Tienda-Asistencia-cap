@@ -7,6 +7,8 @@ Solo actualiza: ventas, transferencias, ingresos y stock (stock: 1 vez al mes).
 
 import subprocess
 import tkinter as tk
+import json
+from calendar import monthrange
 from datetime import date
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -14,22 +16,22 @@ from tkinter import messagebox, ttk
 from project_paths import PROJECT_ROOT
 from runtime_config import finalizar_proceso
 
+try:
+    from tkcalendar import DateEntry
+except ImportError:
+    DateEntry = None
+
 NUEVA_CONSOLA = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-ANIO_ACTUAL = date.today().year
-ANIOS_DISPONIBLES = list(range(2024, ANIO_ACTUAL + 1))
-
-
 class PanelDashboard(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Dashboard General · Panel de control")
-        self.geometry("680x560")
-        self.minsize(640, 520)
+        self.geometry("720x610")
+        self.minsize(680, 570)
         self.configure(background="#f3f6fb")
-        self.anio = tk.StringVar(value=str(ANIO_ACTUAL))
         self.fecha_inicio = tk.StringVar(value="")
         self.fecha_fin = tk.StringVar(value="")
-        self.estado = tk.StringVar(value="Listo para ejecutar una tarea.")
+        self.estado = tk.StringVar(value=self._estado_ultima_actualizacion())
         self._crear_interfaz()
 
     # ------------------------------------------------------------------ #
@@ -52,41 +54,36 @@ class PanelDashboard(tk.Tk):
         ttk.Label(
             marco,
             text=(
-                "Actualiza ventas, transferencias, ingresos y stock (solo 1 vez al mes).\n"
-                "Selecciona el año de los datos y, opcionalmente, un rango de fechas dentro del año."
+                "Actualización diaria: sobrescribe los Excel nuevos en input\\ y procesa solo la entrega nueva.\n"
+                "El histórico ya vive en Parquet; no copies Excel de 2024–2026 nuevamente."
             ),
             style="Hint.TLabel",
             wraplength=590,
         ).pack(anchor="w", pady=(4, 16))
 
-        # Sección: Año y fechas
-        filtro_marco = ttk.LabelFrame(marco, text="Año y rango de corte", padding=12)
+        # Sección: corte
+        filtro_marco = ttk.LabelFrame(marco, text="Fecha de procesamiento", padding=12)
         filtro_marco.pack(fill="x")
 
         fila1 = ttk.Frame(filtro_marco)
         fila1.pack(fill="x", pady=(0, 6))
-        ttk.Label(fila1, text="Año:", style="Section.TLabel").pack(side="left")
-        cb_anio = ttk.Combobox(
-            fila1,
-            textvariable=self.anio,
-            values=[str(a) for a in ANIOS_DISPONIBLES],
-            state="readonly",
-            width=8,
-            font=("Segoe UI", 11),
-        )
-        cb_anio.pack(side="left", padx=(6, 20))
-
-        ttk.Label(fila1, text="Fecha inicio (opcional):", style="Hint.TLabel").pack(side="left")
-        ttk.Entry(fila1, textvariable=self.fecha_inicio, width=13, font=("Segoe UI", 10)).pack(side="left", padx=(4, 12))
-        ttk.Label(fila1, text="Fecha fin (opcional):", style="Hint.TLabel").pack(side="left")
-        ttk.Entry(fila1, textvariable=self.fecha_fin, width=13, font=("Segoe UI", 10)).pack(side="left", padx=4)
+        ttk.Label(fila1, text="Fecha de corte:", style="Section.TLabel").pack(side="left")
+        self._crear_selector_fecha(fila1, self.fecha_fin).pack(side="left", padx=4)
 
         ttk.Label(
             filtro_marco,
-            text="Formato de fechas: AAAA-MM-DD. Si no se indica rango, se usa todo el año seleccionado.",
+            text=("La fecha es obligatoria. STOCK.xlsx solo se admite el último día del mes; "
+                  "ventas, ingresos y transferencias se ejecutan cada día."),
             style="Hint.TLabel",
         ).pack(anchor="w")
-        ttk.Button(filtro_marco, text="Limpiar fechas", command=self._limpiar_fechas).pack(anchor="e", pady=(4, 0))
+        acciones_fecha = ttk.Frame(filtro_marco)
+        acciones_fecha.pack(anchor="e", pady=(4, 0))
+        ttk.Button(
+            acciones_fecha,
+            text="Usar cierre de mes",
+            command=self._usar_cierre_de_mes,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(acciones_fecha, text="Limpiar fecha", command=self._limpiar_fechas).pack(side="left")
 
         # Sección: Botones principales
         botones_marco = ttk.LabelFrame(marco, text="Acciones", padding=12)
@@ -95,8 +92,9 @@ class PanelDashboard(tk.Tk):
         acciones = (
             ("⟳  Actualizar datos locales",        self._actualizar,       0, 0),
             ("▶  Abrir dashboard local",            lambda: self._bat("4_EJECUTAR_DASHBOARD_WEB.bat"), 0, 1),
-            ("📦  Crear paquete portable",           lambda: self._bat("3_CREAR_PAQUETE_PORTABLE.bat"), 1, 0),
-            ("🔧  Instalar / reparar requisitos",   lambda: self._bat("1_INSTALAR_REQUISITOS.bat"),    1, 1),
+            ("📁  Abrir carpeta input",              self._abrir_carpeta_input, 1, 0),
+            ("📦  Crear paquete portable",           lambda: self._bat("3_CREAR_PAQUETE_PORTABLE.bat"), 1, 1),
+            ("🔧  Instalar / reparar requisitos",   lambda: self._bat("1_INSTALAR_REQUISITOS.bat"),    2, 0),
         )
         for texto, accion, fila, col in acciones:
             ttk.Button(botones_marco, text=texto, command=accion, style="Action.TButton").grid(
@@ -111,11 +109,11 @@ class PanelDashboard(tk.Tk):
         ttk.Label(
             reglas,
             text=(
-                "• Ventas        → se actualiza cada vez que hay datos nuevos del RMS.\n"
-                "• Transferencias → igual que ventas.\n"
-                "• Ingresos      → igual que ventas.\n"
-                "• Stock         → solo 1 vez al mes (fotografía mensual).\n"
-                "• El resto de dimensiones ya están fijas y no se reconstruyen."
+                "• input\\VENTAS.xlsx, input\\INGRESO.xlsx e input\\TRANSFERENCIAS.xlsx: obligatorios cada día.\n"
+                "• Sobrescribe esos tres archivos con la entrega del día nuevo y pulsa Actualizar.\n"
+                "• input\\STOCK.xlsx: opcional y solo el último día de cada mes (30/31, o 28/29).\n"
+                "• Personal, tráfico, catálogo, tiendas, metas y merma se consultan desde Supabase.\n"
+                "• El mismo botón genera los cuatro Parquet para el Asistente Comercial."
             ),
             style="Hint.TLabel",
             justify="left",
@@ -130,8 +128,56 @@ class PanelDashboard(tk.Tk):
     # ------------------------------------------------------------------ #
 
     def _limpiar_fechas(self) -> None:
-        self.fecha_inicio.set("")
         self.fecha_fin.set("")
+
+    def _usar_cierre_de_mes(self) -> None:
+        """Selecciona el último día del mes visible en el corte actual."""
+        try:
+            referencia = date.fromisoformat(self.fecha_fin.get().strip())
+        except ValueError:
+            referencia = date.today()
+        cierre = date(
+            referencia.year,
+            referencia.month,
+            monthrange(referencia.year, referencia.month)[1],
+        )
+        self.fecha_fin.set(cierre.isoformat())
+        self.estado.set(
+            f"Cierre mensual seleccionado: {cierre.isoformat()}. "
+            "Coloca también STOCK.xlsx antes de actualizar."
+        )
+
+    def _abrir_carpeta_input(self) -> None:
+        carpeta = PROJECT_ROOT / "input"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.Popen(["explorer.exe", str(carpeta)])
+        except OSError as exc:
+            messagebox.showerror("No se pudo abrir la carpeta", str(exc))
+            return
+        self.estado.set(
+            "Carpeta input abierta. Copia o sobrescribe los archivos RMS con los nombres exactos."
+        )
+
+    def _crear_selector_fecha(self, padre: ttk.Frame, variable: tk.StringVar) -> tk.Widget:
+        if DateEntry is not None:
+            selector = DateEntry(
+                padre, textvariable=variable, date_pattern="yyyy-mm-dd",
+                width=11, font=("Segoe UI", 10),
+            )
+            selector.delete(0, "end")
+            return selector
+        return ttk.Entry(padre, textvariable=variable, width=13, font=("Segoe UI", 10))
+
+    def _estado_ultima_actualizacion(self) -> str:
+        ruta = PROJECT_ROOT / "dashboard-data" / "dashboard.json"
+        try:
+            metadata = json.loads(ruta.read_text(encoding="utf-8")).get("metadata", {})
+            corte = metadata.get("selectedCutoff") or metadata.get("salesCutoff")
+            fecha = date.fromtimestamp(ruta.stat().st_mtime).isoformat()
+            return f"Última actualización local: {fecha}. Corte publicado: {corte or 'sin dato'}."
+        except (OSError, ValueError, json.JSONDecodeError):
+            return "Aún no hay una actualización local publicada."
 
     def _validar_fecha(self, valor: str, nombre: str) -> str | None:
         texto = valor.strip()
@@ -146,11 +192,11 @@ class PanelDashboard(tk.Tk):
 
     def _lanzar(self, comando: str, descripcion: str) -> None:
         subprocess.Popen(
-            ["cmd.exe", "/d", "/c", comando],
+            ["cmd.exe", "/d", "/k", comando],
             cwd=PROJECT_ROOT,
             creationflags=NUEVA_CONSOLA,
         )
-        self.estado.set(f"En ejecución: {descripcion}. Revisa la ventana que se abrió.")
+        self.estado.set(f"En ejecución: {descripcion}. La consola queda abierta para mostrar el resultado o el error.")
 
     def _bat(self, nombre: str, *args: str) -> None:
         ruta = PROJECT_ROOT / nombre
@@ -165,28 +211,33 @@ class PanelDashboard(tk.Tk):
     # ------------------------------------------------------------------ #
 
     def _actualizar(self) -> None:
-        anio = self.anio.get().strip()
-        inicio = self._validar_fecha(self.fecha_inicio.get(), "Fecha inicio")
-        fin    = self._validar_fecha(self.fecha_fin.get(),    "Fecha fin")
-        if inicio is None or fin is None:
+        fin = self._validar_fecha(self.fecha_fin.get(), "Fecha de corte")
+        if fin is None:
+            return
+        if not fin:
+            messagebox.showerror("Falta la fecha", "Selecciona la fecha de corte de la entrega.")
+            return
+        nombres_diarios = ("VENTAS.xlsx", "INGRESO.xlsx", "TRANSFERENCIAS.xlsx")
+        faltantes = [nombre for nombre in nombres_diarios if not (PROJECT_ROOT / "input" / nombre).is_file()]
+        if faltantes:
+            messagebox.showinfo(
+                "Falta la entrega RMS",
+                "Faltan en input\\: " + ", ".join(faltantes) + ".\n\n"
+                "Usa los nombres exactos y sobrescríbelos cada día con la data nueva.",
+            )
+            return
+        stock = PROJECT_ROOT / "input" / "STOCK.xlsx"
+        fecha_corte = date.fromisoformat(fin)
+        if stock.is_file() and fecha_corte.day != monthrange(fecha_corte.year, fecha_corte.month)[1]:
+            messagebox.showerror(
+                "Stock fuera de cierre",
+                "STOCK.xlsx solo se procesa el último día del mes. Retíralo de input\\ para una actualización diaria.",
+            )
             return
 
-        args: list[str] = []
+        args = ["--fecha-corte", fin, "--anio-fin", str(fecha_corte.year)]
 
-        # Pasar fecha de corte si se indica fecha fin, si no usar la del año
-        if fin:
-            args += ["--fecha-corte", fin]
-        elif inicio:
-            # Sin fin pero con inicio: usar inicio como corte inicial del rango
-            args += ["--fecha-corte", inicio]
-
-        # Pasar el año seleccionado al script
-        # El BAT acepta --anio-fin; usaremos esa variable de entorno alternativa
-        # mediante el parámetro de paso directo al ejecutor
-        if anio:
-            args += ["--anio-fin", anio]
-
-        self._bat("2_ACTUALIZAR_DATOS.bat", *args)
+        self._bat("2_ACTUALIZAR_DATOS.bat", "--incremental", *args)
 
 
 def main() -> None:

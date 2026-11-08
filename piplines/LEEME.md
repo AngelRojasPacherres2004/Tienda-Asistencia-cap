@@ -5,8 +5,8 @@
 1. Extraer el ZIP completo en una carpeta local.
 2. Instalar Python 3.10 o superior y marcar `Add Python to PATH` durante la instalación.
 3. Ejecutar `1_INSTALAR_REQUISITOS.bat`.
-4. Colocar o actualizar los Excel RMS dentro de `input` y los Excel comerciales dentro de `capa1`.
-5. Ejecutar `2_ACTUALIZAR_DATOS.bat`. El proceso asigna al stock la última fecha comercial disponible en `FactVentas`; la fecha en que se cargó el Excel no se usa como corte del negocio.
+4. En `input`, sobrescribir `VENTAS.xlsx`, `INGRESO.xlsx` y `TRANSFERENCIAS.xlsx` con la entrega nueva del día. No se vuelven a colocar archivos históricos.
+5. Abrir `0_ABRIR_PANEL.bat`, usar **Abrir carpeta input** para cargar los archivos, elegir con el calendario la fecha de esa entrega y pulsar **Actualizar datos locales**. Al cierre del mes agrega también `STOCK.xlsx` y usa **Usar cierre de mes** antes de actualizar.
 
 La actualización genera todos los Parquet finales en `capa2` y regenera `capa2/Modelo_Dashboard.tmdl` con la ruta de la computadora actual.
 
@@ -20,13 +20,13 @@ La construcción de las dos páginas en Power BI está documentada en `../README
 
 ## Arquitectura
 
-- `input`: Excel RMS de ventas, ingresos, transferencias y stock.
-- `capa1`: Excel comerciales editables y Parquet RMS consolidados.
+- `input`: bandeja operativa; solo admite `VENTAS.xlsx`, `INGRESO.xlsx`, `TRANSFERENCIAS.xlsx` y, en cierre mensual, `STOCK.xlsx`.
+- `capa1`: Parquet RMS consolidados e históricos.
 - `capa2`: Parquet analíticos finales y `Modelo_Dashboard.tmdl`.
 - `.etl_work`: caché, staging, temporales, respaldo y estado de ejecución. Se crea automáticamente y no se incluye en el ZIP.
 - `piplines`: scripts Python vigentes del ETL.
 
-Los Excel comerciales son escalables. Las nuevas tiendas agregadas a `TIENDAS.xlsx` reciben una clave estable y se relacionan con los hechos que utilicen el mismo nombre homologado.
+Personal, tiendas, tráfico, metas, catálogo, mermas y demás dimensiones administrativas se obtienen de Supabase; ya no se cargan Excel comerciales locales.
 
 ## Catálogo de productos en Supabase
 
@@ -41,8 +41,8 @@ El comando se detiene si las credenciales apuntan a otro proyecto. Nunca elimina
 
 El ZIP incluye:
 
-- los Excel RMS de `input`;
-- únicamente los Excel comerciales de `capa1`;
+- la estructura vacía de `input` y su guía operativa;
+- los scripts y el modelo para reconstruir desde las fuentes vigentes;
 - todos los scripts vigentes de `piplines`;
 - los tres BAT de la raíz.
 - la guía `README_DASHBOARD_POWER_BI.md` para construir el informe.
@@ -77,4 +77,4 @@ Los ejemplos del libro de lote económico no se publican como datos reales. Mien
 - `BUENO`: BUENO, OK, NUEVO, VENDIBLE, RECUPERADO y estados reparados; vacíos/0 se interpretan como ausencia de defecto.
 - `DESMEDRO`: cualquier condición de deterioro o no vendibilidad (sucio, fallado, manchado, incompleto, servicio técnico, roto, usado, lavado, remate, etc.) y cualquier estado nuevo no reconocido. Esta regla conservadora hace que nuevos defectos queden automáticamente fuera de BUENO sin tener que ampliar una lista cada mes.
 
-`FactMerma` se mantiene como histórico de incidencias del Excel manual. No se suma automáticamente a la merma del snapshot de stock para evitar doble conteo. Las medidas de merma actual del modelo usan `FactStock`; los robos y el histórico manual siguen usando `FactMerma`.
+La merma vigente se obtiene únicamente del estado homologado de `FactStock` (`MERMA` y `DESMEDRO`). El histórico manual de Excel dejó de formar parte de la carga local.

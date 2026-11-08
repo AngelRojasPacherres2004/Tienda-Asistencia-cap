@@ -30,25 +30,78 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       .select('dashboard_store_id,tienda_id').in('dashboard_store_id', access.storeIds);
     if (mappingError) throw dbError(mappingError);
     const storeIds = [...new Set((mappings || []).map(row => row.tienda_id))];
-    if (!storeIds.length) return { activeWorkers: [], courses: [], training: [], departures: [], incidents: [] };
+    if (!storeIds.length) return { activeWorkers: [], courses: [], training: [], departures: [], incidents: [], stores: [], monthlyPersonnelArea: [], personnelProfiles: [] };
     const dashboardId = new Map(mappings.map(row => [row.tienda_id, row.dashboard_store_id]));
-    const [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult] = await Promise.all([
-      readAllResult(supabase.from('usuarios').select('id,tienda_id,nombres,apellidos,rol,estado,sexo,fecha_nacimiento,fecha_salida,motivo_salida').in('tienda_id', storeIds)),
+    const clusterByStore = new Map(mappings.map(row => [row.tienda_id, row.cluster_code || '']));
+    const [usersResult, storesResult, trainingResult, coursesResult, incidentsResult, zonalResult] = await Promise.all([
+      readAllResult(supabase.from('usuarios').select('id,tienda_id,nombres,apellidos,rol,estado,sexo,fecha_nacimiento,fecha_ingreso,fecha_salida,motivo_salida,area_laboral').in('tienda_id', storeIds)),
+      readAllResult(supabase.from('tiendas').select('id,nombre,formato,estado,metraje_m2,capacidad_stock_unid,cant_colaboradores_normal,colaboradores_camp,fecha_apertura,fecha_cierre').in('id', storeIds)),
       readAllResult(supabase.from('capacitacion_progreso').select('id,usuario_id,tienda_id,curso_id,estado').in('tienda_id', storeIds)),
       supabase.from('cursos').select('id,nombre').eq('activo', true).order('id').limit(5),
       access.role === 'jefe_tienda' ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias').select('id,tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01')),
       access.role === 'jefe_tienda' ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias_zonales').select('id,tienda_origen_id,tienda_afectada_id,fecha,tipo,alcance')
         .or(`tienda_origen_id.in.(${storeIds.join(',')}),tienda_afectada_id.in.(${storeIds.join(',')})`).gte('fecha', '2024-01-01')),
     ]);
-    const failure = [usersResult, trainingResult, coursesResult, incidentsResult, zonalResult].find(result => result.error);
+    const failure = [usersResult, storesResult, trainingResult, coursesResult, incidentsResult, zonalResult].find(result => result.error);
     if (failure) throw dbError(failure.error);
+    const userIds = usersResult.data.map(user => user.id);
+    const periodsResult = userIds.length
+      ? await readAllResult(supabase.from('periodos_laborales').select('usuario_id,fecha_ingreso,fecha_salida').in('usuario_id', userIds))
+      : { data: [], error: null };
+    if (periodsResult.error) throw dbError(periodsResult.error);
     const roles = new Map(usersResult.data.map(user => [user.id, user.rol]));
     const courseNames = new Map(coursesResult.data.map(course => [course.id, course.nombre]));
+    const periodsByUser = new Map();
+    for (const period of periodsResult.data || []) {
+      const rows = periodsByUser.get(period.usuario_id) || [];
+      rows.push(period); periodsByUser.set(period.usuario_id, rows);
+    }
+    const gender = value => value === 'hombre' ? 'M' : value === 'mujer' ? 'F' : 'N/A';
+    const areaType = area => ['ADMINISTRACION', 'ALMACEN', 'CAJA', 'SEGURIDAD', 'SOPORTE'].some(value => String(area || '').toUpperCase().includes(value)) ? 'SOPORTE' : 'COMERCIAL';
+    const employmentPeriods = user => (periodsByUser.get(user.id)?.length
+      ? periodsByUser.get(user.id) : [{ fecha_ingreso: user.fecha_ingreso, fecha_salida: user.fecha_salida }]);
+    const personnel = new Map();
+    for (const user of usersResult.data) {
+      const storeId = dashboardId.get(user.tienda_id);
+      if (!storeId) continue;
+      const area = user.area_laboral || user.rol || 'SIN ÁREA';
+      for (const period of employmentPeriods(user)) {
+        const start = String(period.fecha_ingreso || '').slice(0, 10);
+        const end = String(period.fecha_salida || '').slice(0, 10) || null;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+        const firstMonth = Number(start.slice(0, 7).replace('-', ''));
+        const lastMonth = end ? Number(end.slice(0, 7).replace('-', '')) : Number(new Date().toISOString().slice(0, 7).replace('-', ''));
+        for (let periodId = firstMonth; periodId <= lastMonth;) {
+          const key = `${periodId}|${storeId}|${area}|${areaType(area)}`;
+          personnel.set(key, (personnel.get(key) || 0) + 1);
+          const year = Math.floor(periodId / 100); const month = periodId % 100;
+          periodId = month === 12 ? (year + 1) * 100 + 1 : year * 100 + month + 1;
+        }
+      }
+    }
     return {
+      stores: storesResult.data.map(store => ({
+        storeId: dashboardId.get(store.id), store: store.nombre, alias: store.nombre,
+        format: String(store.formato || '').toUpperCase(), cluster: clusterByStore.get(store.id) || '', isStore: true,
+        areaM2: Number(store.metraje_m2) || 0, capacity: Number(store.capacidad_stock_unid) || 0,
+        normalStaff: Number(store.cant_colaboradores_normal) || 0, campaignStaff: Number(store.colaboradores_camp) || 0,
+        openingDate: store.fecha_apertura || undefined, closingDate: store.fecha_cierre || undefined, status: store.estado || 'activo',
+      })).filter(store => store.storeId),
+      monthlyPersonnelArea: [...personnel].map(([key, personnel]) => {
+        const [periodId, storeId, area, areaTypeValue] = key.split('|');
+        return { periodId: Number(periodId), storeId, area, areaType: areaTypeValue, personnel };
+      }),
+      personnelProfiles: usersResult.data.map(user => ({
+        name: `${user.nombres || ''} ${user.apellidos || ''}`.trim(), storeId: dashboardId.get(user.tienda_id),
+        gender: gender(user.sexo), birthDate: user.fecha_nacimiento || undefined, role: user.rol || '',
+        area: user.area_laboral || user.rol || 'SIN ÁREA', areaType: areaType(user.area_laboral || user.rol),
+        hireDate: user.fecha_ingreso || undefined, retirementDate: user.fecha_salida || undefined,
+        retirementReason: user.motivo_salida || undefined, status: user.estado || '',
+      })).filter(user => user.storeId),
       activeWorkers: usersResult.data.filter(user => user.estado === 'activo').map(user => ({
         storeId: dashboardId.get(user.tienda_id), role: user.rol,
         name: `${user.nombres || ''} ${user.apellidos || ''}`.trim(),
-        gender: user.sexo === 'hombre' ? 'M' : user.sexo === 'mujer' ? 'F' : 'N/A',
+        gender: gender(user.sexo),
         birthDate: user.fecha_nacimiento || null,
       })),
       courses: coursesResult.data.map(course => course.nombre),
@@ -77,40 +130,18 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       .map(row => [Number(row.tienda_id), row.dashboard_store_id]));
     if (!dashboardByStore.size) return { cutoff: null, daily: [], monthly: [] };
     const storeIds = [...dashboardByStore.keys()];
-    const sourceText = "Excel seguridad 2026";
-    // Las filas importadas guardan el total diario en observaciones. Basta leer
-    // la primera hora de cada día. Los registros manuales se consultan aparte y
-    // conservan prioridad; así la API baja de ~62 mil a menos de 6 mil filas.
-    const [taggedRows, manualRows, manualNullRows] = await Promise.all([
-      fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,fecha,cantidad,observaciones")
-        .in("tienda_id", storeIds).gte("fecha", "2024-01-01").eq("rango_hora", "09:00-10:00")
-        .ilike("observaciones", `%${sourceText}%`).order("id")),
-      fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,fecha,cantidad,observaciones")
-        .in("tienda_id", storeIds).gte("fecha", "2024-01-01")
-        .not("observaciones", "ilike", `%${sourceText}%`).order("id")),
-      fetchAllReportPages(supabase.from("trafico_tienda").select("id,tienda_id,fecha,cantidad,observaciones")
-        .in("tienda_id", storeIds).gte("fecha", "2024-01-01").is("observaciones", null).order("id")),
-    ]);
+    // Cada fila de trafico_tienda es una franja horaria. El resumen se compone
+    // directamente de la tabla, sin etiquetas ni totales importados desde Excel.
+    const trafficRows = await fetchAllReportPages(supabase.from("trafico_tienda").select("tienda_id,fecha,cantidad")
+      .in("tienda_id", storeIds).gte("fecha", "2024-01-01").order("fecha"));
     const daily = new Map();
     let cutoff = null;
-    const manualKeys = new Set();
-    for (const row of [...manualRows, ...manualNullRows]) {
+    for (const row of trafficRows.data || []) {
       const storeId = dashboardByStore.get(Number(row.tienda_id));
       const date = String(row.fecha || "").slice(0, 10);
       if (!storeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       const key = `${storeId}|${date}`;
-      manualKeys.add(key);
       daily.set(key, (daily.get(key) || 0) + Math.max(0, Number(row.cantidad) || 0));
-      if (!cutoff || date > cutoff) cutoff = date;
-    }
-    for (const row of taggedRows) {
-      const storeId = dashboardByStore.get(Number(row.tienda_id));
-      const date = String(row.fecha || "").slice(0, 10);
-      if (!storeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-      const key = `${storeId}|${date}`;
-      if (manualKeys.has(key)) continue;
-      const total = Number(String(row.observaciones || "").match(/total diario\s+(\d+)/i)?.[1]);
-      daily.set(key, Number.isFinite(total) ? total : Math.max(0, Number(row.cantidad) || 0));
       if (!cutoff || date > cutoff) cutoff = date;
     }
     const dailyRows = [...daily].map(([key, traffic]) => {

@@ -33,7 +33,7 @@ except ImportError as exc:
 from project_paths import PROJECT_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
 from maestros import ANIO_INICIO_MODELO
 BASE_DIR = PROJECT_ROOT
-INPUT_DIR = BASE_DIR / "input"
+INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(BASE_DIR / "input")))
 CAPA1_DIR = BASE_DIR / "capa1"
 CAPA2_DIR = BASE_DIR / "capa2"
 
@@ -580,6 +580,11 @@ def obtener_hojas_desde_xlsx(archivo: Path) -> list[tuple[str, str, int]]:
 
 
 def buscar_archivos_ventas() -> list[Path]:
+    if os.getenv("DASHBOARD_FIXED_INPUT") == "1":
+        archivo = INPUT_DIR / "VENTAS.xlsx"
+        if not archivo.is_file():
+            raise FileNotFoundError(f"Falta el archivo diario requerido: {archivo}")
+        return [archivo]
     archivos = sorted(
         archivo
         for archivo in INPUT_DIR.glob("*.xlsx")

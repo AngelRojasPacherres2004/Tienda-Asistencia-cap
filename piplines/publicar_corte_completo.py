@@ -20,7 +20,7 @@ from project_paths import PROJECT_ROOT
 EXPECTED_URL = "https://xtnihjzqnxozbotymoma.supabase.co"
 MODEL_FACTS = (
     "FactVentas.parquet", "FactIngresos.parquet", "FactTransferencias.parquet",
-    "FactTraficoClientes.parquet", "FactStock.parquet",
+    "FactStock.parquet",
 )
 
 
@@ -69,7 +69,7 @@ def manifest_fresh(path: Path, cutoff: str, stock: str, *, monthly: bool = False
         manifest = json.loads(path.read_text(encoding="utf-8"))
         coverage = json.loads(COBERTURA.read_text(encoding='utf-8'))
         expected = {"ventas": cutoff, "ingresos": cutoff,
-                    "transferencias": cutoff, "trafico": coverage.get('trafficCutoff', cutoff), "stock": stock}
+                    "transferencias": cutoff, "stock": stock}
         newest_source = max((PROJECT_ROOT / "capa2" / name).stat().st_mtime for name in MODEL_FACTS)
         return (manifest.get("cutoffs") == expected
                 and (not monthly or manifest.get("schemaVersion") == 3)

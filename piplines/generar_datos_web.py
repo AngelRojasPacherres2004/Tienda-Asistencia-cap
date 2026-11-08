@@ -11,8 +11,6 @@ import duckdb
 
 from project_paths import PROJECT_ROOT, CAPA2_DIR
 from runtime_config import finalizar_proceso
-from maestros import homologar_tienda_python, tienda_id_python
-from xlsx_staging import origen_xlsx_csv
 from compactar_dashboard import (
     candidatos_traslado, compactar_diario, compactar_predictivo, compactar_registros,
     compactar_stock, compactar_tallas, resumir_stock_jerarquia,
@@ -23,7 +21,6 @@ WEB_DIR = PROJECT_ROOT / "dashboard-data"
 SALIDA_PUBLICA = WEB_DIR / "dashboard.json"
 SALIDA_COMPILADA = PROJECT_ROOT / "dist" / "comercial" / "assets" / "data" / "dashboard.json"
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
-PERSONAL_XLSX = PROJECT_ROOT / "capa1" / "PERSONAL_TIENDAS.xlsx"
 
 
 def normalizar(valor):
@@ -279,66 +276,6 @@ def fecha_excel_sql(expresion: str) -> str:
     """
 
 
-def cargar_personal_detalle(conexion: duckdb.DuckDBPyConnection) -> list[dict]:
-    """Publica solo atributos laborales/demográficos mínimos; excluye DNI y contacto."""
-    if not PERSONAL_XLSX.exists():
-        return []
-    origen = origen_xlsx_csv(PERSONAL_XLSX, "PERSONAL_TIENDAS")
-    fecha_nacimiento = fecha_excel_sql('"fecha_nacimiento"')
-    fecha_ingreso = fecha_excel_sql('"fecha_ingreso"')
-    fecha_retiro = fecha_excel_sql('"fecha_retiro"')
-    registros = filas(
-        conexion,
-        f"""
-        WITH normalizado AS (
-            SELECT
-                NULLIF(TRIM(CAST("nombre_completo" AS VARCHAR)), '') AS name,
-                NULLIF(TRIM(CAST("tienda" AS VARCHAR)), '') AS "rawStore",
-                UPPER(NULLIF(TRIM(CAST("sexo" AS VARCHAR)), '')) AS gender,
-                {fecha_nacimiento} AS "birthDate",
-                TRY_CAST(NULLIF(TRIM(CAST("mes_cumpleanos" AS VARCHAR)), '') AS VARCHAR) AS "birthdayMonthName",
-                TRY_CAST(NULLIF(TRIM(CAST("dia_cumpleanos" AS VARCHAR)), '') AS INTEGER) AS "birthdayDaySource",
-                UPPER(COALESCE(NULLIF(TRIM(CAST("puesto" AS VARCHAR)), ''), 'SIN PUESTO')) AS role,
-                UPPER(COALESCE(NULLIF(TRIM(CAST("area" AS VARCHAR)), ''), 'SIN ÁREA')) AS area,
-                {fecha_ingreso} AS "hireDate",
-                {fecha_retiro} AS "retirementDate",
-                UPPER(NULLIF(TRIM(CAST("motivo_retiro" AS VARCHAR)), '')) AS "retirementReason",
-                UPPER(COALESCE(NULLIF(TRIM(CAST("estado_laboral" AS VARCHAR)), ''), 'SIN ESTADO')) AS status
-            FROM {origen}
-        )
-        SELECT DISTINCT
-            name,
-            "rawStore",
-            CASE WHEN gender IN ('M', 'MASCULINO', 'HOMBRE') THEN 'M'
-                 WHEN gender IN ('F', 'FEMENINO', 'MUJER') THEN 'F'
-                 ELSE 'N/A' END AS gender,
-            "birthDate",
-            COALESCE(EXTRACT(MONTH FROM "birthDate")::INTEGER,
-                CASE UPPER("birthdayMonthName")
-                    WHEN 'ENERO' THEN 1 WHEN 'FEBRERO' THEN 2 WHEN 'MARZO' THEN 3
-                    WHEN 'ABRIL' THEN 4 WHEN 'MAYO' THEN 5 WHEN 'JUNIO' THEN 6
-                    WHEN 'JULIO' THEN 7 WHEN 'AGOSTO' THEN 8 WHEN 'SEPTIEMBRE' THEN 9
-                    WHEN 'OCTUBRE' THEN 10 WHEN 'NOVIEMBRE' THEN 11 WHEN 'DICIEMBRE' THEN 12
-                END) AS "birthdayMonth",
-            COALESCE(EXTRACT(DAY FROM "birthDate")::INTEGER, "birthdayDaySource") AS "birthdayDay",
-            role, area,
-            CASE WHEN area IN ('CAJA', 'SEGURIDAD', 'ADMINISTRATIVA', 'ADMINISTRATIVO', 'ALMACÉN', 'ALMACEN')
-                 THEN 'SOPORTE' ELSE 'COMERCIAL' END AS "areaType",
-            "hireDate", "retirementDate", "retirementReason", status
-        FROM normalizado
-        WHERE name IS NOT NULL AND "rawStore" IS NOT NULL
-        ORDER BY "rawStore", name
-        """,
-    )
-    salida: list[dict] = []
-    for registro in registros:
-        store_id = tienda_id_python(homologar_tienda_python(registro.pop("rawStore", None)), estricto=True)
-        if store_id:
-            registro["storeId"] = store_id
-            salida.append(registro)
-    return salida
-
-
 def resumen_mensual_dimension(
     conexion: duckdb.DuckDBPyConnection,
     ventas: str,
@@ -409,12 +346,24 @@ def generar() -> dict:
     ventas_fuente = literal_parquet("FactVentas")
     stock_fuente = literal_parquet("FactStock")
     ingresos_fuente = literal_parquet("FactIngresos")
-    metas = literal_parquet("FactMetasTienda")
-    personal = literal_parquet("FactPersonalTienda")
-    trafico_fuente = literal_parquet("FactTraficoClientes")
+    # El batch local procesa exclusivamente los cuatro RMS. Los maestros
+    # administrativos se consumen en tiempo real desde Supabase por la API.
+    metas = "(SELECT NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::VARCHAR AS indicador, NULL::DOUBLE AS meta_ventas, FALSE AS es_meta_valida WHERE FALSE)"
+    personal = "(SELECT NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::VARCHAR AS area_asignada, NULL::VARCHAR AS tipo_area, NULL::DOUBLE AS cantidad_personal WHERE FALSE)"
+    trafico_fuente = "(SELECT NULL::DATE AS fecha, NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::DOUBLE AS cantidad_personas, FALSE AS es_dato_valido WHERE FALSE)"
     rubro_dashboard = rubro_homologado_sql("rubro")
-    tiendas = literal_parquet("DimTiendas")
-    merma = literal_parquet("FactMerma")
+    tiendas = f"""(
+        SELECT tienda_id, MAX(tienda) AS tienda, MAX(tienda) AS alias,
+            '' AS formato_tienda, '' AS cluster, TRUE AS es_tienda,
+            NULL::DOUBLE AS metraje_m2, NULL::DOUBLE AS capacidad_stock_unidades,
+            NULL::DOUBLE AS cant_colaboradores_normal, NULL::DOUBLE AS colaboradores_camp,
+            NULL::DATE AS fecha_apertura, NULL::DATE AS fecha_cierre, 'activo' AS estado_operativo
+        FROM (SELECT tienda_id, tienda FROM {ventas_fuente} UNION ALL SELECT tienda_id, tienda FROM {stock_fuente})
+        WHERE tienda_id IS NOT NULL GROUP BY tienda_id
+    )"""
+    # Merma histórica deja de provenir de una planilla; la fotografía vigente
+    # se calcula desde Stock RMS (estado_grupo = MERMA) en el frontend.
+    merma = "(SELECT NULL::VARCHAR AS tienda_id, NULL::VARCHAR AS producto_id, NULL::DATE AS fecha_analisis, NULL::DOUBLE AS cantidad WHERE FALSE)"
 
     reporte_cobertura = cargar_reporte_cobertura()
     conexion = duckdb.connect()
@@ -768,7 +717,7 @@ def generar() -> dict:
         ORDER BY 1, 2, 3
         """,
     )
-    personal_detalle = cargar_personal_detalle(conexion)
+    personal_detalle = []
 
     por_rubro = resumen_mensual_dimension(
         conexion,
@@ -1158,33 +1107,6 @@ def generar() -> dict:
     # El reporte de corte puede preceder a una importación posterior. Releer
     # estas dos fuentes sin recortar sus Parquet conserva el histórico nuevo
     # para el próximo corte de ventas y muestra la cobertura real de hoy.
-    for nombre, fuente_sql, columna, tolerancia in (
-        ("Tráfico", trafico_fuente, "fecha", 7),
-        ("Merma", merma, "fecha_analisis", 35),
-    ):
-        original, incluida, maxima, hasta = conexion.execute(
-            f"SELECT COUNT(*), COUNT(*) FILTER (WHERE {columna} <= {corte_sql}), "
-            f"MAX({columna}), MAX({columna}) FILTER (WHERE {columna} <= {corte_sql}) "
-            f"FROM {fuente_sql}"
-        ).fetchone()
-        for fuente in cobertura_fuentes:
-            if fuente.get("source") != nombre:
-                continue
-            rezago = (fecha_corte - hasta).days if hasta else None
-            fuente.update({
-                "maxAvailable": maxima.isoformat() if maxima else None,
-                "dataThrough": hasta.isoformat() if hasta else None,
-                "rowsOriginal": original,
-                "rowsIncluded": incluida,
-                "rowsExcludedAfterCutoff": original - incluida,
-                "lagDays": rezago,
-                "status": "ok" if rezago is not None and rezago <= tolerancia else "warning",
-                "message": (f"{nombre} llega hasta {hasta.isoformat()} ({rezago} días antes del corte)."
-                            if hasta and rezago > tolerancia else
-                            f"{nombre} está dentro de su frecuencia esperada." if hasta else
-                            f"No hay {nombre.lower()} hasta el corte."),
-            })
-            break
     advertencias_datos = [
         {"source": fuente.get("source", "Fuente"), "message": fuente.get("message", "")}
         for fuente in cobertura_fuentes
@@ -1194,8 +1116,6 @@ def generar() -> dict:
         {"source": "Fecha de corte", "message": mensaje}
         for mensaje in reporte_cobertura.get("manualWarnings", [])
     )
-    if reporte_cobertura.get('trafficCutoff', fecha_corte.isoformat()) != fecha_corte.isoformat():
-        advertencias_datos.append({'source': 'Tráfico', 'message': f"Ventas al {fecha_corte.isoformat()}; tráfico al {reporte_cobertura['trafficCutoff']}. No se mezclan los cortes para calcular conversión."})
     diferencias_stock = conexion.execute(f"SELECT COUNT(*) FROM {stock} WHERE NOT es_total_consistente").fetchone()[0]
     if diferencias_stock:
         advertencias_datos.append({'source': 'Valoración de stock', 'message': f'{diferencias_stock} total(es) fuente difieren de cantidad por precio; el inventario usa cantidad por precio y conserva el importe original para auditoría.'})
@@ -1210,7 +1130,7 @@ def generar() -> dict:
             "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
             "selectedCutoff": fecha_corte.isoformat(),
             "salesCutoff": fecha_corte.isoformat(),
-            "trafficCutoff": reporte_cobertura.get('trafficCutoff', fecha_corte.isoformat()),
+            "trafficCutoff": fecha_corte.isoformat(),
             "stockValuationPolicy": "cantidad × precio_sugerido; total_fuente se conserva para auditoría",
             "salesDataThrough": ventas_hasta or (fecha_ultima_venta.isoformat() if fecha_ultima_venta else None),
             "stockCutoff": fecha_ancla_stock.isoformat(),

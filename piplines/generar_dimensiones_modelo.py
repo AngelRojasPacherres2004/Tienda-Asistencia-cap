@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-"""Genera y valida las dimensiones que no provienen de un único reporte.
+"""Genera y valida las dimensiones que se derivan de los cuatro RMS.
 
 Orden:
 1. DimFecha: calendario completo del modelo.
-2. Validación de DimTiendas y DimClasificacionProducto ya generadas.
-3. DimProducto: unión maestra de los productos presentes en todas las facts.
+2. DimTiendas: unión de las tiendas presentes en los hechos RMS.
+3. DimProducto y DimClasificacionProducto: unión de los productos RMS.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,7 +27,6 @@ from maestros import (
     ANIO_FIN_MODELO,
     ANIO_INICIO_MODELO,
     FECHA_INICIO_MODELO,
-    TIENDA_IDS,
     sql_literal,
 )
 
@@ -40,12 +40,7 @@ COLUMNAS_FECHA_FACT = {
     "FactVentas.parquet": ("fecha_id",),
     "FactIngresos.parquet": ("fecha_id",),
     "FactTransferencias.parquet": ("fecha_id",),
-    "FactGuiasTransito.parquet": ("fecha_corte_id", "fecha_transferencia_id"),
     "FactStock.parquet": ("fecha_corte_id",),
-    "FactMerma.parquet": ("fecha_id",),
-    "FactMetasTienda.parquet": ("fecha_id",),
-    "FactPersonalTienda.parquet": ("fecha_id",),
-    "FactTraficoClientes.parquet": ("fecha_id",),
 }
 
 # fecha_origen_id es una fecha de rol histórica: puede ser anterior al inicio
@@ -121,11 +116,47 @@ def detectar_rango_columna(nombre_archivo: str, columna: str) -> tuple[int | Non
     finally:
         cerrar_duckdb_seguro(con)
 
-DIMENSIONES_EXISTENTES = {
-    "DimTiendas.parquet": "tienda_id",
-    "DimClasificacionProducto.parquet": "clasificacion_producto_id",
-    "DimFechaOrigenStock.parquet": "fecha_id",
-}
+DIMENSIONES_EXISTENTES = {"DimFechaOrigenStock.parquet": "fecha_id"}
+
+
+def generar_dim_tiendas_rms() -> None:
+    """Construye una dimensión técnica desde los cuatro hechos RMS.
+
+    Los atributos administrativos visibles en el dashboard (formato, clúster,
+    capacidad y dotación) llegan desde Supabase, no de un Excel local.
+    """
+    fuentes = []
+    for nombre in ("FactVentas.parquet", "FactIngresos.parquet", "FactStock.parquet"):
+        archivo = CAPA2_DIR / nombre
+        if archivo.exists():
+            fuentes.append(
+                f"SELECT tienda_id, tienda FROM read_parquet({sql_literal(archivo.as_posix())}) WHERE tienda_id IS NOT NULL"
+            )
+    if not fuentes:
+        raise FileNotFoundError("No existen hechos RMS para generar DimTiendas.")
+    salida = CAPA2_DIR / "DimTiendas.parquet"
+    temporal = CAPA2_DIR / "DimTiendas.temporal.parquet"
+    con = duckdb.connect(database=":memory:")
+    configurar_duckdb(con, BASE_DIR, preserve_insertion_order=False)
+    try:
+        origen = " UNION ALL ".join(fuentes)
+        consulta = f"""
+        SELECT tienda_id, MAX(tienda) AS tienda, MAX(tienda) AS alias,
+            ''::VARCHAR AS tipo_ubicacion, ''::VARCHAR AS formato_tienda,
+            ''::VARCHAR AS cluster, TRUE AS es_tienda,
+            NULL::DECIMAL(14,2) AS metraje_m2, NULL::DECIMAL(14,2) AS capacidad_stock_unidades,
+            NULL::INTEGER AS cant_colaboradores_normal, NULL::INTEGER AS colaboradores_camp,
+            NULL::INTEGER AS cant_colaboradores_referencial, ''::VARCHAR AS departamento,
+            ''::VARCHAR AS provincia, ''::VARCHAR AS distrito, ''::VARCHAR AS direccion,
+            NULL::DATE AS fecha_apertura, NULL::DATE AS fecha_cierre,
+            'activo'::VARCHAR AS estado_operativo, TRUE AS es_vigente
+        FROM ({origen}) GROUP BY tienda_id ORDER BY tienda_id
+        """
+        con.execute(f"COPY ({consulta}) TO {sql_literal(temporal.as_posix())} (FORMAT PARQUET, COMPRESSION SNAPPY)")
+    finally:
+        cerrar_duckdb_seguro(con)
+    os.replace(temporal, salida)
+    validar_dimension(salida, "tienda_id")
 
 
 def ejecutar(script: str, argumentos: list[str] | None = None) -> None:
@@ -162,24 +193,6 @@ def validar_dimension(archivo: Path, clave: str) -> None:
                 f"{archivo.name} no tiene clave única {clave}: "
                 f"filas={filas}, distintas={distintas}, nulos={nulos}"
             )
-        if archivo.name == "DimTiendas.parquet":
-            datos = {
-                str(nombre): str(tienda_id)
-                for tienda_id, nombre in con.execute(
-                    f"SELECT tienda_id, tienda FROM read_parquet({sql_literal(archivo.as_posix())})"
-                ).fetchall()
-            }
-            historicas = dict(TIENDA_IDS)
-            faltantes = sorted(set(historicas) - set(datos))
-            ids_distintos = sorted(
-                nombre for nombre in set(historicas) & set(datos)
-                if historicas[nombre] != datos[nombre]
-            )
-            if faltantes or ids_distintos:
-                raise RuntimeError(
-                    "DimTiendas perdió tiendas o IDs históricos. "
-                    f"Faltantes={faltantes}; IDs distintos={ids_distintos}"
-                )
         print(f"[OK] {archivo.name}: {filas:,} filas")
     finally:
         cerrar_duckdb_seguro(con)
@@ -248,9 +261,7 @@ def main() -> int:
         else:
             (CAPA2_DIR / "DimFechaOrigenStock.parquet").unlink(missing_ok=True)
 
-        for nombre, clave in DIMENSIONES_EXISTENTES.items():
-            validar_dimension(CAPA2_DIR / nombre, clave)
-
+        generar_dim_tiendas_rms()
         ejecutar("dim_producto_pipeline.py")
         # DimProducto puede ampliar DimClasificacionProducto con valores reales
         # encontrados en las facts. Se vuelven a validar ambas dimensiones para

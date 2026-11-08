@@ -46,32 +46,7 @@ FUENTES = (
         "semanal",
         7,
     ),
-    Fuente(
-        "FactGuiasTransito.parquet",
-        "Guías en tránsito",
-        "fecha_transferencia",
-        "semanal",
-        7,
-        "AND CAST(fecha_corte AS DATE) <= DATE '{corte}'",
-    ),
     Fuente("FactStock.parquet", "Stock", "fecha_corte", "mensual", 35),
-    Fuente("FactMerma.parquet", "Merma", "fecha_analisis", "mensual", 35),
-    Fuente(
-        "FactMetasTienda.parquet",
-        "Metas",
-        "fecha_inicio_periodo",
-        "anual / cuando cambie",
-        35,
-        recortar=False,
-    ),
-    Fuente(
-        "FactPersonalTienda.parquet",
-        "Personal",
-        "fecha_inicio_periodo",
-        "mensual",
-        35,
-    ),
-    Fuente("FactTraficoClientes.parquet", "Tráfico", "fecha", "semanal", 7),
 )
 
 

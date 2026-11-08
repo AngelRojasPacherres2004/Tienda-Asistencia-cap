@@ -2,16 +2,10 @@ export const SYSTEM_UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
 export const SYSTEM_UPLOAD_MAX_BYTES = 250 * 1024 * 1024;
 
 export const SYSTEM_SOURCES = Object.freeze([
-  { id: "ventas", label: "Ventas (RMS)", extensions: [".xlsx", ".parquet"] },
-  { id: "stock", label: "Stock (RMS)", extensions: [".xlsx", ".parquet"] },
-  { id: "ingresos", label: "Ingresos (RMS)", extensions: [".xlsx", ".parquet"] },
-  { id: "transferencias", label: "Transferencias (RMS)", extensions: [".xlsx", ".parquet"] },
-  { id: "guias", label: "Guías en tránsito", extensions: [".xlsx"] },
-  { id: "merma", label: "Merma", extensions: [".xlsx"] },
-  { id: "metas", label: "Metas por tienda", extensions: [".xlsx"] },
-  { id: "personal", label: "Personal", extensions: [".xlsx"] },
-  { id: "tiendas", label: "Tiendas", extensions: [".xlsx"] },
-  { id: "trafico", label: "Tráfico de clientes", extensions: [".xlsx"] },
+  { id: "ventas", label: "Ventas (RMS)", extensions: [".parquet"] },
+  { id: "stock", label: "Stock (RMS)", extensions: [".parquet"] },
+  { id: "ingresos", label: "Ingresos (RMS)", extensions: [".parquet"] },
+  { id: "transferencias", label: "Transferencias (RMS)", extensions: [".parquet"] },
 ]);
 
 export function validateSystemUpload({ source, fileName, fileSize }) {

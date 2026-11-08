@@ -26,7 +26,7 @@ except ImportError as exc:
         "Falta DuckDB. Ejecuta: python -m pip install -r requirements.txt"
     ) from exc
 
-from maestros import ANIO_INICIO_MODELO, FECHA_INICIO_MODELO, TIENDA_IDS, sql_literal
+from maestros import ANIO_INICIO_MODELO, FECHA_INICIO_MODELO, sql_literal
 from project_paths import PROJECT_ROOT
 
 BASE_DIR = PROJECT_ROOT
@@ -55,24 +55,10 @@ VINCULOS = [
     ("FactTransferencias.parquet", "tienda_destino_id", "tienda", False),
     ("FactTransferencias.parquet", "fecha_id", "fecha", False),
     ("FactTransferencias.parquet", "producto_id", "producto", False),
-    ("FactGuiasTransito.parquet", "tienda_origen_id", "tienda", False),
-    ("FactGuiasTransito.parquet", "tienda_destino_id", "tienda", False),
-    ("FactGuiasTransito.parquet", "fecha_corte_id", "fecha", False),
-    ("FactGuiasTransito.parquet", "fecha_transferencia_id", "fecha", True),
-    ("FactGuiasTransito.parquet", "producto_id", "producto", True),
     ("FactStock.parquet", "tienda_id", "tienda", False),
     ("FactStock.parquet", "fecha_corte_id", "fecha", False),
     ("FactStock.parquet", "fecha_origen_id", "fecha_origen_stock", True),
     ("FactStock.parquet", "producto_id", "producto", False),
-    ("FactMerma.parquet", "tienda_id", "tienda", False),
-    ("FactMerma.parquet", "fecha_id", "fecha", False),
-    ("FactMerma.parquet", "producto_id", "producto", True),
-    ("FactMetasTienda.parquet", "tienda_id", "tienda", False),
-    ("FactMetasTienda.parquet", "fecha_id", "fecha", False),
-    ("FactPersonalTienda.parquet", "tienda_id", "tienda", False),
-    ("FactPersonalTienda.parquet", "fecha_id", "fecha", False),
-    ("FactTraficoClientes.parquet", "tienda_id", "tienda", False),
-    ("FactTraficoClientes.parquet", "fecha_id", "fecha", False),
     ("DimProducto.parquet", "clasificacion_producto_id", "clasificacion", False),
 ]
 
@@ -80,12 +66,7 @@ CLAVES_FACT = {
     "FactVentas.parquet": "venta_linea_id",
     "FactIngresos.parquet": "ingreso_linea_id",
     "FactTransferencias.parquet": "transferencia_linea_id",
-    "FactGuiasTransito.parquet": "guia_transito_id",
     "FactStock.parquet": "stock_id",
-    "FactMerma.parquet": "merma_id",
-    "FactMetasTienda.parquet": "meta_tienda_id",
-    "FactPersonalTienda.parquet": "personal_tienda_id",
-    "FactTraficoClientes.parquet": "trafico_id",
 }
 
 
@@ -141,19 +122,9 @@ def validar_universo_tiendas(con: duckdb.DuckDBPyConnection) -> dict[str, int]:
             f"SELECT tienda_id, tienda FROM read_parquet({sql_literal(archivo.as_posix())})"
         ).fetchall()
     }
-    historicas = dict(TIENDA_IDS)
-    faltantes = sorted(set(historicas) - set(obtenidas))
-    ids_distintos = sorted(
-        nombre
-        for nombre in set(historicas) & set(obtenidas)
-        if historicas[nombre] != obtenidas[nombre]
-    )
-    if faltantes or ids_distintos:
-        raise RuntimeError(
-            "DimTiendas perdió compatibilidad histórica. "
-            f"Faltantes={faltantes}; IDs distintos={ids_distintos}"
-        )
-    return {"total": len(obtenidas), "nuevas": len(set(obtenidas) - set(historicas))}
+    if not obtenidas:
+        raise RuntimeError("DimTiendas no contiene tiendas RMS.")
+    return {"total": len(obtenidas), "nuevas": 0}
 
 
 def vinculos_por_archivo() -> dict[str, list[tuple[str, str, bool]]]:

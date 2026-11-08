@@ -46,12 +46,7 @@ TABLAS_FISICAS = {
     "FactVentas": "FactVentas.parquet",
     "FactIngresos": "FactIngresos.parquet",
     "FactTransferencias": "FactTransferencias.parquet",
-    "FactGuiasTransito": "FactGuiasTransito.parquet",
     "FactStock": "FactStock.parquet",
-    "FactMerma": "FactMerma.parquet",
-    "FactMetasTienda": "FactMetasTienda.parquet",
-    "FactPersonalTienda": "FactPersonalTienda.parquet",
-    "FactTraficoClientes": "FactTraficoClientes.parquet",
 }
 
 TABLAS_OBLIGATORIAS = {
@@ -66,13 +61,11 @@ TABLAS_OBLIGATORIAS = {
 TABLAS_ROL = {
     "DimTiendaOrigen": "DimTiendas",
     "DimTiendaDestino": "DimTiendas",
-    "DimFechaTransferenciaGuia": "DimFecha",
 }
 
 CLAVES_DIMENSION = {
     "DimFecha": "fecha_id",
     "DimFechaOrigenStock": "fecha_id",
-    "DimFechaTransferenciaGuia": "fecha_id",
     "DimTiendas": "tienda_id",
     "DimTiendaOrigen": "tienda_id",
     "DimTiendaDestino": "tienda_id",
@@ -84,13 +77,9 @@ COLUMNAS_ADITIVAS = {
     "cantidad",
     "cantidad_recibida",
     "cantidad_pendiente",
-    "cantidad_personas",
-    "cantidad_personal",
-    "meta_ventas",
     "total_venta",
     "total_ingreso",
     "total_transferencia",
-    "total_merma",
     "valor_stock",
     "descuento_soles",
 }
@@ -106,7 +95,6 @@ COLUMNAS_TECNICAS_OCULTAS = {
     "es_clasificacion_catalogada",
     "es_producto_valido",
     "es_dato_valido",
-    "es_meta_valida",
     "es_valorizada",
 }
 
@@ -114,12 +102,7 @@ IDS_DE_FILA = {
     "venta_linea_id",
     "ingreso_linea_id",
     "transferencia_linea_id",
-    "guia_transito_id",
     "stock_id",
-    "merma_id",
-    "meta_tienda_id",
-    "personal_tienda_id",
-    "trafico_id",
 }
 
 
@@ -150,12 +133,7 @@ VINCULOS_DESEADOS = [
     Vinculo("FactVentas", "fecha_id", "DimFecha", "fecha_id"),
     Vinculo("FactIngresos", "fecha_id", "DimFecha", "fecha_id"),
     Vinculo("FactTransferencias", "fecha_id", "DimFecha", "fecha_id"),
-    Vinculo("FactGuiasTransito", "fecha_corte_id", "DimFecha", "fecha_id"),
     Vinculo("FactStock", "fecha_corte_id", "DimFecha", "fecha_id"),
-    Vinculo("FactMerma", "fecha_id", "DimFecha", "fecha_id"),
-    Vinculo("FactMetasTienda", "fecha_id", "DimFecha", "fecha_id"),
-    Vinculo("FactPersonalTienda", "fecha_id", "DimFecha", "fecha_id"),
-    Vinculo("FactTraficoClientes", "fecha_id", "DimFecha", "fecha_id"),
 
     # Fechas con un rol diferente al principal.
     Vinculo(
@@ -164,21 +142,11 @@ VINCULOS_DESEADOS = [
         "DimFechaOrigenStock",
         "fecha_id",
     ),
-    Vinculo(
-        "FactGuiasTransito",
-        "fecha_transferencia_id",
-        "DimFechaTransferenciaGuia",
-        "fecha_id",
-    ),
 
     # Tienda principal.
     Vinculo("FactVentas", "tienda_id", "DimTiendas", "tienda_id"),
     Vinculo("FactIngresos", "tienda_id", "DimTiendas", "tienda_id"),
     Vinculo("FactStock", "tienda_id", "DimTiendas", "tienda_id"),
-    Vinculo("FactMerma", "tienda_id", "DimTiendas", "tienda_id"),
-    Vinculo("FactMetasTienda", "tienda_id", "DimTiendas", "tienda_id"),
-    Vinculo("FactPersonalTienda", "tienda_id", "DimTiendas", "tienda_id"),
-    Vinculo("FactTraficoClientes", "tienda_id", "DimTiendas", "tienda_id"),
 
     # Origen y destino.
     Vinculo(
@@ -193,18 +161,6 @@ VINCULOS_DESEADOS = [
         "DimTiendaDestino",
         "tienda_id",
     ),
-    Vinculo(
-        "FactGuiasTransito",
-        "tienda_origen_id",
-        "DimTiendaOrigen",
-        "tienda_id",
-    ),
-    Vinculo(
-        "FactGuiasTransito",
-        "tienda_destino_id",
-        "DimTiendaDestino",
-        "tienda_id",
-    ),
 
     # Producto y clasificación.
     Vinculo("FactVentas", "producto_id", "DimProducto", "producto_id"),
@@ -215,14 +171,7 @@ VINCULOS_DESEADOS = [
         "DimProducto",
         "producto_id",
     ),
-    Vinculo(
-        "FactGuiasTransito",
-        "producto_id",
-        "DimProducto",
-        "producto_id",
-    ),
     Vinculo("FactStock", "producto_id", "DimProducto", "producto_id"),
-    Vinculo("FactMerma", "producto_id", "DimProducto", "producto_id"),
     Vinculo(
         "DimProducto",
         "clasificacion_producto_id",
@@ -234,7 +183,6 @@ VINCULOS_DESEADOS = [
 ORDEN_TABLAS = [
     "DimFecha",
     "DimFechaOrigenStock",
-    "DimFechaTransferenciaGuia",
     "DimTiendas",
     "DimTiendaOrigen",
     "DimTiendaDestino",
@@ -243,12 +191,7 @@ ORDEN_TABLAS = [
     "FactVentas",
     "FactIngresos",
     "FactTransferencias",
-    "FactGuiasTransito",
     "FactStock",
-    "FactMerma",
-    "FactMetasTienda",
-    "FactPersonalTienda",
-    "FactTraficoClientes",
 ]
 
 

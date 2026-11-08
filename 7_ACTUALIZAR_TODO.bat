@@ -6,21 +6,12 @@ cd /d "%~dp0"
 set "SIN_PAUSA=0"
 set "FECHA_CORTE="
 set "APP_ROOT=%~dp0."
-set "TRAFICO_EXCEL="
-set "TRAFICO_DESDE="
 set "SOLO_VERIFICAR=0"
 
 :leer_argumentos
 if /I "%~1"=="--fecha-stock" (
     if "%~2"=="" goto :error
     set "DASHBOARD_STOCK_CUTOFF=%~2"
-    shift
-    shift
-    goto :leer_argumentos
-)
-if /I "%~1"=="--fecha-trafico" (
-    if "%~2"=="" goto :error
-    set "DASHBOARD_TRAFFIC_CUTOFF=%~2"
     shift
     shift
     goto :leer_argumentos
@@ -55,20 +46,6 @@ if /I "%~1"=="--app-root" (
     shift
     goto :leer_argumentos
 )
-if /I "%~1"=="--trafico-excel" (
-    if "%~2"=="" goto :uso
-    set "TRAFICO_EXCEL=%~2"
-    shift
-    shift
-    goto :leer_argumentos
-)
-if /I "%~1"=="--trafico-desde" (
-    if "%~2"=="" goto :uso
-    set "TRAFICO_DESDE=%~2"
-    shift
-    shift
-    goto :leer_argumentos
-)
 goto :uso
 
 :argumentos_listos
@@ -76,76 +53,18 @@ for %%I in ("%APP_ROOT%\.") do set "APP_ROOT=%%~fI"
 echo ============================================================
 echo ACTUALIZACION DE PUNTA A PUNTA
 echo ============================================================
-echo 1. Revisar RMS y trafico estandarizado.
-echo 2. Elegir corte, reconstruir y validar modelo.
-echo 3. Publicar dashboard y reportes privados en bd-app.
+echo 1. Reemplazar VENTAS.xlsx, INGRESO.xlsx y TRANSFERENCIAS.xlsx en input\.
+echo 2. Agregar STOCK.xlsx solo en el cierre mensual y elegir el ultimo dia del mes.
+echo 3. Elegir corte, reconstruir y validar modelo.
+echo 4. Publicar dashboard y reportes privados en bd-app.
 echo.
 
-if defined TRAFICO_EXCEL (
-    if not defined FECHA_CORTE (
-        echo ERROR: --trafico-excel requiere --fecha-corte para evitar importar dias no confirmados.
-        goto :error
-    )
-    if not defined TRAFICO_DESDE set "TRAFICO_DESDE=%FECHA_CORTE:~0,7%-01"
-    for %%I in ("!TRAFICO_EXCEL!") do set "TRAFICO_EXCEL=%%~fI"
-    if not exist "!TRAFICO_EXCEL!" (
-        echo ERROR: no se encontro el Excel de trafico.
-        goto :error
-    )
-    if not exist "%APP_ROOT%\.env" (
-        echo ERROR: falta la configuracion privada de Asiste.
-        goto :error
-    )
-    if not exist ".venv\Scripts\python.exe" (
-        call "%~dp01_INSTALAR_REQUISITOS.bat" --sin-pausa
-        if errorlevel 1 goto :error
-    )
-    where node >nul 2>nul
-    if errorlevel 1 (
-        echo ERROR: Node.js no esta instalado.
-        goto :error
-    )
-    if not exist "%APP_ROOT%\node_modules\exceljs" (
-        echo Instalando dependencias del proyecto Asiste...
-        pushd "%APP_ROOT%"
-        call npm ci
-        if errorlevel 1 (
-            popd
-            goto :error
-        )
-        popd
-    )
-    pushd "%APP_ROOT%"
-    echo Validando trafico en Excel local y en bd-app...
-    node "scripts\update-traffic-layer1.mjs" "!TRAFICO_EXCEL!" --layer1="%~dp0capa1\TRAFICO_CLIENTES.xlsx" --python="%~dp0.venv\Scripts\python.exe" --from=!TRAFICO_DESDE! --to=%FECHA_CORTE%
-    if errorlevel 1 (
-        popd
-        goto :error
-    )
-    node --env-file=.env "scripts\sync-traffic-daily-workbook.mjs" "!TRAFICO_EXCEL!" --from=!TRAFICO_DESDE! --to=%FECHA_CORTE%
-    if errorlevel 1 (
-        popd
-        goto :error
-    )
-    if "%SOLO_VERIFICAR%"=="1" (
-        popd
-        goto :verificar_modelo
-    )
-    echo Actualizando trafico horario y Capa 1 con respaldo...
-    node --env-file=.env "scripts\sync-traffic-daily-workbook.mjs" "!TRAFICO_EXCEL!" --from=!TRAFICO_DESDE! --to=%FECHA_CORTE% --apply
-    if errorlevel 1 (
-        popd
-        goto :error
-    )
-    node "scripts\update-traffic-layer1.mjs" "!TRAFICO_EXCEL!" --layer1="%~dp0capa1\TRAFICO_CLIENTES.xlsx" --python="%~dp0.venv\Scripts\python.exe" --from=!TRAFICO_DESDE! --to=%FECHA_CORTE% --apply
-    if errorlevel 1 (
-        popd
-        goto :error
-    )
-    popd
-)
-
 if "%SOLO_VERIFICAR%"=="1" goto :verificar_modelo
+
+if not defined FECHA_CORTE (
+    echo ERROR: indica --fecha-corte AAAA-MM-DD.
+    goto :error
+)
 
 if defined FECHA_CORTE (
     call "%~dp02_ACTUALIZAR_DATOS.bat" --fecha-corte "%FECHA_CORTE%" --sin-pausa
@@ -174,7 +93,7 @@ if "%SIN_PAUSA%"=="0" pause
 exit /b 0
 
 :uso
-echo Uso: 7_ACTUALIZAR_TODO.bat [--fecha-corte AAAA-MM-DD] [--fecha-stock AAAA-MM-DD] [--fecha-trafico AAAA-MM-DD] [--valorar-stock-cantidad-precio] [--trafico-excel RUTA] [--trafico-desde AAAA-MM-DD] [--app-root RUTA] [--solo-verificar] [--sin-pausa]
+echo Uso: 7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD [--fecha-stock AAAA-MM-DD] [--valorar-stock-cantidad-precio] [--app-root RUTA] [--solo-verificar] [--sin-pausa]
 goto :error
 
 :error

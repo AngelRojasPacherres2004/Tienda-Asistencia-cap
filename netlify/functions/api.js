@@ -635,6 +635,9 @@ export async function handler(event) {
     event.authUser = user;
     if (path === "/auth/change-credentials" && method === "POST") return await changeCredentials(event, user);
     if (user.cambio_credenciales_pendiente) throw httpError("Actualiza tu usuario y contraseña para continuar.", 403);
+    if (user.rol === "asistente_comercial" && !path.startsWith("/systems/batches")) {
+      throw httpError("El Asistente Comercial solo tiene acceso a Carga de archivos.", 403);
+    }
 
     if (path === "/systems/credential-permissions" && method === "GET") {
       return json(200, await credentialPermissions(user));

@@ -43,8 +43,6 @@ FUENTES = [
     ("FactIngresos.parquet", 2, "INGRESOS"),
     ("FactVentas.parquet", 3, "VENTAS"),
     ("FactTransferencias.parquet", 4, "TRANSFERENCIAS"),
-    ("FactGuiasTransito.parquet", 5, "GUÍAS"),
-    ("FactMerma.parquet", 6, "MERMA"),
 ]
 
 

@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 cd /d "%~dp0"
 
@@ -38,7 +38,7 @@ if not exist ".venv\Scripts\python.exe" (
     echo Entorno virtual existente: .venv
 )
 
-for %%D in ("input" "capa1" "capa2") do (
+for %%D in ("input" "capa1" "capa2" "entrega_asistente_comercial") do (
     if not exist "%%~D" mkdir "%%~D"
 )
 
@@ -53,11 +53,29 @@ echo Verificando el entorno...
 ".venv\Scripts\python.exe" "piplines\diagnosticar_duckdb.py"
 if errorlevel 1 goto :error
 
-echo Ejecutando auditoria de pipelines (solo informativa)...
-".venv\Scripts\python.exe" "piplines\auditar_codigo.py"
+where npm >nul 2>nul
 if errorlevel 1 (
-    echo AVISO: La auditoria reporto advertencias no criticas. La instalacion continua.
+    echo ERROR: No se encontro Node.js/npm.
+    echo Instala Node.js LTS para compilar y ejecutar la interfaz local.
+    goto :error
 )
+
+if not exist "package-lock.json" (
+    echo ERROR: Falta package-lock.json.
+    goto :error
+)
+
+if exist "node_modules\vite\bin\vite.js" (
+    echo Dependencias de la interfaz verificadas: node_modules existente.
+    call npm run --silent generate:commercial-icons
+    set "NPM_EXIT=!ERRORLEVEL!"
+) else (
+    echo Instalando dependencias de la interfaz por primera vez...
+    echo Si hay un servidor local abierto, cierralo antes de ejecutar esta instalacion.
+    call npm ci
+    set "NPM_EXIT=!ERRORLEVEL!"
+)
+if not "!NPM_EXIT!"=="0" goto :error
 
 echo.
 echo ============================================================
@@ -65,6 +83,7 @@ echo INSTALACION COMPLETADA
 echo La actualizacion local procesa solo Ventas, Transferencias, Ingresos y Stock.
 echo Los demas indicadores se consultan desde las tablas de la base de datos.
 echo Ahora ejecuta: 2_ACTUALIZAR_DATOS.bat
+echo Los cuatro Parquet de subida quedaran en: entrega_asistente_comercial\AAAA-MM-DD\
 echo ============================================================
 if /I not "%~1"=="--sin-pausa" pause
 exit /b 0

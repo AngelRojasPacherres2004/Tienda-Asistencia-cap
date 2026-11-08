@@ -1,100 +1,27 @@
 from __future__ import annotations
 
-"""Selecciona y comprueba el corte sin confundir tráfico, RMS y stock.
+"""Comprueba el corte RMS sin requerir planillas administrativas.
 
-El tráfico diario determina el último día operativo suficientemente completo.
-El stock es una foto independiente y nunca adelanta artificialmente ese corte.
+El tráfico se mantiene en Supabase y se consulta al abrir el dashboard; no
+participa de la selección ni validación del batch local.
 """
 
 import argparse
-import csv
 import json
-import math
 import sys
-from collections import defaultdict
-from datetime import date, datetime, timedelta
-from pathlib import Path
+from datetime import date
 
 from project_paths import PROJECT_ROOT
-from xlsx_staging import materializar_hoja_csv
-from publication_cutoffs import configured_cutoff
-
-
-TRAFICO = PROJECT_ROOT / "capa1" / "TRAFICO_CLIENTES.xlsx"
 COBERTURA = PROJECT_ROOT / "capa2" / "Reporte_Cobertura.json"
 DATOS_WEB = PROJECT_ROOT / "dashboard-data" / "dashboard.json"
-ORIGEN_EXCEL = date(1899, 12, 30)
-
-
-def fecha_excel(valor: str) -> date:
-    valor = valor.strip()
-    if not valor:
-        raise ValueError("fecha vacía")
-    try:
-        numero = float(valor)
-        if numero.is_integer() and 1 <= numero <= 100000:
-            return ORIGEN_EXCEL + timedelta(days=int(numero))
-    except ValueError:
-        pass
-    for formato in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(valor[:10], formato).date()
-        except ValueError:
-            continue
-    raise ValueError(f"Fecha de tráfico no reconocida: {valor!r}")
-
-
-def conteos_diarios() -> dict[date, set[str]]:
-    if not TRAFICO.is_file():
-        raise RuntimeError(f"Falta {TRAFICO}")
-    ruta_csv = materializar_hoja_csv(TRAFICO, "TRAFICO_CLIENTE")
-    conteos: dict[date, set[str]] = defaultdict(set)
-    with ruta_csv.open(newline="", encoding="utf-8") as archivo:
-        for fila in csv.DictReader(archivo):
-            cantidad = (fila.get("cantidad_personas") or "").strip()
-            if not cantidad:
-                continue
-            try:
-                numero = float(cantidad.replace(",", "."))
-            except ValueError:
-                raise RuntimeError(f"Conteo de tráfico inválido: {cantidad!r}") from None
-            if not numero.is_integer() or numero < 0:
-                raise RuntimeError(f"Conteo de tráfico inválido: {cantidad!r}")
-            fecha = fecha_excel(fila.get("fecha") or "")
-            tienda = (fila.get("tienda") or "").strip().upper()
-            if not tienda or tienda in conteos[fecha]:
-                raise RuntimeError(f"Tienda duplicada o vacía en tráfico: {fecha} {tienda}")
-            conteos[fecha].add(tienda)
-    if not conteos:
-        raise RuntimeError("No hay tráfico diario registrado para elegir el corte.")
-    return conteos
 
 
 def seleccionar(explicita: date | None) -> date:
-    conteos = conteos_diarios()
-    ultimo = max(conteos)
-    recientes = [cantidad for dia, tiendas in conteos.items()
-                if ultimo - timedelta(days=45) <= dia <= ultimo
-                for cantidad in [len(tiendas)]]
-    tiendas_esperadas = max(recientes)
-    minimo = max(1, math.ceil(tiendas_esperadas * 0.8))
-    if explicita:
-        traffic_date = configured_cutoff('TRAFFIC', explicita)
-        if traffic_date not in conteos or len(conteos[traffic_date]) < minimo:
-            raise RuntimeError(
-                f"El {traffic_date} tiene {len(conteos.get(traffic_date, set()))} tiendas con tráfico; "
-                f"se necesitan al menos {minimo} de {tiendas_esperadas}."
-            )
-        elegida = explicita
-    else:
-        elegida = max(dia for dia, tiendas in conteos.items() if len(tiendas) >= minimo)
-    if elegida > date.today():
-        raise RuntimeError(f"El corte {elegida} está en el futuro.")
-    print(
-        f"Tráfico: {len(conteos[configured_cutoff('TRAFFIC', elegida)])}/{tiendas_esperadas} tiendas con datos; "
-        f"corte elegido {elegida}.", file=sys.stderr
-    )
-    return elegida
+    if not explicita:
+        raise RuntimeError("--seleccionar requiere --fecha-corte; el tráfico se gestiona en Supabase.")
+    if explicita > date.today():
+        raise RuntimeError(f"El corte {explicita} está en el futuro.")
+    return explicita
 
 
 def validar(fecha: date) -> None:
@@ -106,11 +33,9 @@ def validar(fecha: date) -> None:
     if cobertura.get("selectedCutoff") != esperado or web.get("selectedCutoff") != esperado:
         raise RuntimeError("El modelo y el dashboard no comparten la fecha de corte solicitada.")
     fuentes = {fila["source"]: fila for fila in cobertura.get("sources", [])}
-    for nombre, corte in (("Ventas", esperado), ("Tráfico", cobertura.get("trafficCutoff", esperado))):
+    for nombre, corte in (("Ventas", esperado),):
         if fuentes.get(nombre, {}).get("dataThrough") != corte:
             raise RuntimeError(f"{nombre} no llega al corte {corte}.")
-    if web.get('trafficCutoff', esperado) != cobertura.get('trafficCutoff', esperado):
-        raise RuntimeError('El corte de tráfico del dashboard no coincide con el modelo.')
     for nombre in ("Ingresos", "Transferencias"):
         fuente = fuentes.get(nombre, {})
         if fuente.get("status") != "ok" or not fuente.get("dataThrough"):
@@ -118,7 +43,7 @@ def validar(fecha: date) -> None:
     stock = fuentes.get("Stock", {}).get("dataThrough")
     if web.get("stockCutoff") != stock:
         raise RuntimeError("La fecha de stock publicada no coincide con su foto real.")
-    print(f"Corte {esperado} validado; stock real {stock or 'sin datos'}.")
+    print(f"Corte RMS {esperado} validado; stock real {stock or 'sin datos'}.")
 
 
 def main() -> int:

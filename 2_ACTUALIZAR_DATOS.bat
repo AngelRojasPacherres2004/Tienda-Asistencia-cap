@@ -8,18 +8,12 @@ set "ANIO_FIN="
 set "SIN_PAUSA=0"
 set "FORZAR_CAPA1="
 set "SOLO_VERIFICAR=0"
+set "INCREMENTAL=--incremental"
 
 :leer_argumentos
 if /I "%~1"=="--fecha-stock" (
     if "%~2"=="" goto :error
     set "DASHBOARD_STOCK_CUTOFF=%~2"
-    shift
-    shift
-    goto :leer_argumentos
-)
-if /I "%~1"=="--fecha-trafico" (
-    if "%~2"=="" goto :error
-    set "DASHBOARD_TRAFFIC_CUTOFF=%~2"
     shift
     shift
     goto :leer_argumentos
@@ -60,6 +54,11 @@ if /I "%~1"=="--forzar-capa1" (
     shift
     goto :leer_argumentos
 )
+if /I "%~1"=="--incremental" (
+    set "INCREMENTAL=--incremental"
+    shift
+    goto :leer_argumentos
+)
 if /I "%~1"=="--solo-verificar" (
     set "SOLO_VERIFICAR=1"
     shift
@@ -81,6 +80,7 @@ echo ============================================================
 echo ACTUALIZACION OPERATIVA - DASHBOARD GENERAL
 echo Anio seleccionado: %ANIO_FIN%
 if defined FECHA_CORTE echo Corte manual: %FECHA_CORTE%
+if defined INCREMENTAL echo Modo: diario desde input\ con archivos de nombre fijo
 echo ============================================================
 echo.
 
@@ -92,33 +92,23 @@ if not exist ".venv\Scripts\python.exe" (
 
 if "%SOLO_VERIFICAR%"=="1" goto :solo_verificar
 
+if not defined FECHA_CORTE goto :error_corte
+
 echo.
 echo Procesando solamente: Ventas, Transferencias, Ingresos y Stock.
 echo Metas, trafico, personal, merma, guias y catalogos se conservan desde las tablas de la base de datos.
 echo.
 
-rem --- Capa 1 ---
+rem --- Capa 1 y Capa 2 ---
 ".venv\Scripts\python.exe" "piplines\ejecutar_todo.py" ^
-    --solo-capa1 --solo-operacion-comercial %FORZAR_CAPA1% --paralelismo 2
+    --solo-operacion-comercial %FORZAR_CAPA1% %INCREMENTAL% %ARG_FECHA_CORTE% ^
+    --anio-fin "%ANIO_FIN%" --paralelismo 2
+if "%ERRORLEVEL%"=="3" goto :sin_novedades
 if errorlevel 1 goto :error
 
-rem --- Fecha de corte ---
-set "CORTE_ACTUAL="
-if defined FECHA_CORTE set "CORTE_ACTUAL=%FECHA_CORTE%"
-if not defined CORTE_ACTUAL (
-    for /f "delims=" %%F in ('".venv\Scripts\python.exe" -c "import json; print(json.load(open(r'dashboard-data/dashboard.json', encoding='utf-8'))['metadata']['selectedCutoff'])"') do set "CORTE_ACTUAL=%%F"
-)
-if not defined CORTE_ACTUAL (
-    echo ERROR: indica --fecha-corte AAAA-MM-DD cuando no exista un corte publicado.
-    goto :error
-)
+set "CORTE_ACTUAL=%FECHA_CORTE%"
+if not defined CORTE_ACTUAL goto :error_corte
 echo Fecha de corte seleccionada: %CORTE_ACTUAL%
-
-rem --- Capa 2 ---
-".venv\Scripts\python.exe" "piplines\ejecutar_todo.py" ^
-    --solo-capa2 --solo-operacion-comercial --paralelismo 2 ^
-    --anio-fin "%ANIO_FIN%" --fecha-corte "%CORTE_ACTUAL%"
-if errorlevel 1 goto :error
 
 echo Ejecutando validacion final...
 ".venv\Scripts\python.exe" "piplines\validar_modelo.py" --estricto
@@ -126,6 +116,11 @@ if errorlevel 1 goto :error
 
 echo Actualizando datos del dashboard web...
 ".venv\Scripts\python.exe" "piplines\generar_datos_web.py"
+if errorlevel 1 goto :error
+
+echo Preparando lote manual para Asistente Comercial...
+".venv\Scripts\python.exe" "piplines\preparar_lote_asistente.py" ^
+    --fecha-corte "%CORTE_ACTUAL%" --reemplazar
 if errorlevel 1 goto :error
 
 where npm >nul 2>nul
@@ -144,12 +139,23 @@ echo.
 echo ============================================================
 echo ACTUALIZACION COMPLETADA
 echo Parquet finales : capa2\
+echo Lote para portal: entrega_asistente_comercial\%CORTE_ACTUAL%\
 echo Anio procesado  : %ANIO_FIN%
 echo Corte de ventas : %CORTE_ACTUAL%
 echo Dashboard web   : ejecutar 4_EJECUTAR_DASHBOARD_WEB.bat
 echo ============================================================
 if "%SIN_PAUSA%"=="0" pause
 exit /b 0
+
+:sin_novedades
+echo.
+echo No hay archivos nuevos para procesar. El modelo y el paquete anterior se conservan.
+if "%SIN_PAUSA%"=="0" pause
+exit /b 0
+
+:error_corte
+echo ERROR: indica --fecha-corte AAAA-MM-DD.
+goto :error
 
 :solo_verificar
 if not exist "dashboard-data\dashboard.json" (

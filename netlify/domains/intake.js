@@ -249,10 +249,15 @@ export function createIntakeDomain({
 
   async function commercialBatchesList(sessionUser) {
     await assertBatchPublisher(sessionUser);
-    const { data, error } = await systemsStorage().list("commercial-intake", {
+    const [{ data, error }, { data: releases, error: releaseError }] = await Promise.all([
+      systemsStorage().list("commercial-intake", {
       limit: 20, sortBy: { column: "created_at", order: "desc" },
-    });
-    if (error) throw httpError("No se pudo consultar el historial de lotes.", 503);
+      }),
+      supabase.from("dashboard_releases")
+        .select("published_at,sales_cutoff,stock_cutoff,version")
+        .eq("status", "published").order("published_at", { ascending: false }).limit(1),
+    ]);
+    if (error || releaseError) throw httpError("No se pudo consultar el historial de lotes.", 503);
     const batches = (await Promise.all((data || []).filter(item => item.name.endsWith(".json")).map(async item => {
       const result = await systemsStorage().download(`commercial-intake/${item.name}`);
       if (result.error || !result.data) return null;
@@ -261,7 +266,13 @@ export function createIntakeDomain({
         return { id, cutoff, files: files.map(({ source, fileName, fileSize }) => ({ source, fileName, fileSize })), receivedAt, status };
       } catch { return null; }
     }))).filter(Boolean);
-    return { batches };
+    const lastProcessed = releases?.[0] || null;
+    return {
+      batches: batches.sort((a, b) => String(b.cutoff || '').localeCompare(String(a.cutoff || ''))),
+      lastProcessedAt: lastProcessed?.published_at || null,
+      lastProcessedCutoff: lastProcessed?.sales_cutoff || null,
+      lastProcessedVersion: lastProcessed?.version || null,
+    };
   }
 
   async function normalizedReportCatalog(sessionUser) {

@@ -125,6 +125,10 @@ export default function RmsBatchUpload() {
   const [cutoff, setCutoff] = useState(todayISO);
   const [files, setFiles] = useState({});
   const [batches, setBatches] = useState([]);
+  const [lastProcessed, setLastProcessed] = useState(null);
+  const [historyYear, setHistoryYear] = useState("");
+  const [historyStart, setHistoryStart] = useState("");
+  const [historyEnd, setHistoryEnd] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -135,7 +139,11 @@ export default function RmsBatchUpload() {
 
   const refresh = useCallback(async () => {
     try {
-      setBatches((await api("/systems/batches")).batches || []);
+      const history = await api("/systems/batches");
+      setBatches(history.batches || []);
+      setLastProcessed(history.lastProcessedAt ? {
+        at: history.lastProcessedAt, cutoff: history.lastProcessedCutoff, version: history.lastProcessedVersion,
+      } : null);
     } catch (failure) {
       setError(failure.message);
     } finally {
@@ -146,6 +154,15 @@ export default function RmsBatchUpload() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const historyYears = [...new Set(batches.map(batch => batch.cutoff?.slice(0, 4)).filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a));
+  const visibleBatches = batches.filter((batch) => {
+    const cutoffDate = batch.cutoff || "";
+    return (!historyYear || cutoffDate.startsWith(historyYear))
+      && (!historyStart || cutoffDate >= historyStart)
+      && (!historyEnd || cutoffDate <= historyEnd);
+  });
 
   async function submit(event) {
     event.preventDefault();
@@ -218,14 +235,14 @@ export default function RmsBatchUpload() {
 
   return (
     <div className="system-uploads commercial-batch">
-      <PageHeader eyebrow="Asistente comercial" title="Carga de archivos operativos" />
+      <PageHeader eyebrow="Asistente comercial" title="Carga de paquete Parquet" />
       {error && <Notice type="error" onClose={() => setError("")}>{error}</Notice>}
       {message && <Notice onClose={() => setMessage("")}>{message}</Notice>}
 
       <form className="system-uploads__card" onSubmit={submit}>
         <div className="system-uploads__heading">
           <HardDriveUpload size={23} />
-          <h2>Subir datos del año</h2>
+          <h2>Subir lote operativo incremental</h2>
         </div>
 
         {/* El corte se registra con el lote para no adelantar datos de ventas. */}
@@ -242,7 +259,7 @@ export default function RmsBatchUpload() {
             />
           </label>
           <p className="system-uploads__hint" style={{ marginTop: 4 }}>
-            El corte debe corresponder al último día incluido en los cuatro archivos.
+            Selecciona el corte del paquete generado localmente. No se cargan Excel ni datos administrativos.
           </p>
         </div>
 
@@ -263,7 +280,7 @@ export default function RmsBatchUpload() {
         </div>
 
         <p className="system-uploads__hint">
-          Solo archivos Parquet; máximo {Math.round(SYSTEM_UPLOAD_MAX_BYTES / 1024 / 1024)} MB por archivo y{" "}
+          Sube únicamente los cuatro Parquet de la carpeta entrega_asistente_comercial: Ventas, Ingresos, Transferencias y Stock. Máximo {Math.round(SYSTEM_UPLOAD_MAX_BYTES / 1024 / 1024)} MB por archivo y{" "}
           {Math.round(COMMERCIAL_BATCH_MAX_BYTES / 1024 / 1024)} MB por lote.
           Metas, tráfico, personal, mermas, guías y catálogos se consultan desde la base de datos.
         </p>
@@ -297,9 +314,31 @@ export default function RmsBatchUpload() {
           <FileSpreadsheet size={22} />
           <h2>Lotes recibidos</h2>
         </div>
+        <p className="system-uploads__hint">
+          {lastProcessed
+            ? <>Último procesamiento publicado: <strong>{formatDateTime(lastProcessed.at)}</strong>{lastProcessed.cutoff ? ` · corte de ventas ${lastProcessed.cutoff}` : ""}{lastProcessed.version ? ` · versión ${lastProcessed.version}` : ""}.</>
+            : "Aún no existe un lote publicado."}
+        </p>
+        <div className="commercial-batch__fields" style={{ marginBottom: 16 }}>
+          <label className="system-uploads__field">
+            <span>AÑO DEL CORTE</span>
+            <select value={historyYear} onChange={(event) => setHistoryYear(event.target.value)}>
+              <option value="">Todos los años</option>
+              {historyYears.map(year => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </label>
+          <label className="system-uploads__field">
+            <span>FECHA INICIO</span>
+            <input type="date" value={historyStart} max={historyEnd || todayISO()} onChange={(event) => setHistoryStart(event.target.value)} />
+          </label>
+          <label className="system-uploads__field">
+            <span>FECHA FIN</span>
+            <input type="date" value={historyEnd} min={historyStart || undefined} max={todayISO()} onChange={(event) => setHistoryEnd(event.target.value)} />
+          </label>
+        </div>
         {loading ? (
           <p>Cargando…</p>
-        ) : batches.length ? (
+        ) : visibleBatches.length ? (
           <div className="system-uploads__table-wrap">
             <table>
               <thead>
@@ -311,7 +350,7 @@ export default function RmsBatchUpload() {
                 </tr>
               </thead>
               <tbody>
-                {batches.map((batch) => (
+                {visibleBatches.map((batch) => (
                   <tr key={batch.id}>
                     <td>{batch.cutoff?.slice(0, 4) || "—"}</td>
                     <td>{batch.files.map((f) => f.source).join(" · ")}</td>
@@ -323,7 +362,7 @@ export default function RmsBatchUpload() {
             </table>
           </div>
         ) : (
-          <p className="system-uploads__empty">Aún no hay lotes recibidos.</p>
+          <p className="system-uploads__empty">No hay lotes dentro del filtro seleccionado.</p>
         )}
       </section>
     </div>

@@ -25,12 +25,18 @@ def ruta_cache(
     script: Path,
 ) -> Path:
     stat = archivo.stat()
+    # El RMS puede conservar la fecha al reemplazar un archivo. La huella del
+    # contenido evita reutilizar una conversión antigua en ese caso.
+    contenido = hashlib.sha256()
+    with archivo.open("rb") as origen:
+        for bloque in iter(lambda: origen.read(1024 * 1024), b""):
+            contenido.update(bloque)
     identidad = hashlib.sha1(
         str(archivo.resolve()).casefold().encode("utf-8")
     ).hexdigest()[:10]
     firma = hashlib.sha1(
         (
-            f"{stat.st_mtime_ns}|{stat.st_size}|{version}|"
+            f"{stat.st_mtime_ns}|{stat.st_size}|{contenido.hexdigest()}|{version}|"
             f"{script.stat().st_mtime_ns}"
         ).encode("utf-8")
     ).hexdigest()[:16]

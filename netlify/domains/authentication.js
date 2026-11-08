@@ -63,9 +63,19 @@ export function createAuthenticationDomain({ supabase, bodyOf, requireFields, cl
     if (targetError) throw dbError(targetError);
     if (!target || target.estado !== "activo" || !target.usuario || !target.password || target.password === disabledPassword)
       throw httpError("La cuenta no tiene acceso activo al sistema.", 400);
+    // La contraseña temporal es deliberadamente de corta vida: al iniciar
+    // sesión la cuenta queda bloqueada hasta que cambie usuario y contraseña.
+    // Solo Sistemas puede emitirla y nunca se guarda en texto plano.
+    const changes = enabled
+      ? {
+          password: await hashOperationalPassword("123"),
+          cambio_credenciales_pendiente: true,
+          credenciales_actualizadas_en: new Date().toISOString(),
+        }
+      : { cambio_credenciales_pendiente: false };
     const { data, error } = await supabase.from("usuarios")
-      .update({ cambio_credenciales_pendiente: enabled }).eq("id", id)
-      .select("id,cambio_credenciales_pendiente").single();
+      .update(changes).eq("id", id)
+      .select("id,usuario,cambio_credenciales_pendiente,credenciales_actualizadas_en").single();
     if (error) throw dbError(error);
     return { account: data };
   }

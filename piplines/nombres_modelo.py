@@ -15,12 +15,7 @@ ARCHIVOS_CAPA2 = {
     "FactVentas": "FactVentas.parquet",
     "FactIngresos": "FactIngresos.parquet",
     "FactTransferencias": "FactTransferencias.parquet",
-    "FactGuiasTransito": "FactGuiasTransito.parquet",
     "FactStock": "FactStock.parquet",
-    "FactMerma": "FactMerma.parquet",
-    "FactMetasTienda": "FactMetasTienda.parquet",
-    "FactPersonalTienda": "FactPersonalTienda.parquet",
-    "FactTraficoClientes": "FactTraficoClientes.parquet",
 }
 
 ARCHIVOS_TMDL = {
@@ -44,16 +39,10 @@ LEGACY_CAPA2 = {
     "Fact_Ventas.parquet",
     "Fact_Ingresos.parquet",
     "Fact_Transferencias.parquet",
-    "Fact_Guias_Transito.parquet",
     "Fact_Stock.parquet",
-    "Fact_Merma.parquet",
-    "Fact_Metas_Tienda.parquet",
-    "Fact_Personal_Tienda.parquet",
-    "Fact_Trafico_Clientes.parquet",
     "Fact_Ventas_Limpia.parquet",
     "Fact_Ingresos_Limpia.parquet",
     "Fact_Transferencias_Limpia.parquet",
-    "Fact_Guias_Transito_Limpia.parquet",
     "Fact_Stock_Limpia.parquet",
 }
 

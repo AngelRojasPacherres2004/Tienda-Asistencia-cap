@@ -30,7 +30,7 @@ except ImportError as exc:
 
 from project_paths import PROJECT_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
 BASE_DIR = PROJECT_ROOT
-INPUT_DIR = BASE_DIR / "input"
+INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(BASE_DIR / "input")))
 CAPA1_DIR = BASE_DIR / "capa1"
 CAPA2_DIR = BASE_DIR / "capa2"
 
@@ -986,6 +986,12 @@ def conectar(
 
 def buscar_excels_stock() -> list[Path]:
     preparar_carpetas()
+
+    if os.getenv("DASHBOARD_FIXED_INPUT") == "1":
+        archivo = INPUT_DIR / "STOCK.xlsx"
+        if not archivo.is_file():
+            raise FileNotFoundError(f"Falta el archivo de cierre mensual requerido: {archivo}")
+        return [archivo]
 
     ubicaciones = [
         INPUT_DIR,
