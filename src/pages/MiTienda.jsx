@@ -55,7 +55,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
       return remainingDays >= 0 && remainingDays <= Number(document.dias_alerta || 30);
     })
     .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
-  const exportSummary = () => exportExcel(`resumen-${storeName}.xlsx`, [{ indicador: "Tienda", valor: storeName }, { indicador: "Personal activo", valor: summary.personal_activo ?? people.filter((p) => p.estado === "activo").length }, ...(!isStoreAdmin ? [{ indicador: "Incidencias", valor: summary.incidencias }] : []), { indicador: "Amonestaciones", valor: summary.amonestaciones }, ...(!isStoreAdmin ? [{ indicador: "Errores", valor: summary.errores }] : []), { indicador: "Documentos por vencer", valor: summary.documentos_por_vencer }], "Resumen");
+  const exportSummary = () => exportExcel(`resumen-${storeName}.xlsx`, [{ indicador: "Tienda", valor: storeName }, { indicador: "Personal activo", valor: summary.personal_activo ?? people.filter((p) => p.estado === "activo").length }, ...(!isStoreAdmin ? [{ indicador: "Incidencias", valor: summary.incidencias }, { indicador: "Amonestaciones", valor: summary.amonestaciones }] : []), ...(!isStoreAdmin ? [{ indicador: "Errores", valor: summary.errores }] : []), { indicador: "Documentos por vencer", valor: summary.documentos_por_vencer }], "Resumen");
   const activePeople = people.filter((person) => person.estado === "activo");
   const employees = activePeople.filter((person) => ["trabajador", "vendedor", "asistente", "caja", "almacenero", "jefe_area"].includes(person.rol));
   const securityPeople = activePeople.filter((person) => ["seguridad", "jefe_seguridad"].includes(person.rol));
@@ -65,8 +65,6 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   if (renderSections && isStoreAdmin) return renderSections({
     demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
-    attendance: <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={[]} showErrors={false} showPeriodFilter={false} onNavigate={onNavigate} period={matrixPeriod} onPeriodChange={setMatrixPeriod} storeId={storeId} />,
-    training: <TrainingDevelopmentHome compactTitles />,
   });
   return <section className="store-dashboard-shell is-light">
     <header className="store-dashboard-hero"><div><span><Users size={28} /></span><div><h1>{view === "commercial" ? "OPERACIÓN Y EQUIPO" : isZonal ? storeName.toUpperCase() : "RESUMEN DE MI TIENDA"}</h1></div></div><div className="store-dashboard-view-controls">{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button type="button" onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={15} />Limpiar filtros</button></div></header>
@@ -74,7 +72,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
     <div className="store-dashboard-body">
       {showSummary && <>
       <section className="store-dashboard-personnel-kpis"><DashboardPersonnelKpi label="Personal operativo" value={employees.length} detail="Caja, ventas, almacén, asistentes y operación" /><DashboardPersonnelKpi label="Seguridad" value={securityPeople.length} detail="Seguridad y jefe de seguridad" /><DashboardPersonnelKpi label="Administración de tienda" value={summary.administracion_tienda ?? 0} detail="Administrador y asistente de tienda" /></section>
-      {isStoreAdmin ? <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del equipo" first={{ value: summary.amonestaciones, label: "Amonestaciones" }} second={{ value: summary.personal_activo ?? activePeople.length, label: "Personal activo" }} /><DashboardPairedKpi label="Actividad y documentos" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /></section> : <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del personal" first={{ value: administrativeIncidents, label: "Incidencias internas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Alertas operativas" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Movimiento y seguridad" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: securityIncidents, label: "Incidencias de seguridad" }} /></section>}
+      {isStoreAdmin ? <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Actividad y documentos" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /></section> : <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Seguimiento del personal" first={{ value: administrativeIncidents, label: "Incidencias internas" }} second={{ value: summary.amonestaciones, label: "Amonestaciones" }} /><DashboardPairedKpi label="Alertas operativas" first={{ value: summary.errores, label: "Errores del personal" }} second={{ value: summary.documentos_por_vencer, label: "Documentos por vencer" }} /><DashboardPairedKpi label="Movimiento y seguridad" first={{ value: Number(summary.trafico_hoy || 0).toLocaleString("es-PE"), label: "Visitas hoy" }} second={{ value: securityIncidents, label: "Incidencias de seguridad" }} /></section>}
       {expiring.length > 0 && <section className="store-dashboard-paired-kpis store-dashboard-document-alerts"><DashboardUpcomingDocumentsKpi documents={expiring} total={summary.documentos_por_vencer} /></section>}
       {isZonal && <section className="store-dashboard-paired-kpis"><DashboardPairedKpi label="Asistencia del día" first={{ value: storeAttendance?.pendientes ?? 0, label: "Marcas pendientes" }} second={{ value: (storeAttendance?.faltas || 0) + (storeAttendance?.tardanzas || 0), label: "Faltas y tardanzas" }} /></section>}
       </>}
@@ -84,10 +82,9 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
       {!isStoreAdmin && dashboardActions}
       <DashboardSection kicker="Afluencia de clientes" title={`Tráfico de ${storeName} por hora`} />
       <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
-      <DashboardSection kicker={isStoreAdmin ? "02 · Asistencia y continuidad" : "Personal de tienda"} title={`Asistencia y movimientos de ${storeName}`} />
+      {!isStoreAdmin && <><DashboardSection kicker="Personal de tienda" title={`Asistencia y movimientos de ${storeName}`} />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} showErrors={!isStoreAdmin} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} isZonal={isZonal} storeId={storeId} />}
-      {isStoreAdmin && <DashboardSection kicker="04 · Formación" title="Capacitación y desarrollo" />}
-      <TrainingDevelopmentHome />
+      <TrainingDevelopmentHome /></>}
       </>}
       {isStoreAdmin && dashboardActions}
 
@@ -104,7 +101,6 @@ function DashboardUpcomingDocumentsKpi({ documents, total }) {
 function DashboardSection({ kicker, title }) { return <header className="store-dashboard-section"><div><span>{kicker}</span><h2>{title}</h2></div></header>; }
 
 const forecastMoney = (value) => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", maximumFractionDigits: 0 }).format(Number(value) || 0);
-const direction = (factor) => Number(factor) > 1 ? "alta" : Number(factor) < 1 ? "baja" : "neutral";
 function SalesForecastMatrix({ forecast, error, storeName, compactTitles = false }) {
   const [dayWindow, setDayWindow] = useState({ month: "", start: 0 });
   const month = forecast?.monthStart || forecast?.weekStart || "";
@@ -123,8 +119,6 @@ function SalesForecastMatrix({ forecast, error, storeName, compactTitles = false
       <button type="button" disabled={start === lastStart} onClick={() => moveWindow(start + 7)} aria-label="Ver siete días siguientes"><ChevronRight size={18} /></button>
     </div>
     <div className="sales-forecast-scroll"><table><thead><tr><th>Día</th><th>Venta esperada</th><th>Rango probable</th><th>Meta diaria</th></tr></thead><tbody>{visibleDays.map((day) => <tr key={day.date}><th><strong>{day.day}</strong><small>{formatDate(day.date)}</small></th><td>{forecastMoney(day.expected)}</td><td>{forecastMoney(day.lower)} – {forecastMoney(day.upper)}</td><td>{day.target ? forecastMoney(day.target) : "—"}</td></tr>)}</tbody><tfoot><tr><th>Total del mes</th><td>{forecastMoney(forecast.expected)}</td><td>{forecastMoney(forecast.lower)} – {forecastMoney(forecast.upper)}</td><td>{forecast.target ? forecastMoney(forecast.target) : "—"}</td></tr></tfoot></table></div>
-    <div className="sales-forecast-drivers" aria-label="Variables usadas en el pronóstico">{forecast.drivers.map((driver) => <span key={driver.label} className={!driver.available && driver.available !== undefined ? "is-missing" : direction(driver.factor)}><small>{driver.label}</small><strong>{driver.available === false ? "Sin datos" : `${driver.factor >= 1 ? "+" : ""}${((driver.factor - 1) * 100).toFixed(1)}%`}</strong></span>)}</div>
-    <p className="sales-forecast-note">Es una estimación operativa, no una garantía. El rango se amplía automáticamente cuando hay menos historial o mayor variación.</p>
   </section>;
 }
 

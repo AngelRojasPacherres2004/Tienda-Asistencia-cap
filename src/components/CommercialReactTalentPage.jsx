@@ -20,11 +20,8 @@ export default function CommercialReactTalentPage({ model, onAction, storeAdmin 
       <slot name="store-demand" />
       {heading('B', 'DOTACIÓN Y PRODUCTIVIDAD')}
       <div className="talent-overview-grid talent-performance-grid"><CommercialReactTalentCapacity model={model.capacity} /><CommercialReactSimpleChartCard model={model.history} /><CommercialReactSimpleChartCard model={model.team} /><CommercialReactSellerCard model={model.seller} onAction={sellerAction} /></div>
-      {heading('C', 'ASISTENCIA, CONTINUIDAD Y SEGUIMIENTO')}
-      <slot name="store-attendance" />
-      {heading('D', 'FORMACIÓN Y DESARROLLO')}
-      <div className="talent-development-grid store-talent-development"><CommercialReactTrainingCard model={model.training} onAction={trainingAction} /><CommercialReactSimpleChartCard model={model.exit} /></div>
-      <slot name="store-training" />
+      {heading('C', 'CONTINUIDAD DEL EQUIPO')}
+      <div className="talent-development-grid store-talent-development"><CommercialReactSimpleChartCard model={model.exit} /></div>
     </section>;
   }
   return <section className="page talent-page" aria-label="Talento y tiendas"

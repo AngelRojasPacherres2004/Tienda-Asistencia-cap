@@ -136,7 +136,10 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       .in("tienda_id", storeIds).gte("fecha", "2024-01-01").order("fecha"));
     const daily = new Map();
     let cutoff = null;
-    for (const row of trafficRows.data || []) {
+    // fetchAllReportPages ya devuelve el arreglo completo de filas. Leer
+    // `.data` aquí lo convertía en una colección vacía y hacía que todo el
+    // tráfico (y por extensión la conversión) se mostrara en cero.
+    for (const row of trafficRows || []) {
       const storeId = dashboardByStore.get(Number(row.tienda_id));
       const date = String(row.fecha || "").slice(0, 10);
       if (!storeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
