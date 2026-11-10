@@ -10,9 +10,9 @@ export default function CommercialReactSizeCard({ model, onAction }) {
     <TransferCartButton compact count={model.cartCount} onClick={() => emit("cart-open")} />
     <button type="button" className="chart-expand" onClick={() => emit("expand")} aria-label={model.expanded ? "Cerrar gráfico" : "Ampliar gráfico"}>{model.expanded ? "×" : "⛶"}</button>
     <div className="inventory-chart-heading"><h2>VENTA POR TALLA</h2><small>{model.periodLabel}</small></div>
-    {model.expanded && <div className="size-unified-filters"><CommercialReactSizeControls model={model.controls} onAction={onAction} showTransfers={false} /><CommercialChartZoomFilters filters={model.filters} keys={["gender", "line", "subline"]} onAction={onAction} /></div>}
+    {model.expanded && <div className="size-unified-filters"><CommercialReactSizeControls model={model.controls} onAction={onAction} /><CommercialChartZoomFilters filters={model.filters} keys={["gender", "line", "subline"]} onAction={onAction} /></div>}
     {model.transferError ? <div className="card-inline-loader" role="alert"><strong>{model.transferError}</strong><button type="button" className="retry-button" onClick={() => emit("retry-transfers")}>REINTENTAR</button></div>
-      : model.loading ? <div className="card-inline-loader"><span className="loader" />{model.metric === "TRANSFERS" ? "Preparando traslados por talla…" : "Preparando gráfico de tallas…"}</div> : <>
+      : model.loading ? <div className="card-inline-loader"><span className="loader" />Preparando ventas y stock por talla…</div> : <>
       {model.productCodeLoading ? <div className="card-inline-loader card-inline-loader--overlay" role="status" aria-label="Cargando tallas"><span className="loader" /></div>
         : model.textilEmpty ? <div className="card-inline-loader card-inline-loader--overlay" role="status"><strong>Sin tallas textiles mapeadas en los códigos actuales.</strong>{model.codeError && <button type="button" className="retry-button" onClick={() => emit("retry")}>REINTENTAR</button>}</div>
           : model.codeError && model.noRows ? <div className="card-inline-loader card-inline-loader--overlay"><strong>No se pudieron identificar las tallas.</strong><button type="button" className="retry-button" onClick={() => emit("retry")}>REINTENTAR</button></div> : null}

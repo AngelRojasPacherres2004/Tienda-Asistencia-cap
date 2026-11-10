@@ -1532,21 +1532,22 @@ export class CommercialDashboardController implements OnInit {
   }
 
   readonly sizeControlsModel = computed<Record<string, unknown>>(() => ({
-    rubro: this.sizeRubro(), metric: this.sizeMetric(), system: this.shoeSizeSystem(),
+    rubro: this.sizeRubro(), system: this.shoeSizeSystem(),
   }));
   readonly sizeCardModel = computed<Record<string, unknown>>(() => {
-    const rubro = this.sizeRubro(); const metric = this.sizeMetric();
-    const transferError = metric === 'TRANSFERS' ? this.stockTransfersError() : '';
-    const loading = !transferError && (metric === 'SALES' ? this.sizeSalesLoading()
-      : !this.stockDetailLoaded() && (!this.sizeDetailLoaded()[rubro] || (metric === 'TRANSFERS' && !this.stockTransfersLoaded())));
+    const rubro = this.sizeRubro();
+    const transferError = '';
+    // La comparación necesita ambas fuentes: la venta móvil de 90 días y la
+    // fotografía de stock. No se muestra una barra parcial mientras llega una.
+    const loading = this.sizeSalesLoading() || (!this.stockDetailLoaded() && !this.sizeDetailLoaded()[rubro]);
     const coverage = this.sizeChartCoverage(); const noRows = !this.sizeChartRows().length;
     return {
-      expanded: this.expandedChart() === 'size-distribution', rubro, metric,
+      expanded: this.expandedChart() === 'size-distribution', rubro,
       controls: this.sizeControlsModel(), loading, transferError, productCodeLoading: this.productCodeLoading(),
       filters: { ...this.zoomHierarchyFilters(), genderEnabled: true },
       cartCount: this.transferCartItems().length,
       textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
-      label: `${this.sizeMetricLabel()} por talla ${rubro.toLowerCase()} · corte ${this.sizeSalesPeriod()}`,
+      label: `VENTA 90D VS STOCK por talla ${rubro.toLowerCase()} · corte ${this.sizeSalesPeriod()}`,
       periodLabel: this.periodLabel(this.sizeSalesPeriod()), stockCutoff: this.formatDate(this.data()?.metadata.stockCutoff || ''),
       option: loading ? null : blackChartText(this.sizeDistributionOption()),
       coverage: { total: this.number(coverage.total), mapped: this.number(coverage.mapped),
@@ -3240,7 +3241,7 @@ export class CommercialDashboardController implements OnInit {
   readonly sizeRubro = signal<SizeRubro>('CALZADO');
   selectSizeRubro(rubro: SizeRubro): void {
     this.sizeRubro.set(rubro);
-    if (this.page() === 2 && this.sizeMetric() !== 'SALES') void this.ensureSizeDetail(rubro);
+    if (this.page() === 2) void this.ensureSizeDetail(rubro);
   }
   readonly shoeSizeSystem = signal<ShoeSizeSystem>('USA');
   readonly sizeMetric = signal<SizeMetric>('SALES');
@@ -3409,8 +3410,7 @@ export class CommercialDashboardController implements OnInit {
     const salesRows = this.sizeSalesLoadedKey() === currentKey
       ? this.sizeSalesData().filter(row => this.filteredStoreIds().has(row.storeId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline))
       : [];
-    if (this.sizeMetric() !== 'SALES' || salesRows.length || (period === cutoffPeriod && this.sizeSalesLoadedKey() === 'legacy'))
-      for (const row of products) add(row, 'stock', row.stockUnits);
+    for (const row of products) add(row, 'stock', row.stockUnits);
     if (salesRows.length) for (const row of salesRows) add(row, 'sales', row.units90);
     else if (period === cutoffPeriod && this.sizeSalesLoadedKey() === 'legacy')
       for (const row of products) add(row, 'sales', row.units90 ?? row.units30);
@@ -3425,9 +3425,7 @@ export class CommercialDashboardController implements OnInit {
 
   readonly sizeChartCoverage = computed(() => {
     const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
-    const products = this.sizeMetric() === 'SALES' && this.sizeSalesLoadedKey() === `${this.sizeSalesPeriod()}-${rubro}`
-      ? this.sizeSalesData().filter(row => this.filteredStoreIds().has(row.storeId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline))
-      : this.sizeProductsForChart(rubro);
+    const products = this.sizeProductsForChart(rubro);
     const unique = new Map<string, ProductRow | SizeProductRow>();
     for (const row of products) if (!unique.has(row.productId)) unique.set(row.productId, row);
     const coded = [...unique.values()].filter(row => !!row.productCode);
@@ -3435,13 +3433,9 @@ export class CommercialDashboardController implements OnInit {
     return { total: unique.size, coded: coded.length, mapped: mapped.length, pending: Math.max(0, unique.size - mapped.length) };
   });
 
-  readonly sizeMetricLabel = computed(() => ({ SALES: 'VENTA 90D', STOCK: 'STOCK', TRANSFERS: 'TRASLADO SUGERIDO' })[this.sizeMetric()]);
   readonly sizeDistributionOption = computed<EChartsOption>(() => {
-    const rows = this.sizeChartRows(); const metric = this.sizeMetric(); const rubro = this.sizeRubro();
+    const rows = this.sizeChartRows(); const rubro = this.sizeRubro();
     const stockReady = this.sizeDetailLoaded()[rubro] || this.stockDetailLoaded();
-    const field: Record<SizeMetric, keyof Pick<SizeChartRow, 'sales' | 'stock' | 'transfers'>> = { SALES: 'sales', STOCK: 'stock', TRANSFERS: 'transfers' };
-    const color = metric === 'SALES' ? C.navy : metric === 'STOCK' ? C.teal : C.gold;
-    const values = rows.map(row => Number(row[field[metric]]) || 0);
     if (!rows.length) return {
       animation: false,
       graphic: this.productCodeLoading() ? [] : [{ type: 'text', left: 'center', top: 'middle', style: { text: 'SIN CÓDIGOS DE TALLA MAPEADOS', fill: '#64748B', fontSize: 11, fontWeight: 800 } }]
@@ -3452,16 +3446,20 @@ export class CommercialDashboardController implements OnInit {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(`${rubro === 'CALZADO' ? this.shoeSizeSystem() : 'TALLA'} ${row?.label || ''}`, [
           { label: 'Stock', value: stockReady ? this.number(row?.stock ?? null, ' und') : 'Pendiente cierre' },
-          { label: 'Venta', value: this.number(row?.sales ?? null, ' und') },
-          { label: 'Traslado', value: this.number(row?.transfers ?? null, ' und') },
+          { label: 'Venta 90D', value: this.number(row?.sales ?? null, ' und') },
           { label: 'SKU', value: this.number(row?.productIds.size ?? null) }
         ]);
       } },
-      grid: { left: 48, right: 20, top: 16, bottom: 72 },
+      legend: { top: 2, itemWidth: 14, itemHeight: 8, textStyle: { color: '#334155', fontSize: 9, fontWeight: 800 } },
+      grid: { left: 48, right: 20, top: 34, bottom: 72 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 32, color: '#475569', fontSize: 9, fontWeight: 800 } },
       yAxis: { type: 'value', min: 0, minInterval: 1, name: 'UNIDADES', nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => this.short(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      series: [{ name: this.sizeMetricLabel(), type: 'bar', barMaxWidth: 26, data: values.map((value, index) => ({ value, size: rows[index].label, itemStyle: { color, borderRadius: [4, 4, 0, 0] } })),
-        label: { show: rows.length <= 14, position: 'top', color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } }]
+      series: [
+        { name: 'VENTA 90D', type: 'bar', barMaxWidth: 20, data: rows.map(row => ({ value: Number(row.sales) || 0, size: row.label, itemStyle: { color: C.navy, borderRadius: [4, 4, 0, 0] } })),
+          label: { show: rows.length <= 12, position: 'top', color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } },
+        { name: 'STOCK', type: 'bar', barMaxWidth: 20, data: rows.map(row => ({ value: Number(row.stock) || 0, size: row.label, itemStyle: { color: C.teal, borderRadius: [4, 4, 0, 0] } })),
+          label: { show: rows.length <= 12, position: 'top', color: '#0F766E', fontSize: 8, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } }
+      ]
     } as EChartsOption;
   });
 
@@ -5184,8 +5182,7 @@ export class CommercialDashboardController implements OnInit {
     // Antigüedad pesa ~4 MB; el detalle por producto (~54 MB) se prepara en tiempo ocioso.
     void this.ensureStockOrigin();
     void this.ensureStockHierarchy();
-    if (this.sizeMetric() !== 'SALES') void this.ensureSizeDetail(this.sizeRubro());
-    if (this.sizeMetric() === 'TRANSFERS') void this.ensureStockTransfers();
+    void this.ensureSizeDetail(this.sizeRubro());
     this.scheduleInventoryProductDetail();
   }
 
@@ -5253,8 +5250,7 @@ export class CommercialDashboardController implements OnInit {
     if (this.page() === 2) {
       if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
       if (!this.stockHierarchyLoaded()) void this.ensureStockHierarchy();
-      if (this.sizeMetric() !== 'SALES' && !this.sizeDetailLoaded()[this.sizeRubro()]) void this.ensureSizeDetail(this.sizeRubro());
-      if (this.sizeMetric() === 'TRANSFERS' && !this.stockTransfersLoaded()) void this.ensureStockTransfers();
+      if (!this.sizeDetailLoaded()[this.sizeRubro()]) void this.ensureSizeDetail(this.sizeRubro());
       this.scheduleInventoryProductDetail();
     }
     if (this.selectedSublines().length || this.selectedLines().length || this.selectedCategories().length) this.deferHierarchyDetails();

@@ -616,6 +616,7 @@
 .size-distribution-card { box-sizing: border-box; height: 380px; }
 .size-chart-controls { display:flex; flex-wrap:wrap; gap:5px; margin:7px 30px 2px 0; }
 .size-chart-controls > div { display:flex; min-width:0; gap:2px; padding:2px; border:1px solid #d8e0ec; border-radius:7px; background:#f6f8fb; }
+.size-chart-comparison-label { display:flex; align-items:center; min-height:23px; padding:0 8px; border:1px solid #d8e0ec; border-radius:7px; color:#123a8c; background:#f6f8fb; font-size:.52rem; font-weight:900; letter-spacing:.03em; white-space:nowrap; }
 .size-chart-controls button { height:23px; padding:0 7px; border:0; border-radius:5px; background:transparent; color:#64748b; cursor:pointer; font-size:.52rem; font-weight:900; }
 .size-chart-controls button.active { background:#123a8c; color:#fff; box-shadow:0 1px 3px rgba(18,58,140,.22); }
 .size-unified-filters { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin:2px 38px 10px 0; padding:9px 10px; border:1px solid #d7e1ee; border-radius:9px; background:#f7faff; }
