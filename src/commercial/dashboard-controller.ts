@@ -1852,7 +1852,6 @@ export class CommercialDashboardController implements OnInit {
       },
       rotation: this.rotationCardModel(), antiquity: this.antiquityCardModel(),
       storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
-      transfers: this.transferModalModel(),
       detailState, detailProgress: this.stockDetailProgress(), refreshError: this.stockInsightsRefreshError(),
       predictive: detailState === 'ready' ? {
         health: this.healthCardModel(),
@@ -1883,6 +1882,7 @@ export class CommercialDashboardController implements OnInit {
     return {
       mode: 'ready', page, expanded, header: this.headerModel(), filters: this.filtersModel(),
       transferCart: this.transferCartModel(),
+      transfers: this.transferModuleActive() ? this.transferModalModel() : null,
       commercial: page === 1 ? this.commercialPageModel() : null,
       inventory: page === 2 ? this.inventoryPageModel() : null,
       talent: page === 3 ? this.talentPageModel() : null,
@@ -3253,6 +3253,7 @@ export class CommercialDashboardController implements OnInit {
     if (metric === 'TRANSFERS') void this.ensureStockTransfers();
   }
   readonly transferPageSize = 15;
+  readonly transferModuleActive = signal(false);
   readonly storeTransferRoutes = signal<ReturnType<typeof stockTransfers> | null>(null);
   readonly storeTransferStores = signal<Store[]>([]);
   readonly transferProducts = computed(() => {
@@ -3311,7 +3312,7 @@ export class CommercialDashboardController implements OnInit {
       destinationName: names.get(row.destination) || row.destination }));
   });
   private readonly stockTransferCalculationEffect = effect(onCleanup => {
-    if (this.expandedChart() !== 'stock-transfers' && this.page() !== 2) return;
+    if (this.expandedChart() !== 'stock-transfers' && !this.transferModuleActive()) return;
     if (this.storeTransferRoutes() !== null) {
       this.transferBusy.set(false);
       this.transferCalculationError.set('');
@@ -3485,6 +3486,7 @@ export class CommercialDashboardController implements OnInit {
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
   }
   prepareTransferMatrix(): void {
+    this.transferModuleActive.set(true);
     this.transferSizeMode.set(true);
     if (!this.transferRubro()) this.transferRubro.set(this.sizeRubro());
     void this.ensureStockTransfers();
@@ -5255,7 +5257,7 @@ export class CommercialDashboardController implements OnInit {
     if (this.page() === 1) void this.ensurePriceRangeDetail();
     if (this.page() === 3) void this.ensureSellerDetail();
     if (this.page() === 2) {
-      this.prepareTransferMatrix();
+      if (this.transferModuleActive()) this.prepareTransferMatrix();
       if (!this.stockOriginLoaded()) void this.ensureStockOrigin();
       if (!this.stockHierarchyLoaded()) void this.ensureStockHierarchy();
       if (!this.sizeDetailLoaded()[this.sizeRubro()]) void this.ensureSizeDetail(this.sizeRubro());

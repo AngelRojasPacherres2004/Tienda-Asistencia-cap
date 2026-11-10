@@ -13,7 +13,7 @@ import appStyles from '../commercial/app.scss?raw';
 import transferModalStyles from '../commercial/transfer-modal.scss?raw';
 import globalStyles from '../commercial/styles.scss?raw';
 
-export function mountCommercialReactIndependent(host, { user, onNavigate } = {}) {
+export function mountCommercialReactIndependent(host, { user, onNavigate, transferOnly = false } = {}) {
   const shell = document.createElement('app-root');
   host.append(shell);
   // Project operational charts into the shadow shell while preserving their app styles.
@@ -88,9 +88,9 @@ export function mountCommercialReactIndependent(host, { user, onNavigate } = {})
     const selectedPeriod = controller.selectedPeriod();
     const trafficPeriod = { year: String(Math.floor(selectedPeriod / 100)), monthNumber: String(selectedPeriod % 100).padStart(2, '0'), week: '', day: '' };
     root.render(<>
-      <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} />
-      {operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
-      {trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} period={trafficPeriod} />, trafficHost)}
+      <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} transferOnly={transferOnly} />
+      {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
+      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} period={trafficPeriod} />, trafficHost)}
     </>);
   });
   void controller.ngOnInit().catch(error => controller.loadingError.set(

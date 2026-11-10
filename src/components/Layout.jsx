@@ -1,6 +1,6 @@
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, UserCircle2, Users, X,
+  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, Truck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { storeAlias } from '../lib/storeAliases';
@@ -26,6 +26,7 @@ const navByRole = {
     { id: "historial", label: "Historial", icon: History },
   ],
   gerente_comercial: [
+    { id: "transferencia", label: "Transferencia", icon: Truck },
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
     { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
     { id: "metas-comerciales", label: "Metas comerciales", icon: Target },
@@ -52,6 +53,7 @@ const navByRole = {
     { id: "reportes", label: "Reportes de ventas", icon: FileSpreadsheet },
   ],
   jefe_zonal: [
+    { id: "transferencia", label: "Transferencia", icon: Truck },
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
     { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
     { id: "tiendas", label: "Mis tiendas", icon: Building2 },
@@ -65,6 +67,7 @@ const navByRole = {
   jefe_tienda: [
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
     { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
+    { id: "transferencia", label: "Transferencia", icon: Truck },
     { id: "usuarios", label: "Personal", icon: Users },
     { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
     { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },

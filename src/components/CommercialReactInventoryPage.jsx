@@ -4,14 +4,13 @@ import CommercialReactRotationCard from "./CommercialReactRotationCard";
 import CommercialReactAntiquityCard from "./CommercialReactAntiquityCard";
 import CommercialReactStoreValueCard from "./CommercialReactStoreValueCard";
 import CommercialReactSizeCard from "./CommercialReactSizeCard";
-import CommercialReactTransferModal from "./CommercialReactTransferModal";
 import CommercialReactHealthCard from "./CommercialReactHealthCard";
 import CommercialReactReplenishmentCard from "./CommercialReactReplenishmentCard";
 import CommercialReactProjectionCard from "./CommercialReactProjectionCard";
 
-export default function CommercialReactInventoryPage({ model, onAction, hideTransfers = false, storeAdmin = false }) {
+export default function CommercialReactInventoryPage({ model, onAction, storeAdmin = false }) {
   const forward = source => action => onAction({ ...action, source });
-  const heading = key => ({ ...model.headings[key], transferVisible: !hideTransfers && model.headings[key].transferVisible });
+  const heading = key => ({ ...model.headings[key], transferVisible: false });
   return <section className="page page-two" aria-label="Inventario y analítica predictiva" data-react-commercial-module="inventory-page">
     <CommercialReactSectionHeading model={heading('inventory')} onAction={forward("section")} />
     <CommercialReactSectionHeading model={heading('a')} onAction={forward("section")} />
@@ -24,7 +23,6 @@ export default function CommercialReactInventoryPage({ model, onAction, hideTran
       {!storeAdmin && <CommercialReactStoreValueCard model={model.storeValue} onAction={forward("storeValue")} />}
       <CommercialReactSizeCard model={model.size} onAction={forward("size")} />
     </div>
-    <CommercialReactTransferModal embedded model={model.transfers} onAction={forward("transfers")} />
     {model.detailState === "error" ? <div className="detail-loader compact detail-loader--error"><strong>No se pudo abrir la analítica por producto.</strong><button type="button" className="retry-button" onClick={() => onAction({ source: "detail", type: "retry" })}>REINTENTAR</button></div>
       : model.detailState === "loading" ? <div className="detail-loader compact stock-product-detail-trigger"><span className="loader" /><strong>Preparando analítica por producto · {model.detailProgress}%</strong></div>
         : <section className="predictive-v2" aria-label="Analítica predictiva de Textil y Calzado">

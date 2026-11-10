@@ -17,16 +17,21 @@ import CommercialReactSizeDetailModal from "./CommercialReactSizeDetailModal";
 import CommercialReactAssistantController from "./CommercialReactAssistantController";
 import CommercialTransferCart from "./CommercialTransferCart";
 
-export default function CommercialReactStandalone({ model, controller, storeOperations = null }) {
+export default function CommercialReactStandalone({ model, controller, storeOperations = null, transferOnly = false }) {
   useEffect(() => {
-    if (model.mode === "ready" && model.page === 2) controller.prepareTransferMatrix();
-  }, [controller, model.mode, model.page]);
+    if (model.mode === "ready" && transferOnly) controller.prepareTransferMatrix();
+  }, [controller, model.mode, transferOnly]);
   const accessAction = action => controller.onReactCommercialAccessAction(action);
   if (model.mode !== "ready") return <main className="app-shell portal-embed" data-react-commercial-shell="true">
     <CommercialReactAccessState model={model.access} onAction={accessAction} />
   </main>;
 
   const modal = model.modal;
+  if (transferOnly) return <main className="app-shell portal-embed" data-react-commercial-shell="true">
+    <header className="section-heading"><div><h1>Transferencia</h1></div></header>
+    <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
+    {model.transfers && <CommercialReactTransferModal embedded model={model.transfers} onAction={action => controller.onReactTransferAction(action)} />}
+  </main>;
   return <SingleBarPresentation.Provider value={Boolean(storeOperations)}><main className={`app-shell portal-embed${storeOperations ? ' store-admin-dashboard' : ''}`} data-react-commercial-shell="true">
     <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
     {model.expanded && <button type="button" className="chart-backdrop" aria-label="Cerrar gráfico ampliado" onClick={() => controller.closeExpandedChart()} />}
@@ -42,7 +47,7 @@ export default function CommercialReactStandalone({ model, controller, storeOper
       <CommercialChartSearch controller={controller} page={model.page} storeAdmin={Boolean(storeOperations)} />
     </div>
     {model.page === 1 && <CommercialReactCommercialPage model={model.commercial} onAction={action => controller.onReactCommercialPageAction(action)} />}
-    {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} storeAdmin={Boolean(storeOperations)} hideTransfers={Boolean(storeOperations)} onAction={action => controller.onReactInventoryPageAction(action)} />}
+    {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} storeAdmin={Boolean(storeOperations)} onAction={action => controller.onReactInventoryPageAction(action)} />}
     {model.page === 3 && <CommercialChartTypography.Provider value={Boolean(storeOperations)}><CommercialReactTalentPage model={model.talent} storeAdmin={Boolean(storeOperations)} onAction={action => controller.onReactTalentPageAction(action)} /></CommercialChartTypography.Provider>}
     {model.assistantEnabled && <CommercialReactAssistantController role={model.assistantRole} context={model.assistantContext} controller={controller} />}
   </main></SingleBarPresentation.Provider>;

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Building2 } from "lucide-react";
 import { Loading, Notice } from "../components/UI";
 
-export default function CommercialPortal({ user, storeContextId = null, onStoreChange, switchingStore = false, onNavigate }) {
+export default function CommercialPortal({ user, storeContextId = null, onStoreChange, switchingStore = false, onNavigate, transferOnly = false }) {
   const host = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,7 +21,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
         };
         const renderer = await import("../components/mount-commercial-react-independent");
         if (!active) return;
-        dispose = renderer.mountCommercialReactIndependent(host.current, { user, onNavigate });
+        dispose = renderer.mountCommercialReactIndependent(host.current, { user, onNavigate, transferOnly });
         setLoading(false);
       } catch (err) {
         if (active) { setError(err?.message || "No se pudo abrir el dashboard comercial."); setLoading(false); }
@@ -29,10 +29,10 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
     };
     load();
     return () => { active = false; dispose?.(); };
-  }, [attempt, storeContextId, user, onNavigate]);
+  }, [attempt, storeContextId, user, onNavigate, transferOnly]);
 
   return (
-    <section className="commercial-portal" aria-label="Dashboard ejecutivo comercial">
+    <section className="commercial-portal" aria-label={transferOnly ? "Transferencia" : "Dashboard ejecutivo comercial"}>
       {user?.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="portal-store-context">
         <div><Building2 size={17} /><span>Vista comercial de</span></div>
         <label><span className="visually-hidden">Cambiar tienda activa</span><select aria-label="Cambiar tienda activa" value={String(user.tienda_id || "")} disabled={switchingStore} onChange={event => onStoreChange?.(event.target.value)}>{user.tiendas_disponibles.map(store => <option key={store.id} value={String(store.id)}>{store.nombre}{store.principal ? " · Principal" : " · Apoyo"}</option>)}</select></label>
