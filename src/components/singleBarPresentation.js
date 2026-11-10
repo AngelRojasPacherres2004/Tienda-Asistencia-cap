@@ -34,12 +34,12 @@ export function singleBarGauge(metric, originalTooltip) {
     tooltip: { trigger: 'item', triggerOn: metric.rotation || metric.inventory ? 'none' : 'mousemove|click', confine: true, backgroundColor: '#fff', borderColor: '#123a6a', textStyle: { color: '#10243c', fontSize: 12 }, formatter: params => {
       if (metric.rotation && metric.source?.rotationDetails) {
         const details = metric.source.rotationDetails;
-        const rows = [['Rotación 90D', metric.formatted], ['Stock físico actual', `${units(details.stockUnits)} unidades`], ['Vendidas 90D', `${units(details.soldUnits90)} unidades`], ['Valor del stock', money(details.stockValue)], ['Venta 30D', money(details.sales30)]];
+        const rows = [['ROT. 90D', metric.formatted], ['STK', `${units(details.stockUnits)} und.`], ['VT 90D', `${units(details.soldUnits90)} und.`], ['VAL. STK', money(details.stockValue)], ['VT 30D', money(details.sales30)]];
         return tooltipRows('rotation-tooltip', rows, 'Rotación = vendidas en 90 días ÷ stock actual × 100');
       }
       if (metric.inventory && metric.source?.inventoryDetails) {
         const details = metric.source.inventoryDetails;
-        return tooltipRows('inventory-value-tooltip', [['Valor del inventario', money(metric.value)], ['Stock físico', `${units(details.stockUnits)} unidades`], ['Vendidas en 30 días', `${units(details.soldUnits30)} unidades`], ['Cobertura estimada', details.coverageDays == null ? 'Sin ventas para calcular' : `${units(details.coverageDays)} días`], ['Estado de cobertura', details.status]], 'Cobertura: días estimados de stock según el ritmo de venta.');
+        return tooltipRows('inventory-value-tooltip', [['VAL. INV.', money(metric.value)], ['STK', `${units(details.stockUnits)} und.`], ['VT 30D', `${units(details.soldUnits30)} und.`], ['COB.', details.coverageDays == null ? 'Sin venta' : `${units(details.coverageDays)} días`], ['ESTADO', details.status]], 'Cobertura: días estimados de stock según el ritmo de venta.');
       }
       if (typeof originalTooltip?.formatter === 'function') {
         const sourceParams = { ...params, dataIndex: 0, name: metric.category, value: metric.value, data: metric.source };

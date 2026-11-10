@@ -3451,8 +3451,8 @@ export class CommercialDashboardController implements OnInit {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(`${rubro === 'CALZADO' ? this.shoeSizeSystem() : 'TALLA'} ${row?.label || ''}`, [
+          { label: 'Stock', value: stockReady ? this.number(row?.stock ?? null, ' und') : 'Pendiente cierre' },
           { label: 'Venta', value: this.number(row?.sales ?? null, ' und') },
-          { label: 'Stock', value: stockReady ? this.number(row?.stock ?? null, ' und') : 'Abre talla para ver stock' },
           { label: 'Traslado', value: this.number(row?.transfers ?? null, ' und') },
           { label: 'SKU', value: this.number(row?.productIds.size ?? null) }
         ]);
@@ -6017,9 +6017,30 @@ export class CommercialDashboardController implements OnInit {
   private tooltip(title: string, rows: Detail[], floating = false): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(this.compactTooltipLabel(r.label))}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(this.compactTooltipLabel(r.label))}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+  }
+  private compactTooltipLabel(label: string): string {
+    const normalized = label.trim().replace(/\s+/g, ' ');
+    const exact: Record<string, string> = {
+      'Venta neta': 'VT', 'Venta real': 'VT REAL', 'Venta promedio mensual': 'VT PROM. MES', 'Venta mensual por colaborador': 'VT / COLAB.',
+      'Ticket promedio': 'TKT PROM.', 'Transacciones': 'TRANS.', 'Participación': 'PART.', 'Participación venta': 'PART. VT',
+      'Participación tickets': 'PART. TKT', 'Participación de rotación': 'PART. ROT.', 'Participación del inventario': 'PART. INV.',
+      'Participación del valor total': 'PART. VAL.', 'Precio promedio': 'P. PROM.', 'Valor de stock': 'VAL. STK',
+      'Valor stock': 'VAL. STK', 'Valor del inventario': 'VAL. INV.', 'Stock físico': 'STK', 'Stock actual': 'STK',
+      'Stock vendible': 'STK VEND.', 'Unidades en stock': 'STK', 'Unidades': 'UND.', 'Días de cobertura': 'COB.',
+      'Cobertura estimada': 'COB.', 'Cobertura actual': 'COB.', 'Cobertura efectiva': 'COB.', 'Demanda diaria': 'DEM. DÍA',
+      'Unidades sugeridas': 'UND. SUG.', 'Valor sugerido': 'VAL. SUG.', 'Rotación propia 90D': 'ROT. 90D',
+      'Rubro con más venta': 'TOP RUB.', 'Línea con más venta': 'TOP LÍN.', 'SKU evaluados': 'SKU',
+      'Casos registrados': 'CASOS', 'Cumplimiento': 'CUMP.', 'Estado de cobertura': 'ESTADO COB.'
+    };
+    if (exact[normalized]) return exact[normalized];
+    return normalized
+      .replace(/^Acumulado\s+(\d{4})$/i, 'ACUM. $1')
+      .replace(/^Venta\s+(\d+D)$/i, 'VT $1')
+      .replace(/^Vendidas?\s+(\d+D)$/i, 'VT $1')
+      .replace(/^Stock vendible \((.+)\)$/i, 'STK VEND. $1');
   }
   private barOption(labels: string[], values: number[], horizontal: boolean, color: string, details: Detail[][], unit: string, colors?: string[], verticalLabels = false): EChartsOption {
     const visibleRows = horizontal ? Math.min(7, labels.length) : labels.length;
