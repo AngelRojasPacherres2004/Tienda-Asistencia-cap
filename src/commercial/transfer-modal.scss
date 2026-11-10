@@ -1,4 +1,7 @@
 .transfer-modal { gap: 14px; }
+.transfer-matrix-embedded { display:flex; flex-direction:column; position:relative; min-width:0; margin-top:12px; padding:20px; height:auto; }
+.transfer-matrix-embedded .transfer-workspace { flex:none; overflow:visible; }
+.transfer-matrix-embedded .transfer-list { max-height:720px; }
 .transfer-cart-trigger { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:34px; padding:7px 12px; border:1px solid #b7cbea; border-radius:9px; background:#eef4ff; color:#123a8c; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }
 .transfer-cart-trigger:hover { background:#dfeaff; border-color:#789fdc; }
 .transfer-cart-count { display:grid; place-items:center; min-width:20px; height:20px; padding:0 4px; border-radius:6px; background:#123a8c; color:#fff; font-size:10px; font-variant-numeric:tabular-nums; }

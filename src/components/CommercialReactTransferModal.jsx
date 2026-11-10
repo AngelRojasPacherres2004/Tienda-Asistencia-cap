@@ -16,13 +16,12 @@ function StoreMetrics({ stock, sales, days, source }) {
   return <dl className="transfer-store-metrics" aria-label={source ? "Datos de la tienda origen" : "Datos de la tienda destino recomendada"}><div><dt>Stock vendible</dt><dd>{stock} und</dd></div><div><dt>Venta 90 días</dt><dd>{sales} und</dd></div><div><dt>Cobertura</dt><dd>{days}</dd></div></dl>;
 }
 
-export default function CommercialReactTransferModal({ model, onAction }) {
+export default function CommercialReactTransferModal({ model, onAction, embedded = false }) {
   const emit = (type, value) => onAction({ type, value });
-  return <section className="card chart-card chart-expanded ticket-modal transfer-modal" data-react-commercial-module="transfer-modal" role="dialog" aria-modal="true" aria-labelledby="transfer-title" onKeyDown={event => { if (event.key === "Escape") emit("close"); }}>
-    <button type="button" className="chart-expand" aria-label="Cerrar oportunidades de traslado" onClick={() => emit("close")}>×</button>
-    <h2 id="transfer-title">{model.sizeMode ? "VENTA, STOCK Y TRASLADOS POR TALLA" : "SOBRESTOCK Y QUIEBRE · TRASLADOS ENTRE TIENDAS"}</h2>
-    {model.sizeMode && <div className="size-chart-controls size-matrix-navigation"><div className="size-view-switch" role="group" aria-label="Vista de tallas"><button type="button" aria-pressed="false" onClick={() => emit("chart")}>GRÁFICO</button><button type="button" className="active" aria-pressed="true">MATRIZ</button></div></div>}
-    <div className="transfer-intro"><TransferCartButton count={model.cartCount} onClick={() => emit("cart-open")} /><div className="transfer-inline-totals" aria-live="polite" aria-atomic="true"><span>Stock total: <strong>{model.stockUnits} und</strong></span><span>Ventas totales · 90 días: <strong>{model.salesUnits} und</strong></span></div></div>
+  return <section className={`card transfer-modal${embedded ? " transfer-matrix-embedded" : " chart-card chart-expanded ticket-modal"}`} data-react-commercial-module={embedded ? "size-transfer-table" : "transfer-modal"} role={embedded ? "region" : "dialog"} aria-modal={embedded ? undefined : true} aria-labelledby={embedded ? "transfer-matrix-title" : "transfer-title"} onKeyDown={event => { if (!embedded && event.key === "Escape") emit("close"); }}>
+    {!embedded && <button type="button" className="chart-expand" aria-label="Cerrar oportunidades de traslado" onClick={() => emit("close")}>×</button>}
+    <h2 id={embedded ? "transfer-matrix-title" : "transfer-title"}>{embedded || model.sizeMode ? "VENTA, STOCK Y TRASLADOS POR TALLA" : "SOBRESTOCK Y QUIEBRE · TRASLADOS ENTRE TIENDAS"}</h2>
+    <div className="transfer-intro">{embedded && <TransferCartButton count={model.cartCount} onClick={() => emit("cart-open")} />}<div className="transfer-inline-totals" aria-live="polite" aria-atomic="true"><span>Stock total: <strong>{model.stockUnits} und</strong></span><span>Ventas totales · 90 días: <strong>{model.salesUnits} und</strong></span></div></div>
     <div className="transfer-workspace"><aside className="transfer-filters" aria-label="Filtros de traslados"><div className="transfer-filter-heading"><strong>Filtros</strong></div>
       <Filter label="Rubro" value={model.rubro} options={model.rubros} empty="Selecciona un rubro" onChange={value => emit("rubro", value)} />
       {(model.rubro === "CALZADO" || model.rubro === "TEXTIL") && <>{model.rubro === "CALZADO" && <label>Sistema de talla <select value={model.sizeSystem} onChange={event => emit("size-system", event.target.value)}><option value="USA">USA</option><option value="EUR">EUR</option></select></label>}<Filter label="Talla" value={model.size} options={model.sizes} empty="Todas las tallas" onChange={value => emit("size", value)} /></>}

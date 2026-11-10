@@ -148,10 +148,11 @@ test('store filter keeps only the origin and preserves all eligible destinations
 
 test('summary covers all filtered pages and page is clamped when filters reduce the list', () => {
   const subject = fixture();
-  subject.stockProductsData = () => Array.from({ length: 12 }, (_, i) => [product('A', 100, 0, `P${i}`), product('B', 0, 20, `P${i}`)]).flat();
+  subject.stockProductsData = () => Array.from({ length: 17 }, (_, i) => [product('A', 100, 0, `P${i}`), product('B', 0, 20, `P${i}`)]).flat();
+  assert.equal(subject.transferPageRows().length, 15);
   subject.transferPage.set(1);
   assert.equal(subject.transferPageRows().length, 2);
-  assert.deepEqual(totals(subject), { stockUnits: 1200, salesUnits: 720 });
+  assert.deepEqual(totals(subject), { stockUnits: 1700, salesUnits: 1020 });
   subject.transferSearch.set('P11');
   assert.equal(subject.transferCurrentPage(), 0);
   assert.equal(subject.transferPageRows().length, 1);

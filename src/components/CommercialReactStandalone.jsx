@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import CommercialChartSearch from './DashboardChartFinder.jsx';
 import { CommercialChartTypography } from './commercialChartTypography';
 import { SingleBarPresentation } from './singleBarPresentation';
@@ -18,6 +18,9 @@ import CommercialReactAssistantController from "./CommercialReactAssistantContro
 import CommercialTransferCart from "./CommercialTransferCart";
 
 export default function CommercialReactStandalone({ model, controller, storeOperations = null }) {
+  useEffect(() => {
+    if (model.mode === "ready" && model.page === 2) controller.prepareTransferMatrix();
+  }, [controller, model.mode, model.page]);
   const accessAction = action => controller.onReactCommercialAccessAction(action);
   if (model.mode !== "ready") return <main className="app-shell portal-embed" data-react-commercial-shell="true">
     <CommercialReactAccessState model={model.access} onAction={accessAction} />

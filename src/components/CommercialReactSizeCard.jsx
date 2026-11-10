@@ -2,12 +2,10 @@ import React from "react";
 import CommercialReactChart from "./CommercialReactChart";
 import CommercialReactSizeControls from "./CommercialReactSizeControls";
 import CommercialChartZoomFilters from "./CommercialChartZoomFilters";
-import { TransferCartButton } from "./CommercialTransferCart";
 
 export default function CommercialReactSizeCard({ model, onAction }) {
   const emit = (type, value) => onAction({ type, value });
   return <article className={`card chart-card size-distribution-card${model.expanded ? " chart-expanded" : ""}`} data-react-commercial-module="size-card">
-    <TransferCartButton compact count={model.cartCount} onClick={() => emit("cart-open")} />
     <button type="button" className="chart-expand" onClick={() => emit("expand")} aria-label={model.expanded ? "Cerrar gráfico" : "Ampliar gráfico"}>{model.expanded ? "×" : "⛶"}</button>
     <div className="inventory-chart-heading"><h2>VENTA POR TALLA</h2><small>{model.periodLabel}</small></div>
     {model.expanded && <div className="size-unified-filters"><CommercialReactSizeControls model={model.controls} onAction={onAction} /><CommercialChartZoomFilters filters={model.filters} keys={["gender", "line", "subline"]} onAction={onAction} /></div>}
