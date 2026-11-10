@@ -20,7 +20,7 @@ SCHEMAS: dict[str, tuple[str, ...]] = {
         "notes", "discount", "net", "transactions", "units", "received",
     ),
     "monthlyPriceRange": (
-        "periodId", "storeId", "category", "line", "subline", "bandOrder", "priceBand", "net", "units",
+        "periodId", "storeId", "category", "line", "subline", "brand", "bandOrder", "priceBand", "net", "units",
     ),
     "stockHierarchy": (
         "storeId", "category", "line", "subline", "brand", "stockUnits", "stockValue",

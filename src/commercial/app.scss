@@ -400,8 +400,18 @@
 .gender-rubro-toggle button.active { border-color: #123a8c; background: #123a8c; color: #fff; }
 .chart-expanded .gender-chart-content { display:grid; grid-template-columns:minmax(330px,.82fr) minmax(620px,1.35fr); gap:24px }
 .chart-expanded .gender-donut-pane,
-.chart-expanded .gender-bar-chart { width:100%; height:100%!important; min-height:0!important }
+.chart-expanded .gender-detail-table { width:100%; height:100%; min-height:0!important }
 .chart-expanded .gender-donut-pane dashboard-chart { min-height:0!important }
+.gender-detail-table { display:none; }
+.chart-expanded .gender-detail-table { display:grid; min-width:0; min-height:0; grid-template-rows:auto 1fr; overflow:hidden; border:1px solid #d5deea; border-radius:10px; background:#fff; }
+.gender-detail-head,.gender-detail-body > div { display:grid; grid-template-columns:minmax(92px,.8fr) minmax(110px,1fr) minmax(100px,.8fr) minmax(78px,.65fr) minmax(100px,.9fr) minmax(150px,1.25fr); gap:8px; align-items:center; }
+.gender-detail-head { padding:11px 12px; border-bottom:1px solid #ccd7e5; background:#f2f5fa; color:#334155; font-size:.58rem; font-weight:900; }
+.gender-detail-body { overflow:auto; overscroll-behavior:contain; }
+.gender-detail-body > div { min-height:40px; padding:7px 12px; border-bottom:1px solid #e7edf4; color:#475569; font-size:.69rem; }
+.gender-detail-body > div:nth-child(even) { background:#fbfdff; }
+.gender-detail-body strong,.gender-detail-body span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gender-detail-body strong { color:#172033; }
+.gender-detail-body p { padding:16px; color:#64748b; font-size:.7rem; font-weight:800; text-align:center; }
 
 .chart-expand { position: absolute; z-index: 8; top: 8px; right: 8px; display: grid; width: 25px; height: 25px; place-items: center; padding: 0; border: 1px solid #b8c5d9; border-radius: 6px; background: rgba(255,255,255,.94); color: #123a8c; cursor: pointer; font-size: .92rem; font-weight: 900; line-height: 1; box-shadow: 0 2px 7px rgba(15,35,70,.12); }
 .chart-expand:hover { border-color: #123a8c; background: #123a8c; color: #fff; }
@@ -499,6 +509,15 @@
 .chart-expanded .chart-expand { top: 14px; right: 14px; width: 32px; height: 32px; font-size: 1.25rem; }
 .chart-expanded.growth dashboard-chart { height: auto !important; min-height: 0 !important; }
 :host ::ng-deep .chart-expanded.growth dashboard-chart .chart-host { height: 100% !important; min-height: 0 !important; }
+.chart-zoom-filters { position:relative; z-index:25; display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin:2px 38px 12px 0; padding:9px 10px; border:1px solid #d7e1ee; border-radius:9px; background:#f7faff; }
+.chart-zoom-filters .chart-zoom-filter { display:grid; min-width:150px; gap:3px; color:#475569; font-size:.56rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }
+.chart-zoom-filter .filter-dropdown { min-width:0; }
+.chart-zoom-filter .filter-dropdown summary { height:30px; padding-right:24px; border-color:#b8c5d9; border-radius:6px; font-size:.68rem; font-weight:800; text-transform:none; }
+.chart-zoom-filter .filter-menu { width:min(280px, calc(100vw - 64px)); max-height:260px; text-transform:none; }
+.chart-zoom-filter.is-disabled .filter-dropdown { pointer-events:none; }
+.chart-zoom-filter.is-disabled summary { border-color:#d7dee8; background:#eef2f7; color:#94a3b8; cursor:not-allowed; }
+.chart-zoom-filters__clear { height:30px; padding:0 10px; border:1px solid #b8c5d9; border-radius:6px; color:#123a8c; background:#fff; cursor:pointer; font-size:.65rem; font-weight:900; }
+.chart-zoom-filters__clear:hover { border-color:#123a8c; background:#eaf2ff; }
 
 .inventory-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.65fr); gap: 12px; }
 .inventory-grid .chart-card { height: 390px; }
@@ -527,9 +546,8 @@
 .price-range-header { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:38px; padding-right:28px; }
 .price-range-header h2 { margin:0; }
 .price-range-years { display:flex; align-items:flex-end; justify-content:flex-end; gap:10px; color:#64748b; font-size:.58rem; font-weight:800; }
-.price-range-years > span,.price-range-years label { display:grid; gap:3px; }
+.price-range-years > span { display:grid; gap:3px; }
 .price-range-years strong { color:#172033; font-size:.72rem; }
-.price-range-years select { min-width:105px; height:30px; padding:0 24px 0 8px; border:1px solid #b8c5d9; border-radius:6px; color:#172033; background:#fff; font-size:.65rem; font-weight:800; }
 .price-range-chart-content { display:block; flex:1; min-height:0; }
 .price-range-chart-content > dashboard-chart { width:100%; height:100%!important; min-height:0!important; }
 .price-range-detail-table { display:none; }
@@ -537,7 +555,7 @@
 .chart-expanded .price-range-chart-content > dashboard-chart { height: 100% !important; min-height: 0 !important; }
 .chart-expanded .price-range-detail-table { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto 1fr; overflow: hidden; border: 1px solid #d5deea; border-radius: 10px; background: #fff; }
 .price-range-detail-head,
-.price-range-detail-body > div { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(105px, 1fr) minmax(80px, .72fr) minmax(100px, .9fr); gap: 8px; align-items: center; }
+.price-range-detail-body > div { display: grid; grid-template-columns: minmax(75px, .78fr) minmax(100px, 1fr) minmax(70px, .72fr) minmax(88px, .85fr) minmax(88px, .78fr); gap: 8px; align-items: center; }
 .price-range-detail-head { padding: 11px 12px; border-bottom: 1px solid #ccd7e5; background: #f2f5fa; color: #334155; font-size: .58rem; font-weight: 900; }
 .price-range-detail-body { overflow: auto; overscroll-behavior: contain; }
 .price-range-detail-body > div { min-height: 40px; padding: 7px 12px; border-bottom: 1px solid #e7edf4; color: #475569; font-size: .69rem; }
@@ -546,7 +564,8 @@
 .price-range-detail-body strong,
 .price-range-detail-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .price-range-detail-body strong { color: #172033; }
-.price-range-detail-body strong small { display:block; margin-top:2px; color:#64748b; font-size:.52rem; }
+.price-range-detail-body .variation-positive { color:#15803d; font-weight:900; }
+.price-range-detail-body .variation-negative { color:#c2410c; font-weight:900; }
 .price-range-detail-body p { padding: 16px; color: #64748b; font-size: .7rem; font-weight: 800; text-align: center; }
 .category-view-toggle { display:flex; gap:4px; margin-top:8px; }
 .category-view-toggle button { height:25px; padding:0 10px; border:1px solid #b7c2d3; border-radius:5px; background:#fff; color:#475569; cursor:pointer; font-size:.6rem; font-weight:800; letter-spacing:.02em; }
@@ -594,11 +613,15 @@
 .inventory-health-strip .deficit i { background: #e11d2e; }
 .inventory-health-strip .optimal i { background: #0f9d8a; }
 .inventory-health-strip .excess i { background: #123a8c; }
-.size-distribution-card { box-sizing: border-box; height: 520px; }
+.size-distribution-card { box-sizing: border-box; height: 380px; }
 .size-chart-controls { display:flex; flex-wrap:wrap; gap:5px; margin:7px 30px 2px 0; }
 .size-chart-controls > div { display:flex; min-width:0; gap:2px; padding:2px; border:1px solid #d8e0ec; border-radius:7px; background:#f6f8fb; }
 .size-chart-controls button { height:23px; padding:0 7px; border:0; border-radius:5px; background:transparent; color:#64748b; cursor:pointer; font-size:.52rem; font-weight:900; }
 .size-chart-controls button.active { background:#123a8c; color:#fff; box-shadow:0 1px 3px rgba(18,58,140,.22); }
+.size-unified-filters { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin:2px 38px 10px 0; padding:9px 10px; border:1px solid #d7e1ee; border-radius:9px; background:#f7faff; }
+.size-unified-filters .size-chart-controls { margin:0; }
+.size-unified-filters .chart-zoom-filters { flex:1 1 460px; margin:0; padding:0; border:0; background:transparent; }
+.size-unified-filters .chart-zoom-filter { min-width:145px; }
 .size-distribution-card dashboard-chart { display:block; flex:1; width:100%; min-height:0; min-width:0; }
 .size-chart-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:3px; }
 .size-chart-summary span { min-width:0; padding:4px 6px; border:1px solid #e2e8f0; border-radius:5px; background:#f8fafc; text-align:right; }

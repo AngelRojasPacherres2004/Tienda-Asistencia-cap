@@ -37,8 +37,8 @@ type PersonnelProfile = {
   role: string; area: string; areaType: string; hireDate?: string; retirementDate?: string; retirementReason?: string; status: string;
 };
 type BrandRow = { periodId: number; storeId: string; category?: string; line?: string; subline?: string; brand: string; net: number; units: number };
-type PriceRangeRow = { periodId: number; storeId: string; category: string; line: string; subline: string; bandOrder: number; priceBand?: string; net: number; units: number; date?: string };
-type StockPriceRangeRow = { periodId: number; cutoff: string; storeId: string; category: string; line: string; subline: string; bandOrder: number; stockUnits: number };
+type PriceRangeRow = { periodId: number; storeId: string; category: string; line: string; subline: string; brand?: string; bandOrder: number; priceBand?: string; net: number; units: number; date?: string };
+type StockPriceRangeRow = { periodId: number; cutoff: string; storeId: string; category: string; line: string; subline: string; brand?: string; bandOrder: number; stockUnits: number };
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };
 type ProductRow = {
@@ -51,7 +51,7 @@ type TransferCartItem = {
   source: string; sourceName: string; destination: string; destinationName: string; quantity: number;
   maxQuantity: number; sourceCapacity: number; destinationCapacity: number;
 };
-type StockOrigin = { storeId: string; category: string; line: string; subline: string; originPeriodId: number; units: number; value: number };
+type StockOrigin = { storeId: string; category: string; line: string; subline: string; brand?: string; originPeriodId: number; units: number; value: number };
 type StockHierarchyRow = { storeId: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits: number; units30: number; sales30: number;
   mermaStockUnits?: number; desmedroStockUnits?: number };
@@ -550,6 +550,9 @@ export class CommercialDashboardController implements OnInit {
   readonly selectedGenders = signal<string[]>([]);
   readonly selectedLines = signal<string[]>([]);
   readonly selectedSublines = signal<string[]>([]);
+  // Marca es un filtro local de las vistas ampliadas: no debe volver al panel
+  // general, que quedó reservado para tiempo y día.
+  readonly selectedChartBrands = signal<string[]>([]);
   readonly openFilter = signal<FilterKey | null>(null);
   readonly filtersOpen = signal(false);
   readonly reactFiltersEnabled = !!readRuntimeConfig().reactModules?.includes('filters')
@@ -853,6 +856,10 @@ export class CommercialDashboardController implements OnInit {
     const selected = this.selectedSublines();
     return !selected.length || (!!value && selected.includes(value));
   }
+  private chartBrandMatches(value?: string): boolean {
+    const selected = this.selectedChartBrands();
+    return !selected.length || (!!value && selected.includes(value));
+  }
 
   private isDistributionChannel(store: Store): boolean {
     const key = this.normalized(`${store.storeId} ${store.store} ${store.alias}`);
@@ -966,6 +973,16 @@ export class CommercialDashboardController implements OnInit {
     this.selectedSublines().forEach(value => values.add(value));
     return [...values].sort();
   });
+  readonly chartBrands = computed(() => {
+    const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
+    const brands = new Set<string>();
+    const sales = this.indexedRows(this.monthlyBrandIndex, periods, ids);
+    for (const row of sales) if (this.categoryMatches(row.category) && this.genderMatches(row.line)
+      && this.lineMatches(row.line) && this.sublineMatches(row.subline) && row.brand) brands.add(row.brand);
+    for (const row of this.stockProductsData()) if (ids.has(row.storeId) && this.categoryMatches(row.category)
+      && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline) && row.brand) brands.add(row.brand);
+    return [...brands].sort((a, b) => a.localeCompare(b, 'es'));
+  });
 
   readonly searchedMonths = computed(() => this.availableMonths().filter(month =>
     this.matchesSearch(MONTHS[month - 1], this.filterSearch().month)));
@@ -1034,6 +1051,15 @@ export class CommercialDashboardController implements OnInit {
     if (this.selectedLines().length || (this.selectedGenders().length && this.genderFilterEnabled())) return rows.filter(r => this.categoryMatches(r.category) && this.genderMatches(r.line) && this.lineMatches(r.line));
     if (this.selectedCategories().length) return rows.filter(r => this.categoryMatches(r.category) && this.genderMatches(r.line));
     return rows;
+  }
+  private zoomSalesNet(periodId: number, ids: Set<string>): number {
+    if (this.selectedChartBrands().length) {
+      const rows = this.indexedRows(this.monthlyBrandIndex, [periodId], ids).filter(row =>
+        this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line)
+        && this.sublineMatches(row.subline) && this.chartBrandMatches(row.brand));
+      return sum(rows, 'net');
+    }
+    return sum(this.currentDimensionFilter(this.indexedRows(this.currentDimensionIndex(), [periodId], ids)), 'net');
   }
 
   private rowsForPeriods(periods: Iterable<number>, ids: Iterable<string>): Monthly[] {
@@ -1257,6 +1283,20 @@ export class CommercialDashboardController implements OnInit {
     calendarOpen: this.calendarOpen(), calendarTitle: this.dayFilterEnabled() ? `${this.monthNamesFull[this.selectedMonths()[0] - 1]} ${this.year()}` : '',
     calendarDays: this.calendarDays(), fromDate: this.fromDate(), toDate: this.toDate(),
     dayLoading: this.dayFilterLoading(), dayError: this.dayFilterError(),
+  }));
+
+  // Los filtros de producto se muestran únicamente dentro de los gráficos
+  // ampliados. El panel global se reserva para tiempo y día.
+  readonly zoomHierarchyFilters = computed<Record<string, unknown>>(() => ({
+    selected: {
+      category: this.selectedCategories(), gender: this.selectedGenders(),
+      line: this.selectedLines(), subline: this.selectedSublines(), brand: this.selectedChartBrands(),
+    },
+    options: {
+      category: this.categories(), gender: this.genderOptions(),
+      line: this.lines(), subline: this.sublines(), brand: this.chartBrands(),
+    },
+    genderEnabled: this.genderFilterEnabled(),
   }));
 
   // La tarjeta general usa únicamente metas_comerciales_anuales.
@@ -1509,6 +1549,7 @@ export class CommercialDashboardController implements OnInit {
     return {
       expanded: this.expandedChart() === 'size-distribution', rubro, metric,
       controls: this.sizeControlsModel(), loading, transferError, productCodeLoading: this.productCodeLoading(),
+      filters: { ...this.zoomHierarchyFilters(), genderEnabled: true },
       cartCount: this.transferCartItems().length,
       textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
       label: `${this.sizeMetricLabel()} por talla ${rubro.toLowerCase()} · corte ${this.sizeSalesPeriod()}`,
@@ -1570,12 +1611,14 @@ export class CommercialDashboardController implements OnInit {
 
   readonly brandCardModel = computed<Record<string, unknown>>(() => ({
     expanded: this.expandedChart() === 'brand', option: blackChartText(this.brandOption()),
+    filters: this.zoomHierarchyFilters(),
     rows: this.brandSummary().map(row => ({ name: row.name, net: this.money(row.net, true),
       share: this.percent(row.share), units: this.number(row.units) })),
   }));
 
-  onReactBrandAction({ type }: { type: string }): void {
+  onReactBrandAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'expand') this.toggleChartExpansion('brand');
+    else this.applyZoomHierarchyFilter(type, value);
   }
 
   readonly rankingCardModel = computed<Record<string, unknown>>(() => ({
@@ -1594,29 +1637,49 @@ export class CommercialDashboardController implements OnInit {
   readonly genderCardModel = computed<Record<string, unknown>>(() => ({
     expanded: this.expandedChart() === 'gender', rubros: this.genderRubros(),
     donut: blackChartText(this.genderOption()), bar: blackChartText(this.genderBarOption()),
+    filters: this.zoomHierarchyFilters(),
+    rows: this.genderSummary().map(row => ({ name: row.name, net: this.money(row.net, true),
+      share: this.percent(row.share), units: this.number(row.units), averagePrice: this.money(row.averagePrice), topLine: row.topLine })),
   }));
 
   onReactGenderAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'expand') this.toggleChartExpansion('gender');
     else if (type === 'rubro' && (value === 'TEXTIL' || value === 'CALZADO')) this.toggleGenderRubro(value);
+    else this.applyZoomHierarchyFilter(type, value);
   }
 
-  readonly priceRangeCardModel = computed<Record<string, unknown>>(() => ({
-    expanded: this.expandedChart() === 'price-range', year: this.year(),
-    years: this.priceRangeComparisonYears(), comparisonYear: this.effectivePriceRangeComparisonYear(),
-    ready: this.priceRangeDetailLoaded(), option: this.priceRangeDetailLoaded() ? blackChartText(this.priceRangeOption()) : null,
-    stockLoading: this.priceRangeStockLoading(), stockError: this.priceRangeStockError(),
-    stockUnavailable: this.priceRangeStockPeriod() == null,
-    stockCutoff: this.priceRangeStockData()[0]?.cutoff || '',
-    rows: this.priceRangeSummary().map(row => ({ label: row.label, year: row.year,
-      net: this.money(row.net, true), stock: row.stockUnits == null ? (this.priceRangeStockLoading() && row.year === Math.floor((this.priceRangeStockPeriod() || 0) / 100) ? 'Cargando…' : 'N/A') : this.number(row.stockUnits, ' und'),
-      units: this.number(row.units), averagePrice: this.money(row.averagePrice) })),
-  }));
+  readonly priceRangeCardModel = computed<Record<string, unknown>>(() => {
+    const comparisonYear = this.effectivePriceRangeComparisonYear();
+    const { base, comparison } = this.priceRangeSeries();
+    const previousByBand = new Map(comparison.map(row => [row.label, row]));
+    return {
+      expanded: this.expandedChart() === 'price-range', year: this.year(), comparisonYear,
+      // Al ampliar se carga el detalle por marca; el selector siempre queda
+      // disponible para que el usuario pueda filtrar la misma información que
+      // alimenta las barras y la matriz.
+      filters: this.zoomHierarchyFilters(),
+      ready: this.priceRangeDetailLoaded(), option: this.priceRangeDetailLoaded() ? blackChartText(this.priceRangeOption()) : null,
+      stockLoading: this.priceRangeStockLoading(), stockError: this.priceRangeStockError(),
+      stockUnavailable: this.priceRangeStockPeriod() == null,
+      stockCutoff: this.priceRangeStockData()[0]?.cutoff || '',
+      rows: base.map(row => {
+        const previous = previousByBand.get(row.label);
+        const variation = previous?.net ? (row.net - previous.net) / previous.net : null;
+        return { label: row.label, net: this.money(row.net, true), units: this.number(row.units), averagePrice: this.money(row.averagePrice),
+          variation: variation == null ? 'N/A' : this.percent(variation), variationPositive: variation != null && variation > 0, variationNegative: variation != null && variation < 0 };
+      }),
+    };
+  });
 
   onReactPriceRangeAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'expand') this.toggleChartExpansion('price-range');
-    else if (type === 'year' && value != null) this.setPriceRangeComparisonYear(value);
     else if (type === 'retry-stock') this.priceRangeStockRetry.set(this.priceRangeStockRetry() + 1);
+    else this.applyZoomHierarchyFilter(type, value);
+  }
+
+  onReactGrowthAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') this.toggleChartExpansion('growth-detail');
+    else this.applyZoomHierarchyFilter(type, value);
   }
 
   readonly rotationCardModel = computed<Record<string, unknown>>(() => {
@@ -1642,6 +1705,7 @@ export class CommercialDashboardController implements OnInit {
     return {
       expanded: this.expandedChart() === 'antiquity', ready: this.stockOriginLoaded(),
       detailLoading: this.detailLoading(), label: this.stockHistoryLabel(),
+      filters: this.zoomHierarchyFilters(),
       buckets: this.stockHistoryBuckets.map(bucket => ({ ...bucket,
         active: bucket.value === 'ALL' ? selected.length === 0 : selected.includes(bucket.value) })),
       option: blackChartText(this.antiquityOption()),
@@ -1653,6 +1717,7 @@ export class CommercialDashboardController implements OnInit {
     if (type === 'expand') this.toggleChartExpansion('antiquity');
     else if (type === 'bucket' && typeof value === 'string') this.toggleStockHistoryBucket(value as StockHistoryBucket);
     else if (type === 'detail' && typeof value === 'number') this.openStockOriginDetail({ data: { period: value } });
+    else this.applyZoomHierarchyFilter(type, value);
   }
 
   readonly healthCardModel = computed<Record<string, unknown>>(() => ({
@@ -1811,6 +1876,7 @@ export class CommercialDashboardController implements OnInit {
     else if (source === 'brand') this.onReactBrandAction(action);
     else if (source === 'ranking') this.onReactRankingAction(action);
     else if (source === 'gender') this.onReactGenderAction(action);
+    else if (source === 'growth') this.onReactGrowthAction(action);
     else if (source === 'price') this.onReactPriceRangeAction(action);
   }
 
@@ -1866,6 +1932,7 @@ export class CommercialDashboardController implements OnInit {
         : expanded === 'traffic-average' ? { type: 'monthly', model: this.trafficModalModel() }
         : expanded === 'projection-close' ? { type: 'monthly', model: this.projectionCloseModalModel() }
         : expanded === 'meta-vs-real-detail' ? { type: 'monthly', model: this.metaVsRealModalModel() }
+        : expanded === 'growth-detail' ? { type: 'monthly', model: this.growthModalModel() }
         : expanded?.startsWith('kpi-') ? { type: 'monthly', model: this.kpiDetailModel() }
         : expanded === 'size-detail' ? { type: 'size-detail', model: this.sizeDetailModel() } : null,
       assistantEnabled: this.cloud.assistantEnabled,
@@ -1962,12 +2029,41 @@ export class CommercialDashboardController implements OnInit {
       title: 'AVANCE META VS REAL', closeLabel: 'Cerrar avance meta versus real', chartId: 'meta-vs-real-expanded',
       chartLabel: 'Cuota y venta neta por mes', hasData: rows.some(row => row.target > 0 || row.real !== 0),
       emptyText: 'No existen metas en la base de datos para este alcance.', option: blackChartText(this.metaVsRealOption()),
+      hierarchyFilters: this.zoomHierarchyFilters(), hierarchyFilterKeys: ['category', 'gender'],
       tableLabel: 'Matriz mensual de cuota, venta neta, brecha y cumplimiento',
       headers: ['Mes', 'Cuota', 'Venta neta', 'Brecha', 'Cumplimiento'], legend: false,
       rows: rows.map(row => ({ label: row.label, cells: [
         { value: row.target, text: this.money(row.target) }, { value: row.real, text: this.money(row.real) },
         { value: row.gap, text: this.money(row.gap), className: row.gap <= 0 ? 'positive' : 'negative' }, { value: row.compliance, text: this.percent(row.compliance) },
       ] })),
+    };
+  });
+
+  readonly growthModalModel = computed<Record<string, unknown>>(() => {
+    const year = this.year(); const previousYear = year - 1;
+    const months = Array.from({ length: this.yearOnlyMonthLimit(year) }, (_, index) => index + 1);
+    const ids = this.historicalYearStoreIds();
+    let currentAccumulated = 0; let previousAccumulated = 0;
+    const rows = months.map(month => {
+      currentAccumulated += this.zoomSalesNet(year * 100 + month, ids);
+      previousAccumulated += this.zoomSalesNet(previousYear * 100 + month, ids);
+      const variation = previousAccumulated ? currentAccumulated / previousAccumulated - 1 : null;
+      return { label: this.monthNamesFull[month - 1], current: currentAccumulated, previous: previousAccumulated, variation };
+    });
+    return {
+      moduleId: 'growth-modal', year, years: [year], storeLocked: true, selectedStores: [], stores: [],
+      allStoresLabel: 'Alcance seleccionado', titleId: 'growth-title', title: 'TENDENCIA INTERANUAL ACUMULADA VENTAS', showYear: false,
+      closeLabel: 'Cerrar tendencia interanual', chartId: 'growth-expanded',
+      chartLabel: `Venta acumulada ${year} frente a ${previousYear}`, hasData: rows.some(row => row.current !== 0 || row.previous !== 0),
+      emptyText: 'No hay ventas comparables para este período.', option: blackChartText(this.growthOption()),
+      hierarchyFilters: this.zoomHierarchyFilters(), hierarchyFilterKeys: ['category', 'gender', 'line', 'subline'],
+      tableLabel: `Matriz interanual acumulada ${year} vs ${previousYear}`,
+      headers: ['Mes', `Acum. ${year}`, `Acum. ${previousYear}`, 'Variación'],
+      rows: rows.map(row => ({ label: row.label, cells: [
+        { value: row.current, text: this.money(row.current) }, { value: row.previous, text: this.money(row.previous) },
+        { value: row.variation, text: this.percent(row.variation), className: row.variation != null && row.variation >= 0 ? 'positive' : 'negative' },
+      ] })),
+      legendItems: [{ label: String(year), color: C.blue }, { label: String(previousYear), color: C.slate }],
     };
   });
 
@@ -2046,6 +2142,7 @@ export class CommercialDashboardController implements OnInit {
     else if (type === 'clear-stores') this.ticketChartSelectedStores.set([]);
     else if (type === 'store' && typeof value === 'string') this.toggleTicketChartStore(value);
     else if (type === 'month') this.kpiDetailMonth.set(Number(value) || 0);
+    else this.applyZoomHierarchyFilter(type, value);
   }
 
   readonly stockOriginModalModel = computed<Record<string, unknown>>(() => {
@@ -2163,7 +2260,14 @@ export class CommercialDashboardController implements OnInit {
 
   onReactSizeCardAction(action: { type: string; value?: string | number }): void {
     if (action.type === 'cart-open') this.transferCartOpenPanel();
-    else if (action.type === 'expand') this.toggleChartExpansion('size-distribution');
+    else if (action.type === 'expand') {
+      const opening = this.expandedChart() !== 'size-distribution';
+      this.toggleChartExpansion('size-distribution');
+      if (opening) this.onCategorySelectChange(this.sizeRubro());
+    }
+    else if (action.type === 'rubro' && (action.value === 'CALZADO' || action.value === 'TEXTIL')) {
+      this.selectSizeRubro(action.value); this.onCategorySelectChange(action.value);
+    }
     else if (action.type === 'detail' && typeof action.value === 'string') {
       this.sizeDetailSelected.set(action.value); this.expandedChart.set('size-detail'); this.setPageScrollLocked(true);
       void this.ensureSizeDetail(this.sizeRubro());
@@ -2202,6 +2306,21 @@ export class CommercialDashboardController implements OnInit {
       this.toggleChartExpansion(`kpi-${type}`);
       if (type === 'saleCollaborator') void this.ensureSellerDetail();
     }
+  }
+
+  private applyZoomHierarchyFilter(type: string, value?: string | number): void {
+    const selected = String(value ?? '');
+    if (type === 'clear:category') this.clearCategories();
+    else if (type === 'clear:gender') this.clearGenders();
+    else if (type === 'clear:line') this.clearLines();
+    else if (type === 'clear:subline') this.clearSublines();
+    else if (type === 'clear:brand') this.selectedChartBrands.set([]);
+    else if (type === 'toggle:category') this.toggleCategory(selected);
+    else if (type === 'toggle:gender') this.toggleGender(selected);
+    else if (type === 'toggle:line') this.toggleLine(selected);
+    else if (type === 'toggle:subline') this.toggleSubline(selected);
+    else if (type === 'toggle:brand' && this.chartBrands().includes(selected)) this.selectedChartBrands.set(this.toggleValue(this.selectedChartBrands(), selected));
+    else if (type === 'resetHierarchy') this.clearCategories();
   }
 
   onReactFilterAction({ type, value }: DashboardFilterAction): void {
@@ -2888,7 +3007,7 @@ export class CommercialDashboardController implements OnInit {
     const allStores = (this.data()?.stores || []).filter(store => store.isStore && this.storeAllowedByAccess(store)).length;
     if (!this.selectedCategories().length && !this.selectedLines().length && !this.selectedSublines().length && ids.size === allStores) return candidates;
     return candidates.filter(r => ids.has(r.storeId) &&
-      this.categoryMatches(r.category) && this.lineMatches(r.line) && this.sublineMatches(r.subline));
+      this.categoryMatches(r.category) && this.lineMatches(r.line) && this.sublineMatches(r.subline) && this.chartBrandMatches(r.brand));
   });
   // Snapshot fijo del último reporte. No depende de filtros comerciales, pero sí
   // respeta el alcance de acceso del usuario (tienda o clúster).
@@ -3649,7 +3768,8 @@ export class CommercialDashboardController implements OnInit {
   readonly stockOrigins = computed(() => {
     const ids = this.inventoryStoreIds();
     return this.stockOriginData().filter(r => r.originPeriodId > 0 && ids.has(r.storeId) &&
-      this.categoryMatches(r.category) && this.lineMatches(r.line) && this.sublineMatches(r.subline));
+      this.categoryMatches(r.category) && this.lineMatches(r.line) && this.sublineMatches(r.subline)
+      && this.chartBrandMatches(r.brand));
   });
   readonly selectedStockOrigins = computed(() => {
     const buckets = this.stockHistoryBucketsSelected();
@@ -3775,10 +3895,7 @@ export class CommercialDashboardController implements OnInit {
   readonly growthOption = computed<EChartsOption>(() => {
     const selectedYear = this.year(); const previousYear = selectedYear - 1; const monthLimit = this.yearOnlyMonthLimit(selectedYear);
     const months = Array.from({ length: monthLimit }, (_, index) => index + 1); const ids = this.historicalYearStoreIds();
-    const dimensionIndex = this.currentDimensionIndex();
-    const monthlyValue = (year: number, month: number) => sum(this.currentDimensionFilter(
-      this.indexedRows(dimensionIndex, [year * 100 + month], ids)
-    ), 'net');
+    const monthlyValue = (year: number, month: number) => this.zoomSalesNet(year * 100 + month, ids);
     const accumulate = (values: number[]) => { let total = 0; return values.map(value => total += value); };
     const current = accumulate(months.map(month => monthlyValue(selectedYear, month)));
     const previous = accumulate(months.map(month => monthlyValue(previousYear, month)));
@@ -4110,7 +4227,7 @@ export class CommercialDashboardController implements OnInit {
     this.brandDetailLoaded();
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods();
     const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyBrandIndex, periods, ids)).filter(row =>
-      this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+      this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline) && this.chartBrandMatches(row.brand));
     const total = sum(rows, 'net'); const groups = grouped(rows, row => row.brand || 'N/A');
     return [...groups.entries()].map(([name, groupedRows]) => {
       const categories = [...grouped(groupedRows, row => row.category || 'N/A').entries()]
@@ -4136,7 +4253,14 @@ export class CommercialDashboardController implements OnInit {
     // Contexto exclusivo: Año, Mes, Clúster, Formato y Tienda. No lee los
     // filtros globales Rubro/Línea/Sublínea; TEXTIL/CALZADO se manejan localmente.
     const ids = this.filteredStoreIds(); const periods = this.selectedPeriods(); const rubros = new Set(this.genderRubros());
-    const rows = (this.dateRangeActive() ? this.dailyRowsForSelection(ids) : this.indexedRows(this.monthlyLineIndex, periods, ids)).filter(row => rubros.has(row.category || ''));
+    const selectedBrands = this.selectedChartBrands();
+    // El detalle diario conserva marca. Priorizarlo mantiene exacto el corte por
+    // día incluso cuando se selecciona una marca en el gráfico ampliado.
+    const source = this.dateRangeActive()
+      ? this.dailyRowsForSelection(ids)
+      : (selectedBrands.length ? this.indexedRows(this.monthlyBrandIndex, periods, ids) : this.indexedRows(this.monthlyLineIndex, periods, ids));
+    const rows = source.filter(row => rubros.has(row.category || '') && this.categoryMatches(row.category) && this.genderMatches(row.line)
+      && this.lineMatches(row.line) && this.sublineMatches(row.subline) && this.chartBrandMatches(row.brand));
     const mapped = rows.map(row => ({ row, gender: this.genderFromLine(row.line) })).filter(item => item.gender != null);
     const groups = grouped(mapped, item => item.gender!); const total = mapped.reduce((value, item) => value + (item.row.net || 0), 0);
     return GENDER_ORDER.map(name => {
@@ -4183,7 +4307,7 @@ export class CommercialDashboardController implements OnInit {
     } as EChartsOption;
   });
   readonly priceRangeComparisonYears = computed(() => (this.data()?.metadata.years || [])
-    .filter(year => year >= 2024 && year !== this.year()).sort((a, b) => b - a));
+    .filter(year => year >= 2024 && year < this.year()).sort((a, b) => b - a));
   readonly priceRangeStockPeriod = computed(() => {
     const selectedDate = this.toDate() || this.fromDate();
     const selectedPeriod = this.year() * 100 + (Math.max(0, ...this.activeMonths()) || 12);
@@ -4193,8 +4317,11 @@ export class CommercialDashboardController implements OnInit {
       ? selectedDate : selectedPeriod === latestSalesPeriod ? metadata!.stockCutoff : this.periodEnd(selectedPeriod);
     return stockPeriodForDate(metadata?.stockPeriods || [], this.cloud.availableFiles(), targetDate, metadata?.stockCutoff || '');
   });
-  readonly effectivePriceRangeComparisonYear = computed(() => this.priceRangeComparisonYears().includes(this.priceRangeComparisonYear())
-    ? this.priceRangeComparisonYear() : this.priceRangeComparisonYears()[0] || this.year() - 1);
+  readonly effectivePriceRangeComparisonYear = computed(() => {
+    const years = this.priceRangeComparisonYears(); const previous = this.year() - 1;
+    if (years.includes(this.priceRangeComparisonYear())) return this.priceRangeComparisonYear();
+    return years.includes(previous) ? previous : years[0] || previous;
+  });
   private priceRangeDateRangeForYear(year: number): { from: string; to: string } | null {
     const from = this.fromDate();
     if (!from) return null;
@@ -4225,12 +4352,12 @@ export class CommercialDashboardController implements OnInit {
     // se filtra por fecha exacta y no se aproxima al total del mes.
     const rows = this.indexedRows(this.monthlyPriceRangeIndex, periods, ids).filter(row =>
       (!selectedRange || (!!row.date && row.date >= selectedRange.from && row.date <= selectedRange.to)) &&
-      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+      Number(row.bandOrder) > 0 && this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline) && this.chartBrandMatches(row.brand));
     const groups = grouped(rows, row => String(row.bandOrder));
     const stockPeriod = this.priceRangeStockLoadedPeriod();
     const stockGroups = stockPeriod != null && Math.floor(stockPeriod / 100) === year
       ? grouped(this.priceRangeStockData().filter(row => ids.has(row.storeId) &&
-        this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline)), row => String(row.bandOrder))
+        this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline) && this.chartBrandMatches(row.brand)), row => String(row.bandOrder))
       : null;
     const bands = [
       'S/ 0–30', 'S/ 31–60', 'S/ 61–90', 'S/ 91–120', 'S/ 121–150', 'S/ 151–180',
@@ -4345,7 +4472,7 @@ export class CommercialDashboardController implements OnInit {
     const stores = this.inventoryStoresIgnoringStoreFilter(); const ids = new Set(stores.map(store => store.storeId));
     const cutoff = new Date(`${this.data()?.metadata.stockCutoff || '2026-01-01'}T00:00:00Z`); cutoff.setUTCMonth(cutoff.getUTCMonth() - 3);
     const oldPeriod = cutoff.getUTCFullYear() * 100 + cutoff.getUTCMonth() + 1;
-    const rows = this.stockOriginData().filter(row => ids.has(row.storeId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
+    const rows = this.stockOriginData().filter(row => ids.has(row.storeId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline) && this.chartBrandMatches(row.brand));
     const groups = grouped(rows, row => row.storeId);
     return stores.map(store => {
       const storeRows = groups.get(store.storeId) || []; const total = sum(storeRows, 'units'); const old = sum(storeRows.filter(row => row.originPeriodId <= oldPeriod), 'units');
@@ -4355,7 +4482,7 @@ export class CommercialDashboardController implements OnInit {
   readonly rotationOption = computed<EChartsOption>(() => {
     const storeMap = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
     const groups = this.inventoryStoreMetrics();
-    const rows = [...storeMap.entries()].map(([storeId, label]) => {
+    const rawRows = [...storeMap.entries()].map(([storeId, label]) => {
       const aggregate = groups.get(storeId);
       const sales = aggregate?.sales30 || 0; const value = aggregate?.stockValue || 0;
       const units = aggregate?.stockUnits || 0; const sold = aggregate?.units30 || 0;
@@ -4364,14 +4491,18 @@ export class CommercialDashboardController implements OnInit {
       const sold90 = rotationRows.reduce((total, row) => total + this.predictiveWindowUnits(row, 90), 0);
       const rotation = rotationRows.length ? storeRotationRatio(sold90, units) : storeRotationRatio(sold, units);
       return { label, sales, value, units, sold: sold90 || sold, sold90: sold90 || sold, rotation };
-    }).sort((a, b) => (b.rotation ?? -Infinity) - (a.rotation ?? -Infinity));
-    const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.rotation).filter((value): value is number => value !== null));
+    });
+    const totalRotation = rawRows.reduce((total, row) => total + Math.max(0, row.rotation || 0), 0);
+    const rows = rawRows.map(row => ({ ...row, share: row.rotation == null || !totalRotation ? null : row.rotation / totalRotation }))
+      .sort((a, b) => (b.share ?? -Infinity) - (a.share ?? -Infinity));
+    const visible = Math.min(7, rows.length); const rotationScale = adaptiveValueScale(rows.map(row => row.share).filter((value): value is number => value !== null));
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], formatter: (params: any[]) => {
         const index = params[0]?.dataIndex ?? 0; const row = rows[index];
         return this.tooltip(row.label, [
-          { label: 'Rotación 90D', value: this.percent(row.rotation) },
+          { label: 'Participación de rotación', value: this.percent(row.share) },
+          { label: 'Rotación propia 90D', value: this.percent(row.rotation) },
           { label: 'Venta 30D', value: this.money(row.sales, true) },
           { label: 'Valor stock', value: this.money(row.value, true) },
           { label: 'Stock físico', value: this.number(row.units, ' und') },
@@ -4384,9 +4515,9 @@ export class CommercialDashboardController implements OnInit {
         { type: 'slider', yAxisIndex: 0, orient: 'vertical', right: 3, top: 8, bottom: 8, width: 18, startValue: 0, endValue: visible - 1, showDetail: false, brushSelect: false,
           backgroundColor: '#D8E0EC', fillerColor: 'rgba(22,163,74,.25)', borderColor: '#9AABC2', handleSize: '125%', handleStyle: { color: C.green, borderColor: '#15803D' } }
       ] : [],
-      xAxis: { type: 'value', min: 0, ...rotationScale, axisLabel: { formatter: (value: number) => this.percent(value), color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      xAxis: { type: 'value', min: 0, ...rotationScale, name: 'PARTICIPACIÓN DEL TOTAL', nameLocation: 'middle', nameGap: 21, nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, axisLabel: { formatter: (value: number) => this.percent(value), color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { interval: 0, align: 'left', margin: 41, width: 38, overflow: 'truncate', color: '#475569', fontSize: 9, fontWeight: 800 } },
-      series: [{ type: 'bar', data: rows.map(row => ({ value: row.rotation, rotationDetails: { stockUnits: row.units, soldUnits90: row.sold90, stockValue: row.value, sales30: row.sales } })), barMaxWidth: 18, barCategoryGap: '24%', itemStyle: { color: C.green, borderRadius: [0, 4, 4, 0] },
+      series: [{ type: 'bar', data: rows.map(row => ({ value: row.share, rotationDetails: { stockUnits: row.units, soldUnits90: row.sold90, stockValue: row.value, sales30: row.sales, rotation: row.rotation } })), barMaxWidth: 18, barCategoryGap: '24%', itemStyle: { color: C.green, borderRadius: [0, 4, 4, 0] },
         label: { show: true, position: 'right', formatter: (params: any) => this.percent(params.value == null ? null : Number(params.value)), color: '#172033', fontSize: 10, fontWeight: 700, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [2, 4], borderRadius: 3 } }]
     } as EChartsOption;
   });
@@ -4400,7 +4531,8 @@ export class CommercialDashboardController implements OnInit {
   ));
   readonly storeValueCoverageOption = computed<EChartsOption>(() => {
     const rows = [...this.inventoryMatrixRows()].sort((a, b) => b.stockValue - a.stockValue);
-    const valueScale = adaptiveValueScale(rows.map(row => row.stockValue));
+    const totalValue = rows.reduce((total, row) => total + Math.max(0, row.stockValue), 0);
+    const valueScale = adaptiveValueScale(rows.map(row => totalValue ? row.stockValue / totalValue : 0));
     return {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [10, 12], textStyle: { fontSize: 12 }, formatter: (params: any[]) => {
@@ -4408,16 +4540,17 @@ export class CommercialDashboardController implements OnInit {
         return this.tooltip(row?.alias || '', [
           { label: 'Unidades en stock', value: this.number(row?.stockUnits ?? null, ' und') },
           { label: 'Valor del inventario', value: this.money(row?.stockValue ?? null, true) },
+          { label: 'Participación del valor total', value: this.percent(totalValue ? (row?.stockValue || 0) / totalValue : null) },
           { label: 'Cobertura estimada', value: row?.coverageDays == null ? 'SIN VENTA' : this.number(row.coverageDays, ' días') },
           { label: 'Clasificación', value: row?.status || 'SIN INFORMACIÓN' }
         ]);
       } },
       grid: { left: 38, right: 10, top: 6, bottom: 10 },
-      xAxis: { type: 'value', min: 0, ...valueScale, name: 'VALOR INVENTARIO', nameLocation: 'middle', nameGap: 22, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
+      xAxis: { type: 'value', min: 0, ...valueScale, name: 'PARTICIPACIÓN DEL VALOR TOTAL', nameLocation: 'middle', nameGap: 22, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, axisLabel: { color: '#64748B', formatter: (value: number) => this.percent(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } }, axisLine: { show: true, lineStyle: { color: '#CBD5E1' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.alias), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: '#334155', fontSize: 9, fontWeight: 850 } },
       series: [{ name: 'VALOR INVENTARIO', type: 'bar', barMaxWidth: 16, barCategoryGap: '30%',
-        data: rows.map(row => ({ value: row.stockValue, inventoryDetails: { stockUnits: row.stockUnits, soldUnits30: row.units30, coverageDays: row.coverageDays, status: row.status }, itemStyle: { color: row.color, borderRadius: [0, 5, 5, 0] } })),
-        label: { show: true, position: 'right', distance: 5, color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => `S/ ${this.short(Number(params.value))}` }
+        data: rows.map(row => ({ value: totalValue ? row.stockValue / totalValue : 0, inventoryDetails: { stockUnits: row.stockUnits, soldUnits30: row.units30, coverageDays: row.coverageDays, status: row.status, stockValue: row.stockValue }, itemStyle: { color: row.color, borderRadius: [0, 5, 5, 0] } })),
+        label: { show: true, position: 'right', distance: 5, color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => this.percent(Number(params.value)) }
       }]
     } as EChartsOption;
   });
@@ -4822,8 +4955,15 @@ export class CommercialDashboardController implements OnInit {
   }
   toggleChartExpansion(id: string): void {
     const next = this.expandedChart() === id ? null : id;
+    if (!next && ['meta-vs-real-detail', 'brand', 'price-range', 'gender', 'antiquity', 'size-distribution', 'growth-detail'].includes(id)) this.clearCategories();
     this.expandedChart.set(next);
     this.setPageScrollLocked(!!next);
+    if (next && ['brand', 'price-range', 'gender', 'growth-detail'].includes(next)) void this.ensureBrandDetail();
+    // La vista inicial de rangos usa un resumen ligero sin marca. Al abrir el
+    // zoom se vuelve a cargar el detalle anual, que sí conserva la marca.
+    if (next === 'price-range' && !this.priceRangeData().some(row => !!row.brand)) {
+      this.invalidatePriceRangeDetail();
+    }
   }
   private sectionAdviceContext(id: string, section: string): string {
     const metrics = this.metrics();
@@ -4867,9 +5007,11 @@ export class CommercialDashboardController implements OnInit {
     }
   }
   closeExpandedChart(): void {
-    const wasTicket = this.expandedChart() === 'ticket-average';
-    const wasConversion = this.expandedChart() === 'conversion-average';
-    const wasTraffic = this.expandedChart() === 'traffic-average';
+    const previous = this.expandedChart();
+    const wasTicket = previous === 'ticket-average';
+    const wasConversion = previous === 'conversion-average';
+    const wasTraffic = previous === 'traffic-average';
+    if (['meta-vs-real-detail', 'brand', 'price-range', 'gender', 'antiquity', 'size-distribution', 'growth-detail'].includes(previous || '')) this.clearCategories();
     this.expandedChart.set(null); this.setPageScrollLocked(false);
     if (wasTicket) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.ticket-kpi')?.focus();
     if (wasConversion) document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLElement>('.conversion-kpi')?.focus();
@@ -4912,24 +5054,24 @@ export class CommercialDashboardController implements OnInit {
     this.selectedStores.set(this.toggleValue(this.selectedStores(), value));
     this.productId.set('AUTO');
   }
-  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); }
+  clearCategories(): void { this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); }
   toggleCategory(value: string): void {
     if (!this.categories().includes(value)) return;
-    this.selectedCategories.set(this.toggleValue(this.selectedCategories(), value)); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO');
+    this.selectedCategories.set(this.toggleValue(this.selectedCategories(), value)); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]); this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
     this.invalidateBrandDetail();
     this.deferHierarchyDetails();
   }
-  clearGenders(): void { this.selectedGenders.set([]); this.productId.set('AUTO'); }
+  clearGenders(): void { this.selectedGenders.set([]); this.selectedChartBrands.set([]); this.productId.set('AUTO'); }
   toggleGender(value: string): void {
     if (!this.genderFilterEnabled() || !GENDER_ORDER.includes(value)) return;
-    this.selectedGenders.set(this.toggleValue(this.selectedGenders(), value)); this.productId.set('AUTO');
+    this.selectedGenders.set(this.toggleValue(this.selectedGenders(), value)); this.selectedChartBrands.set([]); this.productId.set('AUTO');
   }
-  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); this.deferHierarchyDetails(); }
+  clearLines(): void { this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]); this.productId.set('AUTO'); this.invalidateSellerDetail(); this.invalidatePriceRangeDetail(); this.invalidateBrandDetail(); this.deferHierarchyDetails(); }
   toggleLine(value: string): void {
     if (!this.lines().includes(value)) return;
-    this.selectedLines.set(this.toggleValue(this.selectedLines(), value)); this.selectedSublines.set([]); this.productId.set('AUTO');
+    this.selectedLines.set(this.toggleValue(this.selectedLines(), value)); this.selectedSublines.set([]); this.selectedChartBrands.set([]); this.productId.set('AUTO');
     this.invalidateSellerDetail();
     this.invalidatePriceRangeDetail();
     this.invalidateBrandDetail();
@@ -5227,7 +5369,7 @@ export class CommercialDashboardController implements OnInit {
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
     const current = closingCommercialPeriod(this.data()?.metadata.salesCutoff); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
-    this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]);
+    this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]);
     this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
     this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.healthyCoverageDays.set(90); this.overstockDays.set(120); this.noMovementMonths.set(3); this.predictiveMermaPct.set(2); this.rotationView.set('rotation');
@@ -5480,7 +5622,8 @@ export class CommercialDashboardController implements OnInit {
     }
   }
   private async ensurePriceRangeDetail(): Promise<void> {
-    if (this.priceRangeDetailLoaded()) return;
+    const requiresBrandDetail = this.expandedChart() === 'price-range' || this.selectedChartBrands().length > 0;
+    if (this.priceRangeDetailLoaded() && (!requiresBrandDetail || this.priceRangeData().some(row => !!row.brand))) return;
     if (this.priceRangeDetailPromise) return this.priceRangeDetailPromise;
     const controller = new AbortController();
     this.priceRangeDetailAbort = controller;
@@ -5493,10 +5636,16 @@ export class CommercialDashboardController implements OnInit {
       try {
         let rows: PriceRangeRow[];
         if (this.dateRangeActive()) {
-          // Cada archivo diario conserva neto, unidades y bandOrder. Cargamos
-          // el mismo día/rango calendario para ambos años de la comparación.
+          // Cada archivo diario conserva marca y banda. Esta ruta debe ganar
+          // sobre el detalle anual para que el calendario y Marca se apliquen
+          // al mismo corte exacto, sin convertir el resultado en cero.
           const files = years.flatMap(year => this.priceRangeDailyFiles(year));
           rows = (await Promise.all(files.map(file => this.loadPriceRangeDailyFile(file, signal)))).flat();
+        } else if (requiresBrandDetail) {
+          // Los resúmenes generales y por rubro omiten la marca para reducir
+          // peso. En el zoom descargamos el compacto anual completo y luego
+          // aplicamos rubro, género, línea, sublínea y marca en memoria.
+          rows = await this.loadYearDetail<PriceRangeRow>('dashboard-price-range.json', 'monthlyPriceRange', years, signal);
         } else if (categoryOnly) {
           try {
             const payloads = await Promise.all(years.map(year => this.loadDetail<{ monthlyPriceRange: PriceRangeRow[] }>(

@@ -1,13 +1,11 @@
 import React from "react";
 import CommercialReactChart from "./CommercialReactChart";
-import CommercialFilterScope from "./CommercialFilterScope";
 
 const ignoreClick = () => {};
 
 export default function CommercialReactCategoryCard({ model, onAction }) {
   const emit = (type, value) => onAction({ type, value });
   return <article className={`card chart-card category-card${model.expanded ? " chart-expanded" : ""}`} data-react-commercial-module="category-card">
-    <CommercialFilterScope except="No aplica rubro, línea ni sublínea" />
     <button type="button" className="chart-expand" onClick={() => emit("expand")} aria-label={model.expanded ? "Cerrar gráfico" : "Ampliar gráfico"}>{model.expanded ? "×" : "⛶"}</button>
     <div className="category-title"><h2><svg><use href="/comercial/assets/icons.svg#category" /></svg> PARTICIPACIÓN POR {model.view === "LINEA" ? "CATEGORÍA" : "RUBRO"}{model.periodLabel && <span className="chart-title-period"> · {model.periodLabel}</span>}</h2><div className="category-view-toggle"><button type="button" className={model.view === "RUBRO" ? "active" : undefined} onClick={() => emit("view", "RUBRO")}>RUBRO</button><button type="button" className={model.view === "LINEA" ? "active" : undefined} onClick={() => emit("view", "LINEA")}>CATEGORÍA</button></div></div>
     <div className="category-chart-content"><dashboard-chart style={{ boxSizing: "border-box", display: "block", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: 0, overflow: "hidden", flex: 1 }}><div className="chart-host" style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}><CommercialReactChart chartId="category-participation" label="Participación comercial por rubro o categoría" onClick={ignoreClick} option={model.option} /></div></dashboard-chart>

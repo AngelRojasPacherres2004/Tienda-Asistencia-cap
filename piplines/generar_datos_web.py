@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -21,6 +24,72 @@ WEB_DIR = PROJECT_ROOT / "dashboard-data"
 SALIDA_PUBLICA = WEB_DIR / "dashboard.json"
 SALIDA_COMPILADA = PROJECT_ROOT / "dist" / "comercial" / "assets" / "data" / "dashboard.json"
 REPORTE_COBERTURA = CAPA2_DIR / "Reporte_Cobertura.json"
+
+
+def cargar_entorno_local() -> None:
+    """Carga únicamente las credenciales ya configuradas para la ejecución.
+
+    Los maestros comerciales ya no se mantienen en Excel ni en Parquet local;
+    el dashboard los consulta desde Supabase al momento de reconstruirse.
+    """
+
+    ruta = PROJECT_ROOT / ".env"
+    if not ruta.is_file():
+        return
+    for linea in ruta.read_text(encoding="utf-8-sig").splitlines():
+        if "=" not in linea or linea.lstrip().startswith("#"):
+            continue
+        clave, valor = linea.split("=", 1)
+        os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+
+
+def catalogo_tiendas_supabase() -> list[tuple[str, str, str, str, str, str]]:
+    """Obtiene el maestro vigente de tiendas y sus clústeres desde Supabase.
+
+    ``commercial_store_map`` es la correspondencia autorizada entre los IDs
+    RMS (T001, T002, ...) y las tiendas del portal. Los canales CD/ONLINE que
+    no estén mapeados quedan fuera del alcance comercial publicable.
+    """
+
+    cargar_entorno_local()
+    base_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    secret = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+    if not base_url or not secret:
+        raise RuntimeError(
+            "Faltan SUPABASE_URL o SUPABASE_SECRET_KEY en .env; no se puede "
+            "obtener el maestro obligatorio de tiendas desde Supabase."
+        )
+    query = urllib.parse.urlencode({
+        "select": "dashboard_store_id,cluster_code,tiendas(nombre,formato,estado)",
+        "order": "dashboard_store_id",
+    })
+    request = urllib.request.Request(
+        f"{base_url}/rest/v1/commercial_store_map?{query}",
+        headers={"apikey": secret, "Authorization": f"Bearer {secret}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            source = json.load(response)
+    except Exception as error:
+        raise RuntimeError(
+            "No se pudo consultar el maestro de tiendas en Supabase. "
+            "Verifica la conexión y las credenciales antes de regenerar."
+        ) from error
+
+    catalogo: list[tuple[str, str, str, str, str, str]] = []
+    for fila in source:
+        tienda = fila.get("tiendas") or {}
+        store_id = str(fila.get("dashboard_store_id") or "").strip()
+        cluster = str(fila.get("cluster_code") or "").strip()
+        nombre = str(tienda.get("nombre") or "").strip()
+        formato = str(tienda.get("formato") or "").strip()
+        estado = str(tienda.get("estado") or "activo").strip() or "activo"
+        if not store_id or not cluster or not nombre:
+            raise RuntimeError("El maestro de tiendas de Supabase contiene una tienda sin código, nombre o clúster.")
+        catalogo.append((store_id, nombre, nombre, formato, cluster, estado))
+    if not catalogo:
+        raise RuntimeError("Supabase no devolvió tiendas comerciales mapeadas.")
+    return catalogo
 
 
 def normalizar(valor):
@@ -347,26 +416,46 @@ def generar() -> dict:
     stock_fuente = literal_parquet("FactStock")
     ingresos_fuente = literal_parquet("FactIngresos")
     # El batch local procesa exclusivamente los cuatro RMS. Los maestros
-    # administrativos se consumen en tiempo real desde Supabase por la API.
+    # administrativos se consumen desde Supabase; no hay Excel de tiendas.
     metas = "(SELECT NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::VARCHAR AS indicador, NULL::DOUBLE AS meta_ventas, FALSE AS es_meta_valida WHERE FALSE)"
     personal = "(SELECT NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::VARCHAR AS area_asignada, NULL::VARCHAR AS tipo_area, NULL::DOUBLE AS cantidad_personal WHERE FALSE)"
     trafico_fuente = "(SELECT NULL::DATE AS fecha, NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::DOUBLE AS cantidad_personas, FALSE AS es_dato_valido WHERE FALSE)"
     rubro_dashboard = rubro_homologado_sql("rubro")
+    catalogo_tiendas = catalogo_tiendas_supabase()
+    conexion = duckdb.connect()
+    conexion.execute("""
+        CREATE TEMP TABLE maestro_tiendas_supabase (
+            tienda_id VARCHAR, tienda VARCHAR, alias VARCHAR, formato_tienda VARCHAR,
+            cluster VARCHAR, estado_operativo VARCHAR
+        )
+    """)
+    conexion.executemany(
+        "INSERT INTO maestro_tiendas_supabase VALUES (?, ?, ?, ?, ?, ?)",
+        catalogo_tiendas,
+    )
     tiendas = f"""(
-        SELECT tienda_id, MAX(tienda) AS tienda, MAX(tienda) AS alias,
-            '' AS formato_tienda, '' AS cluster, TRUE AS es_tienda,
+        WITH rms AS (
+            SELECT tienda_id, MAX(tienda) AS tienda
+            FROM (SELECT tienda_id, tienda FROM {ventas_fuente} UNION ALL SELECT tienda_id, tienda FROM {stock_fuente})
+            WHERE tienda_id IS NOT NULL GROUP BY tienda_id
+        )
+        SELECT rms.tienda_id,
+            COALESCE(maestro.tienda, rms.tienda) AS tienda,
+            COALESCE(maestro.alias, rms.tienda) AS alias,
+            COALESCE(maestro.formato_tienda, '') AS formato_tienda,
+            COALESCE(maestro.cluster, '') AS cluster,
+            maestro.tienda_id IS NOT NULL AS es_tienda,
             NULL::DOUBLE AS metraje_m2, NULL::DOUBLE AS capacidad_stock_unidades,
             NULL::DOUBLE AS cant_colaboradores_normal, NULL::DOUBLE AS colaboradores_camp,
-            NULL::DATE AS fecha_apertura, NULL::DATE AS fecha_cierre, 'activo' AS estado_operativo
-        FROM (SELECT tienda_id, tienda FROM {ventas_fuente} UNION ALL SELECT tienda_id, tienda FROM {stock_fuente})
-        WHERE tienda_id IS NOT NULL GROUP BY tienda_id
+            NULL::DATE AS fecha_apertura, NULL::DATE AS fecha_cierre,
+            COALESCE(maestro.estado_operativo, 'activo') AS estado_operativo
+        FROM rms LEFT JOIN maestro_tiendas_supabase maestro USING (tienda_id)
     )"""
     # Merma histórica deja de provenir de una planilla; la fotografía vigente
     # se calcula desde Stock RMS (estado_grupo = MERMA) en el frontend.
     merma = "(SELECT NULL::VARCHAR AS tienda_id, NULL::VARCHAR AS producto_id, NULL::DATE AS fecha_analisis, NULL::DOUBLE AS cantidad WHERE FALSE)"
 
     reporte_cobertura = cargar_reporte_cobertura()
-    conexion = duckdb.connect()
     fecha_ultima_venta = conexion.execute(f"SELECT MAX(fecha_venta) FROM {ventas_fuente}").fetchone()[0]
     fecha_ultima_stock = conexion.execute(f"SELECT MAX(fecha_corte) FROM {stock_fuente}").fetchone()[0]
     fecha_corte = date.fromisoformat(
@@ -806,6 +895,7 @@ def generar() -> dict:
                 {rubro_dashboard} AS category,
                 COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
                 COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+                COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
                 total_venta / cantidad AS precio_unitario,
                 total_venta AS net,
                 cantidad AS units
@@ -843,13 +933,13 @@ def generar() -> dict:
         )
         SELECT
             periodo_id AS "periodId", tienda_id AS "storeId",
-            category, line, subline,
+            category, line, subline, brand,
             band_order AS "bandOrder", price_band AS "priceBand",
             CAST(SUM(net) AS DOUBLE) AS net,
             CAST(SUM(units) AS DOUBLE) AS units
         FROM clasificada
-        GROUP BY 1, 2, 3, 4, 5, 6, 7
-        ORDER BY 1, 2, 3, 4, 5, 6
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+        ORDER BY 1, 2, 3, 4, 5, 6, 7
         """,
     )
 
@@ -863,6 +953,7 @@ def generar() -> dict:
                 tienda_id AS "storeId", {rubro_dashboard} AS category,
                 COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
                 COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+                COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
                 CASE
                     WHEN precio_sugerido <= 30 THEN 1
                     WHEN precio_sugerido <= 60 THEN 2
@@ -880,11 +971,11 @@ def generar() -> dict:
             FROM {stock_historico}
             WHERE estado_grupo = 'BUENO' AND cantidad > 0 AND precio_sugerido > 0
         )
-        SELECT "periodId", "cutoff", "storeId", category, line, subline,
+        SELECT "periodId", "cutoff", "storeId", category, line, subline, brand,
             "bandOrder", CAST(SUM(cantidad) AS DOUBLE) AS "stockUnits"
         FROM clasificado
-        GROUP BY 1, 2, 3, 4, 5, 6, 7
-        ORDER BY 1, 3, 4, 5, 6, 7
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+        ORDER BY 1, 3, 4, 5, 6, 7, 8
         """,
     )
 
@@ -906,11 +997,12 @@ def generar() -> dict:
             {rubro_dashboard} AS category,
             COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
             COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
+            COALESCE(NULLIF(TRIM(marca), ''), 'SIN MARCA') AS brand,
             CASE WHEN es_periodo_origen_valido THEN periodo_origen_id ELSE 0 END AS "originPeriodId",
             CAST(SUM(cantidad) AS DOUBLE) AS units,
             CAST(SUM(valor_stock) AS DOUBLE) AS value
         FROM {stock}
-        GROUP BY 1, 2, 3, 4, 5 ORDER BY 5, 1, 2, 3, 4
+        GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 6, 1, 2, 3, 4, 5
         """,
     )
 

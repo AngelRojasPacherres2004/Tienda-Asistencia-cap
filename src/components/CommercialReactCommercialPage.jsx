@@ -33,7 +33,7 @@ export default function CommercialReactCommercialPage({ model, onAction }) {
     <CommercialReactSectionHeading model={model.headings.d} onAction={forward("section")} />
     <div className="static-charts">
       <CommercialReactGenderCard model={model.gender} onAction={forward("gender")} />
-      <CommercialReactGrowthCard model={model.growth} />
+      <CommercialReactGrowthCard model={model.growth} onAction={forward("growth")} />
       <CommercialReactPriceRangeCard model={model.price} onAction={forward("price")} />
     </div>
   </section>;

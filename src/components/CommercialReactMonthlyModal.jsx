@@ -1,5 +1,6 @@
 import React from "react";
 import CommercialReactChart from "./CommercialReactChart";
+import CommercialChartZoomFilters from "./CommercialChartZoomFilters";
 import { highlightNumericColumns } from '../lib/monthlyTableExtremes';
 
 const ignoreClick = () => {};
@@ -21,10 +22,11 @@ export default function CommercialReactMonthlyModal({ model, onAction }) {
   };
   return <section className="card chart-card chart-expanded ticket-modal" data-react-commercial-module={model.moduleId} role="dialog" aria-modal="true" aria-labelledby={model.titleId} tabIndex={-1} onKeyDown={onKeyDown}>
     <button type="button" className="chart-expand" aria-label={model.closeLabel} onClick={close}>×</button>
-    <h2 id={model.titleId}>{model.title} · {model.year}</h2>
+    <h2 id={model.titleId}>{model.title}{model.showYear === false ? "" : ` · ${model.year}`}</h2>
     <div className="ticket-modal-filters">{model.years.length > 1 && <label className="ticket-year-selector">Año <select value={model.year} onChange={event => onAction({ type: "year", value: Number(event.target.value) })}>{model.years.map(year => <option key={year} value={year}>{year}</option>)}</select></label>}
       {!model.storeLocked && <div className="filter-field"><span>Tiendas</span><details className="filter-dropdown"><summary>{model.selectedStores.length ? `${model.selectedStores.length} seleccionadas` : model.allStoresLabel}</summary><div className="filter-menu"><button type="button" onClick={() => onAction({ type: "clear-stores" })}>Todas</button>{model.stores.map(store => <button key={store.storeId} type="button" className={model.selectedStores.includes(store.storeId) ? "active" : undefined} aria-pressed={model.selectedStores.includes(store.storeId)} onClick={() => onAction({ type: "store", value: store.storeId })}>{store.label}</button>)}</div></details></div>}
     </div>
+    {model.hierarchyFilters && <CommercialChartZoomFilters filters={model.hierarchyFilters} keys={model.hierarchyFilterKeys} onAction={onAction} />}
     {!model.hasData && <p role="status">{model.emptyText}</p>}
     {model.dataNote && <p className="kpi-data-note">{model.dataNote}</p>}
     <div className={`ticket-modal-content${model.sellerDetail ? " ticket-modal-content--seller" : ""}${model.hideChart ? " ticket-modal-content--matrix" : ""}`}>{!model.hideChart && <dashboard-chart style={{ boxSizing: "border-box", display: "block", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: 0, overflow: "hidden", flex: 1 }}><div className="chart-host" style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}><CommercialReactChart chartId={model.chartId} label={model.chartLabel} option={model.option} onClick={ignoreClick} /></div></dashboard-chart>}
