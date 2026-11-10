@@ -112,7 +112,6 @@ type PredictiveBrand = {
 type FilterKey = 'month' | 'store' | 'category' | 'gender' | 'line' | 'subline' | 'cluster' | 'format';
 type StockHistoryBucket = 'ALL' | '2026' | '2025' | '2024' | '2023' | '2022' | '2021' | '2020' | '2019_PLUS';
 type RotationView = 'rotation' | 'inventory';
-type PredictiveTimeUnit = 'MONTHS' | 'YEARS';
 type LeadTimeUnit = 'DAYS' | 'MONTHS';
 type SizeMetric = 'SALES' | 'STOCK' | 'TRANSFERS';
 type SizeChartRow = {
@@ -135,6 +134,12 @@ const CATEGORY_COLORS = [C.navy, C.red, C.blue, C.gold, C.teal, C.purple, C.oran
 const GENDER_COLORS: Record<string, string> = { DAMA: '#C91482', CABALLERO: '#1428D4', BEBE: '#F97316', JOVENCITA: '#7C3AED', JOVENCITO: '#0F9D8A', 'NIÑO': '#16A34A', 'NIÑA': '#EC4899', UNISEX: '#F4B400' };
 const GENDER_ORDER = ['DAMA', 'CABALLERO', 'BEBE', 'JOVENCITA', 'JOVENCITO', 'NIÑO', 'NIÑA', 'UNISEX'];
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+// Criterio fijo para toda la analítica predictiva. Ya no se expone como
+// parámetro editable, de modo que las tarjetas siempre son comparables.
+const PREDICTIVE_WINDOW_DAYS = 90;
+const PREDICTIVE_HEALTHY_DAYS = 90;
+const PREDICTIVE_OVERSTOCK_DAYS = 120;
+const PREDICTIVE_MERMA_PCT = 2;
 const SECTION_HEADINGS: Record<string, { mark: string; title: string; section?: string }> = {
   commercial: { mark: '01', title: 'RESUMEN COMERCIAL' },
   'commercial-a': { mark: 'A', title: 'INDICADORES CLAVE', section: '01.A Indicadores clave' },
@@ -589,8 +594,6 @@ export class CommercialDashboardController implements OnInit {
     return scope === 'store' || scope === 'cluster';
   });
   readonly productId = signal('AUTO');
-  readonly demandWindow = signal(30);
-  readonly demandWindowUnit = signal<PredictiveTimeUnit>('MONTHS');
   readonly orderCost = signal(5000); readonly holdingCost = signal(8);
   readonly replenishmentType = signal<'internal' | 'supplier'>('internal');
   // Lead time manual en ambos casos: FactGuiasTransito solo registra guías EN TRÁNSITO/INCOMPLETO
@@ -604,13 +607,6 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveRubros = signal<string[]>(['TEXTIL', 'CALZADO']);
   readonly genderRubros = signal<string[]>(['TEXTIL', 'CALZADO']);
   readonly predictiveStore = signal('TODAS');
-  readonly healthyCoverageDays = signal(90);
-  readonly healthyCoverageUnit = signal<PredictiveTimeUnit>('MONTHS');
-  readonly overstockDays = signal(120);
-  readonly overstockUnit = signal<PredictiveTimeUnit>('MONTHS');
-  readonly noMovementMonths = signal(3);
-  readonly noMovementUnit = signal<PredictiveTimeUnit>('MONTHS');
-  readonly predictiveMermaPct = signal(2);
   readonly dayFilterEnabled = computed(() => this.selectedMonths().length === 1);
   readonly dateRangeActive = computed(() => !!this.fromDate() || !!this.toDate());
   readonly dayFilterLoading = signal(false);
@@ -1760,34 +1756,6 @@ export class CommercialDashboardController implements OnInit {
     if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
   }
 
-  readonly predictiveParametersModel = computed<Record<string, unknown>>(() => ({
-    rubros: this.predictiveRubros(), storeLocked: this.storeFilterLocked(),
-    store: this.predictiveStore(), lockedStore: this.predictiveStoreOptions()[0]?.store,
-    stores: this.predictiveStoreOptions().map(store => ({ id: store.storeId, label: store.alias || store.store })),
-    demand: { value: this.timeValue(this.demandWindow(), this.demandWindowUnit()), unit: this.demandWindowUnit() },
-    healthy: { value: this.timeValue(this.healthyCoverageDays(), this.healthyCoverageUnit()), unit: this.healthyCoverageUnit() },
-    overstock: { value: this.timeValue(this.overstockDays(), this.overstockUnit()), unit: this.overstockUnit() },
-    noMovement: { value: this.monthTimeValue(this.noMovementMonths(), this.noMovementUnit()), unit: this.noMovementUnit() },
-    merma: this.predictiveMermaPct(),
-  }));
-
-  onReactPredictiveParametersAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'rubro' && typeof value === 'string') this.togglePredictiveRubro(value);
-    else if (type === 'store' && typeof value === 'string') this.predictiveStore.set(value);
-    else if (type === 'demand-value') this.setDemandWindowValue(Number(value));
-    else if (type === 'healthy-value') this.setHealthyCoverageValue(Number(value));
-    else if (type === 'overstock-value') this.setOverstockValue(Number(value));
-    else if (type === 'no-movement-value') this.setNoMovementValue(Number(value));
-    else if (type === 'merma') this.setPredictiveMerma(Number(value));
-    else if ((type === 'demand-unit' || type === 'healthy-unit' || type === 'overstock-unit' || type === 'no-movement-unit')
-      && (value === 'MONTHS' || value === 'YEARS')) {
-      if (type === 'demand-unit') this.demandWindowUnit.set(value);
-      else if (type === 'healthy-unit') this.healthyCoverageUnit.set(value);
-      else if (type === 'overstock-unit') this.overstockUnit.set(value);
-      else this.noMovementUnit.set(value);
-    }
-  }
-
   sectionHeadingModel(id: string): Record<string, unknown> {
     const heading = SECTION_HEADINGS[id];
     return { id, kind: heading.section ? 'block' : 'page', mark: heading.mark,
@@ -1892,7 +1860,7 @@ export class CommercialDashboardController implements OnInit {
       storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
       detailState, detailProgress: this.stockDetailProgress(), refreshError: this.stockInsightsRefreshError(),
       predictive: detailState === 'ready' ? {
-        parameters: this.predictiveParametersModel(), health: this.healthCardModel(),
+        health: this.healthCardModel(),
         replenishment: this.replenishmentCardModel(), projection: this.projectionCardModel(),
       } : null,
     };
@@ -1905,7 +1873,6 @@ export class CommercialDashboardController implements OnInit {
     else if (source === 'antiquity') this.onReactAntiquityAction(action);
     else if (source === 'storeValue') this.onReactStoreValueAction(action);
     else if (source === 'size') this.onReactSizeCardAction(action);
-    else if (source === 'parameters') this.onReactPredictiveParametersAction(action);
     else if (source === 'replenishment') this.onReactReplenishmentAction(action);
     else if (source === 'projection') this.onReactProjectionAction(action);
     else if (source === 'detail' && type === 'retry') this.retryStockDetail();
@@ -3078,7 +3045,7 @@ export class CommercialDashboardController implements OnInit {
     if (!this.predictiveApplicable() || !this.predictiveDetailLoaded()) return null;
     const productId = this.activeProductId(); if (!productId) return null;
     const storeIds = this.filteredStoreIds(); if (!storeIds.size) return null;
-    const window = this.demandWindow();
+    const window = PREDICTIVE_WINDOW_DAYS;
     const index = this.predictiveIndex();
     const productRows = this.activeProductRows().filter(r => storeIds.has(r.storeId));
     if (!productRows.length) return null;
@@ -3122,9 +3089,9 @@ export class CommercialDashboardController implements OnInit {
   private predictiveStatus(days: number | null, noMovement: boolean): { label: string; color: string } {
     if (noMovement) return { label: 'SIN ROTACIÓN', color: '#94A3B8' };
     if (days == null) return { label: 'SIN DATOS', color: C.slate };
-    if (days <= this.healthyCoverageDays() / 2) return { label: 'CRÍTICO', color: '#DC2626' };
-    if (days <= this.healthyCoverageDays()) return { label: 'ALERTA', color: C.orange };
-    if (days <= this.overstockDays()) return { label: 'ÓPTIMO', color: C.green };
+    if (days <= PREDICTIVE_HEALTHY_DAYS / 2) return { label: 'CRÍTICO', color: '#DC2626' };
+    if (days <= PREDICTIVE_HEALTHY_DAYS) return { label: 'ALERTA', color: C.orange };
+    if (days <= PREDICTIVE_OVERSTOCK_DAYS) return { label: 'ÓPTIMO', color: C.green };
     return { label: 'BAJA ROTACIÓN', color: C.gold };
   }
   private predictivePriority(status: string, deficitUnits: number): { label: string; color: string; index: number } {
@@ -3539,8 +3506,8 @@ export class CommercialDashboardController implements OnInit {
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.transfer-modal select')?.focus());
   }
   readonly predictiveBrandRows = computed<PredictiveBrand[]>(() => {
-    const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
-    const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
+    const window = PREDICTIVE_WINDOW_DAYS; const movementDays = PREDICTIVE_WINDOW_DAYS;
+    const nonSellableRate = Math.min(.95, Math.max(0, .18 + PREDICTIVE_MERMA_PCT / 100));
     const serverRows = this.stockInsightBrands();
     const brands = serverRows || [...grouped(this.predictiveScopedProducts(), row => row.brand || 'SIN MARCA').entries()]
       .map(([name, rows]) => ({ name, stockUnits: sum(rows, 'stockUnits'), stockValue: sum(rows, 'stockValue'),
@@ -3549,7 +3516,7 @@ export class CommercialDashboardController implements OnInit {
     return brands.map(({ name, stockUnits, stockValue, demandUnits, movementUnits }) => {
       const demandDaily = demandUnits / window; const vendibleUnits = stockUnits * (1 - nonSellableRate); const vendibleValue = stockValue * (1 - nonSellableRate);
       const coverageDays = demandDaily > 0 ? vendibleUnits / demandDaily : null; const status = this.predictiveStatus(coverageDays, movementUnits <= 0);
-      const targetUnits = demandDaily * this.healthyCoverageDays(); const deficitUnits = Math.max(targetUnits - vendibleUnits, 0); const priority = this.predictivePriority(status.label, deficitUnits);
+      const targetUnits = demandDaily * PREDICTIVE_HEALTHY_DAYS; const deficitUnits = Math.max(targetUnits - vendibleUnits, 0); const priority = this.predictivePriority(status.label, deficitUnits);
       return { name, stockUnits, stockValue, vendibleUnits, vendibleValue, demandUnits, demandDaily, coverageDays, status: status.label, color: status.color,
         targetUnits, deficitUnits, priority: priority.label, priorityColor: priority.color, priorityIndex: priority.index + (targetUnits > 0 ? deficitUnits / targetUnits * 20 : 0) };
     }).sort((a, b) => a.coverageDays == null ? 1 : b.coverageDays == null ? -1 : a.coverageDays - b.coverageDays);
@@ -3557,8 +3524,8 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveReplenishmentRows = computed(() => [...this.predictiveBrandRows()]
     .sort((a, b) => b.priorityIndex - a.priorityIndex || a.name.localeCompare(b.name)));
   readonly predictiveProductHealthRows = computed(() => {
-    const window = this.demandWindow(); const movementDays = Math.max(1, this.noMovementMonths()) * 30;
-    const nonSellableRate = Math.min(.95, Math.max(0, .18 + this.predictiveMermaPct() / 100));
+    const window = PREDICTIVE_WINDOW_DAYS; const movementDays = PREDICTIVE_WINDOW_DAYS;
+    const nonSellableRate = Math.min(.95, Math.max(0, .18 + PREDICTIVE_MERMA_PCT / 100));
     return this.predictiveScopedProducts().map(row => {
       const demandUnits = this.predictiveWindowUnits(row, window);
       const movementUnits = this.predictiveWindowUnits(row, movementDays);
@@ -3615,7 +3582,7 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly predictiveBreakageOption = computed<EChartsOption>(() => {
     const rows = this.predictiveBrandRows(); const visible = Math.min(7, rows.length);
-    const scaleLimit = Math.max(this.overstockDays(), this.healthyCoverageDays() * 2);
+    const scaleLimit = Math.max(PREDICTIVE_OVERSTOCK_DAYS, PREDICTIVE_HEALTHY_DAYS * 2);
     const values = rows.map(row => Math.min(row.coverageDays ?? 0, scaleLimit)); const max = scaleLimit * 1.18;
     return { animation: false, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
       const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row?.name || '', [{ label: 'Días de cobertura', value: row?.coverageDays == null ? 'SIN VENTA EN VENTANA' : this.number(row.coverageDays, ' días') }, { label: 'Estado', value: row?.status || '' }, { label: 'Stock vendible', value: this.number(row?.vendibleUnits ?? null, ' und') }, { label: 'Demanda diaria', value: this.number(row?.demandDaily ?? null, ' und/día') }]);
@@ -4693,9 +4660,9 @@ export class CommercialDashboardController implements OnInit {
     const filters = {
       storeIds: stores.map(store => store.storeId).filter(id => allowedStores.has(id) && (selectedStore === 'TODAS' || id === selectedStore)),
       rubros: this.predictiveRubros(), lines: this.selectedLines(), sublines: this.selectedSublines(),
-      windowDays: this.demandWindow(), movementDays: Math.max(1, this.noMovementMonths()) * 30,
-      healthyDays: this.healthyCoverageDays(), overstockDays: this.overstockDays(),
-      mermaPct: this.predictiveMermaPct(), horizonDays: this.coverageProjectionHorizon(),
+      windowDays: PREDICTIVE_WINDOW_DAYS, movementDays: PREDICTIVE_WINDOW_DAYS,
+      healthyDays: PREDICTIVE_HEALTHY_DAYS, overstockDays: PREDICTIVE_OVERSTOCK_DAYS,
+      mermaPct: PREDICTIVE_MERMA_PCT, horizonDays: this.coverageProjectionHorizon(),
     };
     if (!filters.storeIds.length) {
       this.stockInsightsData.set({ rowCount: 0, brandRows: [], healthRows: [], projectionRows: [], riskRows: [], priorityProducts: [] });
@@ -5156,8 +5123,6 @@ export class CommercialDashboardController implements OnInit {
     this.selectedMonths.set(months.filter(month => available.has(month)));
     this.resetYearScopedDetails();
   }
-  setDemandWindow(value: number): void { this.demandWindow.set(Math.max(1, Math.round(Number(value) || 30))); }
-  setDemandWindowValue(value: number): void { this.setDemandWindow((Number(value) || 1) * (this.demandWindowUnit() === 'YEARS' ? 365 : 30)); }
   togglePredictiveRubro(value: string): void {
     if (value !== 'TEXTIL' && value !== 'CALZADO') return;
     const next = this.toggleValue(this.predictiveRubros(), value);
@@ -5175,19 +5140,6 @@ export class CommercialDashboardController implements OnInit {
     // El ranking necesita al menos una métrica activa para conservar su sentido.
     if (next.length) this.rankingMetrics.set(next);
   }
-  setHealthyCoverage(value: number): void {
-    const healthy = Math.max(1, Math.round(Number(value) || 30)); this.healthyCoverageDays.set(healthy);
-    if (this.overstockDays() <= healthy) this.overstockDays.set(healthy + 30);
-  }
-  setHealthyCoverageValue(value: number): void { this.setHealthyCoverage((Number(value) || 1) * (this.healthyCoverageUnit() === 'YEARS' ? 365 : 30)); }
-  setOverstockDays(value: number): void {
-    const overstock = Math.max(1, Math.round(Number(value) || 30));
-    this.overstockDays.set(Math.max(overstock, this.healthyCoverageDays() + 30));
-  }
-  setOverstockValue(value: number): void { this.setOverstockDays((Number(value) || 1) * (this.overstockUnit() === 'YEARS' ? 365 : 30)); }
-  setNoMovementMonths(value: number): void { this.noMovementMonths.set(Math.max(1, Math.round(Number(value) || 1))); }
-  setNoMovementValue(value: number): void { this.setNoMovementMonths((Number(value) || 1) * (this.noMovementUnit() === 'YEARS' ? 12 : 1)); }
-  setPredictiveMerma(value: number): void { this.predictiveMermaPct.set(Math.min(50, Math.max(0, Math.round(Number(value) || 0)))); }
   setInternalLeadTime(value: number): void { this.internalLeadTime.set(Math.max(1, Math.round(Number(value) || 1))); }
   setLeadTimeValue(value: number): void { this.setInternalLeadTime((Number(value) || 1) * (this.leadTimeUnit() === 'MONTHS' ? 30 : 1)); }
   setSupplierLeadTime(value: number): void { if ([15, 30, 45, 60, 90].includes(Number(value))) this.supplierLeadTime.set(Number(value) as 15 | 30 | 45 | 60 | 90); }
@@ -5370,10 +5322,10 @@ export class CommercialDashboardController implements OnInit {
   resetFilters(): void {
     const current = closingCommercialPeriod(this.data()?.metadata.salesCutoff); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]);
-    this.productId.set('AUTO'); this.demandWindow.set(30); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
+    this.productId.set('AUTO'); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
-    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.healthyCoverageDays.set(90); this.overstockDays.set(120); this.noMovementMonths.set(3); this.predictiveMermaPct.set(2); this.rotationView.set('rotation');
-    this.demandWindowUnit.set('MONTHS'); this.healthyCoverageUnit.set('MONTHS'); this.overstockUnit.set('MONTHS'); this.noMovementUnit.set('MONTHS'); this.leadTimeUnit.set('DAYS');
+    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.rotationView.set('rotation');
+    this.leadTimeUnit.set('DAYS');
     this.openFilter.set(null); this.filterSearch.set({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' }); this.stockHistoryBucketsSelected.set([]);
     this.calendarOpen.set(false);
     this.applyAccessScope();
@@ -5420,8 +5372,6 @@ export class CommercialDashboardController implements OnInit {
     return this.money(value);
   }
   number(value: number | null, suffix = ''): string { return value == null || !Number.isFinite(value) ? 'N/A' : `${dashboardNumberFormat.format(value)}${suffix}`; }
-  timeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 365 : 30))); }
-  monthTimeValue(value: number, unit: PredictiveTimeUnit): number { return Math.max(1, Math.round(value / (unit === 'YEARS' ? 12 : 1))); }
   leadTimeValue(): number { return Number((this.internalLeadTime() / (this.leadTimeUnit() === 'MONTHS' ? 30 : 1)).toFixed(2)); }
   percent(value: number | null): string { return value == null || !Number.isFinite(value) ? 'N/A' : dashboardPercentFormat.format(value); }
   trend(value: number | null): string { return value == null ? 'N/A' : `${value >= 0 ? '▲' : '▼'} ${this.percent(Math.abs(value))}`; }
@@ -6072,9 +6022,9 @@ export class CommercialDashboardController implements OnInit {
   private tooltip(title: string, rows: Detail[], floating = false): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="width:min(360px,calc(100vw - 56px));font:12px/1.4 Arial,sans-serif;white-space:normal;color:#172033"><strong style="display:block;margin-bottom:10px;font-size:13px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:5px 0"><span style="color:#64748b">${safe(r.label)}</span><b style="text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="width:min(390px,calc(100vw - 56px));font:14px/1.45 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:12px;color:#111827;font-size:16px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:28px;margin:8px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="color:#111827;text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:205px;max-width:205px;font:10px/1.22 Arial,sans-serif;white-space:normal;color:#172033"><strong>${safe(title)}</strong>${rows.map(r => `<div><span>${safe(r.label)}</span><b>${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:300px;max-width:min(300px,calc(100vw - 42px));font:14px/1.42 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:10px;color:#111827;font-size:16px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:start;gap:28px;margin:8px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="max-width:145px;color:#111827;overflow-wrap:anywhere;text-align:right;white-space:normal">${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private barOption(labels: string[], values: number[], horizontal: boolean, color: string, details: Detail[][], unit: string, colors?: string[], verticalLabels = false): EChartsOption {
     const visibleRows = horizontal ? Math.min(7, labels.length) : labels.length;

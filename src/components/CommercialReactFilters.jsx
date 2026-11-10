@@ -24,6 +24,7 @@ export default function CommercialReactFilters({ model, onAction }) {
   const emit = (type, value) => onAction({ type, value });
   return <div data-react-commercial-module="filters">
     <div className={`dashboard-filter-toolbar${model.open ? " is-open" : ""}`}><button type="button" className="dashboard-filter-trigger" aria-label="Abrir filtros y listas" title="Filtros y listas" aria-expanded={model.open} aria-controls="dashboard-filter-drawer" onClick={() => emit("toggleDrawer")}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><path d="M8 4v4M16 10v4M10 16v4"/></svg></button></div>
+    {model.open && <button type="button" className="dashboard-filter-backdrop" aria-label="Cerrar filtros" onClick={() => emit("closeDrawer")} />}
     <aside id="dashboard-filter-drawer" className={`dashboard-filter-drawer${model.open ? " is-open" : ""}`} inert={!model.open ? "" : undefined} aria-label="Filtros del dashboard" onKeyDown={event => { if (event.key === "Escape") emit("closeDrawer"); }}>
       <header className="dashboard-filter-heading"><h2>Tiempo de análisis</h2></header>
       <section className="filter-panel" aria-label="Filtros de tiempo"><div className="filters filters--time-only">
