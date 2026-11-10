@@ -3451,11 +3451,10 @@ export class CommercialDashboardController implements OnInit {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(`${rubro === 'CALZADO' ? this.shoeSizeSystem() : 'TALLA'} ${row?.label || ''}`, [
-          { label: 'Venta 90D', value: this.number(row?.sales ?? null, ' und') },
-          { label: 'Stock actual', value: stockReady ? this.number(row?.stock ?? null, ' und') : 'Abre la talla para ver stock' },
-          { label: 'Traslado sugerido', value: this.number(row?.transfers ?? null, ' und') },
-          { label: 'SKU', value: this.number(row?.productIds.size ?? null) },
-          { label: 'Sufijo Nissei', value: [...(row?.codes || [])].sort().join(', ') || 'N/A' }
+          { label: 'Venta', value: this.number(row?.sales ?? null, ' und') },
+          { label: 'Stock', value: stockReady ? this.number(row?.stock ?? null, ' und') : 'Abre talla para ver stock' },
+          { label: 'Traslado', value: this.number(row?.transfers ?? null, ' und') },
+          { label: 'SKU', value: this.number(row?.productIds.size ?? null) }
         ]);
       } },
       grid: { left: 48, right: 20, top: 16, bottom: 72 },
@@ -6018,9 +6017,9 @@ export class CommercialDashboardController implements OnInit {
   private tooltip(title: string, rows: Detail[], floating = false): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(300px,calc(100% - 20px),calc(100vw - 36px));max-width:calc(100vw - 36px);font:clamp(12px,3.4vw,14px)/1.4 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:9px;color:#111827;font-size:clamp(14px,4vw,16px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:clamp(14px,5vw,24px);margin:7px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="color:#111827;text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(280px,calc(100% - 20px),calc(100vw - 36px));max-width:calc(100vw - 36px);font:clamp(12px,3.4vw,14px)/1.38 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:9px;color:#111827;font-size:clamp(14px,4vw,16px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:start;gap:clamp(14px,5vw,24px);margin:7px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="max-width:132px;color:#111827;overflow-wrap:anywhere;text-align:right;white-space:normal">${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private barOption(labels: string[], values: number[], horizontal: boolean, color: string, details: Detail[][], unit: string, colors?: string[], verticalLabels = false): EChartsOption {
     const visibleRows = horizontal ? Math.min(7, labels.length) : labels.length;
