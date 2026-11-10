@@ -46,7 +46,36 @@ const INTENTS = {
   'talent-training-card': ['quien termino sus cursos', 'como van las capacitaciones'],
   'talent-exit-card': ['por que se fue el personal', 'por que renunciaron'],
 };
-const STOP = new Set('a al de del la las el los un una unos unas en y o por para con que quiero ver mostrar muestra muestrame grafica grafico graficas graficos como esta estan es se me lo donde saber necesito puedes podria podrias favor acerca sobre informacion datos quisiera ensename enseñame'.split(' '));
+const ENGLISH_INTENTS = {
+  'primary-kpis': ['sales overview', 'net sales', 'gross sales', 'credit notes', 'closing forecast', 'how much did we sell'],
+  progress: ['target progress', 'monthly goal attainment', 'how far from target', 'are we on track'],
+  'meta-vs-real-card': ['actual sales versus target', 'budget vs actual'],
+  'category-card': ['sales by category', 'footwear and apparel'],
+  'brand-card': ['sales by brand', 'best selling brands'],
+  'hourly-card': ['sales by hour', 'hourly sales', 'best time to sell'],
+  'ranking-card': ['store ranking', 'sales by store', 'which store sells the most'],
+  'gender-card': ['sales by gender', 'mens and womens sales'],
+  'growth-card': ['sales growth', 'year over year sales', 'historical sales trends'],
+  'price-range-card': ['sales by price range', 'price bands'],
+  'rotation-card': ['inventory turnover', 'stock rotation'],
+  'antiquity-card': ['inventory age', 'stock aging', 'old stock', 'dead stock', 'products that do not sell', 'slow moving inventory'],
+  'store-value-card': ['inventory value by store', 'stock valuation', 'how much is my inventory worth'],
+  'size-card': ['sales by size', 'shoe sizes'],
+  'health-card': ['inventory health', 'excess stock', 'overstock', 'stockout risk'],
+  'replenishment-card': ['inventory replenishment', 'what should i reorder', 'what do i need to restock', 'running out of stock'],
+  'projection-card': ['inventory forecast', 'stock projection', 'how long will stock last'],
+  'talent-capacity': ['headcount by store', 'how many employees do we have', 'staffing levels'],
+  'talent-history-card': ['monthly headcount trend', 'staffing history'],
+  'talent-team-card': ['sales per employee', 'team productivity'],
+  'seller-card': ['top salesperson', 'salesperson performance', 'best seller', 'who sells the most'],
+  'talent-traffic-card': ['foot traffic by store', 'customer visits', 'how many people came in'],
+  'traffic-hour-matrix': ['hourly foot traffic', 'visitors by hour and day', 'traffic heatmap'],
+  'talent-store-card': ['store productivity', 'store efficiency'],
+  'talent-training-card': ['staff training', 'course completion'],
+  'talent-exit-card': ['reasons for leaving', 'employee departures', 'why did staff resign'],
+  'talent-incidents-card': ['security incidents', 'third party incidents'],
+};
+const STOP = new Set('a al de del la las el los un una unos unas en y o por para con que quiero ver mostrar muestra muestrame grafica grafico graficas graficos como esta estan es se me lo donde saber necesito puedes podria podrias favor acerca sobre informacion datos quisiera ensename enseñame a an the of for by in on at and or to i we my our me show see chart charts graph graphs please can could would like want how many much what which who is are was were do does did have about'.split(' '));
 export function normalizeChartQuery(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -66,16 +95,24 @@ function match(a, b) {
   const size = Math.max(a.length, b.length);
   return Math.min(a.length, b.length) >= 4 && distance(a, b) <= (size >= 8 ? 2 : 1) ? .7 : 0;
 }
+const SEARCH_INDEX = new Map(CHART_CATALOG.map(item => {
+  const phrases = [...(INTENTS[item.id] || []), ...ENGLISH_INTENTS[item.id]];
+  return [item.id, {
+    intents: phrases.map(words),
+    title: words(item.title),
+    vocabulary: [...new Set(words([...item.phrases, ...phrases].join(' ')))],
+  }];
+}));
+
 export function searchCharts(query, { storeAdmin = false, limit = 6 } = {}) {
-  const tokens = words(query).slice(0, 20);
+  const tokens = [...new Set(words(query))].slice(0, 20);
   if (!tokens.length) return [];
   return CHART_CATALOG.filter(item => !storeAdmin || !item.generalOnly).map(item => {
-    const intents = INTENTS[item.id] || [];
-    const title = words(item.title); const vocabulary = words([...item.phrases, ...intents].join(' '));
+    const { intents, title, vocabulary } = SEARCH_INDEX.get(item.id);
     const hits = tokens.map(token => Math.max(...vocabulary.map(word => match(token, word))));
     const coverage = hits.filter(hit => hit > 0).length / tokens.length;
     const intentMatch = intents.some(phrase => {
-      const intent = words(phrase);
+      const intent = phrase;
       return intent.length >= 2 && intent.every(word => tokens.some(token => match(token, word) >= .7)) && tokens.filter(token => intent.some(word => match(token, word) >= .7)).length / tokens.length >= .65;
     });
     const score = hits.reduce((a, b) => a + b, 0) / tokens.length + tokens.reduce((sum, token) => sum + Math.max(0, ...title.map(word => match(token, word))), 0) / tokens.length * .35 + (intentMatch ? .8 : 0);

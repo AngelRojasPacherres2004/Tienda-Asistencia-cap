@@ -30,3 +30,14 @@ test('ofrece alternativas para consultas amplias y respeta módulos del rol', ()
   assert.ok(!searchCharts('incidencias', { storeAdmin: true }).some(row => row.id === 'talent-incidents-card'));
   assert.equal(new Set(CHART_CATALOG.map(row => row.id)).size, CHART_CATALOG.length);
 });
+
+test('ordena consultas en inglés y mixtas por intención y respeta el rol', () => {
+  for (const [query, expected] of [
+    ['please show me sales by brand', 'brand-card'],
+    ['hourly foot trafic', 'traffic-hour-matrix'],
+    ['how many employees do we have', 'talent-capacity'],
+    ['what should I reorder', 'replenishment-card'],
+    ['valor de inventory por tienda', 'store-value-card'],
+  ]) assert.equal(searchCharts(query)[0]?.id, expected, query);
+  assert.ok(!searchCharts('traffic heatmap', { storeAdmin: true }).some(row => row.id === 'traffic-hour-matrix'));
+});
