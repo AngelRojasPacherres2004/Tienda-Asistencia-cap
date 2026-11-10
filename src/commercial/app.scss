@@ -769,11 +769,11 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
 .login-card .login-error { padding: 8px 10px; border-radius: 7px; background: #fff1f2; color: #b91c1c; font-weight: 800; }
 .loader { width: 30px; height: 30px; margin: auto; border: 3px solid #dbe4f3; border-top-color: #123a8c; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-:host ::ng-deep .chart-tooltip { box-sizing: border-box; width: 300px; min-width: 250px; max-width: min(300px, calc(100vw - 42px)); color: #111827; font-family: Arial,sans-serif; font-size: 14px; line-height: 1.42; white-space: normal; }
-:host ::ng-deep .chart-tooltip > strong { display: block; margin-bottom: 10px; color: #111827; font-size: 16px; }
-:host ::ng-deep .chart-tooltip div { display: grid; grid-template-columns: minmax(72px,1fr) minmax(60px,auto); align-items: start; gap: 28px; margin: 8px 0; color: #111827; font-size: 14px; line-height: 1.42; }
+:host ::ng-deep .chart-tooltip { box-sizing: border-box; width: min(280px, calc(100% - 20px), calc(100vw - 36px)); min-width: 0; max-width: calc(100vw - 36px); color: #111827; font-family: Arial,sans-serif; font-size: clamp(12px,3.4vw,14px); line-height: 1.38; white-space: normal; }
+:host ::ng-deep .chart-tooltip > strong { display: block; margin-bottom: 9px; color: #111827; font-size: clamp(14px,4vw,16px); }
+:host ::ng-deep .chart-tooltip div { display: grid; grid-template-columns: minmax(72px,1fr) minmax(60px,auto); align-items: start; gap: clamp(14px,5vw,24px); margin: 7px 0; color: #111827; font-size: clamp(12px,3.4vw,14px); line-height: 1.38; }
 :host ::ng-deep .chart-tooltip span, :host ::ng-deep .chart-tooltip b { color: #111827; }
-:host ::ng-deep .chart-tooltip b { max-width: 145px; overflow-wrap: anywhere; text-align: right; white-space: normal; }
+:host ::ng-deep .chart-tooltip b { max-width: 132px; overflow-wrap: anywhere; text-align: right; white-space: normal; }
 
 @media (max-width: 1350px) {
   .charts-four { grid-template-columns: repeat(2,1fr); }
@@ -1550,6 +1550,23 @@ footer { margin-top: 16px; color: #64748b; font-size: .67rem; text-align: center
   .price-range-years { width:100%; justify-content:flex-start; }
   .chart-expanded .price-range-detail-head,.chart-expanded .price-range-detail-body > div { min-width:520px; }
   .chart-expanded .price-range-detail-table { overflow:auto; }
+}
+
+/* Cada contenedor de ECharts se contrae con su tarjeta; evita desbordes al
+   rotar una tablet o al abrir el portal en un teléfono angosto. */
+.chart-card, .talent-card, .predictive-v2-card { max-width:100%; overflow:hidden; }
+.chart-card dashboard-chart, .talent-card dashboard-chart, .predictive-v2-card dashboard-chart,
+.chart-card .chart-host, .talent-card .chart-host, .predictive-v2-card .chart-host { min-width:0; max-width:100%; }
+@media (max-width: 900px) {
+  .inventory-grid .chart-card { height:360px; }
+  .inventory-overview-content { grid-template-columns:minmax(0,1fr) minmax(130px,.8fr); }
+}
+@media (max-width: 620px) {
+  .chart-card, .inventory-grid .chart-card { height:330px; min-height:0; padding:11px; }
+  .chart-card h2, .inventory-chart-heading h2, .rotation-title h2 { padding-right:24px; font-size:.72rem; line-height:1.25; white-space:normal; }
+  .inventory-overview-content { grid-template-columns:1fr; }
+  .inventory-area-legend { grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; padding:0; }
+  .inventory-area-legend li { min-width:0; }
 }
 .chart-search { position:relative; z-index:25; width:min(100%,780px); margin:16px auto 24px; color:#173551; text-align:left; }
 .chart-search>label { display:block; margin-bottom:7px; font-size:14px; font-weight:700; }

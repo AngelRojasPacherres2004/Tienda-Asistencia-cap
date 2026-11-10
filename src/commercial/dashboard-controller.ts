@@ -111,7 +111,6 @@ type PredictiveBrand = {
 };
 type FilterKey = 'month' | 'store' | 'category' | 'gender' | 'line' | 'subline' | 'cluster' | 'format';
 type StockHistoryBucket = 'ALL' | '2026' | '2025' | '2024' | '2023' | '2022' | '2021' | '2020' | '2019_PLUS';
-type RotationView = 'rotation' | 'inventory';
 type LeadTimeUnit = 'DAYS' | 'MONTHS';
 type SizeMetric = 'SALES' | 'STOCK' | 'TRANSFERS';
 type SizeChartRow = {
@@ -571,7 +570,6 @@ export class CommercialDashboardController implements OnInit {
   readonly filterSearch = signal<Record<FilterKey, string>>({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' });
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
-  readonly rotationView = signal<RotationView>('rotation');
   readonly trainingAudience = signal<'SELLERS' | 'ADMINISTRATORS'>('SELLERS');
   readonly coverageProjectionHorizon = signal<0 | 30 | 60 | 90>(0);
   readonly stockHistoryBuckets: { value: StockHistoryBucket; label: string; title: string }[] = [
@@ -1681,20 +1679,15 @@ export class CommercialDashboardController implements OnInit {
   readonly rotationCardModel = computed<Record<string, unknown>>(() => {
     const totals = this.inventoryOverviewTotals();
     return {
-      view: this.rotationView(), hierarchyReady: this.stockHierarchyLoaded() && this.stockHierarchyData().length > 0,
+      hierarchyReady: this.stockHierarchyLoaded() && this.stockHierarchyData().length > 0,
       ready: this.stockHierarchyLoaded() || this.stockDetailLoaded(),
-      rotationOption: this.rotationView() === 'rotation' && (this.stockHierarchyLoaded() || this.stockDetailLoaded()) ? blackChartText(this.rotationOption()) : null,
-      capacityOption: this.rotationView() === 'inventory' ? blackChartText(this.inventoryOverviewOption()) : null,
+      capacityOption: this.stockHierarchyLoaded() || this.stockDetailLoaded() ? blackChartText(this.inventoryOverviewOption()) : null,
       occupancy: this.percent(totals.capacity ? totals.units / totals.capacity : null),
       areas: this.inventoryAreaSummary().map(area => ({ area: area.area, color: area.color, share: this.percent(area.share) })),
       stockValue: this.money(totals.value, true), overCapacity: totals.capacity - totals.units < 0,
       capacityDifference: this.number(Math.abs(totals.capacity - totals.units), ' und'),
     };
   });
-
-  onReactRotationAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'view' && (value === 'rotation' || value === 'inventory')) this.rotationView.set(value);
-  }
 
   readonly antiquityCardModel = computed<Record<string, unknown>>(() => {
     const summary = this.stockHistorySummary(); const selected = this.stockHistoryBucketsSelected();
@@ -1869,7 +1862,6 @@ export class CommercialDashboardController implements OnInit {
   onReactInventoryPageAction({ source, type, value }: { source?: string; type: string; value?: string | number }): void {
     const action = { type, value };
     if (source === 'section') this.onReactSectionHeadingAction(action);
-    else if (source === 'rotation') this.onReactRotationAction(action);
     else if (source === 'antiquity') this.onReactAntiquityAction(action);
     else if (source === 'storeValue') this.onReactStoreValueAction(action);
     else if (source === 'size') this.onReactSizeCardAction(action);
@@ -5324,7 +5316,7 @@ export class CommercialDashboardController implements OnInit {
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]);
     this.productId.set('AUTO'); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
-    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS'); this.rotationView.set('rotation');
+    this.predictiveRubros.set(['TEXTIL', 'CALZADO']); this.genderRubros.set(['TEXTIL', 'CALZADO']); this.rankingMetrics.set(['ROTATION', 'MARKUP', 'TICKET', 'SALE_M2']); this.predictiveStore.set('TODAS');
     this.leadTimeUnit.set('DAYS');
     this.openFilter.set(null); this.filterSearch.set({ month: '', store: '', category: '', gender: '', line: '', subline: '', cluster: '', format: '' }); this.stockHistoryBucketsSelected.set([]);
     this.calendarOpen.set(false);
@@ -6013,18 +6005,22 @@ export class CommercialDashboardController implements OnInit {
     return Number(v.toFixed(absolute > 0 && absolute < 1 ? 6 : 2)).toLocaleString('es-PE');
   }
   private readonly tooltipToRight = (point: number[], _params: unknown, _element: HTMLElement, _rect: unknown, size: any): [number, number] => {
-    const gap = 16; const content = size?.contentSize || [160, 80]; const view = size?.viewSize || [400, 300];
-    const fitsRight = point[0] + gap + content[0] <= view[0] - 4;
-    const x = fitsRight ? point[0] + gap : Math.max(4, point[0] - content[0] - gap);
-    const y = Math.max(4, Math.min(point[1] - content[1] / 2, view[1] - content[1] - 4));
+    const gap = 12; const content = size?.contentSize || [160, 80]; const view = size?.viewSize || [400, 300];
+    // El tooltip nunca usa más que el espacio disponible de su gráfico. Esto
+    // evita que se salga de las tarjetas angostas de móvil y tablet.
+    const contentWidth = Math.min(content[0], Math.max(150, view[0] - 20));
+    const contentHeight = Math.min(content[1], Math.max(56, view[1] - 16));
+    const fitsRight = point[0] + gap + contentWidth <= view[0] - 6;
+    const x = fitsRight ? point[0] + gap : Math.max(6, Math.min(view[0] - contentWidth - 6, point[0] - contentWidth - gap));
+    const y = Math.max(6, Math.min(point[1] - contentHeight / 2, view[1] - contentHeight - 6));
     return [x, y];
   };
   private tooltip(title: string, rows: Detail[], floating = false): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="width:min(390px,calc(100vw - 56px));font:14px/1.45 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:12px;color:#111827;font-size:16px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:28px;margin:8px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="color:#111827;text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(300px,calc(100% - 20px),calc(100vw - 36px));max-width:calc(100vw - 36px);font:clamp(12px,3.4vw,14px)/1.4 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:9px;color:#111827;font-size:clamp(14px,4vw,16px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:clamp(14px,5vw,24px);margin:7px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="color:#111827;text-align:right;overflow-wrap:anywhere">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:300px;max-width:min(300px,calc(100vw - 42px));font:14px/1.42 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:10px;color:#111827;font-size:16px;overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:start;gap:28px;margin:8px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="max-width:145px;color:#111827;overflow-wrap:anywhere;text-align:right;white-space:normal">${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(280px,calc(100% - 20px),calc(100vw - 36px));max-width:calc(100vw - 36px);font:clamp(12px,3.4vw,14px)/1.38 Arial,sans-serif;white-space:normal;color:#111827"><strong style="display:block;margin-bottom:9px;color:#111827;font-size:clamp(14px,4vw,16px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:start;gap:clamp(14px,5vw,24px);margin:7px 0;color:#111827"><span style="color:#111827">${safe(r.label)}</span><b style="max-width:132px;color:#111827;overflow-wrap:anywhere;text-align:right;white-space:normal">${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private barOption(labels: string[], values: number[], horizontal: boolean, color: string, details: Detail[][], unit: string, colors?: string[], verticalLabels = false): EChartsOption {
     const visibleRows = horizontal ? Math.min(7, labels.length) : labels.length;
