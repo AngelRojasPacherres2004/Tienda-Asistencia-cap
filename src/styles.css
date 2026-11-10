@@ -1430,9 +1430,9 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .attendance-matrix-cell--descanso_medico, .attendance-matrix-dot--descanso_medico { color: #354e91 !important; background: #c7d7ff; }
 .attendance-matrix-cell--suspension, .attendance-matrix-dot--suspension { color: #fff !important; background: #e94343; }
 .attendance-matrix-total { color: #d7b66d !important; background: rgba(205,169,95,.035); }
-.attendance-filter-fab { position: fixed; z-index: 151; top: 50%; right: 0; display: flex; align-items: center; gap: 6px; padding: 12px 9px; border: 1px solid rgba(220,184,107,.32); border-right: 0; border-radius: 11px 0 0 11px; color: #17130c; background: linear-gradient(145deg,#e3c275,#b88b3b); box-shadow: 0 12px 30px rgba(0,0,0,.42); transform: translateY(-50%); cursor: pointer; }
-.attendance-filter-fab span { font-size: 8px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; writing-mode: vertical-rl; }
-.attendance-filter-fab.open { color: #e2c57f; background: #1b1a19; }
+.attendance-filter-fab { position: fixed; z-index: 151; top: 50%; right: 0; display: grid; place-items: center; width: 46px; height: 52px; min-height: 52px; padding: 0; border: 0; border-radius: 12px 0 0 12px; color: #fff; background: #123a8c; box-shadow: 0 4px 18px #17203340; transform: translateY(-50%); cursor: pointer; }
+.attendance-filter-fab.open { color: #fff; background: #123a8c; }
+.attendance-filter-fab:hover { background: #153e76; }
 .attendance-filter-popover { position: fixed; z-index: 150; top: 50%; right: 62px; width: min(286px, calc(100vw - 90px)); max-height: calc(100vh - 32px); display: grid; gap: 13px; padding: 18px; border: 1px solid rgba(220,184,107,.28); border-left: 4px solid #d8b565; border-radius: 13px; background: rgba(20,20,22,.98); box-shadow: 0 20px 55px rgba(0,0,0,.58); backdrop-filter: blur(12px); transform: translateY(-50%); overflow-y: auto; }
 .attendance-filter-popover__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .attendance-filter-popover__head h3 { margin: 5px 0 0; color: #f1eadf; font-size: 16px; }

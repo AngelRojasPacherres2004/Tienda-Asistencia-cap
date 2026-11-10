@@ -19,6 +19,7 @@ import { createMarketingDomain } from "../domains/marketing.js";
 import { createStoresDomain } from "../domains/stores.js";
 import { createReportsDomain } from "../domains/reports.js";
 import { createPersonnelDomain } from "../domains/personnel.js";
+import { createSystemsMaintenanceDomain } from "../domains/systems-maintenance.js";
 import { createCommercialDomain } from "../domains/commercial.js";
 import { createSecurityDomain } from "../domains/security.js";
 import { createOperationsDomain } from "../domains/operations.js";
@@ -227,6 +228,9 @@ async function authenticatedContext(event, allowFallback = false) {
     if (!account || account.estado !== "activo" || account.rol !== "jefe_zonal") throw httpError("Tu autorización ha cambiado. Inicia sesión nuevamente.", 401);
     return { ...session, ...account };
   }
+  const { data: account, error } = await supabase.from("usuarios").select("rol,estado").eq("id", session.id).maybeSingle();
+  if (error) throw dbError(error);
+  if (!account || account.estado !== "activo" || account.rol !== session.rol) throw httpError("Tu cuenta ya no tiene acceso. Inicia sesión nuevamente.", 401);
   return session;
 }
 
@@ -376,6 +380,7 @@ const { authAccount, login, credentialPermissions, setCredentialPermission, chan
 const { zonalStoreIds, resolveStoreScope, activeStoreIds, listUsers, listPeopleDirectory, ensureUniqueUser, createUser, importStoreUsers, updateUser, deleteUser, userDeletionStatus, importUsersAdmin, exportUsersExcelAdmin } = createPersonnelDomain({
   supabase, readAllResult, fetchAllReportPages, dbError, httpError, cleanText, cleanUsuario, bodyOf, hashOperationalPassword, validateUserPayload, storeManagementRoles, storeStaffRoles, centralRoles, normalizeLaborArea, normalizeDepartureReason, normalizedPersonnelFields, createExcelWorkbook, styleHeader, excelResponse,
 });
+const systemsMaintenance = createSystemsMaintenanceDomain({ supabase, readAllResult, httpError, dbError, storeStaffRoles });
 
 async function communicationStoreScope(user, requestedStoreId = null) {
   let storeId = Number(requestedStoreId) || null;
@@ -638,6 +643,14 @@ export async function handler(event) {
     if (user.rol === "asistente_comercial" && !path.startsWith("/systems/batches")) {
       throw httpError("El Asistente Comercial solo tiene acceso a Carga de archivos.", 403);
     }
+
+    if (path === "/systems/maintenance/personnel" && method === "GET") return json(200, await systemsMaintenance.listPersonnel(user));
+    const maintenancePerson = path.match(/^\/systems\/maintenance\/personnel\/(\d+)$/);
+    if (maintenancePerson && method === "DELETE") return json(200, await systemsMaintenance.deletePersonnel(user, maintenancePerson[1]));
+    if (maintenancePerson && method === "PATCH") return json(200, await systemsMaintenance.suspendPersonnel(user, maintenancePerson[1], bodyOf(event).suspended));
+    if (path === "/systems/maintenance/transfers" && method === "GET") return json(200, await systemsMaintenance.listTransfers(user));
+    const maintenanceTransfer = path.match(/^\/systems\/maintenance\/transfers\/([^/]+)$/);
+    if (maintenanceTransfer && method === "DELETE") return json(200, await systemsMaintenance.deleteTransfer(user, maintenanceTransfer[1]));
 
     if (path === "/systems/credential-permissions" && method === "GET") {
       return json(200, await credentialPermissions(user));

@@ -70,7 +70,7 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
     let request = supabase
       .from("usuarios")
       .select("id,nombres,apellidos,dni,tipo_documento,usuario,telefono,email,fecha_nacimiento,mes_cumpleanos,sueldo,sexo,nacionalidad,direccion,distrito,area_laboral,carrera,grado_academico,ciclo_semestre,regimen_jornada,tipo_turno,tiene_parentesco,tipo_parentesco,familiar_vinculo,estado_civil,numero_hijos,talla_zapatillas,talla_polo,telefono_emergencia,alergia,condicion_salud,rol,tienda_id,estado,fecha_ingreso,fecha_salida,fecha_creacion,tiendas!usuarios_tienda_id_fkey(nombre)")
-      .order("nombres");
+      .eq("suspendido_sistemas", false).order("nombres");
     if (actor.rol === "gerencia_general" && !storeId) request = request.in("rol", ["gerente_comercial", "coach", "administrador_seguridad"]);
     if (actor.rol === "gerente_comercial" && !storeId) request = request.eq("rol", "jefe_zonal");
     if (actor.rol === "jefe_zonal" && !storeId) {
@@ -343,8 +343,9 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
 
   async function updateUser(event, id, actor) {
     const data = bodyOf(event);
-    const { data: current } = await supabase.from("usuarios").select("rol,estado,dni,tienda_id,fecha_salida,password,zonal_creador_id").eq("id", id).maybeSingle();
+    const { data: current } = await supabase.from("usuarios").select("rol,estado,dni,tienda_id,fecha_salida,password,zonal_creador_id,suspendido_sistemas").eq("id", id).maybeSingle();
     if (!current) throw httpError("Usuario no encontrado.", 404);
+    if (current.suspendido_sistemas) throw httpError("El trabajador está suspendido. Solicita su reactivación a Sistemas.", 409);
     if (storeManagementRoles.has(actor.rol)) data.tienda_id = actor.tienda_id;
     validateUserPayload(data);
     if (actor.rol === "jefe_zonal" && current.rol === "jefe_tienda" && !current.tienda_id && Number(current.zonal_creador_id) !== Number(actor.id)) {
@@ -439,7 +440,7 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
   async function deleteUser(id, actor) {
     const historyBlocked = () => ({
       eliminado: false, inhabilitado: false, tiene_historial: true,
-      mensaje: "Este trabajador tiene historial o registros vinculados. No se eliminó ni se cambió su estado. Por seguridad, su eliminación solo puede realizarse directamente en la base de datos.",
+      mensaje: "Este trabajador tiene historial o registros vinculados. No se eliminó ni se cambió su estado. Solicita su eliminación definitiva a Sistemas desde Gestión de registros.",
     });
     const { data: target, error } = await supabase.from("usuarios").select("id,tienda_id,rol").eq("id", id).maybeSingle();
     if (error) throw dbError(error);

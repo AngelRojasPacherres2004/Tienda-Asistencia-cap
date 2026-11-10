@@ -103,7 +103,7 @@
   color: #203b56; background: #fffdf8; border-color: #b8cede;
   box-shadow: 0 0 0 100vmax rgba(22,46,70,.45), 0 28px 80px rgba(22,46,70,.18);
 }
-.app-shell.app-light :is(.dashboard-filter-fab.open, .attendance-filter-fab.open) { color: #fff; background: #245b91; }
+.app-shell.app-light .dashboard-filter-fab.open { color: #fff; background: #245b91; }
 .app-shell.app-light :is(.personnel-detail-row, .personnel-detail-empty) { color: #4b5563; border-color: #d9dfe3; }
 .app-shell.app-light .personnel-detail-row strong { color: #203b56; }
 .app-shell.app-light .personnel-detail-row .positive { color: #237c5d; }

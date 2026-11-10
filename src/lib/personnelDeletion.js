@@ -1,4 +1,4 @@
-const historyMessage = 'Este trabajador tiene historial o registros vinculados. No se eliminó ni se cambió su estado. Su eliminación solo puede realizarse directamente en la base de datos.';
+const historyMessage = 'Este trabajador tiene historial o registros vinculados. No se eliminó ni se cambió su estado. Solicita su eliminación definitiva a Sistemas desde Gestión de registros.';
 
 // An interrupted DELETE is ambiguous: verify with a fresh GET, never retry it.
 export async function removePersonnel(api, id, { verifyOnly = false } = {}) {

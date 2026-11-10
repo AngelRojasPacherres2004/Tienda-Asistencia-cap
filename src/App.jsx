@@ -39,6 +39,7 @@ const Marketing = lazy(() => import("./pages/Marketing"));
 const RmsBatchUpload = lazy(() => import("./pages/RmsBatchUpload"));
 const SecurityAdmin = lazy(() => import("./pages/SecurityAdmin"));
 const CredentialPermissions = lazy(() => import("./pages/CredentialPermissions"));
+const SystemsMaintenance = lazy(() => import("./pages/SystemsMaintenance"));
 
 const homePageByRole = {
   gerencia_general: "dashboard", gerente_comercial: "dashboard", administrador_seguridad: "seguridad-central", sistemas: "sistemas", asistente_comercial: "sistemas", marketing: "marketing-inicio", coach: "dashboard", jefe_zonal: "dashboard",
@@ -195,6 +196,7 @@ export default function App() {
     "marketing-seguidores": <Marketing section="seguidores" />,
     sistemas: ["sistemas", "asistente_comercial"].includes(user.rol) ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "sistemas-credenciales": user.rol === "sistemas" ? <CredentialPermissions /> : <Dashboard user={user} />,
+    "sistemas-registros": user.rol === "sistemas" ? <SystemsMaintenance /> : <Dashboard user={user} />,
   }[page] || <Dashboard user={user} />;
 
   return (

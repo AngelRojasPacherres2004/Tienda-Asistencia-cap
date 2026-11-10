@@ -33,7 +33,7 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
 
   return (
     <section className="commercial-portal" aria-label={transferOnly ? "Transferencia" : "Dashboard ejecutivo comercial"}>
-      {user?.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="portal-store-context">
+      {!transferOnly && user?.rol === "jefe_tienda" && user.tiendas_disponibles?.length > 1 && <div className="portal-store-context">
         <div><Building2 size={17} /><span>Vista comercial de</span></div>
         <label><span className="visually-hidden">Cambiar tienda activa</span><select aria-label="Cambiar tienda activa" value={String(user.tienda_id || "")} disabled={switchingStore} onChange={event => onStoreChange?.(event.target.value)}>{user.tiendas_disponibles.map(store => <option key={store.id} value={String(store.id)}>{store.nombre}{store.principal ? " · Principal" : " · Apoyo"}</option>)}</select></label>
         <strong>{user.tienda_id === user.tienda_principal_id ? "Tienda principal" : "Acceso de apoyo"}</strong>

@@ -1,7 +1,7 @@
 import { attendanceDayIndex, attendancePersonId, PRESENT_STATES } from "../../shared/attendance.js";
 import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CalendarCheck2, ChevronLeft, ChevronRight, FileClock, Filter, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, ChevronLeft, ChevronRight, FileClock, SlidersHorizontal, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { demoTrafficTotal, demoZonalComparison, isOperationalDemo } from "../lib/operationalDemo";
@@ -183,7 +183,7 @@ function ZonalStoreComparison({ user, stores, refreshKey, onSelectStore }) {
   const chartHeight = Math.max(240, rows.length * 30 + 25);
   return <div className="store-dashboard-body zonal-comparison">
     <header className="store-dashboard-section"><div><span>{periodLabel}</span><h2>Tiendas de la zona</h2></div><label className="store-dashboard-store-picker zonal-store-select"><span>Tienda</span><select value="all" onChange={(event) => onSelectStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label></header>
-    <button type="button" className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} aria-label="Filtros de período"><Filter size={16} /><span>Periodo</span></button>
+    <button type="button" className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} aria-label="Filtros de período" title="Filtros de período"><SlidersHorizontal size={24} aria-hidden="true" /></button>
     {filtersOpen && <aside className="attendance-filter-popover" aria-label="Filtros de todas las tiendas">
       <div className="attendance-filter-popover__head"><div><span className="eyebrow">Periodo global</span><h3>Filtros de gráficas</h3></div><button type="button" className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={16} /></button></div>
       <label className="field"><span>Año</span><select value={year} onChange={(event) => setPeriod({ year: event.target.value, monthNumber: event.target.value === now.slice(0, 4) && Number(monthNumber) > Number(now.slice(5, 7)) ? now.slice(5, 7) : monthNumber, week: "", day: "" })}>{Array.from({ length: 6 }, (_, index) => String(Number(now.slice(0, 4)) - index)).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
@@ -330,7 +330,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
     </div>
     {visiblePeople.length > 0 && <p className="attendance-matrix-hint">Desliza la matriz hacia los lados para ver todos los días.</p>}
     {loadingRecords && <div className="attendance-matrix-sync"><span />Actualizando datos de {year}…</div>}
-    {showPeriodFilter && <button className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)}><Filter size={16} /><span>Periodo</span></button>}
+    {showPeriodFilter && <button type="button" className={`attendance-filter-fab ${filtersOpen ? "open" : ""}`} onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} aria-label="Filtros de período" title="Filtros de período"><SlidersHorizontal size={24} aria-hidden="true" /></button>}
     {showPeriodFilter && filtersOpen && <aside className="attendance-filter-popover">
       <div className="attendance-filter-popover__head"><div><span className="eyebrow">Periodo global</span><h3>Filtros de matriz</h3></div><button className="icon-button" onClick={() => setFiltersOpen(false)} aria-label="Cerrar filtros"><X size={16} /></button></div>
       <label className="field"><span>Trabajador</span><select value={workerId} onChange={(event) => setWorkerId(event.target.value)}><option value="">Todos los trabajadores</option>{people.filter((person) => includeInactive || person.estado === "activo").map((person) => <option key={person.id} value={person.id}>{person.nombres} {person.apellidos}</option>)}</select></label>

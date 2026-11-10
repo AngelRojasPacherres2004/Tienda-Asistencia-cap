@@ -33,7 +33,7 @@ for (const history of [{ attendance: 1 }, { training: 1 }]) {
     assert.equal(result.tiene_historial, true);
     assert.equal(result.eliminado, false);
     assert.equal(result.inhabilitado, false);
-    assert.match(result.mensaje, /base de datos/);
+    assert.match(result.mensaje, /Sistemas desde Gestión de registros/);
     assert.deepEqual(f.writes, []);
   });
 }
