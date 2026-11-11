@@ -13,7 +13,7 @@ export default function CommercialReactChart({ chartId, label, onClick, option }
   const readable = useContext(CommercialChartTypography);
   const singleBarEnabled = useContext(SingleBarPresentation);
   const metric = useMemo(() => singleBarEnabled ? singleBarMetric(option, chartId) : null, [singleBarEnabled, option, chartId]);
-  const chartOption = useMemo(() => metric ? metric.kind === 'gauge' ? singleBarGauge(metric, option.tooltip) : singleBarRadial(metric, option.tooltip) : readable ? readableChartTypography(option) : option, [readable, option, metric]);
+  const chartOption = useMemo(() => metric ? metric.kind === 'gauge' ? singleBarGauge(metric, option.tooltip) : singleBarRadial(metric, option.tooltip) : readable ? readableChartTypography(option, '', readable === 'manager' ? 13 : 0) : option, [readable, option, metric]);
   const host = useRef(null);
   const chart = useRef(null);
   const clickHandler = useRef(onClick);

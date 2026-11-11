@@ -6,6 +6,7 @@ import {
 import { api, downloadFile, formatDate, todayISO } from "../lib/api";
 import { EmptyState, Loading, Modal, Notice, PageHeader, Pagination, StatusBadge } from "../components/UI";
 import NormalizedReports from "./NormalizedReports";
+import StorePersonnelReportTable from "../components/StorePersonnelReportTable";
 
 const reportDefinitions = {
   personal: {
@@ -70,6 +71,7 @@ const initialFilters = { q: "", tienda_id: "", desde: "", hasta: "", estado: "" 
 
 const reportKindsByRole = {
   jefe_tienda: ["personal", "asistencias", "amonestaciones", "capacitaciones"],
+  asistente_tienda: ["personal", "asistencias", "amonestaciones", "capacitaciones"],
   jefe_zonal: ["personal", "asistencias", "amonestaciones", "errores-personal", "incidencias", "supervisiones", "capacitaciones", "tareas"],
 };
 
@@ -77,14 +79,14 @@ const pageSize = 8;
 const reportCache = new Map();
 const reportCacheMs = 30000;
 
-export default function Reportes({ user, initialKind = "personal", allowedKinds = null, embedded = false, fixedStoreId = "" }) {
+export default function Reportes({ user, initialKind = "personal", allowedKinds = null, embedded = false, fixedStoreId = "", personnelLayout = false }) {
   const allowedKindsKey = allowedKinds?.join(",") || "";
   const availableKinds = useMemo(() => {
     const roleKinds = reportKindsByRole[user?.rol] || Object.keys(reportDefinitions);
     return allowedKindsKey ? allowedKindsKey.split(",").filter(id => reportDefinitions[id] && roleKinds.includes(id)) : roleKinds;
   }, [allowedKindsKey, user?.rol]);
   const startingKind = availableKinds.includes(initialKind) ? initialKind : availableKinds[0];
-  const baseFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
+  const baseFilters = { ...initialFilters, ...(personnelLayout ? { estado: "activo" } : {}), tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
   const [kind, setKind] = useState(startingKind);
   const [draft, setDraft] = useState(baseFilters);
   const [filters, setFilters] = useState(baseFilters);
@@ -97,16 +99,16 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [group, setGroup] = useState("cifras");
-  const hasCommercialReports = !embedded && ["gerente_comercial", "jefe_zonal", "jefe_tienda"].includes(user?.rol);
+  const hasCommercialReports = !embedded && ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user?.rol);
   const commercialSelected = hasCommercialReports && group === "cifras";
   const canSelectStore = !fixedStoreId && ["gerencia_general", "gerente_comercial", "jefe_zonal"].includes(user?.rol);
   const definition = reportDefinitions[kind];
 
   useEffect(() => {
     const nextKind = availableKinds.includes(initialKind) ? initialKind : availableKinds[0];
-    const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
+    const nextFilters = { ...initialFilters, ...(personnelLayout ? { estado: "activo" } : {}), tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
     setKind(nextKind); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1);
-  }, [availableKinds, initialKind, fixedStoreId]);
+  }, [availableKinds, initialKind, fixedStoreId, personnelLayout]);
 
   useEffect(() => {
     if (canSelectStore) api("/tiendas").then(setStores).catch(() => setStores([]));
@@ -141,11 +143,11 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
   }, [commercialSelected, kind, query, loadAttempt, user?.id, user?.usuario]);
 
   const selectReport = (next) => {
-    const nextFilters = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
+    const nextFilters = { ...initialFilters, ...(personnelLayout ? { estado: "activo" } : {}), tienda_id: fixedStoreId ? String(fixedStoreId) : "" };
     setRows(null); setKind(next); setDraft(nextFilters); setFilters(nextFilters); setSelected(null); setPage(1); setLoadAttempt((value) => value + 1);
   };
   const applyFilters = (event) => { event.preventDefault(); setRows(null); setFilters(draft); setPage(1); setLoadAttempt((value) => value + 1); };
-  const clearFilters = () => { const next = { ...initialFilters, tienda_id: fixedStoreId ? String(fixedStoreId) : "" }; setRows(null); setDraft(next); setFilters(next); setPage(1); setLoadAttempt((value) => value + 1); };
+  const clearFilters = () => { const next = { ...initialFilters, ...(personnelLayout ? { estado: "activo" } : {}), tienda_id: fixedStoreId ? String(fixedStoreId) : "" }; setRows(null); setDraft(next); setFilters(next); setPage(1); setLoadAttempt((value) => value + 1); };
   const exportExcel = async () => {
     setExporting(true); setNotice(null);
     try {
@@ -157,13 +159,14 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
     }
   };
 
-  const pages = Math.max(1, Math.ceil((rows?.length || 0) / pageSize));
-  const visibleRows = rows?.slice((page - 1) * pageSize, page * pageSize) || [];
+  const currentPageSize = personnelLayout ? 10 : pageSize;
+  const pages = Math.max(1, Math.ceil((rows?.length || 0) / currentPageSize));
+  const visibleRows = rows?.slice((page - 1) * currentPageSize, page * currentPageSize) || [];
   const exportButton = <button className="button button--primary" disabled={exporting || !rows} onClick={exportExcel}><Download size={16}/>{exporting ? "Generando…" : "Descargar Excel"}</button>;
 
-  return <div className={embedded ? "embedded-report" : "report-page"}>
+  return <div className={`${embedded ? "embedded-report" : "report-page"}${personnelLayout ? " store-personnel-report" : ""}`}>
     {!embedded && <PageHeader
-      eyebrow={user?.rol === "jefe_tienda" ? "Mi tienda" : "Consulta y exportación"}
+      eyebrow={["jefe_tienda", "asistente_tienda"].includes(user?.rol) ? "Mi tienda" : "Consulta y exportación"}
       title="Reportes"
       action={commercialSelected ? null : exportButton}
     />}
@@ -194,7 +197,7 @@ export default function Reportes({ user, initialKind = "personal", allowedKinds 
         <div className="report-filter-actions"><button type="button" className="button button--ghost button--small" onClick={clearFilters}>Limpiar filtros</button><button className="button button--primary button--small">Aplicar filtros</button></div>
       </form>
 
-      {loadError ? <div className="commercial-load-error"><Notice type="error">{loadError}</Notice><button type="button" className="button button--ghost" onClick={() => setLoadAttempt((value) => value + 1)}>Reintentar</button></div> : !rows ? <Loading label="Preparando reporte…"/> : rows.length ? <><div className="report-table-wrap"><table className="report-table"><thead><tr>{definition.columns.map(([key, label]) => <th key={key}>{label}</th>)}<th>Detalle</th></tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{definition.columns.map(([key,, type]) => <td key={key}>{renderValue(row[key], type)}</td>)}<td><button className="report-detail-button" onClick={() => setSelected(row)}>Ver</button></td></tr>)}</tbody></table></div><Pagination page={page} pages={pages} onChange={setPage}/></> : <EmptyState icon={Building2} title="Sin resultados" text="No hay registros que coincidan con los filtros seleccionados."/>}
+      {loadError ? <div className="commercial-load-error"><Notice type="error">{loadError}</Notice><button type="button" className="button button--ghost" onClick={() => setLoadAttempt((value) => value + 1)}>Reintentar</button></div> : !rows ? <Loading label="Preparando reporte…"/> : rows.length ? <>{personnelLayout && kind === "personal" ? <StorePersonnelReportTable rows={visibleRows} onView={setSelected}/> : <div className="report-table-wrap"><table className="report-table"><thead><tr>{definition.columns.map(([key, label]) => <th key={key}>{label}</th>)}<th>Detalle</th></tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{definition.columns.map(([key,, type]) => <td key={key}>{renderValue(row[key], type)}</td>)}<td><button className="report-detail-button" onClick={() => setSelected(row)}>Ver</button></td></tr>)}</tbody></table></div>}<Pagination page={page} pages={pages} onChange={setPage}/></> : <EmptyState icon={Building2} title="Sin resultados" text="No hay registros que coincidan con los filtros seleccionados."/>}
     </section>
 
     <Modal open={!!selected} wide title={`Detalle · ${definition.label}`} subtitle="Información incluida en el reporte" onClose={() => setSelected(null)}>

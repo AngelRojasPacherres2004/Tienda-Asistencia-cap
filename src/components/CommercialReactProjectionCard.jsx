@@ -4,11 +4,13 @@ import CommercialReactChart from "./CommercialReactChart";
 const ignoreClick = () => {};
 const horizons = [[0, "ACTUAL"], [30, "+30D"], [60, "+60D"], [90, "+90D"]];
 
-export default function CommercialReactProjectionCard({ model, onAction, storeView = false }) {
+export default function CommercialReactProjectionCard({ model, onAction, storeView = false, manager = false }) {
   return <article className={`card predictive-v2-card predictive-action-card predictive-projection-card${storeView ? ' predictive-projection-card--detail' : ''}`} aria-busy={model.loading || undefined} data-react-commercial-module="projection-card">
     {model.loading && <div className="predictive-card-refresh" role="status">Actualizando riesgo…</div>}
     <div className="title-row"><span className="card-letter">C</span><h2><svg><use href="/comercial/assets/icons.svg#alert" /></svg> VALOR EN RIESGO POR TIENDA · 30 / 60 / 90</h2></div>
     <div className="projection-horizon-toggle">{horizons.map(([value, label]) => <button key={value} type="button" className={model.horizon === value ? "active" : undefined} onClick={() => onAction({ type: "horizon", value })}>{label}</button>)}</div>
+    {manager && <div className="projection-store-filter"><label>Tienda<select aria-label="Tienda del valor en riesgo" value={model.store || 'TODAS'} onChange={event => onAction({ type: 'store', value: event.target.value })}><option value="TODAS">3 tiendas con mayor valor en riesgo</option>{model.storeOptions?.map(store => <option key={store.value} value={store.value}>{store.label}</option>)}</select></label><small>{model.store === 'TODAS' ? 'Se muestran hasta tres tiendas.' : 'Detalle de la tienda seleccionada.'}</small></div>}
+    {model.error && <p className="projection-store-error" role="alert">{model.error}</p>}
     {storeView ? <div className="risk-explainer">
       <p className="risk-explainer-period">{model.horizon ? `Proyección a ${model.horizon} días` : 'Situación actual'} · Riesgo por cobertura de inventario</p>
       {model.stores?.length ? model.stores.map(row => {

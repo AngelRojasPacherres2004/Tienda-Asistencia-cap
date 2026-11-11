@@ -182,13 +182,10 @@ export function createOperationsDomain({
     }
     if (data.fecha && Number.isNaN(new Date(data.fecha).getTime())) throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
     const securityTypes = ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"];
-    const internalTypes = ["accidente", "dano_infraestructura", "problema_operativo", "falla_interna", "otro"];
     const isSecurityUser = ["seguridad", "jefe_seguridad"].includes(user.rol);
-    if (isSecurityUser && !securityTypes.includes(data.tipo)) {
+    if (!isSecurityUser) throw httpError("Solo seguridad y jefe de seguridad pueden registrar incidencias.", 403);
+    if (!securityTypes.includes(data.tipo)) {
       throw httpError("Selecciona un tipo de incidencia válido.", 400);
-    }
-    if (["jefe_tienda", "asistente_tienda"].includes(user.rol) && !internalTypes.includes(data.tipo)) {
-      throw httpError("Selecciona un tipo de incidencia interna válido.", 400);
     }
     if (!["baja", "media", "alta"].includes(data.gravedad)) {
       throw httpError("Selecciona una severidad válida.", 400);
@@ -203,7 +200,7 @@ export function createOperationsDomain({
       throw httpError("Selecciona un área o ubicación válida.", 400);
     }
     const storeId = await resolveOperationalStoreScope(user, data.tienda_id);
-    const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", robo_interno: "Robo interno", estafa: "Estafa", asalto: "Asalto", fiscalizacion: "Fiscalización", cambio_precio: "Cambio de precio", accidente: "Accidente", dano_infraestructura: "Daño de infraestructura", problema_operativo: "Problema operativo", falla_interna: "Falla interna", otro: isSecurityUser ? "Otra incidencia de seguridad" : "Otra incidencia interna" };
+    const incidentNames = { robo: "Robo", robo_frustrado: "Robo frustrado", robo_interno: "Robo interno", estafa: "Estafa", asalto: "Asalto", fiscalizacion: "Fiscalización", cambio_precio: "Cambio de precio", otro: "Otra incidencia de seguridad" };
     const { data: incident, error } = await supabase.from("incidencias").insert({
       tienda_id: storeId, asunto: incidentNames[data.tipo], tipo: data.tipo, area: data.area || "otro",
       descripcion: cleanText(data.descripcion), gravedad: data.gravedad, estado: "abierta",
@@ -298,7 +295,7 @@ export function createOperationsDomain({
     const rows = await listOperational("incidencias", event, user,
       "*,tiendas(nombre),usuarios!incidencias_registrado_por_fkey(nombres,apellidos,usuario),incidencia_productos(id,codigo_nissei,producto,cantidad,valor,recuperado,marcas(id,nombre)),incidencia_personas(id,nombre,rol,documento,observacion)");
     if (["seguridad", "jefe_seguridad"].includes(user.rol)) return rows.filter(isSecurityIncident);
-    if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return rows.filter((row) => !isSecurityIncident(row));
+    if (["jefe_tienda", "asistente_tienda"].includes(user.rol)) return [];
     return rows;
   }
 
@@ -544,11 +541,11 @@ export function createOperationsDomain({
     const today = todayISO();
     const [traffic, incidents, securityFixed, securityOther, warnings, errors, documents, administration, activePersonnel] = await Promise.all([
       supabase.from("trafico_tienda").select("cantidad").eq("tienda_id", storeId).eq("fecha", today),
-      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
-      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
+      ["jefe_tienda", "asistente_tienda"].includes(user.rol) ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+      ["jefe_tienda", "asistente_tienda"].includes(user.rol) ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).in("tipo", ["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio"]),
+      ["jefe_tienda", "asistente_tienda"].includes(user.rol) ? Promise.resolve({ count: 0 }) : supabase.from("incidencias").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("tipo", "otro").eq("asunto", "Otra incidencia de seguridad"),
       supabase.from("amonestaciones").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
-      user.rol === "jefe_tienda" ? Promise.resolve({ count: 0 }) : supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
+      ["jefe_tienda", "asistente_tienda"].includes(user.rol) ? Promise.resolve({ count: 0 }) : supabase.from("errores_personal").select("id", { count: "exact", head: true }).eq("tienda_id", storeId),
       supabase.from("documentos_municipales").select("fecha_vencimiento,dias_alerta").eq("tienda_id", storeId).gte("fecha_vencimiento", today),
       supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", ["jefe_tienda", "asistente_tienda"]),
       supabase.from("usuarios").select("id", { count: "exact", head: true }).eq("tienda_id", storeId).eq("estado", "activo").in("rol", storeStaffRoles),
@@ -559,9 +556,9 @@ export function createOperationsDomain({
     if (documents.error) throw dbError(documents.error);
     const documentosPorVencer = (documents.data || []).filter((row) => Number(row.fecha_vencimiento.slice(0, 10).replaceAll("-", "")) >= Number(today.replaceAll("-", "")) && Math.round((Date.parse(`${row.fecha_vencimiento}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) <= Number(row.dias_alerta || 30)).length;
     const securityIncidents = (securityFixed.count || 0) + (securityOther.count || 0);
-    const incidentIndicators = user.rol === "jefe_tienda" ? {} : { incidencias: incidents.count || 0, incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents };
+    const incidentIndicators = ["jefe_tienda", "asistente_tienda"].includes(user.rol) ? {} : { incidencias: incidents.count || 0, incidencias_seguridad: securityIncidents, incidencias_administrativas: (incidents.count || 0) - securityIncidents };
     return { trafico_hoy: (traffic.data || []).reduce((total, row) => total + Number(row.cantidad || 0), 0), ...incidentIndicators,
-      amonestaciones: warnings.count || 0, ...(user.rol === "jefe_tienda" ? {} : { errores: errors.count || 0 }), documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
+      amonestaciones: warnings.count || 0, ...(["jefe_tienda", "asistente_tienda"].includes(user.rol) ? {} : { errores: errors.count || 0 }), documentos_por_vencer: documentosPorVencer, administracion_tienda: administration.count || 0, personal_activo: activePersonnel.count || 0 };
   }
 
   async function storeSalesForecast(event, user) {

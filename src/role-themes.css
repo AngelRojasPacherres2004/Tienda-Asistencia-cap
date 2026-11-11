@@ -224,3 +224,12 @@
 .app-light .modal .file-picker__copy strong { color: #173c65; font-size: 14px; }
 .app-light .modal .file-picker__copy small { color: #526d83; font-size: 12px; }
 .app-light .modal .requirement-form .form-actions { background: #fff; border-top: 1px solid #dce6ee; }
+
+/* The commercial personnel list shares the store personnel table, with a store column. */
+.app-theme .data-table--usuarios-tienda.data-table--commercial-personnel > :is(.data-table__head,.data-table__row) {
+  min-width:1420px;
+  grid-template-columns:minmax(220px,1.7fr) minmax(105px,.7fr) minmax(125px,1fr) minmax(110px,.8fr) minmax(145px,1fr) minmax(170px,1.2fr) minmax(95px,.7fr) 70px;
+}
+.app-theme .store-personnel-report .report-panel { padding:0; border:0; background:transparent; box-shadow:none; }
+.app-theme .store-personnel-report .report-panel>header { padding:12px 0; }
+.app-theme .store-personnel-report .report-panel>header h2 { font-size:18px; }

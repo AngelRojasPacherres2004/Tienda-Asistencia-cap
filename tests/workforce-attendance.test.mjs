@@ -84,3 +84,11 @@ test('administrator is listed first in attendance and retains the role label', a
   assert.deepEqual(result.empleados.map(person => person.usuario_id), [2, 1]);
   assert.equal(result.empleados[0].rol, 'jefe_tienda');
 });
+
+test('store assistant has the same current-day attendance restriction as the administrator', async () => {
+  const { domain, data } = fixture();
+  for (const rol of ['jefe_tienda', 'asistente_tienda']) {
+    await assert.rejects(domain.guardarAsistenciasLote({ body: { fecha: '2026-10-27', marcas: [{ usuario_id: 1, estado: 'presente' }] } }, { id: 99, rol, tienda_id: 10 }), error => error.status === 403);
+  }
+  assert.equal(data.asistencias.length, 0);
+});

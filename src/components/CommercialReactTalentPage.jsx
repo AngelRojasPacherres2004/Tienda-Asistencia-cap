@@ -6,11 +6,29 @@ import CommercialReactSimpleChartCard from "./CommercialReactSimpleChartCard";
 import CommercialReactSellerCard from "./CommercialReactSellerCard";
 import CommercialReactTrainingCard from "./CommercialReactTrainingCard";
 
-export default function CommercialReactTalentPage({ model, onAction, storeAdmin = false }) {
+export default function CommercialReactTalentPage({ model, onAction, storeAdmin = false, manager = false }) {
   const sectionAction = action => onAction({ ...action, source: "section" });
   const kpiAction = action => onAction({ ...action, source: "kpis" });
   const sellerAction = action => onAction({ ...action, source: "seller" });
   const trainingAction = action => onAction({ ...action, source: "training" });
+  if (manager) {
+    const heading = (mark, title, page = false) => <CommercialReactSectionHeading model={{ kind: page ? 'page' : 'block', mark, title, adviceEnabled: false }} onAction={sectionAction} />;
+    return <section className="page talent-page store-talent-page manager-talent-page" aria-label="Operación y equipo" data-react-commercial-module="talent-page">
+      {heading('03', 'OPERACIÓN Y EQUIPO', true)}
+      <slot name="manager-overview" />
+      <CommercialReactTalentKpis model={model.kpis} onAction={kpiAction} />
+      {heading('A', 'DEMANDA Y PLANIFICACIÓN')}
+      <slot name="commercial-traffic" />
+      {heading('B', 'DOTACIÓN Y PRODUCTIVIDAD')}
+      <slot name="manager-personnel" />
+      <div className="talent-overview-grid talent-performance-grid"><CommercialReactTalentCapacity model={model.capacity} /><CommercialReactSimpleChartCard model={model.history} /><CommercialReactSimpleChartCard model={model.team} /><CommercialReactSellerCard model={model.seller} onAction={sellerAction} /></div>
+      {heading('C', 'CAPACITACIÓN Y DESARROLLO')}
+      <slot name="manager-training" />
+      {heading('D', 'CONTINUIDAD Y ALERTAS')}
+      <div className="talent-development-grid store-talent-development"><CommercialReactSimpleChartCard model={model.exit} /><CommercialReactSimpleChartCard model={model.incidents} /></div>
+      <slot name="manager-alerts" />
+    </section>;
+  }
   if (storeAdmin) {
     const heading = (mark, title, page = false) => <CommercialReactSectionHeading model={{ kind: page ? 'page' : 'block', mark, title, adviceEnabled: false }} onAction={sectionAction} />;
     return <section className="page talent-page store-talent-page" aria-label="Operación y equipo" data-react-commercial-module="talent-page">

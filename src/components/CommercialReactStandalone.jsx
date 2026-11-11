@@ -17,7 +17,7 @@ import CommercialReactSizeDetailModal from "./CommercialReactSizeDetailModal";
 import CommercialReactAssistantController from "./CommercialReactAssistantController";
 import CommercialTransferCart from "./CommercialTransferCart";
 
-export default function CommercialReactStandalone({ model, controller, storeOperations = null, transferOnly = false }) {
+export default function CommercialReactStandalone({ model, controller, storeOperations = null, managerOperations = false, transferOnly = false }) {
   useEffect(() => {
     if (model.mode === "ready" && transferOnly) controller.prepareTransferMatrix();
   }, [controller, model.mode, transferOnly]);
@@ -32,7 +32,7 @@ export default function CommercialReactStandalone({ model, controller, storeOper
     <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
     {model.transfers && <CommercialReactTransferModal embedded model={model.transfers} onAction={action => controller.onReactTransferAction(action)} />}
   </main>;
-  return <SingleBarPresentation.Provider value={Boolean(storeOperations)}><main className={`app-shell portal-embed${storeOperations ? ' store-admin-dashboard' : ''}`} data-react-commercial-shell="true">
+  return <CommercialChartTypography.Provider value={managerOperations ? 'manager' : false}><SingleBarPresentation.Provider value={Boolean(storeOperations)}><main className={`app-shell portal-embed${storeOperations || managerOperations ? ' store-admin-dashboard' : ''}${managerOperations ? ' manager-commercial-dashboard' : ''}`} data-react-commercial-shell="true">
     <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
     {model.expanded && <button type="button" className="chart-backdrop" aria-label="Cerrar gráfico ampliado" onClick={() => controller.closeExpandedChart()} />}
     {modal?.type === "birthday" && <CommercialReactBirthdayModal model={modal.model} onAction={action => controller.onReactBirthdayAction(action)} />}
@@ -47,8 +47,8 @@ export default function CommercialReactStandalone({ model, controller, storeOper
       <CommercialChartSearch controller={controller} page={model.page} storeAdmin={Boolean(storeOperations)} />
     </div>
     {model.page === 1 && <CommercialReactCommercialPage model={model.commercial} onAction={action => controller.onReactCommercialPageAction(action)} />}
-    {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} storeAdmin={Boolean(storeOperations)} onAction={action => controller.onReactInventoryPageAction(action)} />}
-    {model.page === 3 && <CommercialChartTypography.Provider value={Boolean(storeOperations)}><CommercialReactTalentPage model={model.talent} storeAdmin={Boolean(storeOperations)} onAction={action => controller.onReactTalentPageAction(action)} /></CommercialChartTypography.Provider>}
+    {model.page === 2 && <CommercialReactInventoryPage model={model.inventory} storeAdmin={Boolean(storeOperations)} manager={managerOperations} onAction={action => controller.onReactInventoryPageAction(action)} />}
+    {model.page === 3 && <CommercialChartTypography.Provider value={managerOperations ? 'manager' : Boolean(storeOperations)}><CommercialReactTalentPage model={model.talent} storeAdmin={Boolean(storeOperations)} manager={managerOperations} onAction={action => controller.onReactTalentPageAction(action)} /></CommercialChartTypography.Provider>}
     {model.assistantEnabled && <CommercialReactAssistantController role={model.assistantRole} context={model.assistantContext} controller={controller} />}
-  </main></SingleBarPresentation.Provider>;
+  </main></SingleBarPresentation.Provider></CommercialChartTypography.Provider>;
 }

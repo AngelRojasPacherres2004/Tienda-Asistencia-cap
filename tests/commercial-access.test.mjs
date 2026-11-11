@@ -70,3 +70,13 @@ test("published parts may be reused without crossing a store or cluster boundary
   assert.equal(validCommercialPartPath(`${version}/${file}.gz/part-0001`, { scopeType: "all" }, file), true);
   assert.equal(validCommercialPartPath(`${version}/scoped/store/T001/${file}.gz/part-0001`, { scopeType: "all" }, file), false);
 });
+
+test("store assistant shares the store dashboard but cannot inherit another store or global scope", () => {
+  const account = { rol: "asistente_tienda", estado: "activo", tienda_id: 22 };
+  const expected = { scopeType: "store", scopeValue: "T001", storeIds: ["T001"] };
+  assert.deepEqual(commercialAccess(account, null, map), expected);
+  assert.deepEqual(commercialAccess(account, { scope_type: "all", scope_value: null }, map), expected);
+  assert.deepEqual(commercialAccess(account, { scope_type: "store", scope_value: "T002" }, map), expected);
+  assert.equal(commercialAccess({ ...account, tienda_id: null }, null, map), null);
+  assert.equal(commercialAccess({ ...account, estado: "inactivo" }, null, map), null);
+});

@@ -1,9 +1,13 @@
-const commercialRoles = new Set(["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"]);
+const commercialRoles = new Set(["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"]);
 
 export function commercialAccess(account, scope, storeMap, assignedCluster) {
   if (!account || account.estado !== "activo" || !commercialRoles.has(account.rol)) return null;
   if (account.rol === "coach") {
     return { scopeType: "all", scopeValue: null, storeIds: storeMap.map(row => row.dashboard_store_id) };
+  }
+  if (account.rol === "asistente_tienda") {
+    const assigned = storeMap.find(row => Number(row.tienda_id) === Number(account.tienda_id));
+    return assigned ? { scopeType: "store", scopeValue: assigned.dashboard_store_id, storeIds: [assigned.dashboard_store_id] } : null;
   }
   if (!scope) return null;
   if (account.rol === "gerente_comercial") {

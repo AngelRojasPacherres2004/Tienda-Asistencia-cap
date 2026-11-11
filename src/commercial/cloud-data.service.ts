@@ -92,6 +92,7 @@ const LOCAL_ACCESS: DashboardAccessProfile = {
 const normalizeDashboardRole = (value: unknown): string => ({
   jefe_comercial: 'gerente_comercial',
   administrador_tienda: 'jefe_tienda',
+  asistente_tienda: 'jefe_tienda',
   zonal: 'jefe_zonal',
 }[String(value || '').trim().toLowerCase()] || String(value || '').trim().toLowerCase());
 

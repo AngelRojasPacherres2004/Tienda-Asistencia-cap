@@ -8,7 +8,7 @@ import CommercialReactHealthCard from "./CommercialReactHealthCard";
 import CommercialReactReplenishmentCard from "./CommercialReactReplenishmentCard";
 import CommercialReactProjectionCard from "./CommercialReactProjectionCard";
 
-export default function CommercialReactInventoryPage({ model, onAction, storeAdmin = false }) {
+export default function CommercialReactInventoryPage({ model, onAction, storeAdmin = false, manager = false }) {
   const forward = source => action => onAction({ ...action, source });
   const heading = key => ({ ...model.headings[key], transferVisible: false });
   return <section className="page page-two" aria-label="Inventario y analítica predictiva" data-react-commercial-module="inventory-page">
@@ -31,7 +31,7 @@ export default function CommercialReactInventoryPage({ model, onAction, storeAdm
           <div className="predictive-overview-grid">
             <CommercialReactHealthCard model={model.predictive.health} />
             <CommercialReactReplenishmentCard model={model.predictive.replenishment} onAction={forward("replenishment")} />
-            <CommercialReactProjectionCard model={model.predictive.projection} onAction={forward("projection")} storeView={storeAdmin} />
+            <CommercialReactProjectionCard model={model.predictive.projection} onAction={forward("projection")} storeView={storeAdmin || manager} manager={manager} />
           </div>
         </section>}
   </section>;

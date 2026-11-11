@@ -104,3 +104,46 @@
 .store-commercial-panels .training-development-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media(max-width:800px) { .store-commercial-panels .personnel-charts-grid,.store-commercial-panels .training-development-grid { grid-template-columns:1fr; } }
 @media(max-width:900px) { .store-commercial-panels.store-demand-host { grid-template-columns:1fr; } }
+
+/* Summary cards projected into the commercial manager's third dashboard page. */
+.manager-summary-panels { min-width:0; background:transparent; padding:0; }
+.manager-summary-panels .manager-summary-group { display:grid; gap:12px; min-width:0; }
+.manager-summary-panels :is(h2,h3) { font-size:16px; line-height:1.3; }
+.manager-summary-panels :is(p,small,td,th,.commercial-store-personnel>div) { font-size:12px; line-height:1.4; }
+.manager-summary-panels .store-dashboard-section { margin:6px 0; }
+.manager-summary-panels .store-dashboard-personnel-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.manager-summary-panels .store-dashboard-personnel-kpi b { font-size:28px; }
+.manager-summary-panels .commercial-store-personnel { overflow-x:auto; }
+.manager-summary-panels .commercial-store-personnel>div { min-width:520px; }
+@media(max-width:800px) {
+  .manager-summary-panels :is(.commercial-alert-grid,.commercial-progress-grid,.store-dashboard-personnel-kpis,.store-dashboard-paired-kpis) { grid-template-columns:1fr; }
+}
+/* Full-width training layout for the commercial manager's third dashboard page. */
+.manager-summary-panels.store-dashboard-shell .training-development { box-sizing:border-box; width:100%; max-width:none; min-width:0; }
+.manager-summary-panels.store-dashboard-shell .training-development-grid { grid-template-columns:minmax(0,1fr); gap:16px; }
+.manager-summary-panels.store-dashboard-shell .training-development-grid>article { min-height:0; }
+.manager-summary-panels.store-dashboard-shell .training-development-grid>article>header { flex-wrap:wrap; gap:8px 16px; }
+.manager-summary-panels.store-dashboard-shell .training-development-bars>div { grid-template-columns:minmax(240px,42%) minmax(100px,1fr); gap:16px; }
+.manager-summary-panels.store-dashboard-shell .training-development-bars>div>strong { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; line-height:1.4; }
+.manager-summary-panels.store-dashboard-shell .training-history { overflow-x:auto; }
+.manager-summary-panels.store-dashboard-shell .training-history>div { min-width:580px; grid-template-columns:minmax(260px,1fr) repeat(3,minmax(90px,.18fr)); }
+.manager-summary-panels.store-dashboard-shell .training-history>div>* { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:normal; }
+.manager-summary-panels.store-dashboard-shell .training-history>div>span { text-align:center; }
+.manager-summary-panels.store-dashboard-shell .training-development-filters { flex-wrap:wrap; }
+@media(max-width:600px) {
+  .manager-summary-panels.store-dashboard-shell .training-development-bars>div { grid-template-columns:minmax(0,1fr); gap:6px; }
+  .manager-summary-panels.store-dashboard-shell .training-development-filters label { box-sizing:border-box; width:100%; }
+}
+.manager-summary-panels.store-dashboard-shell .training-history .training-history-head { display:grid; }
+.manager-summary-panels.store-dashboard-shell .training-history>div:not(.training-history-head) { margin-bottom:0; border:0; border-bottom:1px solid #cbd9e4; border-radius:0; }
+.manager-summary-panels.store-dashboard-shell .training-history>div:not(.training-history-head)>strong { grid-column:auto; }
+.manager-summary-panels.store-dashboard-shell .training-history>div:not(.training-history-head)>span { display:block; }
+.manager-summary-panels.store-dashboard-shell .training-history>div:not(.training-history-head)>span::before { content:none; }
+
+/* Match projected manager panels to the larger dashboard typography. */
+.manager-summary-panels.store-dashboard-shell :is(p,small,td,th,.commercial-store-personnel>div),
+.manager-traffic-panels.store-dashboard-shell :is(.traffic-matrix-cell strong,.traffic-matrix-head p,.traffic-matrix-legend) { font-size:14px!important; line-height:1.5; }
+.manager-summary-panels.store-dashboard-shell :is(h2,h3) { font-size:18px!important; line-height:1.4; }
+.manager-summary-panels.store-dashboard-shell .store-dashboard-personnel-kpi b { font-size:32px; }
+.manager-summary-panels.store-dashboard-shell .training-history>div>* { font-size:14px!important; line-height:1.5; }
+.manager-summary-panels.store-dashboard-shell .training-development-bars>div>strong { font-size:14px; }

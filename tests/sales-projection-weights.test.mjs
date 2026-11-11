@@ -19,6 +19,7 @@ test('el cierre suma el promedio mensual sin ajustar por tendencia y distingue c
   const subject = new exports.Subject();
   subject.year = () => 2026;
   subject.activeMonths = () => [10];
+  subject.selectedSalesPeriods = () => new Set([202610]);
   subject.selectedMonths = () => [10];
   subject.filteredStoreIds = () => new Set(['store']);
   subject.data = () => ({ metadata: { salesCutoff: '2026-10-31' } });
@@ -39,6 +40,7 @@ for (const partial of [false, true]) {
       const cutoff = `2026-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       subject.year = () => 2026;
       subject.activeMonths = () => [month];
+      subject.selectedSalesPeriods = () => new Set([202600 + month]);
       subject.selectedMonths = () => partial ? [] : [month];
       subject.filteredStoreIds = () => new Set(['store']);
       subject.data = () => ({ metadata: { salesCutoff: cutoff } });

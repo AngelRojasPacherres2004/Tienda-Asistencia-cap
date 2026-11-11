@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import MiTienda from '../pages/MiTienda';
+import CommercialDashboard from '../pages/CommercialDashboard';
 import CommercialTrafficMatrix from './CommercialTrafficMatrix';
 import '../pages/store-commercial-panels.css';
 import { effect, withReactServices } from '../commercial/reactivity-react';
@@ -12,23 +13,32 @@ import CommercialReactStandalone from './CommercialReactStandalone';
 import appStyles from '../commercial/app.scss?raw';
 import transferModalStyles from '../commercial/transfer-modal.scss?raw';
 import globalStyles from '../commercial/styles.scss?raw';
+import managerStyles from '../commercial/manager-dashboard.css?raw';
 
 export function mountCommercialReactIndependent(host, { user, onNavigate, transferOnly = false } = {}) {
   const shell = document.createElement('app-root');
   host.append(shell);
   // Project operational charts into the shadow shell while preserving their app styles.
-  const operationsHosts = user?.rol === 'jefe_tienda' ? Object.fromEntries(['demand', 'attendance', 'training'].map(name => {
+  const operationsHosts = ['jefe_tienda', 'asistente_tienda'].includes(user?.rol) ? Object.fromEntries(['demand', 'attendance', 'training'].map(name => {
     const target = document.createElement('div');
     target.slot = `store-${name}`;
     target.className = `store-commercial-panels store-dashboard-shell is-light${name === 'demand' ? ' store-demand-host' : ''}`;
     shell.append(target);
     return [name, target];
   })) : null;
+  const managerHosts = user?.rol === 'gerente_comercial' ? Object.fromEntries(['overview', 'personnel', 'alerts', 'training'].map(name => {
+    const target = document.createElement('div');
+    target.slot = `manager-${name}`;
+    target.className = 'store-commercial-panels store-dashboard-shell commercial-dashboard manager-summary-panels is-light';
+    shell.append(target);
+    return [name, target];
+  })) : null;
+  const renderManagerSections = sections => Object.entries(sections).map(([name, content]) => createPortal(content, managerHosts[name], name));
   const renderOperations = sections => Object.entries(sections).map(([name, content]) => createPortal(content, operationsHosts[name], name));
   const trafficHost = !operationsHosts ? document.createElement('div') : null;
   if (trafficHost) {
     trafficHost.slot = 'commercial-traffic';
-    trafficHost.className = 'store-commercial-panels store-dashboard-shell is-light';
+    trafficHost.className = `store-commercial-panels store-dashboard-shell is-light${managerHosts ? ' manager-traffic-panels' : ''}`;
     shell.append(trafficHost);
   }
   const shadow = shell.attachShadow({ mode: 'open' });
@@ -37,7 +47,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     @media (min-width:1101px) and (max-width:1899px) { .static-charts > .gender-card:not(.chart-expanded) { height:315px !important; } }
     @media (min-width:1900px) { .static-charts > .gender-card:not(.chart-expanded) { height:360px !important; } }`;
   styles.textContent += '.store-talent-page{display:grid;gap:12px}.store-talent-development{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:800px){.store-talent-development{grid-template-columns:1fr}}';
-  if (operationsHosts) styles.textContent += `
+  if (operationsHosts || managerHosts) styles.textContent += `
     .store-admin-dashboard .dashboard-filter-toolbar { position:fixed; z-index:150; top:50%; right:0; transform:translateY(-50%); transition:right .25s ease; }
     .store-admin-dashboard .dashboard-filter-toolbar .dashboard-filter-trigger,
     .store-admin-dashboard .dashboard-filter-toolbar .dashboard-filter-trigger[aria-expanded="true"] { display:grid; place-items:center; width:46px; height:52px; min-height:52px; padding:0; border:0; border-radius:12px 0 0 12px; color:#fff; background:#123a8c; box-shadow:0 4px 18px #17203340; }
@@ -75,6 +85,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     @media(max-width:1000px) { .store-talent-page .talent-overview-grid,.store-talent-page .talent-performance-grid { grid-template-columns:1fr; } }
     @media(max-width:600px) { .store-admin-dashboard .section-heading h2 { font-size:1.1rem; } .store-admin-dashboard .block-heading h2 { font-size:.95rem; } }
   `;
+  if (managerHosts) styles.textContent += managerStyles;
   shadow.append(styles);
   const view = document.createElement('div');
   shadow.append(view);
@@ -87,9 +98,11 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     const model = controller.reactStandaloneModel();
     const selectedPeriod = controller.selectedPeriod();
     const trafficPeriod = { year: String(Math.floor(selectedPeriod / 100)), monthNumber: String(selectedPeriod % 100).padStart(2, '0'), week: '', day: '' };
+    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate() };
     root.render(<>
-      <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} transferOnly={transferOnly} />
+      <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
+      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
       {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} period={trafficPeriod} />, trafficHost)}
     </>);
   });

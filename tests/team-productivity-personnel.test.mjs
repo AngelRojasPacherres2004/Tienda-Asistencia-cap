@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
+import { teamProductivity } from '../src/commercial/team-productivity.js';
 import { signal, computed } from '../src/commercial/reactivity-react.ts';
 
 const ts = createRequire(import.meta.url)('typescript');
@@ -20,7 +21,7 @@ const grouped = (rows, key) => {
   return result;
 };
 const exports = {};
-vm.runInNewContext(code, { exports, computed, grouped, sum: (rows, key) => rows.reduce((n, row) => n + row[key], 0), C: { gold: '#abc' } });
+vm.runInNewContext(code, { exports, computed, grouped, teamProductivity, sum: (rows, key) => rows.reduce((n, row) => n + row[key], 0), C: { gold: '#abc' } });
 
 function fixture() {
   const s = new exports.Subject();
@@ -49,7 +50,9 @@ function fixture() {
   s.normalized = value => String(value || '').toUpperCase();
   s.indexedRows = (rows, periods, ids) => rows.filter(row => [...periods].includes(row.periodId) && [...ids].includes(row.storeId));
   s.dateRangeActive = signal(false);
-  s.dailyRowsForSelection = () => [{ category: 'TEXTIL', net: 200 }];
+  s.dailyRowsForSelection = () => [{ periodId: 202602, category: 'TEXTIL', net: 200 }];
+  s.data = () => ({ metadata: { salesCutoff: '2026-02-28' } });
+  s.personnelAreaRowsForContext = periods => s.indexedRows(s.monthlyPersonnelAreaIndex, periods, s.filteredStoreIds()).filter(row => !s.categories().length || s.categories().includes(row.area));
   s.selectedSublines = () => [];
   s.genderMatches = s.lineMatches = s.sublineMatches = () => true;
   s.money = s.number = value => value;
@@ -60,10 +63,10 @@ function fixture() {
 test('usa la dotación del mismo mes que distribución por área, sin promediar meses', () => {
   const s = fixture();
   const textil = s.talentTeamProductivityRows().find(row => row.team === 'TEXTIL');
-  assert.equal(textil.personnel, s.talentAreaRows().find(row => row.area === 'TEXTIL').personnel);
-  assert.equal(textil.personnel, 4);
+  assert.equal(s.talentAreaRows().find(row => row.area === 'TEXTIL').personnel, 4);
+  assert.equal(textil.personnel, 12);
   assert.equal(textil.averageMonthlySales, 1200);
-  assert.equal(textil.productivity, 300);
+  assert.equal(textil.productivity, 100);
   assert.ok(!s.talentTeamProductivityRows().some(row => row.team === 'HOGAR'));
   s.period.set(202601);
   assert.equal(s.talentTeamProductivityRows()[0].personnel, 20);
@@ -72,7 +75,7 @@ test('usa la dotación del mismo mes que distribución por área, sin promediar 
 test('ambas gráficas respetan filtros de tienda y área', () => {
   const s = fixture();
   s.stores.set(['A', 'B']);
-  assert.equal(s.talentTeamProductivityRows().find(row => row.team === 'TEXTIL').personnel, 6);
+  assert.equal(s.talentTeamProductivityRows().find(row => row.team === 'TEXTIL').personnel, 13);
   s.categories.set(['CALZADO']);
   assert.equal(s.talentAreaRows().length, 1);
   assert.equal(s.talentTeamProductivityRows().length, 1);
@@ -117,7 +120,7 @@ test('trafico diario respeta fechas y acceso a tiendas sin multiplicar trafico p
   s.filteredStoreIds = () => new Set(['A']);
   s.filteredStores = () => [{ storeId: 'A', alias: 'A' }];
   s.fromDate = () => '2026-02-01'; s.toDate = () => '2026-02-02';
-  s.dailyTrafficRows = [
+  s.dailyTrafficRows = () => [
     { storeId: 'A', date: '2026-02-01', traffic: 10 },
     { storeId: 'A', date: '2026-02-02', traffic: 20 },
     { storeId: 'A', date: '2026-02-03', traffic: 100 },

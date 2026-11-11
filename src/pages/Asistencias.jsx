@@ -17,7 +17,7 @@ export default function Asistencias({ user }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
   const [success, setSuccess] = useState(null);
-  const storeAdmin = user?.rol === 'jefe_tienda';
+  const storeAdmin = ['jefe_tienda', 'asistente_tienda'].includes(user?.rol);
   const readOnly = storeAdmin && fecha !== todayISO();
   const yesterday = new Date(`${todayISO()}T12:00:00Z`);
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);

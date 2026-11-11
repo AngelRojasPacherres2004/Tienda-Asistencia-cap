@@ -9,6 +9,9 @@ import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-ref
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal, type SavedTransferGroup } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { closingCommercialPeriod } from '../lib/currentCommercialPeriod';
+import { mergeCommercialTraffic, availableTrafficMonths } from '../lib/commercialTraffic';
+import { teamProductivity } from './team-productivity';
+import { publishedSalesPeriods, publishedSalesDays, averageRecordedPersonnel } from './sales-period-context';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
 import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
@@ -226,9 +229,6 @@ export class CommercialDashboardController implements OnInit {
   private stockInsightsResolvedCommonKey = '';
   private readonly stockInsightBrands = computed(() => this.stockInsightsData()?.brandRows);
   private readonly stockInsightHealth = computed(() => this.stockInsightsData()?.healthRows);
-  private readonly stockInsightProjection = computed(() => this.stockInsightsData()?.projectionRows);
-  private readonly stockInsightRisk = computed(() => this.stockInsightsData()?.riskRows);
-  private readonly stockInsightPriority = computed(() => this.stockInsightsData()?.priorityProducts);
   private readonly stockInsightsActivated = signal(false);
   private readonly stockInsightsRetry = signal(0);
   readonly stockHierarchyLoaded = signal(false);
@@ -369,7 +369,7 @@ export class CommercialDashboardController implements OnInit {
   readonly trafficMonthlyRows = computed(() => {
     this.data();
     const year = this.ticketChartYear();
-    const cutoff = this.data()?.metadata.salesCutoff || '';
+    const cutoff = [this.data()?.metadata.salesCutoff, this.data()?.metadata.trafficCutoff].filter(Boolean).sort().at(-1) || '';
     const cutoffYear = Number(cutoff.slice(0, 4));
     const cutoffMonth = Number(cutoff.slice(5, 7));
     const visibleMonths = year === cutoffYear ? MONTHS.slice(0, cutoffMonth) : MONTHS;
@@ -383,7 +383,7 @@ export class CommercialDashboardController implements OnInit {
       const transactions = sum(rows, 'transactions');
       const metadata = this.data()?.metadata;
       const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
-      return { label, traffic, transactions, conversion: traffic > 0 && (!metadata || conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
+      return { label, traffic, transactions, conversion: traffic > 0 && (!metadata || `${year}-${String(index + 1).padStart(2, '0')}-01` <= metadata.salesCutoff && conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
     });
   });
   readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic > 0));
@@ -442,7 +442,7 @@ export class CommercialDashboardController implements OnInit {
       const traffic = sum(rows, 'traffic');
       const metadata = this.data()?.metadata;
       const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
-      return { label, transactions, traffic, conversion: traffic > 0 && (!metadata || conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
+      return { label, transactions, traffic, conversion: traffic > 0 && (!metadata || `${year}-${String(index + 1).padStart(2, '0')}-01` <= metadata.salesCutoff && conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
     });
   });
   readonly conversionChartHasData = computed(() => this.conversionMonthlyRows().some(row => row.conversion !== null));
@@ -572,6 +572,14 @@ export class CommercialDashboardController implements OnInit {
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
   readonly trainingAudience = signal<'SELLERS' | 'ADMINISTRATORS'>('SELLERS');
   readonly coverageProjectionHorizon = signal<0 | 30 | 60 | 90>(0);
+  readonly projectionStore = signal('TODAS');
+  private readonly projectionInsightsData = signal<StockInsights | null>(null);
+  private readonly projectionInsightsStore = signal('');
+  private readonly projectionInsightsLoading = signal(false);
+  private readonly projectionInsightsError = signal('');
+  private readonly projectionInsights = computed(() => this.projectionStore() === 'TODAS'
+    ? this.stockInsightsData()
+    : this.projectionInsightsStore() === this.projectionStore() ? this.projectionInsightsData() : null);
   readonly stockHistoryBuckets: { value: StockHistoryBucket; label: string; title: string }[] = [
     { value: 'ALL', label: 'GENERAL', title: 'Todo el histórico' },
     { value: '2026', label: '2026', title: 'Origen 2026' },
@@ -627,7 +635,8 @@ export class CommercialDashboardController implements OnInit {
   readonly dayFilterMax = computed(() => {
     if (!this.dayFilterEnabled()) return '';
     const month = this.selectedMonths()[0]; const last = new Date(Date.UTC(this.year(), month, 0)).getUTCDate();
-    const cutoff = this.data()?.metadata.salesCutoff || `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
+    const metadata = this.data()?.metadata;
+    const cutoff = [metadata?.salesCutoff, metadata?.trafficCutoff].filter(Boolean).sort().at(-1) || `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
     return cutoff.slice(0, 7) === `${this.year()}-${String(month).padStart(2, '0')}` ? cutoff : `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
   });
 
@@ -812,7 +821,8 @@ export class CommercialDashboardController implements OnInit {
       .filter(row => this.year() !== cutoffYear || row.periodId % 100 <= cutoffMonth)
       .filter(row => storeIds.has(row.storeId) && this.hasMonthlyData(row))
       .map(row => row.periodId % 100);
-    return [...new Set(periods)].sort((a, b) => a - b);
+    const trafficMonths = availableTrafficMonths(this.dailyTrafficRows(), this.year(), storeIds);
+    return [...new Set([...periods, ...trafficMonths])].sort((a, b) => a - b);
   });
   readonly activeMonths = computed(() => {
     const available = new Set(this.availableMonths());
@@ -823,8 +833,9 @@ export class CommercialDashboardController implements OnInit {
   readonly latestAvailableMonth = computed(() => this.availableMonths().at(-1) ?? 12);
   readonly selectedMonth = computed(() => this.activeMonths().at(-1) ?? this.latestAvailableMonth());
   readonly selectedPeriod = computed(() => this.year() * 100 + this.selectedMonth());
-  readonly sizeSalesPeriod = computed(() => this.year() * 100 + (this.selectedMonths().at(-1) || this.selectedMonth()));
+  readonly sizeSalesPeriod = computed(() => [...this.selectedSalesPeriods()].at(-1) ?? this.selectedPeriod());
   readonly selectedPeriods = computed(() => new Set(this.activeMonths().map(month => this.year() * 100 + month)));
+  readonly selectedSalesPeriods = computed(() => new Set<number>(publishedSalesPeriods(this.selectedPeriods(), this.data()?.metadata.salesCutoff || '')));
   readonly contextFromPeriod = computed(() => this.year() * 100 + (this.activeMonths().at(0) ?? 1));
   readonly selectedToPeriod = computed(() => this.year() * 100 + (this.activeMonths().at(-1) ?? 12));
 
@@ -1004,9 +1015,9 @@ export class CommercialDashboardController implements OnInit {
   readonly lineFilterLabel = computed(() => this.multiLabel(this.selectedLines(), 'TODAS', 'LÍNEAS'));
   readonly sublineFilterLabel = computed(() => this.multiLabel(this.selectedSublines(), 'TODAS', 'SUBLÍNEAS'));
   readonly annualContextLabel = computed(() => this.periodContextLabel(this.activeMonths(), this.year()));
-  readonly annualPreviousContextLabel = computed(() => this.periodContextLabel(this.activeMonths(), this.year() - 1));
+  readonly annualPreviousContextLabel = computed(() => this.periodContextLabel([...this.selectedSalesPeriods()].map(period => period % 100), this.year() - 1));
   readonly annualVariationLabel = computed(() => {
-    const months = this.activeMonths();
+    const months = [...this.selectedSalesPeriods()].map(period => period % 100);
     const comparedYear = this.year() - 1;
     if (!months.length) return `VAR. INTERANUAL ${this.year()} VS ${comparedYear}`;
     const first = MONTHS[months[0] - 1].toUpperCase();
@@ -1020,11 +1031,11 @@ export class CommercialDashboardController implements OnInit {
       : this.periodLabel(this.selectedPeriod()).toUpperCase();
   });
   readonly previousMonthContextLabel = computed(() => {
-    const period = this.selectedPeriod();
+    const period = [...this.selectedSalesPeriods()].at(-1) ?? this.selectedPeriod();
     const previous = period % 100 === 1 ? (Math.floor(period / 100) - 1) * 100 + 12 : period - 1;
     return this.periodLabel(previous).toUpperCase();
   });
-  readonly monthlyVariationLabel = computed(() => this.selectedMonths().length > 1
+  readonly monthlyVariationLabel = computed(() => this.selectedSalesPeriods().size !== 1
     ? 'VAR. MENSUAL: NO APLICA'
     : `VAR. MENSUAL VS ${this.previousMonthContextLabel().split(' ')[0]}`);
 
@@ -1099,6 +1110,13 @@ export class CommercialDashboardController implements OnInit {
     const [year, month] = key.split('-').map(Number);
     const monthFrom = `${key}-01`;
     const monthTo = `${key}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`;
+    // A traffic-only month has no published daily sales file to download.
+    if (monthFrom > (this.data()?.metadata.salesCutoff || '') && this.dailyTrafficRows().some(row => row.date.startsWith(key))) {
+      this.dailyStoreRows = [];
+      this.dailyHourlySalesRows = [];
+      this.dailyDetailLoaded.set(true);
+      return;
+    }
     const promise = (async () => {
       let detail: { dailyStore?: Monthly[]; hourlySales?: HourlySalesRow[] } | undefined;
       try {
@@ -1355,7 +1373,7 @@ export class CommercialDashboardController implements OnInit {
     for (const card of actions) if (card.action === 'trafficOther') card.title += trafficNote;
     actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: `${this.money(metrics.ticket)}. Fórmula: venta neta ÷ transacciones.`, action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
     return {
-      actions: actions.map(card => ({ ...card, note: card.action === 'trafficOther' ? trafficNote.trim() : card.action === 'conversion' && this.data()?.metadata.trafficCutoff && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff && metrics.conversion == null ? 'Ventas y tráfico tienen cortes distintos' : '' })),
+      actions: actions.map(card => ({ ...card, note: card.action === 'trafficOther' ? trafficNote.trim() : card.action === 'conversion' && this.selectedSalesPeriods().size !== this.selectedPeriods().size ? 'Solo meses con ventas publicadas' : card.action === 'conversion' && metrics.conversion == null && this.data()?.metadata.trafficCutoff !== this.data()?.metadata.salesCutoff ? 'Ventas y tr?fico tienen cortes distintos' : '' })),
       saleM2: this.money(metrics.saleM2), saleM2Title: `${this.money(metrics.saleM2)}. Fórmula: venta neta ÷ área comercial.`, personnel: this.number(metrics.personnel),
       saleCollaborator: this.money(metrics.saleCollaborator, true), saleCollaboratorMissing: metrics.saleCollaborator == null,
       saleCollaboratorTitle: `${this.money(metrics.saleCollaborator)}. Fórmula: venta neta ÷ colaboradores.`,
@@ -1415,9 +1433,9 @@ export class CommercialDashboardController implements OnInit {
       roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
     }
     const personnel = activeWorkers ? this.number(workers.length) : 'N/A';
-    const saleCollaborator = activeWorkers && workers.length ? metrics.net / workers.length : null;
+    const saleCollaborator = this.selectedSalesPeriods().size && activeWorkers && workers.length ? metrics.net / workers.length : null;
     const showTopStore = ['gerente_comercial', 'coach'].includes(this.cloud.accessProfile()?.roleCode || '');
-    const sales = grouped(this.yearRows(), row => row.storeId);
+    const sales = grouped(this.yearRows().filter(row => this.selectedSalesPeriods().has(row.periodId)), row => row.storeId);
     const topStore = activeWorkers ? this.filteredStores().map(store => {
       const count = workers.filter(worker => worker.storeId === store.storeId).length;
       const rows = sales.get(store.storeId) || [];
@@ -1718,7 +1736,10 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   readonly projectionCardModel = computed<Record<string, unknown>>(() => ({
-    loading: this.stockInsightsRefreshing(),
+    loading: this.projectionStore() === 'TODAS' ? this.stockInsightsRefreshing() : this.projectionInsightsLoading(),
+    store: this.projectionStore(),
+    storeOptions: this.inventoryStoresIgnoringStoreFilter().map(store => ({ value: store.storeId, label: store.alias || store.store })).sort((a, b) => a.label.localeCompare(b.label, 'es')),
+    error: this.projectionInsightsError(),
     horizon: this.coverageProjectionHorizon(), option: blackChartText(this.predictiveProjectionOption()),
     stores: this.projectionRiskDetails().map(row => ({ ...row,
       riskAmount: riskMoneyFormat.format(row.riskValue), totalAmount: riskMoneyFormat.format(row.totalValue),
@@ -1733,6 +1754,8 @@ export class CommercialDashboardController implements OnInit {
 
   onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'horizon' && (value === 0 || value === 30 || value === 60 || value === 90)) this.coverageProjectionHorizon.set(value);
+    else if (type === 'store' && typeof value === 'string' && this.cloud.accessProfile()?.roleCode === 'gerente_comercial'
+      && (value === 'TODAS' || this.inventoryStoresIgnoringStoreFilter().some(store => store.storeId === value))) this.projectionStore.set(value);
   }
 
   readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
@@ -2059,19 +2082,18 @@ export class CommercialDashboardController implements OnInit {
     const displayMonths = year === this.year()
       ? months.slice(0, this.yearOnlyMonthLimit(year))
       : months;
-    const selectedPeriods = selectedMonth ? new Set([year * 100 + selectedMonth])
+    const requestedPeriods = selectedMonth ? new Set([year * 100 + selectedMonth])
       : year === this.year() ? this.selectedPeriods()
         : new Set(Array.from({ length: this.yearOnlyMonthLimit(year) }, (_, index) => year * 100 + index + 1));
-    const personnelPeriods = selectedMonth ? [year * 100 + selectedMonth]
-      : year === this.year() && this.selectedMonths().length ? [...selectedPeriods]
-        : [year * 100 + (year === this.year() ? this.selectedMonth() : this.yearOnlyMonthLimit(year))];
+    const selectedPeriods = new Set<number>(publishedSalesPeriods(requestedPeriods, this.data()?.metadata.salesCutoff || ''));
+    const personnelPeriods = selectedMonth || year === this.year() && this.selectedMonths().length ? [...selectedPeriods]
+      : [...selectedPeriods].slice(-1);
     const sellerRows = metric === 'saleCollaborator' ? aggregateSellerRanking(this.sellerPerformanceData().filter(row =>
       ids.has(row.storeId) && selectedPeriods.has(row.periodId) && this.categoryMatches(row.category) && this.lineMatches(row.line) && this.sublineMatches(row.subline))) : [];
     const totalNet = sum(this.rowsForPeriods(selectedPeriods, ids), 'net');
     const selectedPersonnelRows = this.indexedRows(this.monthlyPersonnelAreaIndex, personnelPeriods, ids).filter(row => !categories.length ||
       (this.normalized(row.areaType) === 'COMERCIAL' && categories.some(category => this.personnelAreaMatchesCategory(row, category))));
-    const personnelByPeriod = grouped(selectedPersonnelRows, row => row.periodId);
-    const averagePersonnel = personnelPeriods.length ? personnelPeriods.reduce((total, period) => total + sum(personnelByPeriod.get(period) || [], 'personnel'), 0) / personnelPeriods.length : 0;
+    const averagePersonnel = averageRecordedPersonnel(selectedPersonnelRows, new Set(personnelPeriods)) || 0;
     const unmatchedNet = totalNet - sellerRows.reduce((total, row) => total + row.net, 0);
     return {
       moduleId: `${metric}-modal`, titleId: 'kpi-detail-title', title: titles[metric] || 'INDICADOR', closeLabel: 'Cerrar detalle del indicador',
@@ -2320,11 +2342,12 @@ export class CommercialDashboardController implements OnInit {
   }
 
   readonly previousMonthRows = computed(() => {
-    const p = this.selectedPeriod(); const previous = p % 100 === 1 ? (Math.floor(p / 100) - 1) * 100 + 12 : p - 1;
+    const p = [...this.selectedSalesPeriods()].at(-1); if (!p) return [];
+    const previous = p % 100 === 1 ? (Math.floor(p / 100) - 1) * 100 + 12 : p - 1;
     return this.rowsForPeriods([previous], this.filteredStoreIds());
   });
   readonly previousYearRows = computed(() => {
-    const periods = this.activeMonths().map(month => (this.year() - 1) * 100 + month);
+    const periods = [...this.selectedSalesPeriods()].map(period => period - 100);
     return this.rowsForPeriods(periods, this.filteredStoreIds());
   });
 
@@ -2349,13 +2372,9 @@ export class CommercialDashboardController implements OnInit {
     return false;
   }
 
-  private personnelForSelectedContext(): number | null {
-    const periods = this.personnelPeriods();
+  private personnelForSelectedContext(periods = this.personnelPeriods()): number | null {
     const applicable = this.personnelAreaRowsForContext(periods);
-    const byPeriod = new Map<number, number>();
-    applicable.forEach(row => byPeriod.set(row.periodId, (byPeriod.get(row.periodId) || 0) + (row.personnel || 0)));
-    const total = periods.reduce((value, period) => value + (byPeriod.get(period) || 0), 0);
-    return total > 0 ? total / Math.max(1, periods.length) : null;
+    return averageRecordedPersonnel(applicable, new Set(periods));
   }
 
   private personnelPeriods(): number[] {
@@ -2373,7 +2392,9 @@ export class CommercialDashboardController implements OnInit {
   // Venta neta acumulada + promedio de los mismos meses pendientes de los dos años anteriores.
   private salesProjection(actual: number) {
     const currentYear = this.year();
-    const lastMonth = this.activeMonths().at(-1) ?? this.yearOnlyMonthLimit(currentYear);
+    const lastPeriod = [...this.selectedSalesPeriods()].at(-1);
+    if (!lastPeriod) return { value: null, base: null, growth: null, error: null, actualYtd: 0, historicYtd: 0, ytdForecast: 0, seasonalForecast: 0, runRateForecast: 0, weights: { ytd: 1, seasonal: 0, runRate: 0 }, months: [] };
+    const lastMonth = lastPeriod % 100;
     const ids = this.filteredStoreIds();
     const actualPeriods = Array.from({ length: lastMonth }, (_, index) => currentYear * 100 + index + 1);
     const actualYtd = sum(this.rowsForPeriods(actualPeriods, ids), 'net');
@@ -2447,43 +2468,32 @@ export class CommercialDashboardController implements OnInit {
       : (d?.predictiveStore || []).filter(row => sellThroughStores.has(row.storeId));
     const sellThroughStock = sellThroughSource.reduce((total, row) => total + (row.stockUnits || 0), 0);
     const canCompareSellThrough = !this.selectedLines().length && !this.selectedSublines().length;
-    const personnel = this.personnelForSelectedContext();
+    const personnel = this.personnelForSelectedContext([...this.selectedSalesPeriods()]);
     const area = this.filteredStores().reduce((t, s) => t + (s.areaM2 || 0) * .8, 0);
-    const cutoff = this.data()?.metadata.salesCutoff || ''; const cutoffYear = Number(cutoff.slice(0, 4)); const cutoffMonth = Number(cutoff.slice(5, 7));
-    let dailyAverageDivisor: number;
-    if (this.dateRangeActive()) {
-      const from = this.fromDate();
-      const to = this.toDate() || this.fromDate();
-      const fromParts = from.split('-').map(Number);
-      const toParts = to.split('-').map(Number);
-      const fromUtc = Date.UTC(fromParts[0], fromParts[1] - 1, fromParts[2]);
-      const toUtc = Date.UTC(toParts[0], toParts[1] - 1, toParts[2]);
-      dailyAverageDivisor = Math.max(1, Math.round((toUtc - fromUtc) / (1000 * 60 * 60 * 24)) + 1);
-    } else {
-      const selectedDays = this.selectedMonths().length
-        ? this.activeMonths().reduce((total, selectedMonth) => total + (this.year() === cutoffYear && selectedMonth === cutoffMonth ? Number(cutoff.slice(8, 10)) : new Date(this.year(), selectedMonth, 0).getDate()), 0)
-        : (this.year() === cutoffYear && this.selectedMonth() === cutoffMonth ? Number(cutoff.slice(8, 10)) : new Date(this.year(), this.selectedMonth(), 0).getDate());
-      const accumulatedMonths = Math.max(1, this.activeMonths().length);
-      dailyAverageDivisor = this.selectedMonths().length ? selectedDays : selectedDays * accumulatedMonths;
-    }
+    const cutoff = this.data()?.metadata.salesCutoff || '';
+    const dailyAverageDivisor = publishedSalesDays(this.selectedSalesPeriods(), cutoff,
+      this.dateRangeActive() ? this.fromDate() : '', this.dateRangeActive() ? this.toDate() : '');
+    const salesTraffic = this.dailyTrafficRows().filter(row => this.filteredStoreIds().has(row.storeId)
+      && this.selectedSalesPeriods().has(Number(row.date.slice(0, 7).replace('-', '')))
+      && row.date <= cutoff && (!this.dateRangeActive() || row.date >= this.fromDate() && row.date <= (this.toDate() || this.fromDate())))
+      .reduce((total, row) => total + (row.traffic || 0), 0);
     const gross = sum(ytd, 'gross'); const positive = sum(ytd, 'positiveReal');
     const projection = this.salesProjection(net);
     return {
-      gross, notes: sum(ytd, 'notes'), discount: sum(ytd, 'discount'), net, transactions: tx, traffic,
+      salesDays: dailyAverageDivisor, conversionTraffic: salesTraffic, gross, notes: sum(ytd, 'notes'), discount: sum(ytd, 'discount'), net, transactions: tx, traffic,
       trafficMetro,
       trafficOther,
       units, annualTarget, targetYtd, monthNet, monthTarget,
       annualPct: annualTarget ? net / annualTarget : null, accumulatedPct: targetYtd ? net / targetYtd : null,
-      monthlyPct: monthTarget ? monthNet / monthTarget : null, monthVariation: this.selectedMonths().length > 1 ? null : (priorMonth ? monthNet / priorMonth - 1 : null),
+      monthlyPct: monthTarget ? monthNet / monthTarget : null, monthVariation: this.selectedSalesPeriods().size !== 1 ? null : (priorMonth ? monthNet / priorMonth - 1 : null),
       // Venta promedio diaria = venta neta del período seleccionado ÷ días calendario del mismo período.
       // En ACUMULADO usa Ene..corte; al elegir un mes usa solo los días de ese mes.
       annualGrowth: previousYtd ? net / previousYtd - 1 : null, dailyAverage: dailyAverageDivisor ? net / dailyAverageDivisor : null,
       returnRatio: positive > 0 ? sum(ytd, 'notes') / positive : null,
-      conversion: traffic && conversionComparable(this.data()!.metadata.salesCutoff, this.data()?.metadata.trafficCutoff,
-        this.dateRangeActive() ? this.toDate() || this.fromDate() : `${this.year()}-${String(Math.max(...this.activeMonths())).padStart(2, '0')}-${new Date(this.year(), Math.max(...this.activeMonths()), 0).getDate()}`)
-        ? tx / traffic : null, ticket: tx ? net / tx : null, saleM2: area ? net / area : null,
-      personnel, saleCollaborator: personnel && net ? net / personnel : null, priceVariation: gross ? (positive - gross) / gross : null,
-      sellThrough: canCompareSellThrough && sellThroughStock + sum(ytd, 'received') > 0
+      conversion: salesTraffic && this.selectedSalesPeriods().size && conversionComparable(cutoff, this.data()?.metadata.trafficCutoff,
+        this.dateRangeActive() ? this.toDate() || this.fromDate() : cutoff) ? tx / salesTraffic : null, ticket: tx ? net / tx : null, saleM2: area && this.selectedSalesPeriods().size ? net / area : null,
+      personnel, saleCollaborator: personnel && this.selectedSalesPeriods().size ? net / personnel : null, priceVariation: gross ? (positive - gross) / gross : null,
+      sellThrough: this.selectedSalesPeriods().size && canCompareSellThrough && sellThroughStock + sum(ytd, 'received') > 0
         ? units / (sellThroughStock + sum(ytd, 'received'))
         : null,
       sellThroughStock,
@@ -2499,7 +2509,7 @@ export class CommercialDashboardController implements OnInit {
     const net = sum(rows, 'net');
     const targetYtd = this.targetForPeriods(periods);
     const annualTarget = this.targetForPeriods(this.rangePeriods(this.year() * 100 + 1, this.year() * 100 + 12));
-    const previous = this.activeMonths().map(month => (this.year() - 1) * 100 + month);
+    const previous = [...this.selectedSalesPeriods()].map(period => period - 100);
     const previousNet = sum(this.rowsForPeriods(previous, this.filteredStoreIds()), 'net');
     return {
       net, targetYtd, annualTarget,
@@ -2601,15 +2611,17 @@ export class CommercialDashboardController implements OnInit {
   // Capacidad de dotación real contra los dos parámetros maestros de DimTiendas.
   readonly talentStoreRows = computed(() => {
     const stores = new Map(this.filteredStores().map(store => [store.storeId, store]));
-    const sales = grouped(this.yearRows(), row => row.storeId);
+    const sales = grouped(this.yearRows().filter(row => this.selectedSalesPeriods().has(row.periodId)), row => row.storeId);
+    const salesPeople = grouped(this.personnelAreaRowsForContext([...this.selectedSalesPeriods()]), row => row.storeId);
     const people = grouped(this.indexedRows(this.monthlyPersonnelAreaIndex, [this.selectedPeriod()], this.filteredStoreIds()), row => row.storeId);
     return [...stores.entries()].map(([storeId, store]) => {
       const net = sum(sales.get(storeId) || [], 'net');
       const rows = people.get(storeId) || [];
       const staff = sum(rows, 'personnel');
+      const salesStaff = averageRecordedPersonnel(salesPeople.get(storeId) || [], this.selectedSalesPeriods());
       const baseStaff = store.normalStaff || 0; const campaignStaff = store.campaignStaff || baseStaff;
       const plannedStaff = [2, 7, 12].includes(this.selectedMonth()) ? campaignStaff : baseStaff;
-      return { alias: store.alias, net, staff, baseStaff, campaignStaff, plannedStaff, gap: staff - plannedStaff, productivity: staff ? net / staff : null };
+      return { alias: store.alias, net, staff, baseStaff, campaignStaff, plannedStaff, gap: staff - plannedStaff, productivity: salesStaff ? net / salesStaff : null };
     }).sort((a, b) => (b.productivity || 0) - (a.productivity || 0));
   });
   readonly sellerPerformanceMode = signal<'top' | 'bottom'>('top');
@@ -2733,15 +2745,12 @@ export class CommercialDashboardController implements OnInit {
       ? this.dailyRowsForSelection(ids)
       : this.indexedRows(this.selectedSublines().length ? this.monthlySublineIndex : this.monthlyLineIndex, periods, ids)
           .filter(row => this.categoryMatches(row.category) && this.genderMatches(row.line) && this.lineMatches(row.line) && this.sublineMatches(row.subline));
-    const salesByTeam = grouped(salesSource.filter(row => comparableTeams.has(this.areaHead(row.category))), row => this.areaHead(row.category));
-    const personnelByTeam = grouped(this.talentAreaPersonnelRows(), row => this.areaHead(row.area));
-    const periodCount = Math.max(1, periods.size);
-    return [...salesByTeam.entries()].map(([team, rows]) => {
-      const personnel = sum(personnelByTeam.get(team) || [], 'personnel');
-      const averageMonthlySales = sum(rows, 'net') / periodCount;
-      return { team, personnel, averageMonthlySales, productivity: personnel ? averageMonthlySales / personnel : null };
-    }).filter(row => row.personnel > 0 && row.productivity != null)
-      .sort((a, b) => (b.productivity || 0) - (a.productivity || 0));
+    const personnelRows = this.personnelAreaRowsForContext([...periods]);
+    return teamProductivity(
+      salesSource.filter(row => comparableTeams.has(this.areaHead(row.category))).map(row => ({ periodId: row.periodId, team: this.areaHead(row.category), net: row.net })),
+      personnelRows.map(row => ({ periodId: row.periodId, team: this.areaHead(row.area), personnel: row.personnel })),
+      periods, this.data()?.metadata.salesCutoff || '',
+    );
   });
   readonly talentTeamProductivityOption = computed<EChartsOption>(() => {
     const rows = this.talentTeamProductivityRows(); const max = Math.max(1, ...rows.map(row => row.productivity || 0));
@@ -2990,7 +2999,7 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveTemporalAvailable = computed(() => {
     const cutoff = this.data()?.metadata.stockCutoff || '';
     const cutoffYear = Number(cutoff.slice(0, 4)); const cutoffMonth = Number(cutoff.slice(5, 7));
-    return this.year() === cutoffYear && (this.selectedMonths().length === 0 || this.selectedMonth() === cutoffMonth);
+    return this.year() === cutoffYear && (this.selectedMonths().length === 0 || this.activeMonths().includes(cutoffMonth));
   });
   readonly predictiveTemporalMessage = computed(() => {
     if (this.predictiveTemporalAvailable()) return '';
@@ -3564,9 +3573,9 @@ export class CommercialDashboardController implements OnInit {
     const priority: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'SIN ROTACIÓN': 2, 'BAJA ROTACIÓN': 3, 'ÓPTIMO': 4 };
     const days = this.coverageProjectionHorizon();
     const stores = new Map(this.inventoryStoresIgnoringStoreFilter().map(store => [store.storeId, store.alias || store.store]));
-    const serverRows = this.stockInsightPriority();
+    const serverRows = this.projectionInsights()?.priorityProducts;
     if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId }));
-    return [...this.predictiveProductHealthRows()]
+    return [...this.predictiveProductHealthRows().filter(row => this.projectionStore() === 'TODAS' || row.storeId === this.projectionStore())]
       .map(row => {
         const coverageDays = row.coverageDays == null ? null : Math.max(0, row.coverageDays - days);
         const status = row.status === 'SIN ROTACIÓN' || coverageDays == null
@@ -3602,14 +3611,14 @@ export class CommercialDashboardController implements OnInit {
     const statuses = ['CRÍTICO', 'ALERTA', 'ÓPTIMO', 'BAJA ROTACIÓN', 'SIN ROTACIÓN'];
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
     const buckets = new Map(statuses.map(status => [status, { value: 0, products: 0 }]));
-    const serverRows = this.stockInsightProjection();
+    const serverRows = this.projectionInsights()?.projectionRows;
     if (serverRows) {
       for (const row of serverRows) {
         const bucket = buckets.get(row.status) || buckets.get('SIN ROTACIÓN')!;
         bucket.value += row.value; bucket.products += row.products;
       }
     } else {
-      this.predictiveProductHealthRows().forEach(row => {
+      this.predictiveProductHealthRows().filter(row => this.projectionStore() === 'TODAS' || row.storeId === this.projectionStore()).forEach(row => {
         const status = row.status === 'SIN ROTACIÓN' || row.coverageDays == null ? 'SIN ROTACIÓN' : this.predictiveStatus(Math.max(0, row.coverageDays - days), false).label;
         const bucket = buckets.get(status) || buckets.get('SIN ROTACIÓN')!; bucket.value += row.vendibleValue; bucket.products += 1;
       });
@@ -3622,11 +3631,11 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveStoreRiskRows = computed(() => {
     const days = this.coverageProjectionHorizon();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
-    const serverRows = this.stockInsightRisk();
+    const serverRows = this.projectionInsights()?.riskRows;
     if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId,
       share: row.totalValue ? row.riskValue / row.totalValue : 0 }))
-      .sort((a, b) => b.riskValue - a.riskValue).slice(0, 7);
-    const byStore = grouped(this.predictiveProductHealthRows(), row => row.storeId);
+      .sort((a, b) => b.riskValue - a.riskValue).slice(0, this.cloud.accessProfile()?.roleCode === 'gerente_comercial' ? 3 : 7);
+    const byStore = grouped(this.predictiveProductHealthRows().filter(row => this.projectionStore() === 'TODAS' || row.storeId === this.projectionStore()), row => row.storeId);
     return [...byStore.entries()].map(([storeId, storeRows]) => {
       const risky = storeRows.filter(row => {
         if (row.status === 'SIN ROTACIÓN' || row.coverageDays == null) return false;
@@ -3636,7 +3645,7 @@ export class CommercialDashboardController implements OnInit {
       const totalValue = storeRows.reduce((total, row) => total + row.vendibleValue, 0);
       const riskValue = risky.reduce((total, row) => total + row.vendibleValue, 0);
       return { storeId, store: stores.get(storeId) || storeId, riskValue, totalValue, share: totalValue ? riskValue / totalValue : 0, riskProducts: risky.length, products: storeRows.length };
-    }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, 7);
+    }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, this.cloud.accessProfile()?.roleCode === 'gerente_comercial' ? 3 : 7);
   });
   readonly projectionRiskDetails = computed(() => {
     const rows = this.predictiveStoreRiskRows();
@@ -4690,10 +4699,43 @@ export class CommercialDashboardController implements OnInit {
     onCleanup(() => { clearTimeout(timer); controller.abort(); });
   });
 
+  private readonly projectionStoreEffect = effect(onCleanup => {
+    if (!this.cloud.portalEnabled || this.page() !== 2 || !this.stockInsightsActivated()) return;
+    const selected = this.projectionStore();
+    if (selected === 'TODAS') {
+      this.projectionInsightsLoading.set(false);
+      this.projectionInsightsError.set('');
+      return;
+    }
+    const allowed = new Set(this.cloud.accessProfile()?.allowedStoreIds || []);
+    const store = this.inventoryStoresIgnoringStoreFilter().find(row => row.storeId === selected && allowed.has(row.storeId));
+    if (!store) { this.projectionStore.set('TODAS'); return; }
+    const filters = {
+      storeIds: [store.storeId], rubros: this.predictiveRubros(), lines: this.selectedLines(), sublines: this.selectedSublines(),
+      windowDays: PREDICTIVE_WINDOW_DAYS, movementDays: PREDICTIVE_WINDOW_DAYS,
+      healthyDays: PREDICTIVE_HEALTHY_DAYS, overstockDays: PREDICTIVE_OVERSTOCK_DAYS,
+      mermaPct: PREDICTIVE_MERMA_PCT, horizonDays: this.coverageProjectionHorizon(),
+    };
+    const controller = new AbortController();
+    this.projectionInsightsStore.set(selected);
+    this.projectionInsightsData.set(null);
+    this.projectionInsightsLoading.set(true);
+    this.projectionInsightsError.set('');
+    const timer = setTimeout(() => {
+      this.cloud.stockInsights(filters, controller.signal).then(result => {
+        if (!controller.signal.aborted) this.projectionInsightsData.set(result);
+      }).catch(error => {
+        if (!controller.signal.aborted) this.projectionInsightsError.set(`No se pudo consultar el riesgo de esta tienda: ${error instanceof Error ? error.message : error}`);
+      }).finally(() => { if (!controller.signal.aborted) this.projectionInsightsLoading.set(false); });
+    }, 120);
+    onCleanup(() => { clearTimeout(timer); controller.abort(); });
+  });
+
   disposeReactRuntime(): void {
     this.priceRangeStockEffect.destroy();
     this.stockTransferCalculationEffect.destroy();
     this.stockInsightsEffect.destroy();
+    this.projectionStoreEffect.destroy();
     this.sizeSalesEffect.destroy();
   }
 
@@ -4762,26 +4804,7 @@ export class CommercialDashboardController implements OnInit {
       // La normalización aquí también protege archivos JSON antiguos regenerados.
       loaded.stores = (loaded.stores || []).map(store => store.storeId === 'T014' ? { ...store, store: 'AGU', alias: 'AGU' } : store);
       if (trafficResult.status === 'fulfilled' && trafficResult.value) {
-        const summary = trafficResult.value;
-        const salesCutoff = loaded.metadata.salesCutoff;
-        // Tráfico es una fuente administrativa: se muestra exclusivamente lo
-        // registrado en trafico_tienda, sin completar períodos con JSON legado.
-        const databaseDaily = (summary.daily || []).filter(row => row.date <= salesCutoff);
-        const trafficByPeriod = new Map<string, number>();
-        for (const row of databaseDaily) {
-          const periodId = Number(row.date.slice(0, 4)) * 100 + Number(row.date.slice(5, 7));
-          const key = `${periodId}|${row.storeId}`;
-          trafficByPeriod.set(key, (trafficByPeriod.get(key) || 0) + (Number(row.traffic) || 0));
-        }
-        const effectiveTrafficCutoff = summary.cutoff && summary.cutoff < salesCutoff ? summary.cutoff : salesCutoff;
-        loaded = {
-          ...loaded,
-          monthlyStore: (loaded.monthlyStore || []).map(row => ({
-            ...row, traffic: trafficByPeriod.get(`${row.periodId}|${row.storeId}`) ?? 0,
-          })),
-          dailyTraffic: databaseDaily,
-          metadata: { ...loaded.metadata, trafficCutoff: effectiveTrafficCutoff || loaded.metadata.trafficCutoff },
-        };
+        loaded = mergeCommercialTraffic(loaded, trafficResult.value);
       } else if (trafficResult.status === 'rejected') {
         console.warn('No se pudo actualizar el tráfico desde Supabase:', trafficResult.reason);
       }
@@ -5268,6 +5291,7 @@ export class CommercialDashboardController implements OnInit {
   private releaseSectionDetails(): void {
     this.cancelPendingSectionLoads();
     this.stockInsightsActivated.set(false); this.stockInsightsData.set(null);
+    this.projectionStore.set('TODAS'); this.projectionInsightsData.set(null); this.projectionInsightsStore.set('');
     this.stockProductsByStore.clear(); this.stockProductsByCategory.clear(); this.predictiveProductsByProduct.clear();
     this.stockProductsData.set([]); this.staticPredictiveProductsData.set([]); this.stockOriginData.set([]);
     this.stockHierarchyData.set([]); this.stockHierarchyLoaded.set(false);

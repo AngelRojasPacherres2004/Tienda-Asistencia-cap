@@ -9,7 +9,6 @@ export default function CommercialReactAssistantWidget({ model, onAction }) {
   useEffect(() => { if (model.open && messages.current) messages.current.scrollTop = messages.current.scrollHeight; }, [model.open, model.messages, model.busy]);
   return <div className="assistant-react-root" data-react-commercial-module="assistant-widget">
     <style>{scopedCss}</style>
-    <button type="button" className="assistant-launcher" onClick={() => emit("toggle")} aria-expanded={model.open} aria-label="Abrir asistente comercial"><span>IA</span></button>
     {model.open && <section className="assistant-panel" aria-label="Asistente comercial con inteligencia artificial">
       <header><div><span>IA · GROQ</span><strong>{model.title}</strong></div><button type="button" onClick={() => emit("toggle")} aria-label="Cerrar asistente">×</button></header>
       <div className="assistant-suggestions" aria-label="Consultas sugeridas">{model.suggestions.map(suggestion => <button type="button" key={suggestion.label} onClick={() => emit("suggestion", suggestion.prompt)}>{suggestion.label}</button>)}</div>

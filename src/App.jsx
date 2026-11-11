@@ -7,7 +7,6 @@ import RequiredCredentialChange from "./components/RequiredCredentialChange";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const CommercialDashboard = lazy(() => import("./pages/CommercialDashboard"));
 const CommercialPersonnel = lazy(() => import("./pages/CommercialPersonnel"));
 const MetasComerciales = lazy(() => import("./pages/MetasComerciales"));
 const CommercialPortal = lazy(() => import("./pages/CommercialPortal"));
@@ -25,7 +24,6 @@ const GestionTienda = lazy(() => import("./pages/GestionTienda"));
 const TraficoSeguridad = lazy(() => import("./pages/TraficoSeguridad"));
 const IncidenciasSeguridad = lazy(() => import("./pages/IncidenciasSeguridad"));
 const MiTienda = lazy(() => import("./pages/MiTienda"));
-const IncidenciasTienda = lazy(() => import("./pages/IncidenciasTienda"));
 const Clusters = lazy(() => import("./pages/Clusters"));
 const CoberturasEspeciales = lazy(() => import("./pages/CoberturasEspeciales"));
 const MiTiendaGestion = lazy(() => import("./pages/MiTiendaGestion"));
@@ -151,15 +149,15 @@ export default function App() {
   if (user.cambio_credenciales_pendiente) return <RequiredCredentialChange user={user} onComplete={account => { setStoreContext(account); setUser(account); }} onLogout={logout} />;
 
   const isStoreManagement = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
-  const storeHome = user.rol === 'jefe_tienda'
+  const storeHome = isStoreManagement
     ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={user.tienda_id} onStoreChange={changeStore} switchingStore={switchingStore} />
     : <MiTienda user={user} onNavigate={setPage} />;
   const content = {
-    transferencia: ["gerente_comercial", "jefe_zonal", "jefe_tienda"].includes(user.rol)
-      ? <CommercialPortal key="transferencia" transferOnly user={user} onNavigate={setPage} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : <Dashboard user={user} />,
-    dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={user.rol === "jefe_tienda" ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
-    "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialDashboard onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
+    transferencia: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user.rol)
+      ? <CommercialPortal key="transferencia" transferOnly user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : <Dashboard user={user} />,
+    dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol)
+      ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+    "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialPortal user={user} onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     "metas-comerciales": user.rol === "gerente_comercial" ? <MetasComerciales /> : <Dashboard user={user} />,
     documentos: <Documentos />,
     usuarios: user.rol === "gerente_comercial" ? <CommercialPersonnel user={user} /> : isStoreManagement ? <Personal user={user} /> : <Usuarios user={user} />,
@@ -167,17 +165,17 @@ export default function App() {
     clusters: <Clusters />,
     cursos: <Cursos user={user} />,
     asistencias: <Asistencias user={user} />,
-    capacitaciones: user.rol === "jefe_tienda" ? <StoreTraining key="equipo" user={user} /> : <Capacitaciones user={user} />,
+    capacitaciones: isStoreManagement ? <StoreTraining key="equipo" user={user} /> : <Capacitaciones user={user} />,
     "mi-asistencia": <MiAsistencia />,
-    "mis-capacitaciones": user.rol === "jefe_tienda" ? <StoreTraining key="mis" user={user} initialView="mis" /> : <MisCapacitaciones />,
+    "mis-capacitaciones": isStoreManagement ? <StoreTraining key="mis" user={user} initialView="mis" /> : <MisCapacitaciones />,
     profile: <Profile />,
     gestion: <GestionTienda user={user} />,
     "seguridad-central": user.rol === "administrador_seguridad" ? <SecurityAdmin /> : <Dashboard user={user} />,
     "seguridad-trafico": <TraficoSeguridad user={user} />,
     "seguridad-incidencias": <IncidenciasSeguridad user={user} />,
     "mi-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,
-    "mi-tienda-gestion": user.rol === "jefe_tienda" ? <MiTiendaGestion /> : storeHome,
-    "incidencias-tienda": user.rol === "jefe_tienda" ? storeHome : <IncidenciasTienda user={user} />,
+    "mi-tienda-gestion": isStoreManagement ? <MiTiendaGestion /> : storeHome,
+    "incidencias-tienda": isStoreManagement ? storeHome : <Dashboard user={user} />,
     coberturas: <CoberturasEspeciales />,
     "zonal-personal": <Usuarios user={user} zonalTeam />,
     "zonal-asistencia": <ZonalModule section="asistencia" user={user} />,

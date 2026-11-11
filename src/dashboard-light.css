@@ -35,3 +35,8 @@
 .dashboard-light .store-dashboard-personnel-kpi strong { color: #171717; font-size: 18px; }
 .dashboard-light .store-dashboard-paired-kpi h3 { color: #fff; font-size: 20px; }
 .dashboard-light .commercial-progress-grid small { color: #171717; font-size: 12px; }
+
+/* Shared readable navigation for commercial and store management. */
+.app-theme.store-navigation-readable .sidebar--readable nav button { font-size:18px; min-height:50px; line-height:1.4; }
+.app-theme.store-navigation-readable .sidebar--readable nav button svg { width:21px; height:21px; }
+.app-theme.store-navigation-readable .mobile-topbar strong { font-size:19px; }

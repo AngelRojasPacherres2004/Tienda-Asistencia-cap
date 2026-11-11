@@ -6,7 +6,7 @@ export function createTransferGroupsDomain({ supabase, currentCommercialAccess, 
   const fail = (message, status = 400) => { throw httpError(message, status); };
   async function accessFor(user) {
     const access = await currentCommercialAccess(user);
-    if (!['jefe_tienda', 'gerente_comercial', 'jefe_zonal'].includes(access.role)) fail('No tienes permiso para gestionar traslados.', 403);
+    if (!['jefe_tienda', 'asistente_tienda', 'gerente_comercial', 'jefe_zonal'].includes(access.role)) fail('No tienes permiso para gestionar traslados.', 403);
     return access;
   }
   async function listTransferGroups(user) {

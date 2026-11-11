@@ -12,7 +12,7 @@ import { WorkerInsightsPanels } from "./Dashboard";
 
 export default function MiTienda({ user, onNavigate, view = "summary", renderSections }) {
   const isZonal = user.rol === "jefe_zonal";
-  const isStoreAdmin = user.rol === "jefe_tienda";
+  const isStoreAdmin = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const showAnalytics = !isStoreAdmin || view === "commercial";
   const showSummary = view !== "commercial";
   const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? "all" : user.tienda_id || "");

@@ -38,8 +38,8 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       readAllResult(supabase.from('tiendas').select('id,nombre,formato,estado,metraje_m2,capacidad_stock_unid,cant_colaboradores_normal,colaboradores_camp,fecha_apertura,fecha_cierre').in('id', storeIds)),
       readAllResult(supabase.from('capacitacion_progreso').select('id,usuario_id,tienda_id,curso_id,estado').in('tienda_id', storeIds)),
       supabase.from('cursos').select('id,nombre').eq('activo', true).order('id').limit(5),
-      access.role === 'jefe_tienda' ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias').select('id,tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01')),
-      access.role === 'jefe_tienda' ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias_zonales').select('id,tienda_origen_id,tienda_afectada_id,fecha,tipo,alcance')
+      ['jefe_tienda', 'asistente_tienda'].includes(access.role) ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias').select('id,tienda_id,fecha,tipo').in('tienda_id', storeIds).gte('fecha', '2024-01-01')),
+      ['jefe_tienda', 'asistente_tienda'].includes(access.role) ? Promise.resolve({ data: [] }) : readAllResult(supabase.from('incidencias_zonales').select('id,tienda_origen_id,tienda_afectada_id,fecha,tipo,alcance')
         .or(`tienda_origen_id.in.(${storeIds.join(',')}),tienda_afectada_id.in.(${storeIds.join(',')})`).gte('fecha', '2024-01-01')),
     ]);
     const failure = [usersResult, storesResult, trainingResult, coursesResult, incidentsResult, zonalResult].find(result => result.error);

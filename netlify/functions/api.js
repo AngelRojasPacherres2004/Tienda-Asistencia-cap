@@ -1097,20 +1097,20 @@ export async function handler(event) {
 
     const reportExportMatch = path.match(/^\/reportes\/([a-z-]+)\/export\.xlsx$/);
     if (reportExportMatch && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return await exportReportExcel(event, user, reportExportMatch[1]);
     }
     const reportMatch = path.match(/^\/reportes\/([a-z-]+)$/);
     if (reportMatch && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, { rows: await getReportRows(event, user, reportMatch[1]) });
     }
     if (path === "/movimientos/export.xlsx" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return await exportMovementsExcel(event, user);
     }
     if (path === "/movimientos" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, { rows: await getMovements(event, user) });
     }
 
@@ -1145,11 +1145,11 @@ export async function handler(event) {
       return json(200, await updateTraffic(event, user, Number(trafficMatch[1])));
     }
     if (path === "/incidencias" && method === "GET") {
-      ensureAuth(event, operationalReaders.filter(role => role !== "jefe_tienda"));
+      ensureAuth(event, operationalReaders.filter(role => !storeManagementRoles.has(role)));
       return json(200, await listIncidents(event, user));
     }
     if (path === "/incidencias" && method === "POST") {
-      ensureAuth(event, ["seguridad", "asistente_tienda"]);
+      ensureAuth(event, "seguridad");
       return json(201, await createIncident(event, user));
     }
     const incidentMatch = path.match(/^\/incidencias\/(\d+)$/);
@@ -1158,7 +1158,7 @@ export async function handler(event) {
       return json(200, await updateIncident(event, user, Number(incidentMatch[1])));
     }
     if (path === "/incidencias/export.xlsx" && method === "GET") {
-      ensureAuth(event, operationalReaders.filter(role => role !== "jefe_tienda"));
+      ensureAuth(event, operationalReaders.filter(role => !storeManagementRoles.has(role)));
       return await exportIncidentsExcel(event, user);
     }
     if (path === "/marcas" && method === "GET") {
@@ -1170,7 +1170,7 @@ export async function handler(event) {
       return json(200, await listStoreProducts(event, user));
     }
     if (path === "/amonestaciones" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listOperational("amonestaciones", event, user, "*,usuarios!amonestaciones_usuario_id_fkey(nombres,apellidos)"));
     }
     if (path === "/amonestaciones" && method === "POST") {
@@ -1191,7 +1191,7 @@ export async function handler(event) {
       return json(201, await createDisciplinary(event, user, "errores_personal"));
     }
     if (path === "/documentos-tienda" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
       return json(200, await listOperational("documentos_tienda", event, user));
     }
     if (path === "/documentos-alertas" && method === "GET") {
@@ -1216,38 +1216,38 @@ export async function handler(event) {
     }
 
     if (path === "/mi-tienda-gestion" && method === "GET") {
-      ensureAuth(event, "jefe_tienda");
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
       return json(200, await getMiTienda(user));
     }
     if (path === "/mi-tienda-gestion/datos" && method === "PUT") {
-      ensureAuth(event, "jefe_tienda"); await updateMiTiendaData(event, user); return json(200, { ok: true });
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); await updateMiTiendaData(event, user); return json(200, { ok: true });
     }
     if (path === "/mi-tienda-gestion/archivo" && method === "POST") {
-      ensureAuth(event, "jefe_tienda"); return json(201, await uploadMiTiendaFile(event, user));
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); return json(201, await uploadMiTiendaFile(event, user));
     }
     if (path === "/mi-tienda-gestion/archivo-url" && method === "POST") {
-      ensureAuth(event, "jefe_tienda"); return json(200, await signedMiTiendaFile(event, user));
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); return json(200, await signedMiTiendaFile(event, user));
     }
     if (path === "/mi-tienda-gestion/apoyos-seguridad" && method === "POST") {
-      ensureAuth(event, "jefe_tienda"); return json(201, await createSecuritySupport(event, user));
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); return json(201, await createSecuritySupport(event, user));
     }
     const securitySupportMatch = path.match(/^\/mi-tienda-gestion\/apoyos-seguridad\/(\d+)$/);
     if (securitySupportMatch && method === "PUT") {
-      ensureAuth(event, "jefe_tienda"); return json(200, await updateSecuritySupport(event, user, Number(securitySupportMatch[1])));
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); return json(200, await updateSecuritySupport(event, user, Number(securitySupportMatch[1])));
     }
     const miTiendaRecordMatch = path.match(/^\/mi-tienda-gestion\/(documentos|reclamaciones|acciones|requerimientos)(?:\/(\d+))?$/);
     if (miTiendaRecordMatch && ["POST", "PUT"].includes(method)) {
-      ensureAuth(event, "jefe_tienda");
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]);
       if (method === "PUT" && !miTiendaRecordMatch[2]) throw httpError("Falta indicar el registro.", 400);
       return json(method === "POST" ? 201 : 200, await saveMiTiendaRecord(event, user, miTiendaRecordMatch[1], miTiendaRecordMatch[2] ? Number(miTiendaRecordMatch[2]) : null));
     }
     const requirementTrackingMatch = path.match(/^\/mi-tienda-gestion\/requerimientos\/(\d+)\/seguimiento$/);
     if (requirementTrackingMatch && method === "POST") {
-      ensureAuth(event, "jefe_tienda"); return json(201, await addRequirementTracking(event, user, Number(requirementTrackingMatch[1])));
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); return json(201, await addRequirementTracking(event, user, Number(requirementTrackingMatch[1])));
     }
     const zonalObservationMatch = path.match(/^\/mi-tienda-gestion\/observaciones\/(\d+)$/);
     if (zonalObservationMatch && method === "PUT") {
-      ensureAuth(event, "jefe_tienda"); return json(200, await updateZonalObservation(event, user, Number(zonalObservationMatch[1])));
+      ensureAuth(event, ["jefe_tienda", "asistente_tienda"]); return json(200, await updateZonalObservation(event, user, Number(zonalObservationMatch[1])));
     }
 
     if (path === "/documentos/todo.xlsx" && method === "GET") {

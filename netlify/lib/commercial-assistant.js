@@ -32,7 +32,7 @@ function visibleContext(rawContext) {
 export function commercialAssistantMessages(access, rawContext, conversation) {
   const context = visibleContext(rawContext);
   if (!context) return null;
-  const guidance = roleGuidance[access.role];
+  const guidance = roleGuidance[access.role === 'asistente_tienda' ? 'jefe_tienda' : access.role];
   if (!guidance) return null;
   const scope = access.scopeType === 'store'
     ? `Únicamente la tienda ${access.scopeValue}.`

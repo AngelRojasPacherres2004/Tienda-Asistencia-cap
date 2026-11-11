@@ -26,9 +26,8 @@ const navByRole = {
     { id: "historial", label: "Historial", icon: History },
   ],
   gerente_comercial: [
-    { id: "transferencia", label: "Transferencia", icon: Truck },
     { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
+    { id: "transferencia", label: "Transferencia", icon: Truck },
     { id: "metas-comerciales", label: "Metas comerciales", icon: Target },
     { id: "tiendas", label: "Tiendas y clústeres", icon: Building2 },
     { id: "usuarios", label: "Personal", icon: Users },
@@ -74,13 +73,6 @@ const navByRole = {
     { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
     { id: "historial", label: "Historial", icon: History },
   ],
-  asistente_tienda: [
-    { id: "dashboard", label: "Inicio", icon: BarChart3 },
-    { id: "usuarios", label: "Personal", icon: Users },
-    { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
-    { id: "incidencias-tienda", label: "Incidencias", icon: AlertTriangle },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-  ],
   trabajador: [
     { id: "mi-asistencia", label: "Mi asistencia", icon: CalendarCheck2 },
     { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
@@ -99,6 +91,7 @@ const navByRole = {
     { id: "sistemas-registros", label: "Gestión de registros", icon: Users },
   ],
 };
+navByRole.asistente_tienda = navByRole.jefe_tienda;
 navByRole.jefe_seguridad = navByRole.seguridad;
 navByRole.vendedor = navByRole.trabajador;
 navByRole.asistente = navByRole.trabajador;
@@ -135,8 +128,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   const hidePersonInitials = ["jefe_zonal", "seguridad", "jefe_seguridad", "administrador_seguridad"].includes(user.rol);
   const isStoreSecurity = ["seguridad", "jefe_seguridad"].includes(user.rol);
   const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
-  const isCommercial = ["gerente_comercial", "jefe_zonal", "jefe_tienda", "coach"].includes(user.rol);
-  const isCommercialDashboard = page === "dashboard" && ["gerente_comercial", "coach", "jefe_zonal", "jefe_tienda"].includes(user.rol);
+  const isCommercial = ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol);
+  const isCommercialDashboard = page === "dashboard" && ["gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user.rol);
   const [marketingTheme, setMarketingTheme] = useState(() => {
     try { return (localStorage.getItem("app-theme") || localStorage.getItem("marketing-theme")) === "dark" ? "dark" : "light"; }
     catch { return "light"; }
@@ -155,7 +148,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell app-theme ${hidePersonInitials ? "without-person-initials" : ""} app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
+    <div className={`app-shell app-theme ${["gerente_comercial", "jefe_tienda", "asistente_tienda"].includes(user.rol) ? "store-navigation-readable" : ""} ${hidePersonInitials ? "without-person-initials" : ""} app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
@@ -171,8 +164,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
         <div className="sidebar__footer">
           {["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
           <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
-            {user.rol !== 'jefe_tienda' && !hidePersonInitials && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
-            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{user.rol === 'jefe_tienda' || isStoreSecurity ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{user.rol !== 'jefe_tienda' && user.dni ? ` · DNI ${user.dni}` : ""}</small>{isStoreSecurity && <small className="user-chip__store">Tienda: {storeName || "Sin tienda asignada"}</small>}{user.rol === 'jefe_tienda' && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
+            {!['jefe_tienda', 'asistente_tienda'].includes(user.rol) && !hidePersonInitials && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
+            <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{['jefe_tienda', 'asistente_tienda'].includes(user.rol) || isStoreSecurity ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{!['jefe_tienda', 'asistente_tienda'].includes(user.rol) && user.dni ? ` · DNI ${user.dni}` : ""}</small>{isStoreSecurity && <small className="user-chip__store">Tienda: {storeName || "Sin tienda asignada"}</small>}{['jefe_tienda', 'asistente_tienda'].includes(user.rol) && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
           </div>
           <button className="logout-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /><span>Salir</span></button>
         </div>
@@ -189,7 +182,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
             <span className="store-context-label">{user.tienda_id === user.tienda_principal_id ? "Tienda principal" : "Acceso de apoyo habilitado"}</span>
           </div>}
           {page === "asiste-operativo" && isOperationalDemo() && <div className="operational-demo-banner" role="status"><strong>VISTA DEMO LOCAL</strong><span>Tráfico y comparativo zonal simulados. No se guardan en bd-app ni alteran los KPI reales.</span><a href={window.location.pathname}>Ver datos reales</a></div>}
-          {!isDashboard && !(page === "transferencia" && user.rol === "jefe_tienda") && <div className="marketing-theme-toolbar">
+          {!isDashboard && !(page === "transferencia" && ["jefe_tienda", "asistente_tienda", "gerente_comercial"].includes(user.rol)) && <div className="marketing-theme-toolbar">
             <button type="button" className="button button--ghost marketing-theme-toggle" onClick={toggleMarketingTheme} aria-label={`Cambiar a modo ${marketingTheme === "light" ? "oscuro" : "claro"}`}>
               {marketingTheme === "light" ? <Moon size={16} /> : <Sun size={16} />}
               Modo {marketingTheme === "light" ? "oscuro" : "claro"}

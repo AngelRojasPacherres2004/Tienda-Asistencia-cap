@@ -195,7 +195,7 @@ export default function NormalizedReports({ user }) {
     onChange={event => change(key, event.target.value)}>{options(entries)}</select></label>;
   const availableClusters = unique(stores.map(store => store.cluster));
   const availableFormats = unique(stores.filter(store => !filters.cluster || store.cluster === filters.cluster).map(store => store.format));
-  const singleStoreRole = user?.rol === "jefe_tienda";
+  const singleStoreRole = ["jefe_tienda", "asistente_tienda"].includes(user?.rol);
   return <section className="panel annual-reports">
     <header className="report-workspace__header"><h2>Análisis y cifras</h2></header>
     {message && <Notice type={message.type} onClose={() => setMessage(null)}>{message.text}</Notice>}

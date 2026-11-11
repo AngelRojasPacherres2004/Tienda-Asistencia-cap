@@ -11,6 +11,6 @@ export default function CommercialPersonnel({ user }) {
       <button type="button" role="tab" aria-selected={view === "stores"} className={view === "stores" ? "active" : ""} onClick={() => setView("stores")}>Personal por tienda</button>
       <button type="button" role="tab" aria-selected={view === "leaders"} className={view === "leaders" ? "active" : ""} onClick={() => setView("leaders")}>Jefes zonales</button>
     </div>
-    {view === "stores" ? <Reportes user={user} embedded initialKind="personal" allowedKinds={["personal"]} /> : <Usuarios user={user} embedded />}
+    {view === "stores" ? <Reportes user={user} embedded personnelLayout initialKind="personal" allowedKinds={["personal"]} /> : <Usuarios user={user} embedded />}
   </>;
 }

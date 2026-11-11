@@ -51,7 +51,8 @@ function setup() {
   subject.cloud = { accessProfile: () => ({ roleCode: subject.role() }) };
   subject.filteredStoreIds = () => new Set(['AYA']);
   subject.filteredStores = () => [{ storeId: 'AYA', alias: 'AYA' }];
-  subject.yearRows = () => [{ storeId: 'AYA', net: 900 }];
+  subject.yearRows = () => [{ storeId: 'AYA', periodId: 202611, net: 900 }];
+  subject.selectedSalesPeriods = () => new Set([202611]);
   subject.metrics = () => ({ net: 900, personnel: 8 });
   subject.selectedMonth = () => 11;
   subject.birthdayMonthRows = () => [];
