@@ -1565,7 +1565,7 @@ export class CommercialDashboardController implements OnInit {
       filters: { ...this.zoomHierarchyFilters(), genderEnabled: true },
       cartCount: this.transferCartItems().length,
       textilEmpty: rubro === 'TEXTIL' && noRows, codeError: this.transferCodeError(), noRows,
-      label: `VENTA 90D VS STOCK por talla ${rubro.toLowerCase()} · corte ${this.sizeSalesPeriod()}`,
+      label: `VENTA VS STOCK por talla ${rubro.toLowerCase()} · corte ${this.sizeSalesPeriod()}`,
       periodLabel: this.periodLabel(this.sizeSalesPeriod()), stockCutoff: this.formatDate(this.data()?.metadata.stockCutoff || ''),
       option: loading ? null : blackChartText(this.sizeDistributionOption()),
       coverage: { total: this.number(coverage.total), mapped: this.number(coverage.mapped),
@@ -3454,22 +3454,25 @@ export class CommercialDashboardController implements OnInit {
     } as EChartsOption;
     return {
       animation: false,
+      // Declarar la paleta en la serie y en la opción hace que la guía conserve
+      // exactamente el color de cada barra, tanto en la tarjeta como ampliada.
+      color: [C.navy, C.teal],
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(`${rubro === 'CALZADO' ? this.shoeSizeSystem() : 'TALLA'} ${row?.label || ''}`, [
           { label: 'Stock', value: stockReady ? this.number(row?.stock ?? null, ' und') : 'Pendiente cierre' },
-          { label: 'Venta 90D', value: this.number(row?.sales ?? null, ' und') },
+          { label: 'Venta', value: this.number(row?.sales ?? null, ' und') },
           { label: 'SKU', value: this.number(row?.productIds.size ?? null) }
-        ]);
+        ], false, false);
       } },
       legend: { top: 2, itemWidth: 14, itemHeight: 8, textStyle: { color: '#334155', fontSize: 9, fontWeight: 800 } },
       grid: { left: 48, right: 20, top: 34, bottom: 72 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 32, color: '#475569', fontSize: 9, fontWeight: 800 } },
       yAxis: { type: 'value', min: 0, minInterval: 1, name: 'UNIDADES', nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => this.short(value) }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [
-        { name: 'VENTA 90D', type: 'bar', barMaxWidth: 20, data: rows.map(row => ({ value: Number(row.sales) || 0, size: row.label, itemStyle: { color: C.navy, borderRadius: [4, 4, 0, 0] } })),
+        { name: 'VENTA', type: 'bar', barMaxWidth: 20, itemStyle: { color: C.navy, borderRadius: [4, 4, 0, 0] }, data: rows.map(row => ({ value: Number(row.sales) || 0, size: row.label })),
           label: { show: rows.length <= 12, position: 'top', color: '#334155', fontSize: 8, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } },
-        { name: 'STOCK', type: 'bar', barMaxWidth: 20, data: rows.map(row => ({ value: Number(row.stock) || 0, size: row.label, itemStyle: { color: C.teal, borderRadius: [4, 4, 0, 0] } })),
+        { name: 'STOCK', type: 'bar', barMaxWidth: 20, itemStyle: { color: C.teal, borderRadius: [4, 4, 0, 0] }, data: rows.map(row => ({ value: Number(row.stock) || 0, size: row.label })),
           label: { show: rows.length <= 12, position: 'top', color: '#0F766E', fontSize: 8, fontWeight: 800, formatter: (params: any) => Number(params.value) > 0 ? this.short(Number(params.value)) : '' } }
       ]
     } as EChartsOption;
@@ -3563,7 +3566,7 @@ export class CommercialDashboardController implements OnInit {
   readonly predictiveHealthOption = computed<EChartsOption>(() => {
     const rows = this.predictiveHealthRows().filter(row => row.value > 0 || row.brands > 0);
     return { animation: false, tooltip: { trigger: 'item', confine: true, position: this.tooltipToRight, formatter: (params: any) => {
-      const row = rows[params.dataIndex ?? 0]; return this.tooltip(row?.status || '', [{ label: 'Valor de stock', value: this.money(row?.value ?? null, true) }, { label: 'Participación', value: this.percent(row?.share ?? null) }, { label: 'SKU evaluados', value: this.number(row?.brands ?? null) }]);
+      const row = rows[params.dataIndex ?? 0]; return this.tooltipFull(row?.status || '', [{ label: 'Valor de stock', value: this.money(row?.value ?? null, true) }, { label: 'Participación', value: this.percent(row?.share ?? null) }, { label: 'SKU evaluados', value: this.number(row?.brands ?? null) }]);
     } }, series: [{ type: 'pie', radius: ['56%', '78%'], center: ['50%', '50%'], startAngle: 90, clockwise: true, avoidLabelOverlap: true,
       label: { show: false }, labelLine: { show: false }, emphasis: { scale: true, scaleSize: 7 },
       data: rows.map(row => ({ name: row.status, value: row.value, itemStyle: { color: row.color, borderColor: '#fff', borderWidth: 3 } }))
@@ -3592,7 +3595,7 @@ export class CommercialDashboardController implements OnInit {
     const scaleLimit = Math.max(PREDICTIVE_OVERSTOCK_DAYS, PREDICTIVE_HEALTHY_DAYS * 2);
     const values = rows.map(row => Math.min(row.coverageDays ?? 0, scaleLimit)); const max = scaleLimit * 1.18;
     return { animation: false, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
-      const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row?.name || '', [{ label: 'Días de cobertura', value: row?.coverageDays == null ? 'SIN VENTA EN VENTANA' : this.number(row.coverageDays, ' días') }, { label: 'Estado', value: row?.status || '' }, { label: 'Stock vendible', value: this.number(row?.vendibleUnits ?? null, ' und') }, { label: 'Demanda diaria', value: this.number(row?.demandDaily ?? null, ' und/día') }]);
+      const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltipFull(row?.name || '', [{ label: 'Días de cobertura', value: row?.coverageDays == null ? 'SIN VENTA EN VENTANA' : this.number(row.coverageDays, ' días') }, { label: 'Estado', value: row?.status || '' }, { label: 'Stock vendible', value: this.number(row?.vendibleUnits ?? null, ' und') }, { label: 'Demanda diaria', value: this.number(row?.demandDaily ?? null, ' und/día') }]);
     } }, grid: { left: 102, right: 42, top: 8, bottom: 24 }, dataZoom: rows.length > visible ? [
       { type: 'inside', yAxisIndex: 0, startValue: 0, endValue: visible - 1, zoomLock: true, moveOnMouseWheel: true },
       { type: 'slider', yAxisIndex: 0, orient: 'vertical', right: 1, top: 8, bottom: 8, width: 14, startValue: 0, endValue: visible - 1, showDetail: false, brushSelect: false,
@@ -3601,7 +3604,7 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly predictiveReplenishmentOption = computed<EChartsOption>(() => {
     const rows = this.predictiveReplenishmentRows(); const visible = Math.min(7, rows.length);
-    return { animation: false, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => { const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltip(row?.name || '', [{ label: 'Prioridad', value: row?.priority || '' }, { label: 'Unidades sugeridas', value: this.number(row?.deficitUnits ?? null, ' und') }, { label: 'Cobertura actual', value: row?.coverageDays == null ? 'SIN VENTA EN VENTANA' : this.number(row.coverageDays, ' días') }]); } }, grid: { left: 112, right: 42, top: 8, bottom: 24 }, dataZoom: rows.length > visible ? [
+    return { animation: false, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => { const row = rows[params[0]?.dataIndex ?? 0]; return this.tooltipFull(row?.name || '', [{ label: 'Prioridad', value: row?.priority || '' }, { label: 'Unidades sugeridas', value: this.number(row?.deficitUnits ?? null, ' und') }, { label: 'Cobertura actual', value: row?.coverageDays == null ? 'SIN VENTA EN VENTANA' : this.number(row.coverageDays, ' días') }]); } }, grid: { left: 112, right: 42, top: 8, bottom: 24 }, dataZoom: rows.length > visible ? [
       { type: 'inside', yAxisIndex: 0, startValue: 0, endValue: visible - 1, zoomLock: true, moveOnMouseWheel: true },
       { type: 'slider', yAxisIndex: 0, orient: 'vertical', right: 1, top: 8, bottom: 8, width: 14, startValue: 0, endValue: visible - 1, showDetail: false, brushSelect: false,
         backgroundColor: '#D8E0EC', fillerColor: 'rgba(18,58,140,.24)', borderColor: '#9AABC2', handleSize: '110%', handleStyle: { color: C.navy, borderColor: '#0C2D70' } }
@@ -3664,7 +3667,7 @@ export class CommercialDashboardController implements OnInit {
       animation: false,
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
         const row = rows[params[0]?.dataIndex ?? 0];
-        return this.tooltip(row?.store || '', [
+        return this.tooltipFull(row?.store || '', [
           { label: days ? `Valor en riesgo +${days} días` : 'Valor en riesgo actual', value: this.money(row?.riskValue ?? null, true) },
           { label: 'Participación del inventario', value: this.percent(row?.share ?? null) },
           { label: 'SKU en riesgo', value: this.number(row?.riskProducts ?? null) },
@@ -4072,14 +4075,14 @@ export class CommercialDashboardController implements OnInit {
       animation: false,
       color: rows.map(row => row.color),
       tooltip: { trigger: 'item', confine: true, position: this.tooltipToRight, formatter: (params: any) => {
-        if (params.seriesIndex === 1) return this.tooltip('CAPACIDAD FÍSICA', [
+        if (params.seriesIndex === 1) return this.tooltipFull('CAPACIDAD FÍSICA', [
           { label: 'Capacidad total', value: this.number(totals.capacity, ' und') },
           { label: 'Stock físico', value: this.number(totals.units, ' und') },
           { label: 'Espacio disponible', value: this.number(free, ' und') },
           { label: 'Sobrecapacidad', value: this.number(overflow, ' und') },
           { label: 'Ocupación', value: this.percent(totals.capacity ? totals.units / totals.capacity : null) }
         ]);
-        const row = rows[params.dataIndex ?? 0]; return this.tooltip(row?.area || '', [
+        const row = rows[params.dataIndex ?? 0]; return this.tooltipFull(row?.area || '', [
           { label: 'Valor de stock', value: this.money(row?.value ?? null, true) },
           { label: 'Participación', value: this.percent(row?.share ?? null) },
           { label: 'Unidades', value: this.number(row?.units ?? null, ' und') }
@@ -6044,13 +6047,14 @@ export class CommercialDashboardController implements OnInit {
     const y = Math.max(6, Math.min(point[1] - contentHeight / 2, view[1] - contentHeight - 6));
     return [x, y];
   };
-  private tooltip(title: string, rows: Detail[], floating = false): string {
+  private tooltip(title: string, rows: Detail[], floating = false, compactLabels = true): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(this.compactTooltipLabel(r.label))}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(82px,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(this.compactTooltipLabel(r.label))}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(82px,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
   }
+  private tooltipFull(title: string, rows: Detail[]): string { return this.tooltip(title, rows, false, false); }
   private compactTooltipLabel(label: string): string {
     const normalized = label.trim().replace(/\s+/g, ' ');
     const exact: Record<string, string> = {

@@ -35,6 +35,7 @@ capa1/
 capa2/
 dashboard-data/
 DashboardGeneral_Portable_v*.zip
+/paquetes_portables/
 
 # Copia de respaldo del antiguo repositorio anidado; no forma parte del proyecto unificado
 /Tienda-Asistencia-cap/

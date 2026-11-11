@@ -16,7 +16,7 @@ La construcción de las dos páginas en Power BI está documentada en `../README
 
 - `1_INSTALAR_REQUISITOS.bat`: crea `.venv`, instala las versiones declaradas en `requirements.txt` y comprueba DuckDB y los scripts.
 - `2_ACTUALIZAR_DATOS.bat`: reconstruye Capa 1, Capa 2 y el TMDL; después ejecuta la validación estricta.
-- `3_CREAR_PAQUETE_PORTABLE.bat`: genera un ZIP estándar con lo mínimo necesario para instalar y reconstruir el proyecto en otra PC.
+- `3_CREAR_PAQUETE_PORTABLE.bat`: genera en `paquetes_portables` un ZIP comprobado con los lanzadores vigentes, la web compilada y el flujo RMS. No incluye credenciales, Excel ni datos históricos.
 
 ## Arquitectura
 
@@ -44,7 +44,8 @@ El ZIP incluye:
 - la estructura vacía de `input` y su guía operativa;
 - los scripts y el modelo para reconstruir desde las fuentes vigentes;
 - todos los scripts vigentes de `piplines`;
-- los tres BAT de la raíz.
+- los cinco BAT vigentes de la raíz (`0` a `4`);
+- `LEEME_PORTABLE.md` con la instalación y el uso seguro.
 - la guía `README_DASHBOARD_POWER_BI.md` para construir el informe.
 
 No incluye `.venv`, `.etl_work`, `__pycache__`, Parquet, TMDL con rutas de otra PC, respaldos, JSON de auditoría ni documentos Word. Todos esos resultados se recrean al ejecutar la actualización.

@@ -68,9 +68,19 @@ echo ERROR: argumento no reconocido: %~1
 goto :error
 
 :argumentos_listos
-rem Usar año actual si no se paso --anio-fin
+if not exist ".venv\Scripts\python.exe" (
+    echo No existe el entorno virtual. Se ejecutara la instalacion.
+    call "%~dp01_INSTALAR_REQUISITOS.bat" --sin-pausa
+    if errorlevel 1 goto :error
+)
+
+rem Usar el año actual solo despues de tener Python disponible.
 if not defined ANIO_FIN (
-    for /f "delims=" %%F in ('.venv\Scripts\python.exe -c "from datetime import date; print(date.today().year)"') do set "ANIO_FIN=%%F"
+    for /f "delims=" %%F in ('".venv\Scripts\python.exe" -c "from datetime import date; print(date.today().year)"') do set "ANIO_FIN=%%F"
+)
+if not defined ANIO_FIN (
+    echo ERROR: no se pudo determinar el anio de procesamiento.
+    goto :error
 )
 
 set "ARG_FECHA_CORTE="
@@ -83,12 +93,6 @@ if defined FECHA_CORTE echo Corte manual: %FECHA_CORTE%
 if defined INCREMENTAL echo Modo: diario desde input\ con archivos de nombre fijo
 echo ============================================================
 echo.
-
-if not exist ".venv\Scripts\python.exe" (
-    echo No existe el entorno virtual. Se ejecutara la instalacion.
-    call "%~dp01_INSTALAR_REQUISITOS.bat" --sin-pausa
-    if errorlevel 1 goto :error
-)
 
 if "%SOLO_VERIFICAR%"=="1" goto :solo_verificar
 

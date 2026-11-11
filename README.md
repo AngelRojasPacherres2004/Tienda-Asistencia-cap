@@ -112,12 +112,11 @@ Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz
 1. En `input\` reemplaza únicamente `VENTAS.xlsx`, `INGRESO.xlsx` y `TRANSFERENCIAS.xlsx` por la entrega del día nuevo. Los históricos ya están en los Parquet y no se vuelven a copiar.
 2. Abre `0_ABRIR_PANEL.bat`, selecciona con el calendario la fecha de la entrega y usa **Actualizar datos locales**. La actualización incorpora solo esa entrega, reconstruye y valida Capa 1, Capa 2 y el dashboard.
 3. En el cierre de cada mes agrega `input\STOCK.xlsx` y selecciona obligatoriamente el último día calendario (28/29/30/31). En los demás días no dejes `STOCK.xlsx` en `input\`: se conserva la última fotografía mensual.
-4. **Actualizar y publicar en la web** ejecuta el mismo flujo y publica el dashboard y los reportes privados en `bd-app`.
-5. La web detecta la versión publicada sin volver a desplegar Netlify.
+4. La actualización deja los Parquet limpios en `entrega_asistente_comercial\AAAA-MM-DD\` para que el Asistente Comercial los cargue manualmente en el portal.
 
 `4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste desde esta misma raíz en `http://127.0.0.1:5180/`.
 
-Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y `6_ACTUALIZAR_DASHBOARD_WEB.bat` publica el corte preparado. `7_ACTUALIZAR_TODO.bat --fecha-corte AAAA-MM-DD --sin-pausa` ejecuta ambos pasos. La actualización local solo recibe Ventas, Ingresos, Transferencias y Stock. Personal, tiendas, tráfico, metas, catálogo, mermas y guías se administran desde Supabase. Añade `--solo-verificar` para revisar el modelo sin escribir ni publicar.
+Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y el lote manual. La actualización local solo recibe Ventas, Ingresos, Transferencias y Stock. Personal, tiendas, tráfico, metas, catálogo, mermas y guías se administran desde Supabase. Añade `--solo-verificar` para revisar el modelo sin escribir.
 
 ## Reglas de corte y actualización
 
@@ -127,7 +126,7 @@ Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.
 
-En una PC nueva clona este repositorio y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El archivo privado `.env` de Asiste debe quedar en la raíz y apuntar a `bd-app`; nunca se incluye en GitHub. El paquete creado por `3_CREAR_PAQUETE_PORTABLE.bat` incluye la web React compilada, los datos operativos y los BAT. `5_CREAR_USUARIO_WEB.bat` ya no crea usuarios: las cuentas se administran desde Asiste.
+En una PC nueva clona este repositorio o extrae el ZIP portable y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El archivo privado `.env` de Asiste debe quedar en la raíz y apuntar a `bd-app`; nunca se incluye en GitHub ni en el ZIP. `3_CREAR_PAQUETE_PORTABLE.bat` crea un ZIP validado en `paquetes_portables` con la web compilada, los cinco BAT vigentes y sin datos operativos ni credenciales.
 
 ## Desarrollo web
 
@@ -155,7 +154,7 @@ La configuración pública de Supabase se genera durante el build de Netlify. `G
 - Si Groq no responde, el dashboard continúa funcionando sin depender de la IA.
 - Los datos de inventario se cargan por niveles: resumen primero y detalle por producto en segundo plano.
 
-El flujo actual de los BAT 6 y 7 publica en `bd-app` (`xtnihjzqnxozbotymoma`) desde este repositorio unificado. El proyecto Supabase anterior `dashboard-comercial-produccion` queda fuera del flujo y los BAT de publicación no deben escribir allí.
+Los BAT locales no publican ni modifican usuarios. La carga de los Parquet producidos se hace manualmente desde el rol Asistente Comercial. El proyecto Supabase anterior `dashboard-comercial-produccion` queda fuera del flujo.
 
 Consulta [ARQUITECTURA_NUBE.md](ARQUITECTURA_NUBE.md) para el flujo completo.
 

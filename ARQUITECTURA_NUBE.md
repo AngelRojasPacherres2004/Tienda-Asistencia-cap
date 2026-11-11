@@ -2,12 +2,11 @@
 
 ## Flujo operativo
 
-1. `0_ABRIR_PANEL.bat` permite elegir el corte y ejecutar los BAT mediante botones. `2_ACTUALIZAR_DATOS.bat` reconstruye Capa 1, aplica el corte en Capa 2 y genera los siete JSON para el uso local.
-2. `6_ACTUALIZAR_DASHBOARD_WEB.bat` solicita el usuario y la contraseña del publicador. Después `piplines/publicar_supabase.py` divide cada JSON en partes de 5 MB y las sube al bucket privado `dashboard-data`.
-3. Supabase registra primero una publicación `staging`. Solo después de completar todas las partes cambia a `published`.
-4. La web consulta la publicación más reciente y descarga únicamente los archivos que necesita. Cada dos minutos verifica si el BAT publicó una versión nueva.
-5. Netlify sirve la aplicación React; los datos comerciales se descargan desde Supabase según los permisos del usuario.
-6. React envía chat o audio a Supabase Edge Functions; las funciones validan al usuario y recién entonces llaman a Groq.
+1. `0_ABRIR_PANEL.bat` permite elegir el corte y ejecutar `2_ACTUALIZAR_DATOS.bat` mediante botones. El proceso reconstruye Capa 1, aplica el corte en Capa 2 y prepara el lote manual de Parquet.
+2. El lote se deja en `entrega_asistente_comercial\AAAA-MM-DD`. El rol Asistente Comercial lo carga manualmente en el portal.
+3. La web consulta los datos autorizados desde Supabase según el rol del usuario.
+4. Netlify sirve la aplicación React.
+5. React envía chat o audio a Supabase Edge Functions; las funciones validan al usuario y recién entonces llaman a Groq.
 
 ## Corte y cobertura de fuentes
 
@@ -24,7 +23,7 @@
 - Una sola sesión activa por usuario: el inicio más reciente reemplaza al dispositivo anterior.
 - Lista de acceso en `dashboard_users`; un usuario autenticado pero no habilitado no puede leer datos.
 - Row Level Security en todas las tablas públicas y políticas privadas en Storage.
-- El BAT 6 usa un publicador dedicado y restringido por RLS; no guarda ni necesita la llave maestra `service_role`.
+- Los BAT vigentes no publican ni crean usuarios; el rol Asistente Comercial carga manualmente los Parquet producidos.
 - El navegador recibe únicamente la clave publicable de Supabase.
 - `GROQ_API_KEY` queda en Supabase Edge Function Secrets y nunca llega a Netlify ni al navegador.
 - Las publicaciones son versionadas, verificadas con SHA-256 y se activan de forma atómica.
@@ -47,8 +46,7 @@
 
 - Migraciones SQL versionadas en `supabase/migrations`.
 - Configuración Netlify: `netlify.toml`; el dashboard React integrado vive en `src/commercial/` y `src/components/`.
-- Publicación interactiva: `6_ACTUALIZAR_DASHBOARD_WEB.bat`; solicita las credenciales sin guardarlas. `.env.supabase.local` queda disponible solo como alternativa administrada.
-- Alta segura de accesos adicionales: `5_CREAR_USUARIO_WEB.bat` cuando se dispone de una clave administrativa local.
+- Los usuarios se administran dentro de Asiste. El paquete portable no incluye secretos ni herramientas de alta/publicación.
 - Variables públicas del build: `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.
 - Secretos de IA en Supabase: `GROQ_API_KEY`, `GROQ_CHAT_MODEL` y `GROQ_TRANSCRIBE_MODEL`.
 
