@@ -42,6 +42,12 @@ export function commercialBatchPath(batchId) {
   return `commercial-intake/${validateBatchId(batchId)}.json`;
 }
 
+// Ruta determinística usada como cerrojo atómico: Storage rechaza dos cargas
+// sin upsert al mismo objeto, incluso si llegan desde pestañas simultáneas.
+export function commercialBatchCutoffPath(cutoff) {
+  return `commercial-intake-locks/${validateCutoff(cutoff)}.json`;
+}
+
 export function commercialBatchSources(receipts, cutoff) {
   validateCutoff(cutoff);
   if (!Array.isArray(receipts)) throw new Error("Adjunta un lote RMS válido.");

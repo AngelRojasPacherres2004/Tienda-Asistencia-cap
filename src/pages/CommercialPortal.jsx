@@ -7,8 +7,13 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const uploadOnly = user?.rol === "asistente_comercial";
 
   useEffect(() => {
+    if (uploadOnly) {
+      onNavigate?.("sistemas");
+      return undefined;
+    }
     let active = true;
     let dispose;
     const load = async () => {
@@ -29,7 +34,11 @@ export default function CommercialPortal({ user, storeContextId = null, onStoreC
     };
     load();
     return () => { active = false; dispose?.(); };
-  }, [attempt, storeContextId, user, onNavigate, transferOnly]);
+  }, [attempt, storeContextId, user, onNavigate, transferOnly, uploadOnly]);
+
+  // Defensa de interfaz: aunque una navegación antigua intente montar este
+  // portal, el asistente nunca inicializa controladores que consulten ranking.
+  if (uploadOnly) return <section className="commercial-portal" aria-label="Carga de archivos"><Loading label="Abriendo carga de archivos…" /></section>;
 
   return (
     <section className="commercial-portal" aria-label={transferOnly ? "Transferencia" : "Dashboard ejecutivo comercial"}>

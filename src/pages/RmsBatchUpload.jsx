@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FileSpreadsheet, HardDriveUpload, ShieldCheck } from "lucide-react";
 import { api, formatDateTime } from "../lib/api";
 import { Notice, PageHeader } from "../components/UI";
@@ -57,6 +57,9 @@ export default function RmsBatchUpload() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  // El botón se deshabilita al renderizar, pero esta marca también cubre dos
+  // eventos submit que lleguen antes de que React pinte el estado `busy`.
+  const submitLock = useRef(false);
 
   const expectedSources = manifest?.stockIncluido ? COMMERCIAL_BATCH_SOURCES : COMMERCIAL_BATCH_CORE_SOURCES;
   const cutoff = manifest?.fechaCorte || "";
@@ -80,12 +83,16 @@ export default function RmsBatchUpload() {
   }
 
   async function submit(event) {
+    const form = event.currentTarget;
     event.preventDefault();
+    if (submitLock.current || busy) return;
     setError(""); setMessage("");
     if (!ready || !manifest) { setError("Selecciona manifiesto.json y todos los Parquet indicados por ese lote."); return; }
+    submitLock.current = true;
     const receipts = [];
     let completed = false;
     try {
+      setBusy(true); setProgress(2);
       const selected = expectedSources.map(item => {
         const file = files[item.id];
         validateCommercialBatchFile(item.id, file.name, cutoff);
@@ -94,7 +101,6 @@ export default function RmsBatchUpload() {
         return { source: item.id, file, expected, validated: validateSystemUpload({ source: item.id, fileName: file.name, fileSize: file.size }) };
       });
       if (selected.reduce((total, item) => total + item.file.size, 0) > COMMERCIAL_BATCH_MAX_BYTES) throw new Error("El lote completo no debe superar 300 MB.");
-      setBusy(true); setProgress(2);
       await Promise.all(selected.map(async item => {
         await checkSignature(item.file);
         if (await sha256(item.file) !== item.expected.sha256) throw new Error(`${SOURCE_BY_ID[item.source].label} no coincide con el checksum del manifiesto.`);
@@ -116,11 +122,16 @@ export default function RmsBatchUpload() {
       await api("/systems/batches/complete", { method: "POST", body: { receipts } });
       completed = true;
       setMessage(`Lote ${manifest.periodo} · corte ${cutoff} recibido con ${selected.length} Parquet.`);
-      setFiles({}); setManifest(null); setManifestFile(null); event.currentTarget.reset(); await refresh();
+      setFiles({}); setManifest(null); setManifestFile(null);
+      // React libera el SyntheticEvent al cruzar los await. Por eso se guarda
+      // el formulario antes de la primera espera y nunca se lee currentTarget
+      // aquí: la carga ya estaba registrada y no debe convertirse en error.
+      if (form?.isConnected) form.reset();
+      await refresh();
     } catch (failure) {
       if (receipts.length && !completed) await api("/systems/batches/cancel", { method: "POST", body: { receipts } }).catch(() => {});
       setError(failure.message || "No se pudo completar el lote.");
-    } finally { setBusy(false); setProgress(0); }
+    } finally { submitLock.current = false; setBusy(false); setProgress(0); }
   }
 
   return <div className="system-uploads commercial-batch">

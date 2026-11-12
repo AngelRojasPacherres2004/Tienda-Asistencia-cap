@@ -3,7 +3,7 @@ export function createIntakeDomain({
   annualMonthlyReportPath, annualMonthlySummaryPath, annualReportPath,
   annualSummaryPath, bodyOf, buildAnnualSummaryWorkbook,
   COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES,
-  commercialAssistantMessages, commercialBatchPath, commercialBatchSources,
+  commercialAssistantMessages, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources,
   currentCommercialAccess, dbError, excelResponse, gunzipSync, httpError,
   join, jwt, jwtSecret, NORMALIZED_REPORTS, normalizedReportPath,
   parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile,
@@ -148,6 +148,22 @@ export function createIntakeDomain({
     return ticket;
   }
 
+  async function existingCommercialBatchForCutoff(cutoff) {
+    const { data, error } = await systemsStorage().list("commercial-intake", {
+      limit: 1000, sortBy: { column: "created_at", order: "desc" },
+    });
+    if (error) throw httpError("No se pudo verificar los lotes recibidos para esa fecha.", 503);
+    for (const item of (data || []).filter(row => row.name.endsWith(".json"))) {
+      const result = await systemsStorage().download(`commercial-intake/${item.name}`);
+      if (result.error || !result.data) continue;
+      try {
+        const batch = JSON.parse(await result.data.text());
+        if (batch?.cutoff === cutoff) return batch;
+      } catch { /* Un manifiesto dañado no bloquea la revisión de los demás. */ }
+    }
+    return null;
+  }
+
   async function commercialBatchStart(event, sessionUser) {
     await assertBatchPublisher(sessionUser);
     const input = bodyOf(event);
@@ -201,6 +217,10 @@ export function createIntakeDomain({
     }
     const { data: existing } = await systemsStorage().info(commercialBatchPath(batchId));
     if (existing) throw httpError("Este lote ya se registró.", 409);
+    const sameCutoff = await existingCommercialBatchForCutoff(cutoff);
+    if (sameCutoff) {
+      throw httpError(`Ya existe un lote recibido para el corte ${cutoff}. No lo cargues dos veces.`, 409);
+    }
     const files = [];
     for (const ticket of tickets) {
       let validated;
@@ -225,9 +245,24 @@ export function createIntakeDomain({
     }
     const manifest = { id: batchId, cutoff, files, uploadedBy: sessionUser.id,
       receivedAt: new Date().toISOString(), status: "pending_processing" };
+    const lockPath = commercialBatchCutoffPath(cutoff);
+    const { error: lockError } = await systemsStorage().upload(lockPath,
+      Buffer.from(JSON.stringify({ batchId, cutoff, receivedAt: manifest.receivedAt })),
+      { contentType: "application/json", upsert: false });
+    if (lockError) {
+      if (String(lockError.statusCode) === "409" || /already exists/i.test(String(lockError.message || ""))) {
+        throw httpError(`Ya existe un lote recibido para el corte ${cutoff}. No lo cargues dos veces.`, 409);
+      }
+      console.error("No se pudo bloquear el corte del lote comercial:", lockError.message);
+      throw httpError("No se pudo reservar la fecha de corte del lote. Intenta nuevamente.", 503);
+    }
     const { error } = await systemsStorage().upload(commercialBatchPath(batchId),
       Buffer.from(JSON.stringify(manifest)), { contentType: "application/json", upsert: false });
-    if (error) throw httpError("Los archivos llegaron, pero no se pudo registrar el lote.", 503);
+    if (error) {
+      await systemsStorage().remove([lockPath]).catch(() => {});
+      if (String(error.statusCode) === "409") throw httpError("Este lote ya se registró.", 409);
+      throw httpError("Los archivos llegaron, pero no se pudo registrar el lote.", 503);
+    }
     return { batch: { id: batchId, cutoff, files: files.map(({ source, fileName, fileSize }) => ({ source, fileName, fileSize })),
       receivedAt: manifest.receivedAt, status: manifest.status } };
   }

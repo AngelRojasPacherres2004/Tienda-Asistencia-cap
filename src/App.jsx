@@ -156,7 +156,7 @@ export default function App() {
     transferencia: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user.rol)
       ? <CommercialPortal key="transferencia" transferOnly user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : <Dashboard user={user} />,
     dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol)
-      ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : user.rol === "sistemas" ? <RmsBatchUpload /> : <Dashboard user={user} />,
+      ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : ["sistemas", "asistente_comercial"].includes(user.rol) ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialPortal user={user} onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     "metas-comerciales": user.rol === "gerente_comercial" ? <MetasComerciales /> : <Dashboard user={user} />,
     documentos: <Documentos />,
