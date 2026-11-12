@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "piplines"))
@@ -42,6 +42,34 @@ class LocalWebPublicationTest(unittest.TestCase):
         self.assertTrue(put.called)
         self.assertEqual(put.call_args.args[2], "local-processing-base/current.json")
         self.assertTrue(put.call_args.kwargs["upsert"])
+
+    def test_daily_batch_integrates_three_sources_without_stock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "Salida" / "202611"
+            c1 = root / "capa1"
+            output.mkdir(parents=True)
+            c1.mkdir()
+            for source, (output_name, fact_name) in publisher.SOURCE_FILES.items():
+                if source == "stock":
+                    continue
+                (output / output_name).write_bytes(b"incoming")
+                (c1 / fact_name).write_bytes(b"previous")
+
+            def fake_merge(_target, _incoming, _source, _cutoff, stage):
+                stage.write_bytes(b"merged")
+
+            manifest = {"archivos": {"ventas": {}, "ingresos": {}, "transferencias": {}}, "stockIncluido": False}
+            completed = MagicMock(returncode=0)
+            with patch.object(publisher, "SALIDA", output.parent), \
+                 patch.object(publisher, "CAPA1_DIR", c1), \
+                 patch.object(publisher, "WORK_DIR", root / "work"), \
+                 patch.object(publisher, "valid_parquet"), \
+                 patch.object(publisher, "stage_merge", side_effect=fake_merge) as merge, \
+                 patch.object(publisher.subprocess, "run", return_value=completed):
+                publisher.integrate("202611", "2026-11-09", manifest)
+            self.assertEqual(merge.call_count, 3)
+            self.assertNotIn("stock", [call.args[2] for call in merge.call_args_list])
 
 
 if __name__ == "__main__":

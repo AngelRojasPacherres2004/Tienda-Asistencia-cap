@@ -277,6 +277,10 @@ def integrate(periodo: str, cutoff: str, manifest: dict[str, object]) -> None:
     staging: list[tuple[Path, Path]] = []
     files = manifest["archivos"]
     for source, (out_name, fact_name) in SOURCE_FILES.items():
+        # Stock es una fotografía de cierre. En un corte diario se conserva la
+        # última foto mensual existente y solo se integran las tres fuentes RMS.
+        if source == "stock":
+            continue
         incoming = SALIDA / periodo / out_name
         if source not in files:
             raise PublishLocalError(f"El lote local no contiene {source}.")
