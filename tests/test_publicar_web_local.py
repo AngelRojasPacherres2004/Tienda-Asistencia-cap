@@ -30,6 +30,11 @@ class LocalWebPublicationTest(unittest.TestCase):
             with self.assertRaisesRegex(publisher.PublishLocalError, "PC-VENTAS"):
                 publisher.acquire_lock("https://example.supabase.co", "secret", "2026-11-09")
 
+    def test_first_publication_accepts_storage_nosuchkey_wrapped_as_400(self):
+        missing = publisher.StorageError(400, 'GET current: {"code":"NoSuchKey","statusCode":"404"}')
+        with patch.object(publisher, "fetch_object", side_effect=missing):
+            self.assertIsNone(publisher.load_json_object("https://example.supabase.co", "secret", "current"))
+
     def test_remote_pointer_is_activated_only_after_successful_publication(self):
         payload = {"id": "base-a", "cutoff": "2026-11-09", "files": {}}
         with patch.object(publisher, "put_object") as put:

@@ -108,11 +108,17 @@ def get_latest_cutoff(url: str, key: str) -> str | None:
     return str(rows[0]["sales_cutoff"]) if rows else None
 
 
+def object_not_found(error: StorageError) -> bool:
+    """Storage puede envolver un NoSuchKey como HTTP 400 en el gateway."""
+    detail = str(error).casefold()
+    return error.status == 404 or "nosuchkey" in detail or '"statuscode":"404"' in detail
+
+
 def load_json_object(url: str, key: str, path: str) -> dict[str, object] | None:
     try:
         payload = json.loads(fetch_object(url, key, path))
     except StorageError as error:
-        if error.status == 404:
+        if object_not_found(error):
             return None
         raise
     if not isinstance(payload, dict):
