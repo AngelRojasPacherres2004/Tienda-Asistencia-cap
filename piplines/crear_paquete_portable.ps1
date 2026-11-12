@@ -75,9 +75,10 @@ New-Item -ItemType Directory -Force -Path $StageRoot | Out-Null
 'piplines', 'shared', 'netlify', 'supabase', 'src', 'public', 'scripts', 'dist' |
     ForEach-Object { Copy-ProjectDirectory $_ }
 
-# La bandeja se entrega vacía: nunca se transportan Excel ni Parquet históricos.
-New-Item -ItemType Directory -Force -Path (Join-Path $StageRoot 'input') | Out-Null
-'input\.gitkeep', 'input\LEEME_OPERATIVO.md' | ForEach-Object { Copy-ProjectFile $_ }
+# La operación se entrega vacía: nunca se transportan Excel ni Parquet históricos.
+New-Item -ItemType Directory -Force -Path (Join-Path $StageRoot 'Entrada') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $StageRoot 'Salida') | Out-Null
+'Entrada\.gitkeep', 'Entrada\LEEME_OPERATIVO.md', 'Salida\.gitkeep' | ForEach-Object { Copy-ProjectFile $_ }
 
 # Verificación explícita: las credenciales privadas no pueden filtrarse al ZIP.
 $privateFiles = Get-ChildItem -LiteralPath $StageRoot -Force -Recurse -File | Where-Object {

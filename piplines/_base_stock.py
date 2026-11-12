@@ -28,9 +28,9 @@ except ImportError as exc:
 # 1. RUTAS DEL PROYECTO
 # ==========================================================
 
-from project_paths import PROJECT_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
-BASE_DIR = PROJECT_ROOT
-INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(BASE_DIR / "input")))
+from project_paths import DATA_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
+BASE_DIR = DATA_ROOT
+INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(BASE_DIR / "Entrada")))
 CAPA1_DIR = BASE_DIR / "capa1"
 CAPA2_DIR = BASE_DIR / "capa2"
 
@@ -577,6 +577,8 @@ def preparar_carpetas() -> None:
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     CAPA1_DIR.mkdir(parents=True, exist_ok=True)
     CAPA2_DIR.mkdir(parents=True, exist_ok=True)
+    WORK_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    WORK_INTERMEDIATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def sql_literal(valor: Any) -> str:

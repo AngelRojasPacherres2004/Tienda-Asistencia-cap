@@ -48,8 +48,8 @@ from maestros import (
     sql_tienda_id,
 )
 
-from project_paths import PROJECT_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
-BASE_DIR = PROJECT_ROOT
+from project_paths import DATA_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
+BASE_DIR = DATA_ROOT
 CAPA1_DIR = BASE_DIR / "capa1"
 CAPA2_DIR = BASE_DIR / "capa2"
 

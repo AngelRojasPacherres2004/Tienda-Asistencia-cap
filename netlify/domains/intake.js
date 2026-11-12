@@ -9,7 +9,7 @@ export function createIntakeDomain({
   parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile,
   resolve, summarizeAnnualReports, supabase, SYSTEM_SOURCES,
   SYSTEM_UPLOAD_CHUNK_SIZE, systemManifestPath, systemPartPath,
-  validateBatchId, validateCutoff, validateSystemUpload,
+  validateBatchId, validateCommercialBatchFile, validateCutoff, validateSystemUpload,
 }) {
   const systemsStorage = () => supabase.storage.from("dashboard-data");
 
@@ -154,7 +154,7 @@ export function createIntakeDomain({
     try {
       validateBatchId(input.batchId);
       validateCutoff(input.cutoff);
-      if (!COMMERCIAL_BATCH_SOURCES.some(item => item.id === input.source)) throw new Error("Fuente RMS no válida.");
+      validateCommercialBatchFile(input.source, input.fileName, input.cutoff);
     } catch (error) { throw httpError(error.message, 400); }
     let validated;
     try { validated = validateSystemUpload(input); }
@@ -186,14 +186,16 @@ export function createIntakeDomain({
     const input = bodyOf(event);
     const receipts = Array.isArray(input.receipts) ? input.receipts : [];
     const tickets = receipts.map(receipt => commercialBatchTicket(receipt, sessionUser));
+    if (!tickets.length) throw httpError("Adjunta los archivos Parquet del lote.", 400);
     try {
-      commercialBatchSources(tickets);
       tickets.forEach(ticket => { validateBatchId(ticket.batchId); validateCutoff(ticket.cutoff); });
     } catch (error) { throw httpError(error.message, 400); }
     const { batchId, cutoff } = tickets[0];
     if (tickets.some(ticket => ticket.batchId !== batchId || ticket.cutoff !== cutoff)) {
       throw httpError("Los archivos pertenecen a lotes o fechas diferentes.", 400);
     }
+    try { commercialBatchSources(tickets, cutoff); }
+    catch (error) { throw httpError(error.message, 400); }
     if (tickets.reduce((total, ticket) => total + ticket.fileSize, 0) > COMMERCIAL_BATCH_MAX_BYTES) {
       throw httpError("El lote completo supera 300 MB.", 400);
     }

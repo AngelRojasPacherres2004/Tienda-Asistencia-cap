@@ -1,243 +1,223 @@
 from __future__ import annotations
 
-"""Panel gráfico simplificado para operar los BAT sin usar la consola manualmente.
+"""Panel local para preparar lotes mensuales RMS."""
 
-Solo actualiza: ventas, transferencias, ingresos y stock (stock: 1 vez al mes).
-"""
-
+import json
 import subprocess
 import tkinter as tk
-import json
+import webbrowser
 from calendar import monthrange
 from datetime import date
-from pathlib import Path
 from tkinter import messagebox, ttk
+from tkcalendar import DateEntry
 
 from project_paths import PROJECT_ROOT
 from runtime_config import finalizar_proceso
+from operacion_mensual import descubrir_archivos, parse_periodo
 
-try:
-    from tkcalendar import DateEntry
-except ImportError:
-    DateEntry = None
-
+NAVY, BLUE, PALE, CARD = "#0f377e", "#1b4fa3", "#eef3fa", "#ffffff"
+TEXT, MUTED, BORDER = "#13233f", "#64748b", "#cbd8ee"
 NUEVA_CONSOLA = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+
+
 class PanelDashboard(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Dashboard General · Panel de control")
-        self.geometry("720x610")
-        self.minsize(680, 570)
-        self.configure(background="#f3f6fb")
-        self.fecha_inicio = tk.StringVar(value="")
-        self.fecha_fin = tk.StringVar(value="")
-        self.estado = tk.StringVar(value=self._estado_ultima_actualizacion())
+        self.title("Dashboard General · Operación local")
+        self.geometry("760x490")
+        self.minsize(680, 440)
+        self.configure(background=PALE)
+        self.entrada, self.salida = PROJECT_ROOT / "Entrada", PROJECT_ROOT / "Salida"
+        self.periodo, self.fecha_corte = tk.StringVar(), tk.StringVar()
+        self._min_corte: date | None = None
+        self._max_corte: date | None = None
+        self.estado = tk.StringVar(value="Selecciona un período para comenzar.")
+        self.entrada.mkdir(parents=True, exist_ok=True)
+        self.salida.mkdir(parents=True, exist_ok=True)
         self._crear_interfaz()
-
-    # ------------------------------------------------------------------ #
-    #  Interfaz                                                            #
-    # ------------------------------------------------------------------ #
+        self._refrescar_periodos()
 
     def _crear_interfaz(self) -> None:
-        estilo = ttk.Style(self)
-        estilo.configure("Title.TLabel",   font=("Segoe UI", 18, "bold"), foreground="#18213a")
-        estilo.configure("Section.TLabel", font=("Segoe UI", 10, "bold"), foreground="#18213a")
-        estilo.configure("Hint.TLabel",    font=("Segoe UI", 9),          foreground="#5f6b7a")
-        estilo.configure("Action.TButton", font=("Segoe UI", 10, "bold"),  padding=10)
-        estilo.configure("Danger.TButton", font=("Segoe UI", 10, "bold"),  padding=10)
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("Panel.TCombobox", padding=7, font=("Segoe UI", 10))
+        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(14, 10), foreground="white", background=NAVY)
+        style.map("Primary.TButton", background=[("active", BLUE)])
+        style.configure("Secondary.TButton", font=("Segoe UI", 10, "bold"), padding=(14, 10), foreground=NAVY, background=CARD)
+        style.map("Secondary.TButton", background=[("active", "#e5edf9")])
 
-        marco = ttk.Frame(self, padding=24)
-        marco.pack(fill="both", expand=True)
+        header = tk.Frame(self, bg=NAVY, height=86)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(header, text="DASHBOARD GENERAL", bg=NAVY, fg="white", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=28, pady=(17, 0))
+        tk.Label(header, text="Operación de datos", bg=NAVY, fg="white", font=("Segoe UI", 22, "bold")).pack(anchor="w", padx=28, pady=(0, 12))
 
-        # Título
-        ttk.Label(marco, text="Panel del Dashboard Comercial", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            marco,
-            text=(
-                "Actualización diaria: sobrescribe los Excel nuevos en input\\ y procesa solo la entrega nueva.\n"
-                "El histórico ya vive en Parquet; no copies Excel de 2024–2026 nuevamente."
-            ),
-            style="Hint.TLabel",
-            wraplength=590,
-        ).pack(anchor="w", pady=(4, 16))
-
-        # Sección: corte
-        filtro_marco = ttk.LabelFrame(marco, text="Fecha de procesamiento", padding=12)
-        filtro_marco.pack(fill="x")
-
-        fila1 = ttk.Frame(filtro_marco)
-        fila1.pack(fill="x", pady=(0, 6))
-        ttk.Label(fila1, text="Fecha de corte:", style="Section.TLabel").pack(side="left")
-        self._crear_selector_fecha(fila1, self.fecha_fin).pack(side="left", padx=4)
-
-        ttk.Label(
-            filtro_marco,
-            text=("La fecha es obligatoria. STOCK.xlsx solo se admite el último día del mes; "
-                  "ventas, ingresos y transferencias se ejecutan cada día."),
-            style="Hint.TLabel",
-        ).pack(anchor="w")
-        acciones_fecha = ttk.Frame(filtro_marco)
-        acciones_fecha.pack(anchor="e", pady=(4, 0))
-        ttk.Button(
-            acciones_fecha,
-            text="Usar cierre de mes",
-            command=self._usar_cierre_de_mes,
-        ).pack(side="left", padx=(0, 6))
-        ttk.Button(acciones_fecha, text="Limpiar fecha", command=self._limpiar_fechas).pack(side="left")
-
-        # Sección: Botones principales
-        botones_marco = ttk.LabelFrame(marco, text="Acciones", padding=12)
-        botones_marco.pack(fill="x", pady=(12, 0))
-
-        acciones = (
-            ("⟳  Actualizar datos locales",        self._actualizar,       0, 0),
-            ("▶  Abrir dashboard local",            lambda: self._bat("4_EJECUTAR_DASHBOARD_WEB.bat"), 0, 1),
-            ("📁  Abrir carpeta input",              self._abrir_carpeta_input, 1, 0),
-            ("📦  Crear paquete portable",           lambda: self._bat("3_CREAR_PAQUETE_PORTABLE.bat"), 1, 1),
-            ("🔧  Instalar / reparar requisitos",   lambda: self._bat("1_INSTALAR_REQUISITOS.bat"),    2, 0),
+        content = tk.Frame(self, bg=PALE, padx=28, pady=20)
+        content.pack(fill="both", expand=True)
+        period_card = tk.Frame(content, bg=CARD, highlightbackground=BORDER, highlightthickness=1, padx=18, pady=15)
+        period_card.pack(fill="x")
+        tk.Label(period_card, text="PERÍODO DE TRABAJO", bg=CARD, fg=TEXT, font=("Segoe UI", 9, "bold")).grid(row=0, column=0, columnspan=4, sticky="w")
+        tk.Label(period_card, text="Período", bg=CARD, fg=MUTED, font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky="w", pady=(10, 3))
+        self.periodo_selector = ttk.Combobox(period_card, textvariable=self.periodo, state="readonly", style="Panel.TCombobox", width=13, postcommand=self._refrescar_periodos)
+        self.periodo_selector.grid(row=2, column=0, sticky="ew", padx=(0, 12))
+        self.periodo_selector.bind("<<ComboboxSelected>>", self._cambio_periodo)
+        tk.Label(period_card, text="Fecha de corte", bg=CARD, fg=MUTED, font=("Segoe UI", 9, "bold")).grid(row=1, column=1, sticky="w", pady=(10, 3))
+        self.fecha_selector = DateEntry(
+            period_card, textvariable=self.fecha_corte, date_pattern="yyyy-mm-dd",
+            state="readonly", width=16, font=("Segoe UI", 10),
+            background=NAVY, foreground="white", bordercolor=BORDER,
         )
-        for texto, accion, fila, col in acciones:
-            ttk.Button(botones_marco, text=texto, command=accion, style="Action.TButton").grid(
-                row=fila, column=col, padx=5, pady=5, sticky="ew"
-            )
-        botones_marco.columnconfigure(0, weight=1)
-        botones_marco.columnconfigure(1, weight=1)
+        self.fecha_selector.grid(row=2, column=1, sticky="ew", padx=(0, 12))
+        ttk.Button(period_card, text="Cierre de mes", command=self._usar_cierre, style="Secondary.TButton").grid(row=2, column=2, sticky="ew")
+        period_card.columnconfigure(0, weight=2)
+        period_card.columnconfigure(1, weight=2)
 
-        # Reglas
-        reglas = ttk.LabelFrame(marco, text="Qué se actualiza", padding=10)
-        reglas.pack(fill="x", pady=(10, 0))
-        ttk.Label(
-            reglas,
-            text=(
-                "• input\\VENTAS.xlsx, input\\INGRESO.xlsx e input\\TRANSFERENCIAS.xlsx: obligatorios cada día.\n"
-                "• Sobrescribe esos tres archivos con la entrega del día nuevo y pulsa Actualizar.\n"
-                "• input\\STOCK.xlsx: opcional y solo el último día de cada mes (30/31, o 28/29).\n"
-                "• Personal, tráfico, catálogo, tiendas, metas y merma se consultan desde Supabase.\n"
-                "• El mismo botón genera los cuatro Parquet para el Asistente Comercial."
-            ),
-            style="Hint.TLabel",
-            justify="left",
-        ).pack(anchor="w")
-
-        ttk.Label(marco, textvariable=self.estado, style="Hint.TLabel", wraplength=590).pack(
-            anchor="w", pady=(12, 0)
+        actions = tk.Frame(content, bg=PALE, pady=16)
+        actions.pack(fill="x")
+        for col in range(2):
+            actions.columnconfigure(col, weight=1)
+        buttons = (
+            ("Procesar período", self._procesar, "Primary.TButton", 0, 0),
+            ("Abrir dashboard local", self._abrir_dashboard_local, "Secondary.TButton", 0, 1),
+            ("Instalar / reparar", lambda: self._bat("1_INSTALAR_REQUISITOS.bat"), "Secondary.TButton", 1, 0),
+            ("Crear paquete portable", lambda: self._bat("3_CREAR_PAQUETE_PORTABLE.bat"), "Secondary.TButton", 1, 1),
         )
+        for label, command, button_style, row, column in buttons:
+            padx = (0, 8) if column == 0 else (8, 0)
+            ttk.Button(actions, text=label, command=command, style=button_style).grid(row=row, column=column, sticky="ew", padx=padx, pady=5)
 
-    # ------------------------------------------------------------------ #
-    #  Helpers                                                             #
-    # ------------------------------------------------------------------ #
+        footer = tk.Frame(content, bg=CARD, highlightbackground=BORDER, highlightthickness=1, padx=15, pady=12)
+        footer.pack(fill="x")
+        tk.Label(footer, textvariable=self.estado, bg=CARD, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left", wraplength=650).pack(fill="x")
 
-    def _limpiar_fechas(self) -> None:
-        self.fecha_fin.set("")
+    def _periodos(self) -> list[str]:
+        result: list[str] = []
+        for folder in self.entrada.iterdir():
+            if folder.is_dir() and len(folder.name) == 6 and folder.name.isdigit():
+                year, month = int(folder.name[:4]), int(folder.name[4:])
+                if 2000 <= year <= 2100 and 1 <= month <= 12:
+                    result.append(folder.name)
+        return sorted(result)
 
-    def _usar_cierre_de_mes(self) -> None:
-        """Selecciona el último día del mes visible en el corte actual."""
-        try:
-            referencia = date.fromisoformat(self.fecha_fin.get().strip())
-        except ValueError:
-            referencia = date.today()
-        cierre = date(
-            referencia.year,
-            referencia.month,
-            monthrange(referencia.year, referencia.month)[1],
-        )
-        self.fecha_fin.set(cierre.isoformat())
-        self.estado.set(
-            f"Cierre mensual seleccionado: {cierre.isoformat()}. "
-            "Coloca también STOCK.xlsx antes de actualizar."
-        )
+    def _refrescar_periodos(self) -> None:
+        values = self._periodos()
+        self.periodo_selector["values"] = values
+        if values and self.periodo.get() not in values:
+            self.periodo.set(values[0])
+            self._cambio_periodo()
+        elif not values:
+            self.periodo.set("")
+            self.fecha_corte.set("")
+            self.estado.set("Ejecuta Instalar / reparar para crear los períodos de Entrada.")
+        else:
+            self._actualizar_estado()
 
-    def _abrir_carpeta_input(self) -> None:
-        carpeta = PROJECT_ROOT / "input"
-        carpeta.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.Popen(["explorer.exe", str(carpeta)])
-        except OSError as exc:
-            messagebox.showerror("No se pudo abrir la carpeta", str(exc))
+    def _cambio_periodo(self, _event: object | None = None) -> None:
+        period = self.periodo.get()
+        if not period:
             return
-        self.estado.set(
-            "Carpeta input abierta. Copia o sobrescribe los archivos RMS con los nombres exactos."
-        )
+        year, month = parse_periodo(period)
+        first, limit = self._rango_fechas_del_periodo(year, month)
+        self._min_corte, self._max_corte = first, limit
+        if first is None or limit is None:
+            self.fecha_corte.set("")
+            self.fecha_selector.configure(state="disabled")
+            self.estado.set("Ese período todavía no tiene fechas disponibles.")
+            return
+        self.fecha_selector.configure(mindate=first, maxdate=limit, state="readonly")
+        self.fecha_selector.set_date(limit)
+        self._actualizar_estado()
 
-    def _crear_selector_fecha(self, padre: ttk.Frame, variable: tk.StringVar) -> tk.Widget:
-        if DateEntry is not None:
-            selector = DateEntry(
-                padre, textvariable=variable, date_pattern="yyyy-mm-dd",
-                width=11, font=("Segoe UI", 10),
-            )
-            selector.delete(0, "end")
-            return selector
-        return ttk.Entry(padre, textvariable=variable, width=13, font=("Segoe UI", 10))
+    def _rango_fechas_del_periodo(self, year: int, month: int) -> tuple[date | None, date | None]:
+        first = date(year, month, 1)
+        last = date(year, month, monthrange(year, month)[1])
+        limit = min(last, date.today())
+        if first > limit:
+            return None, None
+        return first, limit
 
-    def _estado_ultima_actualizacion(self) -> str:
-        ruta = PROJECT_ROOT / "dashboard-data" / "dashboard.json"
-        try:
-            metadata = json.loads(ruta.read_text(encoding="utf-8")).get("metadata", {})
-            corte = metadata.get("selectedCutoff") or metadata.get("salesCutoff")
-            fecha = date.fromtimestamp(ruta.stat().st_mtime).isoformat()
-            return f"Última actualización local: {fecha}. Corte publicado: {corte or 'sin dato'}."
-        except (OSError, ValueError, json.JSONDecodeError):
-            return "Aún no hay una actualización local publicada."
+    def _usar_cierre(self) -> None:
+        period = self.periodo.get()
+        if not period:
+            messagebox.showerror("Selecciona un período", "Primero selecciona la carpeta mensual.")
+            return
+        year, month = parse_periodo(period)
+        closing = date(year, month, monthrange(year, month)[1]).isoformat()
+        if self._max_corte is None or date.fromisoformat(closing) > self._max_corte:
+            messagebox.showerror("Cierre no disponible", "El cierre de este período todavía está en el futuro.")
+            return
+        self.fecha_selector.set_date(date.fromisoformat(closing))
+        self.estado.set("Cierre seleccionado. Incluye STOCK.xlsx antes de procesar.")
 
-    def _validar_fecha(self, valor: str, nombre: str) -> str | None:
-        texto = valor.strip()
-        if not texto:
-            return ""
-        try:
-            date.fromisoformat(texto)
-        except ValueError:
-            messagebox.showerror("Fecha inválida", f"{nombre}: usa el formato AAAA-MM-DD.")
+    def _manifest(self) -> dict[str, object] | None:
+        if not self.periodo.get():
             return None
-        return texto
+        try:
+            return json.loads((self.salida / self.periodo.get() / "manifiesto.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return None
 
-    def _lanzar(self, comando: str, descripcion: str) -> None:
-        subprocess.Popen(
-            ["cmd.exe", "/d", "/k", comando],
-            cwd=PROJECT_ROOT,
-            creationflags=NUEVA_CONSOLA,
-        )
-        self.estado.set(f"En ejecución: {descripcion}. La consola queda abierta para mostrar el resultado o el error.")
+    def _actualizar_estado(self) -> None:
+        manifest = self._manifest()
+        if manifest:
+            self.estado.set(f"Último lote · {manifest.get('periodo')} · corte {manifest.get('fechaCorte')} · {str(manifest.get('estado', '')).title()}")
+        elif self.periodo.get():
+            self.estado.set(f"Entrada {self.periodo.get()} lista para recibir la entrega RMS.")
 
-    def _bat(self, nombre: str, *args: str) -> None:
-        ruta = PROJECT_ROOT / nombre
-        if not ruta.exists():
-            messagebox.showerror("Archivo no encontrado", f"No se encontró {nombre}.")
+    def _validar(self) -> tuple[str, str] | None:
+        period, cutoff_text = self.periodo.get().strip(), self.fecha_corte.get().strip()
+        if not period:
+            messagebox.showerror("Falta el período", "Selecciona una carpeta mensual de Entrada.")
+            return None
+        try:
+            cutoff = date.fromisoformat(cutoff_text)
+        except ValueError:
+            messagebox.showerror("Fecha inválida", "Usa una fecha válida en formato AAAA-MM-DD.")
+            return None
+        if cutoff.strftime("%Y%m") != period:
+            messagebox.showerror("Fecha fuera del período", "La fecha de corte debe pertenecer al período seleccionado.")
+            return None
+        if self._min_corte is None or self._max_corte is None or not self._min_corte <= cutoff <= self._max_corte:
+            messagebox.showerror("Fecha no disponible", "Selecciona una fecha válida desde el calendario del período.")
+            return None
+        folder = self.entrada / period
+        try:
+            sources = descubrir_archivos(folder)
+        except (FileNotFoundError, ValueError) as exc:
+            messagebox.showerror("Entrega RMS", str(exc))
+            return None
+        stock = sources.get("stock")
+        last_day = monthrange(cutoff.year, cutoff.month)[1]
+        if stock is not None and cutoff.day != last_day:
+            messagebox.showerror("Stock fuera de cierre", "STOCK.xlsx solo se procesa el último día del mes.")
+            return None
+        if cutoff.day == last_day and stock is None:
+            messagebox.showerror("Falta STOCK.xlsx", "Para cerrar el mes agrega STOCK.xlsx en esta carpeta.")
+            return None
+        return period, cutoff.isoformat()
+
+    def _procesar(self) -> None:
+        data = self._validar()
+        if data:
+            self._bat("2_ACTUALIZAR_DATOS.bat", "--periodo", data[0], "--fecha-corte", data[1])
+
+    def _abrir_dashboard_local(self) -> None:
+        preview = self.salida / self.periodo.get() / "Vista_Previa.html"
+        if not preview.is_file():
+            messagebox.showerror("Sin validación local", "Procesa primero el período seleccionado para generar su vista previa.")
             return
-        args_str = " ".join(f'"{a}"' if " " in a else a for a in args)
-        self._lanzar(f'call "{ruta}" {args_str}'.strip(), nombre)
+        webbrowser.open(preview.resolve().as_uri())
 
-    # ------------------------------------------------------------------ #
-    #  Acciones de botones                                                 #
-    # ------------------------------------------------------------------ #
+    def _lanzar(self, command: list[str], description: str) -> None:
+        subprocess.Popen(command, cwd=PROJECT_ROOT, creationflags=NUEVA_CONSOLA)
+        self.estado.set(f"En ejecución · {description}")
 
-    def _actualizar(self) -> None:
-        fin = self._validar_fecha(self.fecha_fin.get(), "Fecha de corte")
-        if fin is None:
+    def _bat(self, name: str, *args: str) -> None:
+        path = PROJECT_ROOT / name
+        if not path.is_file():
+            messagebox.showerror("Archivo no encontrado", f"No se encontró {name}.")
             return
-        if not fin:
-            messagebox.showerror("Falta la fecha", "Selecciona la fecha de corte de la entrega.")
-            return
-        nombres_diarios = ("VENTAS.xlsx", "INGRESO.xlsx", "TRANSFERENCIAS.xlsx")
-        faltantes = [nombre for nombre in nombres_diarios if not (PROJECT_ROOT / "input" / nombre).is_file()]
-        if faltantes:
-            messagebox.showinfo(
-                "Falta la entrega RMS",
-                "Faltan en input\\: " + ", ".join(faltantes) + ".\n\n"
-                "Usa los nombres exactos y sobrescríbelos cada día con la data nueva.",
-            )
-            return
-        stock = PROJECT_ROOT / "input" / "STOCK.xlsx"
-        fecha_corte = date.fromisoformat(fin)
-        if stock.is_file() and fecha_corte.day != monthrange(fecha_corte.year, fecha_corte.month)[1]:
-            messagebox.showerror(
-                "Stock fuera de cierre",
-                "STOCK.xlsx solo se procesa el último día del mes. Retíralo de input\\ para una actualización diaria.",
-            )
-            return
-
-        args = ["--fecha-corte", fin, "--anio-fin", str(fecha_corte.year)]
-
-        self._bat("2_ACTUALIZAR_DATOS.bat", "--incremental", *args)
+        self._lanzar(["cmd.exe", "/d", "/k", "call", str(path), *args], name)
 
 
 def main() -> None:

@@ -22,11 +22,17 @@ elif SCRIPT_DIR.name.casefold().startswith(("piplines", "pipelines")):
 else:
     PROJECT_ROOT = SCRIPT_DIR
 
-INPUT_DIR = PROJECT_ROOT / "input"
-CAPA1_DIR = PROJECT_ROOT / "capa1"
-CAPA2_DIR = PROJECT_ROOT / "capa2"
-POWERBI_DIR = PROJECT_ROOT / "powerbi_modelo"
-WORK_DIR = PROJECT_ROOT / ".etl_work"
+# Los procesos mensuales pueden usar un espacio de trabajo efímero distinto de
+# la raíz. Así ENTRADA/ y SALIDA/ no dependen del histórico local ni dejan
+# capa1/capa2 persistentes en la computadora operativa.
+_raiz_datos = os.getenv("DASHBOARD_DATA_ROOT", "").strip()
+DATA_ROOT = Path(_raiz_datos).expanduser().resolve() if _raiz_datos else PROJECT_ROOT
+
+INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(DATA_ROOT / "Entrada"))).resolve()
+CAPA1_DIR = DATA_ROOT / "capa1"
+CAPA2_DIR = DATA_ROOT / "capa2"
+POWERBI_DIR = DATA_ROOT / "powerbi_modelo"
+WORK_DIR = DATA_ROOT / ".etl_work"
 WORK_TEMP_DIR = WORK_DIR / "temporales"
 WORK_INTERMEDIATE_DIR = WORK_DIR / "intermedios"
 WORK_XLSX_DIR = WORK_DIR / "xlsx_staging"
@@ -71,5 +77,6 @@ def ruta_relativa(ruta: Path) -> str:
     except ValueError:
         return str(ruta.resolve())
 
-# Garantiza que una pipeline individual tenga disponibles sus directorios.
-preparar_directorios()
+# Cada pipeline prepara sus directorios al iniciar su trabajo. No se hace al
+# importar este módulo: el panel y el operador mensual no deben recrear
+# capa1/capa2 en la raíz local.

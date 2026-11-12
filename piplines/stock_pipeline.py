@@ -10,9 +10,9 @@ from pathlib import Path
 from modelo_relacional import transformar_stock, validar_claves
 from wrapper_utils import ejecutar_base
 
-from project_paths import PROJECT_ROOT
+from project_paths import DATA_ROOT
 from publication_cutoffs import configured_cutoff
-BASE = PROJECT_ROOT
+BASE = DATA_ROOT
 
 
 def parsear_fecha(valor: str) -> date:

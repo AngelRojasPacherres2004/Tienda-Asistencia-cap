@@ -4,8 +4,8 @@ import argparse, sys
 from modelo_relacional import transformar_transferencias, validar_claves
 from wrapper_utils import ejecutar_base
 from pathlib import Path
-from project_paths import PROJECT_ROOT
-BASE = PROJECT_ROOT
+from project_paths import DATA_ROOT
+BASE = DATA_ROOT
 
 def main()->int:
  p=argparse.ArgumentParser(description="Transferencias RMS -> FactTransferencias lista para Power BI")

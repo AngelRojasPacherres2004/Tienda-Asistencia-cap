@@ -109,14 +109,14 @@ Dashboard ejecutivo de ventas e inventario para Almacén de Remates. La interfaz
 
 ## Operación diaria
 
-1. En `input\` reemplaza únicamente `VENTAS.xlsx`, `INGRESO.xlsx` y `TRANSFERENCIAS.xlsx` por la entrega del día nuevo. Los históricos ya están en los Parquet y no se vuelven a copiar.
-2. Abre `0_ABRIR_PANEL.bat`, selecciona con el calendario la fecha de la entrega y usa **Actualizar datos locales**. La actualización incorpora solo esa entrega, reconstruye y valida Capa 1, Capa 2 y el dashboard.
-3. En el cierre de cada mes agrega `input\STOCK.xlsx` y selecciona obligatoriamente el último día calendario (28/29/30/31). En los demás días no dejes `STOCK.xlsx` en `input\`: se conserva la última fotografía mensual.
-4. La actualización deja los Parquet limpios en `entrega_asistente_comercial\AAAA-MM-DD\` para que el Asistente Comercial los cargue manualmente en el portal.
+1. Ejecuta una vez `1_INSTALAR_REQUISITOS.bat`. Crea `Entrada\AAAAMM` para el mes vigente y los meses siguientes.
+2. En la carpeta mensual coloca la fotografía acumulada: un Excel que inicie con `VENTA`, otro con `INGRESO` y otro con `TRANSFERENCIA`. Cuando llegue una nueva entrega del mismo mes, reemplaza esos tres archivos por el acumulado actualizado; no copies históricos de años anteriores.
+3. Abre `0_ABRIR_PANEL.bat`, selecciona el período y la fecha de corte, y pulsa **Procesar período**. El proceso sustituye solo el resultado de ese mes en `Salida\AAAAMM`.
+4. En el último día calendario agrega también `STOCK.xlsx` y procesa el cierre. Un cierre genera cuatro Parquet; una actualización diaria genera tres. Cada salida incluye `manifiesto.json` para identificar el corte y el estado.
 
 `4_EJECUTAR_DASHBOARD_WEB.bat` abre la aplicación unificada Asiste desde esta misma raíz en `http://127.0.0.1:5180/`.
 
-Por consola, `2_ACTUALIZAR_DATOS.bat --fecha-corte AAAA-MM-DD` prepara los datos y el lote manual. La actualización local solo recibe Ventas, Ingresos, Transferencias y Stock. Personal, tiendas, tráfico, metas, catálogo, mermas y guías se administran desde Supabase. Añade `--solo-verificar` para revisar el modelo sin escribir.
+Por consola, `2_ACTUALIZAR_DATOS.bat --periodo AAAAMM --fecha-corte AAAA-MM-DD` prepara el lote del mes. La actualización local solo recibe Ventas, Ingresos, Transferencias y Stock. Personal, tiendas, tráfico, metas, catálogo, mermas y guías se administran desde Supabase.
 
 ## Reglas de corte y actualización
 

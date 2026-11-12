@@ -38,7 +38,7 @@ if not exist ".venv\Scripts\python.exe" (
     echo Entorno virtual existente: .venv
 )
 
-for %%D in ("input" "capa1" "capa2" "entrega_asistente_comercial") do (
+for %%D in ("Entrada" "Salida") do (
     if not exist "%%~D" mkdir "%%~D"
 )
 
@@ -77,13 +77,15 @@ if exist "node_modules\vite\bin\vite.js" (
 )
 if not "!NPM_EXIT!"=="0" goto :error
 
+echo Preparando periodos mensuales de entrada...
+".venv\Scripts\python.exe" "piplines\operacion_mensual.py" --inicializar
+if errorlevel 1 goto :error
+
 echo.
 echo ============================================================
 echo INSTALACION COMPLETADA
-echo La actualizacion local procesa solo Ventas, Transferencias, Ingresos y Stock.
-echo Los demas indicadores se consultan desde las tablas de la base de datos.
-echo Ahora ejecuta: 2_ACTUALIZAR_DATOS.bat
-echo Los cuatro Parquet de subida quedaran en: entrega_asistente_comercial\AAAA-MM-DD\
+echo Usa 0_ABRIR_PANEL.bat para elegir un periodo de ENTRADA y procesarlo.
+echo Los Parquet listos quedaran en: SALIDA\AAAAMM\
 echo ============================================================
 if /I not "%~1"=="--sin-pausa" pause
 exit /b 0

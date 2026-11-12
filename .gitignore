@@ -26,11 +26,15 @@ dist/
 supabase/.temp/
 
 # Datos comerciales y artefactos regenerables
-input/
-!input/
-input/*
-!input/.gitkeep
-!input/LEEME_OPERATIVO.md
+/input/
+/Entrada/*
+!/Entrada/.gitkeep
+!/Entrada/LEEME_OPERATIVO.md
+/Salida/*
+!/Salida/.gitkeep
+/.operacion_temporal/
+/.operacion_respaldo/
+/.retirado_legacy/
 capa1/
 capa2/
 dashboard-data/

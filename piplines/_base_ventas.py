@@ -30,10 +30,10 @@ except ImportError as exc:
 # 1. RUTAS Y ESQUEMAS
 # ==========================================================
 
-from project_paths import PROJECT_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
+from project_paths import DATA_ROOT, WORK_INTERMEDIATE_DIR, WORK_TEMP_DIR
 from maestros import ANIO_INICIO_MODELO
-BASE_DIR = PROJECT_ROOT
-INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(BASE_DIR / "input")))
+BASE_DIR = DATA_ROOT
+INPUT_DIR = Path(os.getenv("DASHBOARD_INPUT_DIR", str(BASE_DIR / "Entrada")))
 CAPA1_DIR = BASE_DIR / "capa1"
 CAPA2_DIR = BASE_DIR / "capa2"
 
@@ -466,6 +466,8 @@ def preparar_carpetas() -> None:
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     CAPA1_DIR.mkdir(parents=True, exist_ok=True)
     CAPA2_DIR.mkdir(parents=True, exist_ok=True)
+    WORK_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    WORK_INTERMEDIATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def sql_texto(valor: Union[str, Path]) -> str:
@@ -497,6 +499,9 @@ def normalizar_diccionario(diccionario: dict[str, str]) -> dict[str, str]:
 def extraer_anio_archivo(archivo: Path) -> int:
     coincidencias = re.findall(r"(?:19|20)\d{2}", archivo.stem)
     if not coincidencias:
+        periodo_operativo = os.getenv("DASHBOARD_INPUT_PERIOD", "").strip()
+        if re.fullmatch(r"(?:19|20)\d{2}(?:0[1-9]|1[0-2])?", periodo_operativo):
+            return int(periodo_operativo[:4])
         raise ValueError(
             f"No se encontró un año de cuatro dígitos en el nombre: {archivo.name}"
         )
