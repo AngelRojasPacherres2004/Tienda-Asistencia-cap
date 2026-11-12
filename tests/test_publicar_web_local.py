@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -70,6 +71,17 @@ class LocalWebPublicationTest(unittest.TestCase):
                 publisher.integrate("202611", "2026-11-09", manifest)
             self.assertEqual(merge.call_count, 3)
             self.assertNotIn("stock", [call.args[2] for call in merge.call_args_list])
+
+    def test_backup_reports_part_progress_without_waiting_for_keyboard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "Fact_Ventas.parquet"
+            source.write_bytes(b"x" * (publisher.CHUNK_BYTES + 1))
+            output = StringIO()
+            with patch.object(publisher, "put_object"), patch("sys.stdout", output):
+                metadata = publisher.upload_c1_file("https://example.supabase.co", "secret", "base", "ventas", source)
+            self.assertEqual(len(metadata["parts"]), 2)
+            self.assertIn("No presiones Enter", output.getvalue())
+            self.assertIn("2/2", output.getvalue())
 
 
 if __name__ == "__main__":

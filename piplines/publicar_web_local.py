@@ -222,6 +222,12 @@ def synchronize_baseline(url: str, key: str) -> str | None:
 def upload_c1_file(url: str, key: str, base_id: str, source: str, file_path: Path) -> dict[str, object]:
     parts: list[dict[str, object]] = []
     digest = hashlib.sha256()
+    total_parts = max(1, (file_path.stat().st_size + CHUNK_BYTES - 1) // CHUNK_BYTES)
+    print(
+        f"[RESPALDO] {source}: {total_parts} parte(s), "
+        f"{file_path.stat().st_size / 1024 / 1024:.1f} MB. No presiones Enter.",
+        flush=True,
+    )
     with file_path.open("rb") as stream:
         index = 0
         while chunk := stream.read(CHUNK_BYTES):
@@ -230,6 +236,7 @@ def upload_c1_file(url: str, key: str, base_id: str, source: str, file_path: Pat
             path = f"{BASE_PREFIX}/{base_id}/{source}/part-{index:05d}"
             put_object(url, key, path, chunk, upsert=False, content_type="application/octet-stream")
             parts.append({"path": path, "bytes": len(chunk), "sha256": hashlib.sha256(chunk).hexdigest()})
+            print(f"  {source}: {index}/{total_parts} parte(s) enviada(s)", flush=True)
     return {"bytes": file_path.stat().st_size, "sha256": digest.hexdigest(), "parts": parts}
 
 
