@@ -22,3 +22,22 @@ export function mergeCommercialTraffic(dashboard, summary) {
 export function availableTrafficMonths(daily, year, storeIds) {
   return [...new Set(daily.filter(row => Number(row.date.slice(0, 4)) === year && storeIds.has(row.storeId)).map(row => Number(row.date.slice(5, 7))))].sort((a, b) => a - b);
 }
+
+// Keep missing traffic distinct from a recorded zero and track the actual
+// coverage of the stores selected in the monthly chart.
+export function trafficMonthsForStores(daily, year, stores) {
+  const months = new Map();
+  for (const row of daily) {
+    const store = stores.get(row.storeId);
+    if (!store || Number(row.date.slice(0, 4)) !== year) continue;
+    if (store.openingDate && row.date < store.openingDate) continue;
+    if (store.closingDate && row.date > store.closingDate) continue;
+    const month = Number(row.date.slice(5, 7));
+    const current = months.get(month);
+    months.set(month, {
+      traffic: (current?.traffic ?? 0) + row.traffic,
+      through: !current || row.date > current.through ? row.date : current.through,
+    });
+  }
+  return months;
+}

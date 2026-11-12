@@ -9,7 +9,7 @@ import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-ref
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal, type SavedTransferGroup } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { closingCommercialPeriod } from '../lib/currentCommercialPeriod';
-import { mergeCommercialTraffic, availableTrafficMonths } from '../lib/commercialTraffic';
+import { mergeCommercialTraffic, availableTrafficMonths, trafficMonthsForStores } from '../lib/commercialTraffic';
 import { teamProductivity } from './team-productivity';
 import { publishedSalesPeriods, publishedSalesDays, averageRecordedPersonnel } from './sales-period-context';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
@@ -260,6 +260,7 @@ export class CommercialDashboardController implements OnInit {
   private dailyDetailRange = '';
   readonly dailyDetailLoaded = signal(false);
   private readonly dailyTrafficRows = signal<{ date: string; storeId: string; traffic: number }[]>([]);
+  private readonly recordedTrafficRows = signal<{ date: string; storeId: string; traffic: number }[]>([]);
   private dailyReceivedRows: { date: string; storeId: string; received: number }[] = [];
   private monthlyPersonnelAreaIndex = new Map<string, PersonnelAreaRow[]>();
   private monthlyCategoryIndex = new Map<string, Monthly[]>();
@@ -351,6 +352,7 @@ export class CommercialDashboardController implements OnInit {
   readonly ticketChartYear = signal(new Date().getFullYear());
   readonly ticketChartSelectedStores = signal<string[]>([]);
   readonly kpiDetailMonth = signal(0);
+  private readonly trafficChartStatus = signal<'ready' | 'loading' | 'error'>('ready');
   readonly trafficChartType = signal<'METRO' | 'OTHER'>('METRO');
   readonly ticketChartYears = computed(() => [2026, 2025, 2024].filter(year => (this.data()?.metadata.years ?? []).includes(year)));
   readonly ticketChartStores = computed(() => {
@@ -364,29 +366,36 @@ export class CommercialDashboardController implements OnInit {
   readonly trafficChartLabel = computed(() => this.trafficChartType() === 'METRO' ? 'TRÁFICO METRO' : 'TRÁFICO OTRAS TIENDAS');
   readonly trafficChartStores = computed(() => this.ticketChartStores().filter(store => {
     const isMetro = store.format?.trim().toUpperCase() === 'METRO';
-    return this.trafficChartType() === 'METRO' ? isMetro : !isMetro;
+    return store.isStore && (this.trafficChartType() === 'METRO' ? isMetro : !isMetro);
   }));
   readonly trafficMonthlyRows = computed(() => {
     this.data();
     const year = this.ticketChartYear();
-    const cutoff = [this.data()?.metadata.salesCutoff, this.data()?.metadata.trafficCutoff].filter(Boolean).sort().at(-1) || '';
+    const cutoff = [this.recordedTrafficRows().reduce((latest, row) => row.date > latest ? row.date : latest, ''), this.data()?.metadata.salesCutoff, this.data()?.metadata.trafficCutoff].filter(Boolean).sort().at(-1) || '';
     const cutoffYear = Number(cutoff.slice(0, 4));
     const cutoffMonth = Number(cutoff.slice(5, 7));
     const visibleMonths = year === cutoffYear ? MONTHS.slice(0, cutoffMonth) : MONTHS;
     const selectedStores = new Set(this.ticketChartSelectedStores());
-    const ids = new Set(this.trafficChartStores()
-      .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
-      .map(store => store.storeId));
+    const stores = this.trafficChartStores().filter(store => !selectedStores.size || selectedStores.has(store.storeId));
+    const trafficByMonth = trafficMonthsForStores(this.recordedTrafficRows(), year, new Map(stores.map(store => [store.storeId, store])));
+    const salesCutoff = this.data()?.metadata.salesCutoff || '';
     return visibleMonths.map((label, index) => {
-      const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
-      const traffic = sum(rows, 'traffic');
-      const transactions = sum(rows, 'transactions');
-      const metadata = this.data()?.metadata;
-      const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
-      return { label, traffic, transactions, conversion: traffic > 0 && (!metadata || `${year}-${String(index + 1).padStart(2, '0')}-01` <= metadata.salesCutoff && conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
+      const month = index + 1;
+      const period = year * 100 + month;
+      const ids = new Set(stores.filter(store => this.storeOverlapsPeriod(store, period, period)).map(store => store.storeId));
+      const rows = this.indexedRows(this.monthlyStoreIndex, [period], ids);
+      const recorded = trafficByMonth.get(month);
+      const traffic = recorded?.traffic ?? null;
+      const prefix = `${year}-${String(month).padStart(2, '0')}`;
+      const monthEnd = `${prefix}-${new Date(year, month, 0).getDate()}`;
+      const salesThrough = salesCutoff < monthEnd ? salesCutoff : monthEnd;
+      const transactions = rows.length && salesThrough.startsWith(prefix) ? sum(rows, 'transactions') : null;
+      const conversion = traffic != null && traffic > 0 && transactions != null && recorded?.through === salesThrough
+        ? transactions / traffic : null;
+      return { label, traffic, transactions, conversion, through: recorded?.through };
     });
   });
-  readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic > 0));
+  readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic != null));
   readonly trafficMonthlyOption = computed<EChartsOption>(() => {
     const rows = this.trafficMonthlyRows();
     return {
@@ -522,8 +531,30 @@ export class CommercialDashboardController implements OnInit {
     this.trafficChartType.set(type);
     this.ticketChartYear.set(this.ticketChartYears()[0] || 2026);
     this.ticketChartSelectedStores.set([]);
+    if (this.expandedChart() !== 'traffic-average') void this.refreshCommercialTraffic();
     this.toggleChartExpansion('traffic-average');
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
+  }
+  private async refreshCommercialTraffic(): Promise<void> {
+    if (this.trafficChartStatus() === 'loading') return;
+    const loadToken = this.goalLoadToken;
+    this.trafficChartStatus.set('loading');
+    try {
+      const summary = await this.cloud.trafficSummary();
+      if (loadToken !== this.goalLoadToken) return;
+      const current = this.data();
+      if (current && summary) {
+        const updated = mergeCommercialTraffic(current, summary);
+        this.monthlyStoreIndex = this.indexPeriodStore(updated.monthlyStore);
+        this.dailyTrafficRows.set(updated.dailyTraffic);
+        this.recordedTrafficRows.set(updated.dailyTraffic);
+        this.data.set(updated);
+        this.trafficRevision.update(value => value + 1);
+      }
+      this.trafficChartStatus.set('ready');
+    } catch {
+      if (loadToken === this.goalLoadToken) this.trafficChartStatus.set('error');
+    }
   }
   setTicketChartYear(year: number): void {
     this.ticketChartYear.set(year);
@@ -545,6 +576,7 @@ export class CommercialDashboardController implements OnInit {
   readonly year = signal(0);
   // Filtros múltiples. Arreglo vacío = TODOS / ACUMULADO.
   readonly selectedMonths = signal<number[]>([]);
+  private readonly trafficMonthChosen = signal(false);
   readonly fromDate = signal('');
   readonly toDate = signal('');
   readonly categoryView = signal<CategoryView>('RUBRO');
@@ -696,6 +728,7 @@ export class CommercialDashboardController implements OnInit {
 
   readonly selectedMonthSingle = computed(() => this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0);
   onMonthSelectChange(val: any): void {
+    this.trafficMonthChosen.set(true);
     const m = Number(val);
     if (m === 0) {
       this.selectedMonths.set([]);
@@ -1507,7 +1540,8 @@ export class CommercialDashboardController implements OnInit {
   }));
   readonly talentTrafficCardModel = computed<Record<string, unknown>>(() => ({
     moduleId: 'talent-traffic-card', baseClasses: 'card talent-card', cardClass: 'area-distribution-card',
-    icon: 'comparison', title: 'TRÁFICO POR TIENDA',
+    icon: 'comparison', title: this.trafficMonthChosen() || this.dateRangeActive()
+      ? 'TRÁFICO POR TIENDA' : 'TRÁFICO POR TIENDA · ÚLTIMO MES REGISTRADO',
     chartId: 'talent-traffic-store', label: 'Tráfico registrado por tienda en el período seleccionado', ready: true,
     option: blackChartText(this.talentTrafficOption()),
   }));
@@ -1959,12 +1993,18 @@ export class CommercialDashboardController implements OnInit {
       rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
         { value: row.conversion, text: this.percent(row.conversion) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.traffic, text: this.number(row.traffic) },
       ] })) };
-    return { ...common, titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
+    const trafficRows = this.trafficMonthlyRows();
+    const through = trafficRows.flatMap(row => row.through ? [row.through] : []).at(-1);
+    const status = this.trafficChartStatus();
+    const dataNote = status === 'loading' ? 'Actualizando tráfico…'
+      : status === 'error' ? 'No se pudo actualizar el tráfico.'
+      : through ? `Último registro de tráfico para esta selección: ${through}.` : '';
+    return { ...common, dataNote, loading: status === 'loading', retryTraffic: status === 'error', titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
       closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
       hasData: this.trafficChartHasData(), emptyText: `No hay tráfico registrado para ${year} con estos filtros.`,
       option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
       headers: ['Mes', 'Tráfico', 'Transacciones', 'Conversión'], legendItems: [{ label: this.trafficChartLabel(), color: C.navy }],
-      rows: this.trafficMonthlyRows().map(row => ({ label: row.label, cells: [
+      rows: trafficRows.map(row => ({ label: row.label, cells: [
         { value: row.traffic, text: this.number(row.traffic) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.conversion, text: this.percent(row.conversion) },
       ] })) };
   }
@@ -2122,6 +2162,7 @@ export class CommercialDashboardController implements OnInit {
 
   onReactMonthlyModalAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'close') this.closeExpandedChart();
+    else if (type === 'retry-traffic') void this.refreshCommercialTraffic();
     else if (type === 'year' && value != null) this.setTicketChartYear(Number(value));
     else if (type === 'clear-stores') this.ticketChartSelectedStores.set([]);
     else if (type === 'store' && typeof value === 'string') this.toggleTicketChartStore(value);
@@ -2712,9 +2753,15 @@ export class CommercialDashboardController implements OnInit {
     if (!this.data()) return [];
     const ids = this.filteredStoreIds();
     const from = this.fromDate(); const to = this.toDate() || from;
-    const rows = this.dateRangeActive()
-      ? this.dailyTrafficRows().filter(row => ids.has(row.storeId) && row.date >= from && row.date <= to)
-      : this.indexedRows(this.monthlyStoreIndex, this.selectedPeriods(), ids);
+    const months = this.trafficMonthChosen() ? this.selectedMonths() : [];
+    const latest = this.recordedTrafficRows().reduce((date, row) =>
+      ids.has(row.storeId) && Number(row.date.slice(0, 4)) === this.year() && row.date > date ? row.date : date, '');
+    const rows = this.recordedTrafficRows().filter(row => ids.has(row.storeId) && (
+      this.dateRangeActive() ? row.date >= from && row.date <= to
+        : Number(row.date.slice(0, 4)) === this.year() && (this.trafficMonthChosen()
+          ? !months.length || months.includes(Number(row.date.slice(5, 7)))
+          : row.date.slice(0, 7) === latest.slice(0, 7))
+    ));
     const byStore = grouped(rows, row => row.storeId);
     return this.filteredStores().map(store => {
       const records = byStore.get(store.storeId) || [];
@@ -4788,6 +4835,7 @@ export class CommercialDashboardController implements OnInit {
 
   private async loadDashboardBase(): Promise<void> {
     const goalLoadToken = ++this.goalLoadToken;
+    this.trafficChartStatus.set('ready');
     this.storeGoalsReady.set(false);
     this.companyRankingData.set(null);
     this.companyRankingState.set('loading');
@@ -4824,6 +4872,8 @@ export class CommercialDashboardController implements OnInit {
       // decenas de miles de filas completas cada vez que cambia un selector.
       this.monthlyStoreIndex = this.indexPeriodStore(loaded.monthlyStore || []);
       this.dailyTrafficRows.set(loaded.dailyTraffic || []);
+      this.recordedTrafficRows.set(trafficResult.status === 'fulfilled' && trafficResult.value
+        ? trafficResult.value.daily || [] : loaded.dailyTraffic || []);
       this.dailyReceivedRows = loaded.dailyReceived || [];
       this.monthlyPersonnelAreaIndex = this.indexPeriodStore(loaded.monthlyPersonnelArea || []);
       this.monthlyCategoryIndex = this.indexPeriodStore(loaded.monthlyCategory || []);
@@ -4836,6 +4886,7 @@ export class CommercialDashboardController implements OnInit {
       // Abrir en el cierre publicado, aunque el calendario ya haya cambiado de mes.
       const current = closingCommercialPeriod(loaded.metadata.salesCutoff);
       this.year.set(current.year);
+      this.trafficMonthChosen.set(false);
       this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
       this.data.set(loaded);
       this.trafficRevision.update(value => value + 1);
@@ -5022,6 +5073,7 @@ export class CommercialDashboardController implements OnInit {
     return values.includes(value) ? values.filter(item => item !== value) : [...values, value];
   }
   clearMonths(): void {
+    this.trafficMonthChosen.set(true);
     // MES es estrictamente temporal. No toca Tienda, Clúster, Formato, Rubro, Línea ni Sublínea.
     this.selectedMonths.set([]);
     this.invalidateSellerDetailForMonth();
@@ -5029,6 +5081,7 @@ export class CommercialDashboardController implements OnInit {
   }
   toggleMonth(value: number): void {
     const month = Number(value); if (!this.availableMonths().includes(month)) return;
+    this.trafficMonthChosen.set(true);
     // ÚNICA mutación de este evento: selectedMonths.
     this.selectedMonths.set(this.toggleValue(this.selectedMonths(), month).sort((a, b) => a - b));
     this.clearDateRange();
@@ -5345,6 +5398,7 @@ export class CommercialDashboardController implements OnInit {
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
     const current = closingCommercialPeriod(this.data()?.metadata.salesCutoff); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
+    this.trafficMonthChosen.set(false);
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]);
     this.productId.set('AUTO'); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);

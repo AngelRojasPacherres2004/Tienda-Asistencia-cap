@@ -110,7 +110,6 @@ export class CloudDataService {
   private fileManifest = new Map<string, DashboardFileRow>();
   private readonly portalGetRequests = new Map<string, Promise<unknown>>();
   private storeGoalsCache: { goals: StoreGoal[]; annualTargets: AnnualGoal[] } | null = null;
-  private trafficSummaryCache: TrafficSummary | null = null;
 
   readonly authReady = signal(false);
   readonly session = signal<Session | null>(null);
@@ -385,9 +384,7 @@ export class CloudDataService {
 
   async trafficSummary(): Promise<TrafficSummary | null> {
     if (!this.portalMode) return null;
-    if (this.trafficSummaryCache) return this.trafficSummaryCache;
-    this.trafficSummaryCache = await this.criticalPortalGet<TrafficSummary>('/commercial/traffic-summary');
-    return this.trafficSummaryCache;
+    return this.portalRequest<TrafficSummary>('/commercial/traffic-summary');
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {

@@ -1,6 +1,6 @@
 ﻿import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeCommercialTraffic, availableTrafficMonths } from '../src/lib/commercialTraffic.js';
+import { mergeCommercialTraffic, availableTrafficMonths, trafficMonthsForStores } from '../src/lib/commercialTraffic.js';
 import { closingCommercialPeriod } from '../src/lib/currentCommercialPeriod.js';
 
 test('traffic after sales closing remains available without changing the default or existing sales', () => {
@@ -29,4 +29,25 @@ test('traffic can enable a new calendar year while retaining the published closi
  const result=mergeCommercialTraffic({metadata:{salesCutoff:'2026-12-31',years:[2026]},monthlyStore:[]},{daily:[{date:'2027-01-01',storeId:'A',traffic:2}]});
  assert.deepEqual(result.metadata.years,[2026,2027]);
  assert.deepEqual(closingCommercialPeriod(result.metadata.salesCutoff),{year:2026,month:12});
+});
+
+test('monthly traffic uses the selected stores, distinguishes zero from missing, and tracks the last date', () => {
+ const rows = [
+   { date: '2026-11-08', storeId: 'A', traffic: 0 },
+   { date: '2026-11-02', storeId: 'A', traffic: 257 },
+   { date: '2026-10-30', storeId: 'A', traffic: 0 },
+   { date: '2026-11-12', storeId: 'B', traffic: 99 },
+   { date: '2025-11-08', storeId: 'A', traffic: 99 },
+ ];
+ rows.push(
+   { date: '2026-02-17', storeId: 'Puno', traffic: 12 },
+   { date: '2026-07-01', storeId: 'Puno', traffic: 16258 },
+ );
+ const stores = new Map([['A', {}], ['Puno', { closingDate: '2026-02-17' }]]);
+ const months = trafficMonthsForStores(rows, 2026, stores);
+ assert.deepEqual(months.get(2), { traffic: 12, through: '2026-02-17' });
+ assert.equal(months.has(7), false);
+ assert.deepEqual(months.get(11), { traffic: 257, through: '2026-11-08' });
+ assert.deepEqual(months.get(10), { traffic: 0, through: '2026-10-30' });
+ assert.equal(months.has(9), false);
 });

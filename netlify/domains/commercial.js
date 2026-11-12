@@ -143,7 +143,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     // Cada fila de trafico_tienda es una franja horaria. El resumen se compone
     // directamente de la tabla, sin etiquetas ni totales importados desde Excel.
     const trafficRows = await fetchAllReportPages(supabase.from("trafico_tienda").select("tienda_id,fecha,cantidad")
-      .in("tienda_id", storeIds).gte("fecha", "2024-01-01").order("fecha"));
+      .in("tienda_id", storeIds).gte("fecha", "2024-01-01").order("fecha").order("id"));
     const daily = new Map();
     let cutoff = null;
     // fetchAllReportPages ya devuelve el arreglo completo de filas. Leer
