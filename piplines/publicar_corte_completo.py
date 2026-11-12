@@ -22,6 +22,19 @@ MODEL_FACTS = (
     "FactVentas.parquet", "FactIngresos.parquet", "FactTransferencias.parquet",
     "FactStock.parquet",
 )
+REPORT_CORE_SOURCES = ("ventas", "ingresos", "transferencias", "stock")
+
+
+def annual_report_sources() -> tuple[str, ...]:
+    """Fuentes que debe incluir el reporte anual generado localmente.
+
+    La operación RMS solo mantiene cuatro Parquet locales. Tráfico se consulta
+    desde Supabase y solo aparece en el reporte privado si existe el Parquet
+    heredado, nunca como requisito para publicar un corte comercial.
+    """
+
+    traffic = PROJECT_ROOT / "capa2" / "FactTraficoClientes.parquet"
+    return REPORT_CORE_SOURCES + (("trafico",) if traffic.is_file() else ())
 
 
 def app_environment(app_root: Path) -> dict[str, str]:
@@ -70,11 +83,13 @@ def manifest_fresh(path: Path, cutoff: str, stock: str, *, monthly: bool = False
         coverage = json.loads(COBERTURA.read_text(encoding='utf-8'))
         expected = {"ventas": cutoff, "ingresos": cutoff,
                     "transferencias": cutoff, "stock": stock}
+        report_sources = annual_report_sources()
         traffic_cutoff = coverage.get("trafficCutoff")
-        if traffic_cutoff:
+        if "trafico" in report_sources and traffic_cutoff:
             expected["trafico"] = str(traffic_cutoff)
         newest_source = max((PROJECT_ROOT / "capa2" / name).stat().st_mtime for name in MODEL_FACTS)
         return (manifest.get("cutoffs") == expected
+                and tuple(manifest.get("sourceKinds", ())) == report_sources
                 and (not monthly or manifest.get("schemaVersion") == 3)
                 and (monthly or all(
                     {"codigo_nissei", "lote"}.issubset(manifest.get("detailColumns", {}).get(kind, []))

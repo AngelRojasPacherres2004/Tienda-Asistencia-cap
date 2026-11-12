@@ -49,6 +49,13 @@ DATE_FIELDS = {
     "transferencias": "fecha_transferencia", "trafico": "fecha",
 }
 
+# El flujo RMS portable conserva únicamente estas cuatro fuentes en Capa 2.
+# Tráfico se administra en Supabase y puede no estar materializado de forma
+# local; su ausencia no debe bloquear los reportes privados ni la publicación
+# comercial completa.
+CORE_KINDS = ("ventas", "stock", "ingresos", "transferencias")
+OPTIONAL_KINDS = ("trafico",)
+
 SUMMARY_SQL = {
     "ventas_diario": """select fecha_venta fecha, tienda_id,
         sum(total_venta) venta_neta, sum(cantidad) unidades,
@@ -92,6 +99,28 @@ def source(root, kind, cutoff=None):
     return f"(select * from {raw} where {DATE_FIELDS[kind]} <= DATE '{cutoff}')" if cutoff else raw
 
 
+def available_kinds(root: Path) -> tuple[str, ...]:
+    """Devuelve las fuentes locales disponibles para los reportes privados.
+
+    Las cuatro fuentes RMS son obligatorias. Tráfico solamente se incluye si
+    existe su Parquet local heredado; de lo contrario continúa gestionándose
+    desde Supabase y se omite de este export privado.
+    """
+
+    missing = [
+        kind for kind in CORE_KINDS
+        if not (root / "capa2" / ("Fact" + kind.capitalize() + ".parquet")).is_file()
+    ]
+    if missing:
+        files = ", ".join("Fact" + kind.capitalize() + ".parquet" for kind in missing)
+        raise FileNotFoundError(root / "capa2" / files)
+    optional = tuple(
+        kind for kind in OPTIONAL_KINDS
+        if (root / "capa2" / "FactTraficoClientes.parquet").is_file()
+    )
+    return CORE_KINDS + optional
+
+
 def write_query(connection, query, output, kind, stores, years, handles, counts, dimensions=None):
     cursor = connection.execute(query)
     columns = [column[0] for column in cursor.description]
@@ -114,6 +143,7 @@ def write_query(connection, query, output, kind, stores, years, handles, counts,
 
 def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None):
     connection = duckdb.connect()
+    kinds = available_kinds(root)
     store_rows = connection.execute("""select tienda_id, tienda, alias, cluster, formato_tienda
         from read_parquet(?) where tienda_id like 'T___'""",
         [str(root / "capa2" / "DimTiendas.parquet")]).fetchall()
@@ -122,7 +152,7 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
     if not stores:
         raise ValueError("No se encontraron tiendas homologadas.")
     years = set(requested_years)
-    effective_cutoffs = {kind: stock_cutoff if kind == "stock" else sales_cutoff for kind in DATE_FIELDS}
+    effective_cutoffs = {kind: stock_cutoff if kind == "stock" else sales_cutoff for kind in kinds}
     if sales_cutoff:
         available = connection.execute(f"select max(fecha_venta) from {source(root, 'ventas', sales_cutoff)}").fetchone()[0]
         if str(available) != sales_cutoff:
@@ -132,7 +162,8 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
         if str(available) != stock_cutoff:
             raise ValueError("No existe la foto de stock para el corte solicitado.")
     cutoffs = {}
-    for kind, field in DATE_FIELDS.items():
+    for kind in kinds:
+        field = DATE_FIELDS[kind]
         cutoffs[kind] = str(connection.execute(
             f"select max({field}) from {source(root, kind, effective_cutoffs[kind])}").fetchone()[0] or "")
 
@@ -140,7 +171,8 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
     detail_columns = {}
     dimensions = defaultdict(set)
     try:
-        for kind, template in DETAIL_SQL.items():
+        for kind in kinds:
+            template = DETAIL_SQL[kind]
             print(f"Detalle {kind}...", flush=True)
             query = template.format(fact=source(root, kind, effective_cutoffs[kind]))
             detail_columns[kind] = [column[0] for column in connection.execute(f"{query} limit 0").description]
@@ -153,8 +185,10 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
     summary_handles, summary_counts = {}, defaultdict(int)
     try:
         for kind, template in SUMMARY_SQL.items():
-            print(f"Resumen {kind}...", flush=True)
             fact_kind = "ventas" if kind == "ventas_diario" else kind
+            if fact_kind not in kinds:
+                continue
+            print(f"Resumen {kind}...", flush=True)
             query = template.format(fact=source(root, fact_kind, effective_cutoffs[fact_kind]))
             cursor = connection.execute(query)
             columns = [column[0] for column in cursor.description]
@@ -192,6 +226,7 @@ def generate(root, output, requested_years, sales_cutoff=None, stock_cutoff=None
                           "bytes": target.stat().st_size, "path": f"{year}/summary/{store}.json.gz"})
     manifest = {"generatedAt": datetime.now(timezone.utc).isoformat(),
                 "years": sorted({item["year"] for item in files}), "cutoffs": cutoffs,
+                "sourceKinds": list(kinds),
                 "detailColumns": detail_columns,
                 "stores": stores, "files": files, "summaries": summaries,
                 "dimensions": {f"{year}/{store}": sorted(map(list, values))
