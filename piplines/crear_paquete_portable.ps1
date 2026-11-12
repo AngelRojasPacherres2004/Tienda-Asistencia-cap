@@ -127,9 +127,39 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot '.env') -PathType Leaf)
 Copy-DataDirectory $Capa1Source 'capa1'
 Copy-DataDirectory $Capa2Source 'capa2'
 
-Compress-Archive -LiteralPath $StageRoot -DestinationPath $ZipPath -CompressionLevel Optimal -Force
+if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
+    throw 'No se encontró tar.exe de Windows; no se puede crear un ZIP íntegro de este tamaño.'
+}
+
+# Compress-Archive ha generado ZIP truncados con históricos grandes en algunas
+# instalaciones de Windows. libarchive (tar.exe) produce ZIP64 de forma estable.
+& tar.exe -a -c -f $ZipPath -C $OutputRoot $PackageName
+if ($LASTEXITCODE -ne 0) { throw 'tar.exe no pudo crear el paquete ZIP.' }
 if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf) -or (Get-Item -LiteralPath $ZipPath).Length -lt 1024) {
-    throw 'El archivo ZIP no se pudo validar.'
+    throw 'El archivo ZIP no se pudo crear.'
+}
+
+# La validación debe leer todos los streams, no solo listar sus nombres: así se
+# detecta cualquier "final inesperado del archivo" antes de entregar el ZIP.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = $null
+try {
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    if ($archive.Entries.Count -lt 10) { throw 'El ZIP no contiene los archivos esperados.' }
+    $buffer = New-Object byte[] (1024 * 1024)
+    foreach ($entry in $archive.Entries) {
+        $stream = $entry.Open()
+        try {
+            while ($stream.Read($buffer, 0, $buffer.Length) -gt 0) { }
+        } finally {
+            $stream.Dispose()
+        }
+    }
+} catch {
+    Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
+    throw "El ZIP quedó incompleto o corrupto: $($_.Exception.Message)"
+} finally {
+    if ($null -ne $archive) { $archive.Dispose() }
 }
 
 Remove-Item -LiteralPath $StageRoot -Recurse -Force
