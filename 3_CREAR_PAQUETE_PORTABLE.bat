@@ -25,8 +25,8 @@ if errorlevel 1 (
 echo ============================================================
 echo CREAR PAQUETE PORTABLE
 echo ============================================================
-echo El ZIP no incluye archivos .env, Excel ni datos historicos.
-echo Incluye la app compilada, los BAT vigentes y el flujo RMS actual.
+echo El ZIP incluye .env y el historico tecnico de Capa 1/Capa 2.
+echo No incluye Excel RMS antiguos: solo se cargan entregas nuevas por periodo.
 echo.
 
 where npm >nul 2>nul

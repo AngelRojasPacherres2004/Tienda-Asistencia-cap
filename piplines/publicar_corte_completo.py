@@ -70,6 +70,9 @@ def manifest_fresh(path: Path, cutoff: str, stock: str, *, monthly: bool = False
         coverage = json.loads(COBERTURA.read_text(encoding='utf-8'))
         expected = {"ventas": cutoff, "ingresos": cutoff,
                     "transferencias": cutoff, "stock": stock}
+        traffic_cutoff = coverage.get("trafficCutoff")
+        if traffic_cutoff:
+            expected["trafico"] = str(traffic_cutoff)
         newest_source = max((PROJECT_ROOT / "capa2" / name).stat().st_mtime for name in MODEL_FACTS)
         return (manifest.get("cutoffs") == expected
                 and (not monthly or manifest.get("schemaVersion") == 3)

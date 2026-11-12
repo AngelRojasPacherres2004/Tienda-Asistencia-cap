@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import subprocess
 import tkinter as tk
-import webbrowser
 from calendar import monthrange
 from datetime import date
 from tkinter import messagebox, ttk
@@ -24,8 +23,8 @@ class PanelDashboard(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Dashboard General · Operación local")
-        self.geometry("760x490")
-        self.minsize(680, 440)
+        self.geometry("760x410")
+        self.minsize(680, 380)
         self.configure(background=PALE)
         self.entrada, self.salida = PROJECT_ROOT / "Entrada", PROJECT_ROOT / "Salida"
         self.periodo, self.fecha_corte = tk.StringVar(), tk.StringVar()
@@ -77,10 +76,8 @@ class PanelDashboard(tk.Tk):
         for col in range(2):
             actions.columnconfigure(col, weight=1)
         buttons = (
-            ("Procesar período", self._procesar, "Primary.TButton", 0, 0),
-            ("Abrir dashboard local", self._abrir_dashboard_local, "Secondary.TButton", 0, 1),
-            ("Instalar / reparar", lambda: self._bat("1_INSTALAR_REQUISITOS.bat"), "Secondary.TButton", 1, 0),
-            ("Crear paquete portable", lambda: self._bat("3_CREAR_PAQUETE_PORTABLE.bat"), "Secondary.TButton", 1, 1),
+            ("Procesar", self._procesar, "Primary.TButton", 0, 0),
+            ("Publicar web", self._publicar, "Secondary.TButton", 0, 1),
         )
         for label, command, button_style, row, column in buttons:
             padx = (0, 8) if column == 0 else (8, 0)
@@ -201,12 +198,20 @@ class PanelDashboard(tk.Tk):
         if data:
             self._bat("2_ACTUALIZAR_DATOS.bat", "--periodo", data[0], "--fecha-corte", data[1])
 
-    def _abrir_dashboard_local(self) -> None:
-        preview = self.salida / self.periodo.get() / "Vista_Previa.html"
-        if not preview.is_file():
-            messagebox.showerror("Sin validación local", "Procesa primero el período seleccionado para generar su vista previa.")
+    def _publicar(self) -> None:
+        data = self._validar()
+        if data is None:
             return
-        webbrowser.open(preview.resolve().as_uri())
+        manifest = self._manifest()
+        if not manifest or manifest.get("fechaCorte") != data[1]:
+            messagebox.showerror("Procesamiento requerido", "Procesa este corte antes de publicarlo en la web.")
+            return
+        if not messagebox.askyesno(
+            "Publicar web",
+            f"Se publicará el corte {data[1]} para todos los usuarios.\n\n¿Continuar?",
+        ):
+            return
+        self._bat("5_PUBLICAR_WEB.bat", "--periodo", data[0], "--fecha-corte", data[1])
 
     def _lanzar(self, command: list[str], description: str) -> None:
         subprocess.Popen(command, cwd=PROJECT_ROOT, creationflags=NUEVA_CONSOLA)

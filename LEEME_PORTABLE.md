@@ -1,15 +1,12 @@
-# Dashboard General · paquete portable
+# Dashboard General · paquete portable completo
 
-1. Extrae por completo el ZIP en una carpeta local; no ejecutes los BAT desde dentro del ZIP.
-2. Instala Python 3.10+ y Node.js LTS si la computadora aún no los tiene.
-3. Copia las credenciales privadas autorizadas a `.env` (y, si corresponde, `.env.supabase.local`). El ZIP no lleva contraseñas ni claves.
-4. Ejecuta `1_INSTALAR_REQUISITOS.bat` una vez.
-5. Abre `0_ABRIR_PANEL.bat`. Desde el panel selecciona el período y una fecha de corte en su calendario, y procesa el lote.
+1. Extrae todo el ZIP en una carpeta local. No ejecutes los BAT dentro del ZIP.
+2. Ejecuta una vez `1_INSTALAR_REQUISITOS.bat`.
+3. Abre `0_ABRIR_PANEL.bat`.
+4. Elige el período y su fecha en el calendario. Pulsa **Procesar** y, cuando termine sin errores, **Publicar web**.
 
-En `Entrada\AAAAMM` se usa un Excel que inicie con `VENTA`, otro con `INGRESO` y otro con `TRANSFERENCIA`; al cierre mensual se añade uno que inicie con `STOCK`. El texto posterior del nombre es libre. La carpeta conserva el acumulado del mes: reemplaza los tres archivos cuando llegue una entrega nueva y procesa de nuevo el mismo período. El resultado queda en `Salida\AAAAMM` con tres Parquet diarios o cuatro al cierre, `manifiesto.json` y `Vista_Previa.html`.
+El paquete ya lleva `.env`, Capa 1 y Capa 2 históricas. Por ello no se vuelven a cargar Excel de 2024–2026: en `Entrada\AAAAMM` se carga únicamente el acumulado del mes actual. Los archivos deben comenzar con `VENTA`, `INGRESO` y `TRANSFERENCIA`; al cierre mensual se agrega `STOCK`. El texto posterior del nombre es libre.
 
-Antes de publicar, el panel impide fechas fuera del período, futuras, sin los tres Excel requeridos, con Stock fuera de cierre o con datos anteriores al primer día del mes y posteriores al corte. Usa **Abrir dashboard local** para revisar `Vista_Previa.html` sin iniciar sesión ni cargar nada. En el portal, el Asistente Comercial o Sistemas selecciona el manifiesto local y exactamente los Parquet indicados; el manifiesto no se publica y valida corte, nombres, tamaño, firma y checksum.
+**Procesar** valida las fechas y genera el lote local. **Publicar web** integra ese lote al histórico, recompone Capa 2 y publica una versión atómica para todos los usuarios. Si otra PC ya publica, muestra el equipo y evita una segunda publicación. El corte debe ser posterior al publicado. Se registra PC, usuario de Windows, corte y respaldo de Capa 1 en Supabase.
 
-Los pies estándar que RMS agrega al final de sus reportes (`Totales`, `Página` y el resumen de venta) se excluyen automáticamente. Cualquier fila inesperada que no sea uno de esos pies sigue bloqueando el proceso para evitar publicar datos dañados.
-
-Los datos de personal, tráfico, catálogos, tiendas, metas y merma se consultan desde la base de datos. No copies sus Excel históricos al paquete.
+Los datos de personal, tráfico, catálogo, tiendas, metas y merma no llevan Excel en este paquete: se consultan desde Supabase. Capa 1 contiene solo ventas, ingresos, transferencias y stock.
