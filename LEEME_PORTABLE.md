@@ -1,7 +1,7 @@
 # Dashboard General · paquete portable completo
 
 1. Extrae todo el ZIP en una carpeta local. No ejecutes los BAT dentro del ZIP.
-2. Ejecuta una vez `1_INSTALAR_REQUISITOS.bat`. El instalador usa Python 3.12 x64 automáticamente; no requiere Visual C++ ni NMake.
+2. Ejecuta una vez `1_INSTALAR_REQUISITOS.bat`. El instalador usa Python 3.10–3.13 (prefiere 3.12) y no requiere Visual C++ ni NMake.
 3. Abre `0_ABRIR_PANEL.bat`.
 4. Elige el período y su fecha en el calendario. Pulsa **Procesar** y, cuando termine sin errores, **Publicar web**.
 

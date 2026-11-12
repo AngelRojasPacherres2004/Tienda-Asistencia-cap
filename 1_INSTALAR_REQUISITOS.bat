@@ -8,18 +8,19 @@ echo INSTALACION - DASHBOARD GENERAL
 echo ============================================================
 echo.
 
-set "PYTHON_CMD=py -3.12"
-
-rem DuckDB/Thrift tienen ruedas Windows para 3.12. Python 3.14/3.15 obliga
-rem a compilarlos localmente y requiere herramientas C++ que no son necesarias.
-%PYTHON_CMD% -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+set "PYTHON_CMD="
+for %%V in (3.12 3.13 3.11 3.10) do (
+    call :usar_python py -%%V
+    if not errorlevel 1 goto :python_ready
+)
+call :usar_python python
 if not errorlevel 1 goto :python_ready
 
-echo Python 3.12 no esta disponible. Intentando instalarlo...
+echo No hay un Python compatible ^(3.10 a 3.13^). Intentando instalar Python 3.12...
 where py >nul 2>nul
 if not errorlevel 1 (
     py install 3.12
-    py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+    call :usar_python py -3.12
     if not errorlevel 1 goto :python_ready
 )
 
@@ -27,21 +28,21 @@ where winget >nul 2>nul
 if not errorlevel 1 (
     echo Instalando Python 3.12 con Windows Package Manager...
     winget install --id Python.Python.3.12 --exact --accept-package-agreements --accept-source-agreements
-    py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+    call :usar_python py -3.12
     if not errorlevel 1 goto :python_ready
 )
 
-echo ERROR: no se pudo instalar Python 3.12 automaticamente.
-echo Instala Python 3.12 x64 desde https://www.python.org/downloads/release/python-3120/
-echo y vuelve a ejecutar este archivo. No uses Python 3.14 ni 3.15 para este paquete.
+echo ERROR: no se encontro un runtime de Python compatible.
+echo Usa el Python 3.10 que ya instalaste o instala Python 3.12 x64 y vuelve a ejecutar este archivo.
+echo No uses Python 3.14 ni 3.15 para este paquete.
 goto :error
 
 :python_ready
-echo Python 3.12 listo.
+echo Python compatible listo: %PYTHON_CMD%
 
 set "RECREAR_VENV=0"
 if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+    ".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)" >nul 2>nul
     if errorlevel 1 set "RECREAR_VENV=1"
 )
 
@@ -115,3 +116,16 @@ echo.
 echo La instalacion no pudo completarse. Revisa el mensaje anterior.
 if /I not "%~1"=="--sin-pausa" pause
 exit /b 1
+
+:usar_python
+set "VERSION_REAL="
+for /f "usebackq delims=" %%P in (`%* -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')" 2^>nul`) do set "VERSION_REAL=%%P"
+if "%VERSION_REAL%"=="3.10" goto :python_elegido
+if "%VERSION_REAL%"=="3.11" goto :python_elegido
+if "%VERSION_REAL%"=="3.12" goto :python_elegido
+if "%VERSION_REAL%"=="3.13" goto :python_elegido
+exit /b 1
+
+:python_elegido
+set "PYTHON_CMD=%*"
+exit /b 0
