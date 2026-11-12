@@ -8,26 +8,46 @@ echo INSTALACION - DASHBOARD GENERAL
 echo ============================================================
 echo.
 
-set "PYTHON_CMD="
+set "PYTHON_CMD=py -3.12"
+
+rem DuckDB/Thrift tienen ruedas Windows para 3.12. Python 3.14/3.15 obliga
+rem a compilarlos localmente y requiere herramientas C++ que no son necesarias.
+%PYTHON_CMD% -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+if not errorlevel 1 goto :python_ready
+
+echo Python 3.12 no esta disponible. Intentando instalarlo...
 where py >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=py -3"
-
-if not defined PYTHON_CMD (
-    where python >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=python"
+if not errorlevel 1 (
+    py install 3.12
+    py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+    if not errorlevel 1 goto :python_ready
 )
 
-if not defined PYTHON_CMD (
-    echo ERROR: No se encontro Python.
-    echo Instala Python 3.10 o superior desde https://www.python.org/downloads/
-    echo Durante la instalacion marca la opcion "Add Python to PATH".
-    goto :error
+where winget >nul 2>nul
+if not errorlevel 1 (
+    echo Instalando Python 3.12 con Windows Package Manager...
+    winget install --id Python.Python.3.12 --exact --accept-package-agreements --accept-source-agreements
+    py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+    if not errorlevel 1 goto :python_ready
 )
 
-%PYTHON_CMD% -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
-if errorlevel 1 (
-    echo ERROR: Se requiere Python 3.10 o superior.
-    goto :error
+echo ERROR: no se pudo instalar Python 3.12 automaticamente.
+echo Instala Python 3.12 x64 desde https://www.python.org/downloads/release/python-3120/
+echo y vuelve a ejecutar este archivo. No uses Python 3.14 ni 3.15 para este paquete.
+goto :error
+
+:python_ready
+echo Python 3.12 listo.
+
+set "RECREAR_VENV=0"
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>nul
+    if errorlevel 1 set "RECREAR_VENV=1"
+)
+
+if "!RECREAR_VENV!"=="1" (
+    echo Reemplazando el entorno virtual incompatible...
+    rmdir /s /q ".venv"
 )
 
 if not exist ".venv\Scripts\python.exe" (
@@ -46,7 +66,7 @@ echo Instalando dependencias...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :error
 
-".venv\Scripts\python.exe" -m pip install -r "piplines\requirements.txt"
+".venv\Scripts\python.exe" -m pip install --only-binary=:all: -r "piplines\requirements.txt"
 if errorlevel 1 goto :error
 
 echo Verificando el entorno...

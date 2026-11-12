@@ -126,7 +126,7 @@ Por consola, `2_ACTUALIZAR_DATOS.bat --periodo AAAAMM --fecha-corte AAAA-MM-DD` 
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.
 
-En una PC nueva clona este repositorio o extrae el ZIP portable y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El archivo privado `.env` de Asiste debe quedar en la raíz y apuntar a `bd-app`; nunca se incluye en GitHub ni en el ZIP. `3_CREAR_PAQUETE_PORTABLE.bat` crea un ZIP validado en `paquetes_portables` con la web compilada, los cinco BAT vigentes y sin datos operativos ni credenciales.
+En una PC nueva extrae el ZIP portable y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El instalador selecciona Python 3.12 x64 para usar las ruedas precompiladas de DuckDB y Thrift; no requiere compiladores C++. El paquete completo autorizado incluye `.env` y el histórico técnico requerido, por lo que debe conservarse solo en equipos protegidos.
 
 ## Desarrollo web
 
