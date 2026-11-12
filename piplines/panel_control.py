@@ -206,11 +206,6 @@ class PanelDashboard(tk.Tk):
         if not manifest or manifest.get("fechaCorte") != data[1]:
             messagebox.showerror("Procesamiento requerido", "Procesa este corte antes de publicarlo en la web.")
             return
-        if not messagebox.askyesno(
-            "Publicar web",
-            f"Se publicará el corte {data[1]} para todos los usuarios.\n\n¿Continuar?",
-        ):
-            return
         self._bat("5_PUBLICAR_WEB.bat", "--periodo", data[0], "--fecha-corte", data[1])
 
     def _lanzar(self, command: list[str], description: str) -> None:
@@ -222,7 +217,13 @@ class PanelDashboard(tk.Tk):
         if not path.is_file():
             messagebox.showerror("Archivo no encontrado", f"No se encontró {name}.")
             return
-        self._lanzar(["cmd.exe", "/d", "/k", "call", str(path), *args], name)
+        # El panel siempre ejecuta de forma desatendida: las pipelines no
+        # solicitan datos y los .bat omiten su pausa final. Se conserva la
+        # ventana para que el operador pueda ver progreso o un error y
+        # cerrarla cuando quiera, sin tener que presionar Enter.
+        self._lanzar([
+            "cmd.exe", "/d", "/k", "call", str(path), *args, "--sin-pausa",
+        ], name)
 
 
 def main() -> None:

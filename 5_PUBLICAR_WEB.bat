@@ -5,6 +5,7 @@ cd /d "%~dp0"
 
 set "PERIODO="
 set "FECHA_CORTE="
+set "SIN_PAUSA=0"
 
 :args
 if "%~1"=="" goto :run
@@ -15,6 +16,10 @@ if /I "%~1"=="--periodo" (
 if /I "%~1"=="--fecha-corte" (
     set "FECHA_CORTE=%~2"
     shift & shift & goto :args
+)
+if /I "%~1"=="--sin-pausa" (
+    set "SIN_PAUSA=1"
+    shift & goto :args
 )
 echo ERROR: argumento no reconocido: %~1
 goto :error
@@ -38,11 +43,11 @@ if errorlevel 1 goto :error
 
 echo.
 echo Publicacion web completada.
-pause
+if "%SIN_PAUSA%"=="0" pause
 exit /b 0
 
 :error
 echo.
 echo La publicacion no se completo. El dashboard publicado no fue reemplazado.
-pause
+if "%SIN_PAUSA%"=="0" pause
 exit /b 1
