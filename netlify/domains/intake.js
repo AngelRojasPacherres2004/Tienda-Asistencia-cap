@@ -9,7 +9,7 @@ export function createIntakeDomain({
   parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile,
   resolve, summarizeAnnualReports, supabase, SYSTEM_SOURCES,
   SYSTEM_UPLOAD_CHUNK_SIZE, systemManifestPath, systemPartPath,
-  validateBatchId, validateCommercialBatchFile, validateCutoff, validateSystemUpload,
+  validateBatchChecksum, validateBatchId, validateCommercialBatchFile, validateCutoff, validateSystemUpload,
 }) {
   const systemsStorage = () => supabase.storage.from("dashboard-data");
 
@@ -171,6 +171,7 @@ export function createIntakeDomain({
       validateBatchId(input.batchId);
       validateCutoff(input.cutoff);
       validateCommercialBatchFile(input.source, input.fileName, input.cutoff);
+      validateBatchChecksum(input.sha256);
     } catch (error) { throw httpError(error.message, 400); }
     let validated;
     try { validated = validateSystemUpload(input); }
@@ -192,7 +193,8 @@ export function createIntakeDomain({
     }
     const receipt = jwt.sign({ purpose: "commercial-batch-upload", userId: sessionUser.id,
       batchId: input.batchId, cutoff: input.cutoff, uploadId, source: input.source,
-      fileName: input.fileName.trim(), fileSize: input.fileSize, chunks: validated.chunks },
+      fileName: input.fileName.trim(), fileSize: input.fileSize, sha256: input.sha256,
+      chunks: validated.chunks },
     jwtSecret(), { expiresIn: "3h" });
     return { chunkSize: SYSTEM_UPLOAD_CHUNK_SIZE, parts, receipt };
   }
@@ -226,6 +228,8 @@ export function createIntakeDomain({
       let validated;
       try { validated = validateSystemUpload(ticket); }
       catch (error) { throw httpError(error.message, 400); }
+      try { validateBatchChecksum(ticket.sha256); }
+      catch (error) { throw httpError(error.message, 400); }
       if (validated.extension !== ".parquet") {
         throw httpError("El lote operativo solo acepta archivos .parquet.", 400);
       }
@@ -241,10 +245,10 @@ export function createIntakeDomain({
         }
       }
       files.push({ source: ticket.source, fileName: ticket.fileName, fileSize: ticket.fileSize,
-        chunkSize: SYSTEM_UPLOAD_CHUNK_SIZE, parts: paths });
+        sha256: ticket.sha256, chunkSize: SYSTEM_UPLOAD_CHUNK_SIZE, parts: paths });
     }
     const manifest = { id: batchId, cutoff, files, uploadedBy: sessionUser.id,
-      receivedAt: new Date().toISOString(), status: "pending_processing" };
+      receivedAt: new Date().toISOString(), status: "queued" };
     const lockPath = commercialBatchCutoffPath(cutoff);
     const { error: lockError } = await systemsStorage().upload(lockPath,
       Buffer.from(JSON.stringify({ batchId, cutoff, receivedAt: manifest.receivedAt })),
@@ -286,21 +290,34 @@ export function createIntakeDomain({
 
   async function commercialBatchesList(sessionUser) {
     await assertBatchPublisher(sessionUser);
-    const [{ data, error }, { data: releases, error: releaseError }] = await Promise.all([
+    const [{ data, error }, { data: releases, error: releaseError }, { data: statuses, error: statusError }] = await Promise.all([
       systemsStorage().list("commercial-intake", {
       limit: 20, sortBy: { column: "created_at", order: "desc" },
+      }),
+      systemsStorage().list("commercial-batch-status", {
+        limit: 100, sortBy: { column: "created_at", order: "desc" },
       }),
       supabase.from("dashboard_releases")
         .select("published_at,sales_cutoff,stock_cutoff,version")
         .eq("status", "published").order("published_at", { ascending: false }).limit(1),
     ]);
-    if (error || releaseError) throw httpError("No se pudo consultar el historial de lotes.", 503);
+    if (error || releaseError || statusError) throw httpError("No se pudo consultar el historial de lotes.", 503);
+    const states = new Map((await Promise.all((statuses || []).filter(item => item.name.endsWith(".json")).map(async item => {
+      const result = await systemsStorage().download(`commercial-batch-status/${item.name}`);
+      if (result.error || !result.data) return null;
+      try {
+        const state = JSON.parse(await result.data.text());
+        return state?.batchId && state?.state ? [state.batchId, state] : null;
+      } catch { return null; }
+    }))).filter(Boolean));
     const batches = (await Promise.all((data || []).filter(item => item.name.endsWith(".json")).map(async item => {
       const result = await systemsStorage().download(`commercial-intake/${item.name}`);
       if (result.error || !result.data) return null;
       try {
         const { id, cutoff, files, receivedAt, status } = JSON.parse(await result.data.text());
-        return { id, cutoff, files: files.map(({ source, fileName, fileSize }) => ({ source, fileName, fileSize })), receivedAt, status };
+        const workerStatus = states.get(id);
+        return { id, cutoff, files: files.map(({ source, fileName, fileSize }) => ({ source, fileName, fileSize })), receivedAt,
+          status: workerStatus?.state || status, message: workerStatus?.message || null };
       } catch { return null; }
     }))).filter(Boolean);
     const lastProcessed = releases?.[0] || null;

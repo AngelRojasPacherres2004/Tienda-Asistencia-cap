@@ -1,5 +1,10 @@
 import { storeTransferOpportunities } from '../lib/store-transfers.js';
 export function createCommercialDomain({ supabase, commercialAccess, dbError, httpError, readAllResult, fetchAllReportPages, normalizeGoalRubro, aggregateCommercialGoalTotals, bodyOf, cleanText, validCommercialPartPath, gunzipSync }) {
+  // La tabla conserva franjas horarias; varios usuarios pueden pedir el mismo
+  // resumen a la vez al entrar al dashboard. Compartimos la misma lectura por
+  // alcance durante un intervalo corto para no multiplicar consultas grandes.
+  const trafficSummaryCache = new Map();
+
   async function currentCommercialAccess(sessionUser) {
     const [{ data: account, error: accountError }, { data: scope, error: scopeError }, { data: storeMap, error: mapError }] = await Promise.all([
       supabase.from("usuarios").select("id,rol,estado,tienda_id").eq("id", sessionUser.id).maybeSingle(),
@@ -123,6 +128,11 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
 
   async function commercialTrafficSummary(sessionUser) {
     const access = await currentCommercialAccess(sessionUser);
+    const cacheKey = [...access.storeIds].sort().join("|");
+    const cached = trafficSummaryCache.get(cacheKey);
+    if (cached?.expires > Date.now()) return cached.value || cached.promise;
+
+    const load = async () => {
     const { data: mappings, error: mappingError } = await supabase.from("commercial_store_map")
       .select("dashboard_store_id,tienda_id").in("dashboard_store_id", access.storeIds);
     if (mappingError) throw dbError(mappingError);
@@ -159,6 +169,21 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     return { cutoff, daily: dailyRows, monthly: [...monthly].map(([key, traffic]) => {
       const [storeId, periodId] = key.split("|"); return { storeId, periodId: Number(periodId), traffic };
     }) };
+    };
+    const promise = load();
+    trafficSummaryCache.set(cacheKey, { promise, expires: Date.now() + 20_000 });
+    try {
+      const value = await promise;
+      trafficSummaryCache.set(cacheKey, { value, expires: Date.now() + 20_000 });
+      if (trafficSummaryCache.size > 30) {
+        for (const [key, entry] of trafficSummaryCache) if (entry.expires <= Date.now()) trafficSummaryCache.delete(key);
+        while (trafficSummaryCache.size > 30) trafficSummaryCache.delete(trafficSummaryCache.keys().next().value);
+      }
+      return value;
+    } catch (error) {
+      trafficSummaryCache.delete(cacheKey);
+      throw error;
+    }
   }
 
   async function commercialStoreGoals(sessionUser) {

@@ -11,6 +11,14 @@ import { SYSTEM_UPLOAD_MAX_BYTES, validateSystemUpload } from "../../shared/syst
 import "./system-uploads.css";
 
 const SOURCE_BY_ID = Object.fromEntries(COMMERCIAL_BATCH_SOURCES.map(item => [item.id, item]));
+const BATCH_STATUS_LABEL = {
+  pending_processing: "En cola de actualización",
+  queued: "En cola de actualización",
+  processing: "Actualizando dashboard",
+  published: "Publicado",
+  failed: "Requiere revisión",
+  obsolete: "Ya publicado",
+};
 
 async function checkSignature(file) {
   const head = String.fromCharCode(...new Uint8Array(await file.slice(0, 4).arrayBuffer()));
@@ -73,7 +81,11 @@ export default function RmsBatchUpload() {
     } catch (failure) { setError(failure.message); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 20_000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
 
   async function chooseManifest(file) {
     setError(""); setMessage(""); setFiles({}); setManifestFile(file || null); setManifest(null);
@@ -108,8 +120,8 @@ export default function RmsBatchUpload() {
       const batchId = crypto.randomUUID();
       const totalParts = selected.reduce((total, item) => total + item.validated.chunks, 0);
       let uploadedParts = 0;
-      for (const { source, file } of selected) {
-        const session = await api("/systems/batches/start", { method: "POST", body: { batchId, cutoff, source, fileName: file.name, fileSize: file.size } });
+      for (const { source, file, expected } of selected) {
+        const session = await api("/systems/batches/start", { method: "POST", body: { batchId, cutoff, source, fileName: file.name, fileSize: file.size, sha256: expected.sha256 } });
         receipts.push(session.receipt);
         for (let index = 0; index < session.parts.length; index += 1) {
           const body = new FormData();
@@ -121,7 +133,7 @@ export default function RmsBatchUpload() {
       }
       await api("/systems/batches/complete", { method: "POST", body: { receipts } });
       completed = true;
-      setMessage(`Lote ${manifest.periodo} · corte ${cutoff} recibido con ${selected.length} Parquet.`);
+      setMessage(`Lote ${manifest.periodo} · corte ${cutoff} recibido. La actualización global quedó en cola.`);
       setFiles({}); setManifest(null); setManifestFile(null);
       // React libera el SyntheticEvent al cruzar los await. Por eso se guarda
       // el formulario antes de la primera espera y nunca se lee currentTarget
@@ -155,7 +167,7 @@ export default function RmsBatchUpload() {
     <section className="system-uploads__card system-uploads__history">
       <div className="system-uploads__heading"><FileSpreadsheet size={22} /><h2>Lotes recibidos</h2></div>
       <p className="system-uploads__hint">{lastProcessed ? <>Último procesamiento publicado: <strong>{formatDateTime(lastProcessed.at)}</strong>{lastProcessed.cutoff ? ` · corte ${lastProcessed.cutoff}` : ""}{lastProcessed.version ? ` · versión ${lastProcessed.version}` : ""}.</> : "Aún no existe un lote publicado."}</p>
-      {loading ? <p>Cargando…</p> : batches.length ? <div className="system-uploads__table-wrap"><table><thead><tr><th>Corte</th><th>Fuentes</th><th>Recibido</th><th>Estado</th></tr></thead><tbody>{batches.map(batch => <tr key={batch.id}><td>{batch.cutoff || "—"}</td><td>{batch.files.map(file => file.source).join(" · ")}</td><td>{formatDateTime(batch.receivedAt)}</td><td>{batch.status === "pending_processing" ? "Por procesar" : batch.status}</td></tr>)}</tbody></table></div> : <p className="system-uploads__empty">No hay lotes recibidos.</p>}
+      {loading ? <p>Cargando…</p> : batches.length ? <div className="system-uploads__table-wrap"><table><thead><tr><th>Corte</th><th>Fuentes</th><th>Recibido</th><th>Estado</th></tr></thead><tbody>{batches.map(batch => <tr key={batch.id}><td>{batch.cutoff || "—"}</td><td>{batch.files.map(file => file.source).join(" · ")}</td><td>{formatDateTime(batch.receivedAt)}</td><td title={batch.message || ""}>{BATCH_STATUS_LABEL[batch.status] || batch.status}</td></tr>)}</tbody></table></div> : <p className="system-uploads__empty">No hay lotes recibidos.</p>}
     </section>
   </div>;
 }

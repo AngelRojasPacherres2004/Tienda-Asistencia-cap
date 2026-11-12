@@ -38,6 +38,13 @@ export function validateBatchId(value) {
   return value;
 }
 
+export function validateBatchChecksum(value) {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
+    throw new Error("El checksum del archivo Parquet no es válido.");
+  }
+  return value;
+}
+
 export function commercialBatchPath(batchId) {
   return `commercial-intake/${validateBatchId(batchId)}.json`;
 }

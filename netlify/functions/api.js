@@ -40,7 +40,7 @@ import { randomUUID } from "node:crypto";
 import { resolveAdministratorContext, storeSupportCatalog, saveStoreSupport } from "../lib/store-support.js";
 import { OPERATIONAL_ROLES } from "../../shared/roleCatalog.js";
 import { SYSTEM_UPLOAD_CHUNK_SIZE, SYSTEM_SOURCES, validateSystemUpload, systemPartPath, systemManifestPath } from "../../shared/systemUpload.js";
-import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources, validateBatchId, validateCommercialBatchFile, validateCutoff } from "../../shared/commercialBatch.js";
+import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources, validateBatchChecksum, validateBatchId, validateCommercialBatchFile, validateCutoff } from "../../shared/commercialBatch.js";
 import { NORMALIZED_REPORTS, normalizedReportPath } from "../../shared/normalizedReports.js";
 import { ANNUAL_REPORT_KINDS, ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, annualMonthlyReportPath, annualMonthlySummaryPath, parseAnnualFilters, csvLine } from "../../shared/annualReports.js";
 import { summarizeAnnualReports, buildAnnualSummaryWorkbook } from "../lib/annual-report-workbook.js";
@@ -362,7 +362,7 @@ const { systemUploadStart, systemUploadComplete, systemUploadCancel, systemUploa
   annualMonthlyReportPath, annualMonthlySummaryPath, annualReportPath,
   annualSummaryPath, bodyOf, buildAnnualSummaryWorkbook,
   COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES,
-  commercialAssistantMessages, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources, validateCommercialBatchFile,
+  commercialAssistantMessages, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources, validateBatchChecksum, validateCommercialBatchFile,
   currentCommercialAccess, dbError, excelResponse, gunzipSync, httpError,
   join, jwt, jwtSecret, NORMALIZED_REPORTS, normalizedReportPath,
   parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile,
