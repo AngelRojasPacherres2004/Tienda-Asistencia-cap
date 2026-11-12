@@ -126,7 +126,7 @@ Por consola, `2_ACTUALIZAR_DATOS.bat --periodo AAAAMM --fecha-corte AAAA-MM-DD` 
 - Cuando una fuente no llega al corte, el resumen tienda/mes se completa con cero y aparece una alerta amarilla. Nunca se fabrican filas dentro de los Parquet de origen.
 - El detalle de cobertura queda auditado en `capa2/Reporte_Cobertura.json`.
 
-En una PC nueva extrae el ZIP portable y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El instalador selecciona una versión compatible de Python (3.10–3.13, con preferencia por 3.12) para usar las ruedas precompiladas de DuckDB y Thrift; no requiere compiladores C++. El paquete completo autorizado incluye `.env` y el histórico técnico requerido, por lo que debe conservarse solo en equipos protegidos.
+En una PC nueva extrae el ZIP portable y ejecuta primero `1_INSTALAR_REQUISITOS.bat`. El instalador selecciona una versión compatible de Python (3.10–3.13, con preferencia por 3.12) y asegura Node.js LTS con Windows Package Manager cuando hagan falta. DuckDB y Thrift se instalan como binarios, sin compiladores C++. El paquete completo autorizado incluye `.env` y el histórico técnico requerido, por lo que debe conservarse solo en equipos protegidos.
 
 ## Desarrollo web
 

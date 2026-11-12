@@ -74,12 +74,8 @@ echo Verificando el entorno...
 ".venv\Scripts\python.exe" "piplines\diagnosticar_duckdb.py"
 if errorlevel 1 goto :error
 
-where npm >nul 2>nul
-if errorlevel 1 (
-    echo ERROR: No se encontro Node.js/npm.
-    echo Instala Node.js LTS para compilar y ejecutar la interfaz local.
-    goto :error
-)
+call :asegurar_node
+if errorlevel 1 goto :error
 
 if not exist "package-lock.json" (
     echo ERROR: Falta package-lock.json.
@@ -128,4 +124,47 @@ exit /b 1
 
 :python_elegido
 set "PYTHON_CMD=%*"
+exit /b 0
+
+:asegurar_node
+where node >nul 2>nul
+if not errorlevel 1 goto :node_listo
+
+rem Winget puede instalar Node por usuario o para todo el equipo. Ambos
+rem directorios se agregan al PATH actual para no obligar a abrir otra consola.
+if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+if exist "%LocalAppData%\Programs\nodejs\node.exe" set "PATH=%LocalAppData%\Programs\nodejs;%PATH%"
+where node >nul 2>nul
+if not errorlevel 1 goto :node_listo
+
+where winget >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: falta Node.js LTS y Windows Package Manager no esta disponible.
+    echo Instala Node.js LTS desde https://nodejs.org/ y vuelve a ejecutar este archivo.
+    exit /b 1
+)
+
+echo Node.js LTS no esta instalado. Instalando automaticamente...
+winget install --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements
+if errorlevel 1 (
+    echo ERROR: Windows no pudo instalar Node.js LTS automaticamente.
+    echo Instala Node.js LTS desde https://nodejs.org/ y vuelve a ejecutar este archivo.
+    exit /b 1
+)
+if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+if exist "%LocalAppData%\Programs\nodejs\node.exe" set "PATH=%LocalAppData%\Programs\nodejs;%PATH%"
+where node >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Node.js se instalo pero no se encontro en esta sesion.
+    echo Cierra esta ventana, abre 1_INSTALAR_REQUISITOS.bat otra vez y continua.
+    exit /b 1
+)
+
+:node_listo
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Node.js esta disponible pero npm no. Reinstala Node.js LTS desde https://nodejs.org/.
+    exit /b 1
+)
+for /f "delims=" %%N in ('node --version') do echo Node.js listo: %%N
 exit /b 0
