@@ -65,6 +65,19 @@ function Copy-DataDirectory([string]$SourcePath, [string]$DestinationRelativePat
     }
 }
 
+function Get-Sha256Hex([string]$Path) {
+    # Get-FileHash no existe en algunas instalaciones antiguas de Windows
+    # PowerShell. Se usa .NET para que la firma sea portable y determinista.
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return (($algorithm.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join '')
+    } finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 $ProjectRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot 'package.json') -PathType Leaf)) {
     throw 'No se encontro package.json en la raiz indicada.'
@@ -79,6 +92,7 @@ $StageRoot = Assert-PathInsideRoot (Join-Path $OutputRoot $PackageName)
 $ZipPath = Assert-PathInsideRoot (Join-Path $OutputRoot "$PackageName.zip")
 $ZipTempPath = Assert-PathInsideRoot (Join-Path $OutputRoot ".${PackageName}.$PID.creando.zip")
 $ChecksumPath = Assert-PathInsideRoot (Join-Path $OutputRoot "$PackageName.zip.sha256")
+$ChecksumTempPath = Assert-PathInsideRoot (Join-Path $OutputRoot ".${PackageName}.$PID.creando.sha256")
 $LockPath = Assert-PathInsideRoot (Join-Path $OutputRoot ".${PackageName}.lock")
 
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
@@ -104,12 +118,15 @@ try {
 Set-Content -LiteralPath $LockPath -Value $PID -Encoding ascii
 $lockCreated = $true
 trap {
+    Remove-Item -LiteralPath $ZipTempPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $ChecksumTempPath -Force -ErrorAction SilentlyContinue
     if ($lockCreated) { Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue }
     throw $_
 }
 
 if (Test-Path -LiteralPath $StageRoot) { Remove-Item -LiteralPath $StageRoot -Recurse -Force }
 Remove-Item -LiteralPath $ZipTempPath -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $ChecksumTempPath -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $StageRoot | Out-Null
 
 # Estos son los lanzadores del flujo portable vigente.
@@ -193,11 +210,15 @@ try {
     if ($null -ne $archive) { $archive.Dispose() }
 }
 
+# El ZIP y su firma se preparan temporalmente. Ambos se publican recién tras
+# validar todos los bytes, para impedir que se copie un archivo a medio crear.
+$hash = Get-Sha256Hex $ZipTempPath
+Set-Content -LiteralPath $ChecksumTempPath -Value "${hash} *${PackageName}.zip" -Encoding ascii
+
 # La sustitución es atómica dentro de la misma carpeta. Un ZIP anterior se
 # mantiene intacto si la nueva creación o su verificación llegaran a fallar.
 Move-Item -LiteralPath $ZipTempPath -Destination $ZipPath -Force
-$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZipPath).Hash.ToLowerInvariant()
-Set-Content -LiteralPath $ChecksumPath -Value "$hash *$PackageName.zip" -Encoding ascii
+Move-Item -LiteralPath $ChecksumTempPath -Destination $ChecksumPath -Force
 Remove-Item -LiteralPath $StageRoot -Recurse -Force
 $lockCreated = $false
 Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
