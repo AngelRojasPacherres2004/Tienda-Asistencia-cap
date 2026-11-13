@@ -234,7 +234,7 @@ async function authenticatedContext(event, allowFallback = false) {
   return session;
 }
 
-const { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers } = createCommercialDomain({
+const { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, invalidateCommercialTraffic, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers } = createCommercialDomain({
   supabase, commercialAccess, dbError, httpError, readAllResult, fetchAllReportPages, normalizeGoalRubro, aggregateCommercialGoalTotals, bodyOf, cleanText, validCommercialPartPath, gunzipSync,
 });
 const { listTransferGroups, saveTransferGroup, updateTransferGroup } = createTransferGroupsDomain({
@@ -1137,12 +1137,16 @@ export async function handler(event) {
     }
     if (path === "/trafico" && method === "POST") {
       ensureAuth(event, "seguridad");
-      return json(201, await saveTraffic(event, user));
+      const saved = await saveTraffic(event, user);
+      invalidateCommercialTraffic();
+      return json(201, saved);
     }
     const trafficMatch = path.match(/^\/trafico\/(\d+)$/);
     if (trafficMatch && method === "PUT") {
       ensureAuth(event, "seguridad");
-      return json(200, await updateTraffic(event, user, Number(trafficMatch[1])));
+      const saved = await updateTraffic(event, user, Number(trafficMatch[1]));
+      invalidateCommercialTraffic();
+      return json(200, saved);
     }
     if (path === "/incidencias" && method === "GET") {
       ensureAuth(event, operationalReaders.filter(role => !storeManagementRoles.has(role)));

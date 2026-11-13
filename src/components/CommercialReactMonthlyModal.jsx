@@ -6,6 +6,7 @@ import { highlightNumericColumns } from '../lib/monthlyTableExtremes';
 const ignoreClick = () => {};
 
 export default function CommercialReactMonthlyModal({ model, onAction }) {
+  const showResults = model.keepResults || (!model.loading && !model.retryTraffic);
   const highlight = model.moduleId === 'projection-close-modal';
   const rows = highlight ? highlightNumericColumns(model.rows) : model.rows;
   const sellerRows = (model.sellerDetail?.rows || []).map(row => ({ label: row.seller, cells: [{ text: row.net, value: row.value }] }));
@@ -27,8 +28,10 @@ export default function CommercialReactMonthlyModal({ model, onAction }) {
       {!model.storeLocked && <div className="filter-field"><span>Tiendas</span><details className="filter-dropdown"><summary>{model.selectedStores.length ? `${model.selectedStores.length} seleccionadas` : model.allStoresLabel}</summary><div className="filter-menu"><button type="button" onClick={() => onAction({ type: "clear-stores" })}>Todas</button>{model.stores.map(store => <button key={store.storeId} type="button" className={model.selectedStores.includes(store.storeId) ? "active" : undefined} aria-pressed={model.selectedStores.includes(store.storeId)} onClick={() => onAction({ type: "store", value: store.storeId })}>{store.label}</button>)}</div></details></div>}
     </div>
     {model.hierarchyFilters && <CommercialChartZoomFilters filters={model.hierarchyFilters} keys={model.hierarchyFilterKeys} onAction={onAction} />}
-    {!model.hasData && <p role="status">{model.emptyText}</p>}
-    {model.dataNote && <p className="kpi-data-note">{model.dataNote}</p>}
+    {showResults && !model.hasData && <p role="status">{model.emptyText}</p>}
+    {model.dataNote && <p className="kpi-data-note" role="status">{model.dataNote}</p>}
+    {model.retryTraffic && <button type="button" onClick={() => onAction({ type: "retry-traffic" })}>Reintentar</button>}
+    {showResults && <>
     <div className={`ticket-modal-content${model.sellerDetail ? " ticket-modal-content--seller" : ""}${model.hideChart ? " ticket-modal-content--matrix" : ""}`}>{!model.hideChart && <dashboard-chart style={{ boxSizing: "border-box", display: "block", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: 0, overflow: "hidden", flex: 1 }}><div className="chart-host" style={{ boxSizing: "border-box", display: "block", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}><CommercialReactChart chartId={model.chartId} label={model.chartLabel} option={model.option} onClick={ignoreClick} /></div></dashboard-chart>}
       <div className="ticket-monthly-table"><table aria-label={model.tableLabel}><thead><tr>{model.headers.map(header => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.label}><th scope="row">{row.label}</th>{row.cells.map((cell, index) => <td key={index} className={cell.className} title={cell.title}>{cell.text}</td>)}</tr>)}</tbody></table></div>
       {model.sellerDetail && <section className="kpi-seller-detail" aria-label="Ranking de ventas por vendedor">
@@ -39,5 +42,6 @@ export default function CommercialReactMonthlyModal({ model, onAction }) {
     </div>
     {highlight && <div className="ticket-extremes-legend" aria-label="Colores de la tabla"><span className="ticket-extreme-min">Menor valor por columna</span><span className="ticket-extreme-max">Mayor valor por columna</span></div>}
     {model.legendItems?.length ? <div className="kpi-chart-legend" aria-label="Leyenda del gráfico">{model.legendItems.map(item => <span key={item.label}><i style={{ backgroundColor: item.color }} />{item.label}</span>)}</div> : null}
+    </>}
   </section>;
 }

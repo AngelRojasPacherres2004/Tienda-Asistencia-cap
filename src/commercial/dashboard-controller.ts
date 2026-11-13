@@ -10,6 +10,7 @@ import { CloudDataService, type AnnualGoal, type CompanyRankingData, type Operat
 import { nextBirthday } from './next-birthday';
 import { closingCommercialPeriod } from '../lib/currentCommercialPeriod';
 import { mergeCommercialTraffic, availableTrafficMonths } from '../lib/commercialTraffic';
+import { watchTrafficUpdates } from '../lib/trafficRefresh';
 import { teamProductivity } from './team-productivity';
 import { publishedSalesPeriods, publishedSalesDays, averageRecordedPersonnel } from './sales-period-context';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
@@ -351,6 +352,8 @@ export class CommercialDashboardController implements OnInit {
   readonly ticketChartYear = signal(new Date().getFullYear());
   readonly ticketChartSelectedStores = signal<string[]>([]);
   readonly kpiDetailMonth = signal(0);
+  private readonly trafficChartStatus = signal<'ready' | 'loading' | 'error'>('ready');
+  private trafficRefreshRequest: Promise<void> | null = null;
   readonly trafficChartType = signal<'METRO' | 'OTHER'>('METRO');
   readonly ticketChartYears = computed(() => [2026, 2025, 2024].filter(year => (this.data()?.metadata.years ?? []).includes(year)));
   readonly ticketChartStores = computed(() => {
@@ -522,8 +525,38 @@ export class CommercialDashboardController implements OnInit {
     this.trafficChartType.set(type);
     this.ticketChartYear.set(this.ticketChartYears()[0] || 2026);
     this.ticketChartSelectedStores.set([]);
+    if (this.expandedChart() !== 'traffic-average') void this.refreshCommercialTraffic();
     this.toggleChartExpansion('traffic-average');
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
+  }
+  private refreshCommercialTraffic(): Promise<void> {
+    if (this.trafficRefreshRequest) return this.trafficRefreshRequest;
+    const request = this.loadCommercialTraffic();
+    this.trafficRefreshRequest = request;
+    void request.finally(() => {
+      if (this.trafficRefreshRequest === request) this.trafficRefreshRequest = null;
+    });
+    return request;
+  }
+
+  private async loadCommercialTraffic(): Promise<void> {
+    const loadToken = this.goalLoadToken;
+    this.trafficChartStatus.set('loading');
+    try {
+      const summary = await this.cloud.trafficSummary({ refresh: true });
+      if (loadToken !== this.goalLoadToken) return;
+      const current = this.data();
+      if (current && summary) {
+        const updated = mergeCommercialTraffic(current, summary);
+        this.monthlyStoreIndex = this.indexPeriodStore(updated.monthlyStore);
+        this.dailyTrafficRows.set(updated.dailyTraffic);
+        this.data.set(updated);
+        this.trafficRevision.update(value => value + 1);
+      }
+      this.trafficChartStatus.set('ready');
+    } catch {
+      if (loadToken === this.goalLoadToken) this.trafficChartStatus.set('error');
+    }
   }
   setTicketChartYear(year: number): void {
     this.ticketChartYear.set(year);
@@ -1959,7 +1992,11 @@ export class CommercialDashboardController implements OnInit {
       rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
         { value: row.conversion, text: this.percent(row.conversion) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.traffic, text: this.number(row.traffic) },
       ] })) };
-    return { ...common, titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
+    const status = this.trafficChartStatus();
+    const dataNote = status === 'loading' ? 'Actualizando tráfico…'
+      : status === 'error' ? 'No se pudo actualizar el tráfico. Se muestra la última lectura disponible.'
+      : '';
+    return { ...common, dataNote, loading: status === 'loading', retryTraffic: status === 'error', keepResults: this.trafficChartHasData(), titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
       closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
       hasData: this.trafficChartHasData(), emptyText: `No hay tráfico registrado para ${year} con estos filtros.`,
       option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
@@ -2122,6 +2159,7 @@ export class CommercialDashboardController implements OnInit {
 
   onReactMonthlyModalAction({ type, value }: { type: string; value?: string | number }): void {
     if (type === 'close') this.closeExpandedChart();
+    else if (type === 'retry-traffic') void this.refreshCommercialTraffic();
     else if (type === 'year' && value != null) this.setTicketChartYear(Number(value));
     else if (type === 'clear-stores') this.ticketChartSelectedStores.set([]);
     else if (type === 'store' && typeof value === 'string') this.toggleTicketChartStore(value);
@@ -4734,7 +4772,15 @@ export class CommercialDashboardController implements OnInit {
     onCleanup(() => { clearTimeout(timer); controller.abort(); });
   });
 
+  private readonly trafficRefreshEnabled = computed(() => this.cloud.portalEnabled && !!this.data());
+  private readonly trafficRefreshEffect = effect(onCleanup => {
+    if (!this.trafficRefreshEnabled()) return;
+    onCleanup(watchTrafficUpdates(() => this.refreshCommercialTraffic()));
+  });
+
   disposeReactRuntime(): void {
+    this.goalLoadToken += 1;
+    this.trafficRefreshEffect.destroy();
     this.priceRangeStockEffect.destroy();
     this.stockTransferCalculationEffect.destroy();
     this.stockInsightsEffect.destroy();
@@ -4788,6 +4834,8 @@ export class CommercialDashboardController implements OnInit {
 
   private async loadDashboardBase(): Promise<void> {
     const goalLoadToken = ++this.goalLoadToken;
+    this.trafficRefreshRequest = null;
+    this.trafficChartStatus.set('ready');
     this.storeGoalsReady.set(false);
     this.companyRankingData.set(null);
     this.companyRankingState.set('loading');

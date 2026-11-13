@@ -383,11 +383,14 @@ export class CloudDataService {
     return this.storeGoalsCache;
   }
 
-  async trafficSummary(): Promise<TrafficSummary | null> {
+  async trafficSummary({ refresh = false } = {}): Promise<TrafficSummary | null> {
     if (!this.portalMode) return null;
-    if (this.trafficSummaryCache) return this.trafficSummaryCache;
-    this.trafficSummaryCache = await this.criticalPortalGet<TrafficSummary>('/commercial/traffic-summary');
-    return this.trafficSummaryCache;
+    if (!refresh && this.trafficSummaryCache) return this.trafficSummaryCache;
+    const summary = refresh
+      ? await this.portalRequest<TrafficSummary>('/commercial/traffic-summary')
+      : await this.criticalPortalGet<TrafficSummary>('/commercial/traffic-summary');
+    this.trafficSummaryCache = summary;
+    return summary;
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {

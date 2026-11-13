@@ -143,7 +143,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     // Cada fila de trafico_tienda es una franja horaria. El resumen se compone
     // directamente de la tabla, sin etiquetas ni totales importados desde Excel.
     const trafficRows = await fetchAllReportPages(supabase.from("trafico_tienda").select("tienda_id,fecha,cantidad")
-      .in("tienda_id", storeIds).gte("fecha", "2024-01-01").order("fecha"));
+      .in("tienda_id", storeIds).gte("fecha", "2024-01-01").order("fecha").order("id"));
     const daily = new Map();
     let cutoff = null;
     // fetchAllReportPages ya devuelve el arreglo completo de filas. Leer
@@ -174,6 +174,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     trafficSummaryCache.set(cacheKey, { promise, expires: Date.now() + 20_000 });
     try {
       const value = await promise;
+      if (trafficSummaryCache.get(cacheKey)?.promise !== promise) return value;
       trafficSummaryCache.set(cacheKey, { value, expires: Date.now() + 20_000 });
       if (trafficSummaryCache.size > 30) {
         for (const [key, entry] of trafficSummaryCache) if (entry.expires <= Date.now()) trafficSummaryCache.delete(key);
@@ -181,7 +182,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       }
       return value;
     } catch (error) {
-      trafficSummaryCache.delete(cacheKey);
+      if (trafficSummaryCache.get(cacheKey)?.promise === promise) trafficSummaryCache.delete(cacheKey);
       throw error;
     }
   }
@@ -504,5 +505,5 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     return responseValue(value);
   }
 
-  return { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers };
+  return { currentCommercialAccess, commercialOperationalSummary, commercialTrafficSummary, invalidateCommercialTraffic: () => trafficSummaryCache.clear(), commercialStoreGoals, listCommercialGoals, saveCommercialGoals, publishedCommercialRelease, commercialManifest, commercialFileSource, commercialCompanyRanking, commercialStoreTransfers };
 }
