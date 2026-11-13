@@ -3,6 +3,13 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 cd /d "%~dp0"
 
+rem Al abrir con doble clic se muestra una consola que permanece disponible
+rem para revisar el avance, pero el proceso no se detiene esperando Enter.
+if /I not "%~1"=="--sin-pausa" (
+    start "Dashboard General · Instalación" cmd.exe /d /k call "%~f0" --sin-pausa
+    exit /b 0
+)
+
 echo ============================================================
 echo INSTALACION - DASHBOARD GENERAL
 echo ============================================================

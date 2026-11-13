@@ -77,10 +77,12 @@ $PackageName = "DashboardGeneral_Portable_v$safeVersion"
 $OutputRoot = Assert-PathInsideRoot (Join-Path $ProjectRoot 'paquetes_portables')
 $StageRoot = Assert-PathInsideRoot (Join-Path $OutputRoot $PackageName)
 $ZipPath = Assert-PathInsideRoot (Join-Path $OutputRoot "$PackageName.zip")
+$ZipTempPath = Assert-PathInsideRoot (Join-Path $OutputRoot ".${PackageName}.$PID.creando.zip")
+$ChecksumPath = Assert-PathInsideRoot (Join-Path $OutputRoot "$PackageName.zip.sha256")
 
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 if (Test-Path -LiteralPath $StageRoot) { Remove-Item -LiteralPath $StageRoot -Recurse -Force }
-if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
+Remove-Item -LiteralPath $ZipTempPath -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $StageRoot | Out-Null
 
 # Estos son los lanzadores del flujo portable vigente.
@@ -133,9 +135,11 @@ if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
 
 # Compress-Archive ha generado ZIP truncados con históricos grandes en algunas
 # instalaciones de Windows. libarchive (tar.exe) produce ZIP64 de forma estable.
-& tar.exe -a -c -f $ZipPath -C $OutputRoot $PackageName
+# El ZIP se crea primero con un nombre temporal invisible para el operador: el
+# archivo final no aparece ni se puede copiar hasta que se haya leído completo.
+& tar.exe -a -c -f $ZipTempPath -C $OutputRoot $PackageName
 if ($LASTEXITCODE -ne 0) { throw 'tar.exe no pudo crear el paquete ZIP.' }
-if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf) -or (Get-Item -LiteralPath $ZipPath).Length -lt 1024) {
+if (-not (Test-Path -LiteralPath $ZipTempPath -PathType Leaf) -or (Get-Item -LiteralPath $ZipTempPath).Length -lt 1024) {
     throw 'El archivo ZIP no se pudo crear.'
 }
 
@@ -144,7 +148,7 @@ if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf) -or (Get-Item -Literal
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = $null
 try {
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipTempPath)
     if ($archive.Entries.Count -lt 10) { throw 'El ZIP no contiene los archivos esperados.' }
     $buffer = New-Object byte[] (1024 * 1024)
     foreach ($entry in $archive.Entries) {
@@ -156,12 +160,18 @@ try {
         }
     }
 } catch {
-    Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $ZipTempPath -Force -ErrorAction SilentlyContinue
     throw "El ZIP quedó incompleto o corrupto: $($_.Exception.Message)"
 } finally {
     if ($null -ne $archive) { $archive.Dispose() }
 }
 
+# La sustitución es atómica dentro de la misma carpeta. Un ZIP anterior se
+# mantiene intacto si la nueva creación o su verificación llegaran a fallar.
+Move-Item -LiteralPath $ZipTempPath -Destination $ZipPath -Force
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZipPath).Hash.ToLowerInvariant()
+Set-Content -LiteralPath $ChecksumPath -Value "$hash *$PackageName.zip" -Encoding ascii
 Remove-Item -LiteralPath $StageRoot -Recurse -Force
 Write-Host "Paquete creado: $ZipPath"
 Write-Host ("Tamano: {0:N1} MB" -f ((Get-Item -LiteralPath $ZipPath).Length / 1MB))
+Write-Host "Integridad SHA-256: $ChecksumPath"

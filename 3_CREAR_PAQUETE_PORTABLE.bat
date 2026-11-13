@@ -3,6 +3,13 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 cd /d "%~dp0"
 
+rem Al abrir con doble clic se conserva el avance visible sin detenerse en
+rem un "Presione una tecla"; la consola se puede cerrar al finalizar.
+if /I not "%~1"=="--sin-pausa" (
+    start "Dashboard General · Paquete portable" cmd.exe /d /k call "%~f0" --sin-pausa
+    exit /b 0
+)
+
 set "SIN_PAUSA=0"
 if /I "%~1"=="--sin-pausa" set "SIN_PAUSA=1"
 
@@ -54,12 +61,10 @@ echo Ubicacion: paquetes_portables\DashboardGeneral_Portable_v%VERSION%.zip
 echo ============================================================
 if "%SIN_PAUSA%"=="0" (
     start "" explorer.exe "%CD%\paquetes_portables"
-    pause
 )
 exit /b 0
 
 :error
 echo.
 echo No se pudo crear el paquete portable. Revisa el ultimo mensaje.
-if "%SIN_PAUSA%"=="0" pause
 exit /b 1

@@ -13,7 +13,7 @@ import { mergeCommercialTraffic, availableTrafficMonths, trafficMonthsForStores 
 import { teamProductivity } from './team-productivity';
 import { publishedSalesPeriods, publishedSalesDays, averageRecordedPersonnel } from './sales-period-context';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
-import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
+import { conversionComparable, salesCalendarMax, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
@@ -666,10 +666,11 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly dayFilterMax = computed(() => {
     if (!this.dayFilterEnabled()) return '';
-    const month = this.selectedMonths()[0]; const last = new Date(Date.UTC(this.year(), month, 0)).getUTCDate();
-    const metadata = this.data()?.metadata;
-    const cutoff = [metadata?.salesCutoff, metadata?.trafficCutoff].filter(Boolean).sort().at(-1) || `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
-    return cutoff.slice(0, 7) === `${this.year()}-${String(month).padStart(2, '0')}` ? cutoff : `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
+    return salesCalendarMax(
+      this.data()?.metadata.salesCutoff,
+      this.year(),
+      this.selectedMonths()[0],
+    );
   });
 
   readonly calendarOpen = signal(false);
@@ -700,6 +701,7 @@ export class CommercialDashboardController implements OnInit {
 
   async onCalendarDayClick(dateStr: string): Promise<void> {
     if (!dateStr || !this.dayFilterEnabled() || this.dayFilterLoading()) return;
+    if (dateStr < this.dayFilterMin() || dateStr > this.dayFilterMax()) return;
     const range = this.nextDayRange(dateStr);
     this.dayFilterLoading.set(true);
     this.dayFilterError.set('');
