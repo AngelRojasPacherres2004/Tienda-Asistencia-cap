@@ -79,8 +79,35 @@ $StageRoot = Assert-PathInsideRoot (Join-Path $OutputRoot $PackageName)
 $ZipPath = Assert-PathInsideRoot (Join-Path $OutputRoot "$PackageName.zip")
 $ZipTempPath = Assert-PathInsideRoot (Join-Path $OutputRoot ".${PackageName}.$PID.creando.zip")
 $ChecksumPath = Assert-PathInsideRoot (Join-Path $OutputRoot "$PackageName.zip.sha256")
+$LockPath = Assert-PathInsideRoot (Join-Path $OutputRoot ".${PackageName}.lock")
 
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
+
+# Evita que dos clics (o dos terminales) construyan y reemplacen el mismo ZIP
+# simultáneamente. New-Item es atómico: solo una ejecución puede crear el lock.
+if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
+    $owner = (Get-Content -LiteralPath $LockPath -Raw -ErrorAction SilentlyContinue).Trim()
+    $active = $false
+    if ($owner -match '^\d+$') {
+        $active = $null -ne (Get-Process -Id ([int]$owner) -ErrorAction SilentlyContinue)
+    }
+    if ($active) {
+        throw "Ya se está creando $PackageName (proceso $owner). Espera a que termine antes de volver a pulsar el botón."
+    }
+    Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
+}
+try {
+    New-Item -ItemType File -Path $LockPath -ErrorAction Stop | Out-Null
+} catch {
+    throw "No se pudo reservar $PackageName para crear el ZIP. Espera unos segundos y vuelve a intentarlo."
+}
+Set-Content -LiteralPath $LockPath -Value $PID -Encoding ascii
+$lockCreated = $true
+trap {
+    if ($lockCreated) { Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue }
+    throw $_
+}
+
 if (Test-Path -LiteralPath $StageRoot) { Remove-Item -LiteralPath $StageRoot -Recurse -Force }
 Remove-Item -LiteralPath $ZipTempPath -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $StageRoot | Out-Null
@@ -172,6 +199,8 @@ Move-Item -LiteralPath $ZipTempPath -Destination $ZipPath -Force
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZipPath).Hash.ToLowerInvariant()
 Set-Content -LiteralPath $ChecksumPath -Value "$hash *$PackageName.zip" -Encoding ascii
 Remove-Item -LiteralPath $StageRoot -Recurse -Force
+$lockCreated = $false
+Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 Write-Host "Paquete creado: $ZipPath"
 Write-Host ("Tamano: {0:N1} MB" -f ((Get-Item -LiteralPath $ZipPath).Length / 1MB))
 Write-Host "Integridad SHA-256: $ChecksumPath"
