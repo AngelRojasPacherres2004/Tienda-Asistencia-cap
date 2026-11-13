@@ -6,7 +6,7 @@ import { highlightNumericColumns } from '../lib/monthlyTableExtremes';
 const ignoreClick = () => {};
 
 export default function CommercialReactMonthlyModal({ model, onAction }) {
-  const showResults = !model.loading && !model.retryTraffic;
+  const showResults = model.keepResults || (!model.loading && !model.retryTraffic);
   const highlight = model.moduleId === 'projection-close-modal';
   const rows = highlight ? highlightNumericColumns(model.rows) : model.rows;
   const sellerRows = (model.sellerDetail?.rows || []).map(row => ({ label: row.seller, cells: [{ text: row.net, value: row.value }] }));

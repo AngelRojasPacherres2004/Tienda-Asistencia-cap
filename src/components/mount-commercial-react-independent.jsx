@@ -96,14 +96,12 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     () => new CommercialDashboardController());
   const watch = effect(() => {
     const model = controller.reactStandaloneModel();
-    const selectedPeriod = controller.selectedPeriod();
-    const trafficPeriod = { year: String(Math.floor(selectedPeriod / 100)), monthNumber: String(selectedPeriod % 100).padStart(2, '0'), week: '', day: '' };
     const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate() };
     root.render(<>
       <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
       {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
-      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} period={trafficPeriod} />, trafficHost)}
+      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} />, trafficHost)}
     </>);
   });
   void controller.ngOnInit().catch(error => controller.loadingError.set(

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, formatDate, todayISO } from "../lib/api";
+import { notifyTrafficSaved } from "../lib/trafficRefresh";
 import { Loading, Notice } from "./UI";
 import "./traffic-matrix.css";
 
@@ -34,6 +35,7 @@ export default function TrafficMatrix({ ranges, onSaved }) {
     setSaving(true); setError(""); setSuccess("");
     try {
       const saved = await api("/trafico", { method: "POST", body: { fecha, registros } });
+      notifyTrafficSaved();
       setRecords(current => ({ ...current, ...Object.fromEntries(saved.map(row => [row.rango_hora, row])) }));
       setDrafts({}); setSuccess("Tráfico guardado correctamente.");
       await onSaved();
@@ -43,6 +45,7 @@ export default function TrafficMatrix({ ranges, onSaved }) {
   if (!records) return error ? <Notice type="error">{error} <button className="button button--ghost" onClick={() => setAttempt(value => value + 1)}>Reintentar</button></Notice> : <Loading />;
   return <form onSubmit={save} className="traffic-matrix">
     <p>Fecha: <strong>{formatDate(fecha)}</strong>. Completa los horarios contados; deja vacíos los pendientes.</p>
+    {changed.length > 0 && <p role="status">Hay cambios sin guardar. Pulsa Guardar tráfico para que aparezcan en la gráfica.</p>}
     {success && <Notice type="success">{success}</Notice>}
     {error && <Notice type="error">{error}</Notice>}
     <div className="traffic-matrix__scroll"><table>

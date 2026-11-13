@@ -10,6 +10,7 @@ import { CloudDataService, type AnnualGoal, type CompanyRankingData, type Operat
 import { nextBirthday } from './next-birthday';
 import { closingCommercialPeriod } from '../lib/currentCommercialPeriod';
 import { mergeCommercialTraffic, availableTrafficMonths, trafficMonthsForStores } from '../lib/commercialTraffic';
+import { watchTrafficUpdates } from '../lib/trafficRefresh';
 import { teamProductivity } from './team-productivity';
 import { publishedSalesPeriods, publishedSalesDays, averageRecordedPersonnel } from './sales-period-context';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
@@ -353,6 +354,7 @@ export class CommercialDashboardController implements OnInit {
   readonly ticketChartSelectedStores = signal<string[]>([]);
   readonly kpiDetailMonth = signal(0);
   private readonly trafficChartStatus = signal<'ready' | 'loading' | 'error'>('ready');
+  private trafficRefreshRequest: Promise<void> | null = null;
   readonly trafficChartType = signal<'METRO' | 'OTHER'>('METRO');
   readonly ticketChartYears = computed(() => [2026, 2025, 2024].filter(year => (this.data()?.metadata.years ?? []).includes(year)));
   readonly ticketChartStores = computed(() => {
@@ -535,8 +537,17 @@ export class CommercialDashboardController implements OnInit {
     this.toggleChartExpansion('traffic-average');
     requestAnimationFrame(() => document.querySelector('app-root')?.shadowRoot?.querySelector<HTMLSelectElement>('.ticket-year-selector select')?.focus());
   }
-  private async refreshCommercialTraffic(): Promise<void> {
-    if (this.trafficChartStatus() === 'loading') return;
+  private refreshCommercialTraffic(): Promise<void> {
+    if (this.trafficRefreshRequest) return this.trafficRefreshRequest;
+    const request = this.loadCommercialTraffic();
+    this.trafficRefreshRequest = request;
+    void request.finally(() => {
+      if (this.trafficRefreshRequest === request) this.trafficRefreshRequest = null;
+    });
+    return request;
+  }
+
+  private async loadCommercialTraffic(): Promise<void> {
     const loadToken = this.goalLoadToken;
     this.trafficChartStatus.set('loading');
     try {
@@ -1999,9 +2010,9 @@ export class CommercialDashboardController implements OnInit {
     const through = trafficRows.flatMap(row => row.through ? [row.through] : []).at(-1);
     const status = this.trafficChartStatus();
     const dataNote = status === 'loading' ? 'Actualizando tráfico…'
-      : status === 'error' ? 'No se pudo actualizar el tráfico.'
+      : status === 'error' ? 'No se pudo actualizar el tráfico. Se muestra la última lectura disponible.'
       : through ? `Último registro de tráfico para esta selección: ${through}.` : '';
-    return { ...common, dataNote, loading: status === 'loading', retryTraffic: status === 'error', titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
+    return { ...common, dataNote, loading: status === 'loading', retryTraffic: status === 'error', keepResults: this.trafficChartHasData(), titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
       closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
       hasData: this.trafficChartHasData(), emptyText: `No hay tráfico registrado para ${year} con estos filtros.`,
       option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
@@ -4783,7 +4794,15 @@ export class CommercialDashboardController implements OnInit {
     onCleanup(() => { clearTimeout(timer); controller.abort(); });
   });
 
+  private readonly trafficRefreshEnabled = computed(() => this.cloud.portalEnabled && !!this.data());
+  private readonly trafficRefreshEffect = effect(onCleanup => {
+    if (!this.trafficRefreshEnabled()) return;
+    onCleanup(watchTrafficUpdates(() => this.refreshCommercialTraffic()));
+  });
+
   disposeReactRuntime(): void {
+    this.goalLoadToken += 1;
+    this.trafficRefreshEffect.destroy();
     this.priceRangeStockEffect.destroy();
     this.stockTransferCalculationEffect.destroy();
     this.stockInsightsEffect.destroy();
@@ -4837,6 +4856,7 @@ export class CommercialDashboardController implements OnInit {
 
   private async loadDashboardBase(): Promise<void> {
     const goalLoadToken = ++this.goalLoadToken;
+    this.trafficRefreshRequest = null;
     this.trafficChartStatus.set('ready');
     this.storeGoalsReady.set(false);
     this.companyRankingData.set(null);
