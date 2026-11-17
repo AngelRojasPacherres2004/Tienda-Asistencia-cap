@@ -1,6 +1,6 @@
 ﻿import test from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingGroups, compareTrainingCourses, trainingCourseLabel } from '../shared/trainingGroups.js';
+import { trainingGroups, compareTrainingCourses, trainingCourseLabel, normalizeTrainingTitle } from '../shared/trainingGroups.js';
 test('los tres planes conservan su orden y destinatarios', () => {
  assert.deepEqual(trainingGroups.map(g=>g.courses.length),[5,8,9]);
  assert.equal(new Set(trainingGroups.flatMap(g=>g.roles)).size,8);
@@ -29,4 +29,13 @@ test('cada rol muestra su numeracion sin prefijos CAP anteriores', () => {
  assert.ok(trainingCourseLabel(title, 'seguridad').startsWith('3. '));
  assert.ok(trainingCourseLabel(title, 'jefe_tienda').startsWith('4. '));
  assert.equal(trainingCourseLabel('Curso anterior', 'seguridad'), 'Curso anterior');
+});
+
+test('nombres normalizados y anteriores mantienen el mismo orden por rol', () => {
+ for (const group of trainingGroups) for (const role of group.roles) {
+  const legacy = group.courses.map((title, index) => ({ titulo: 'CAP ' + (index + 1) + ' - ' + title })).toReversed();
+  assert.deepEqual(legacy.sort(compareTrainingCourses(role)).map(row => normalizeTrainingTitle(row.titulo)), group.courses);
+  group.courses.forEach((title, index) => assert.equal(trainingCourseLabel('CAP 99 ' + title, role), (index + 1) + '. ' + title));
+ }
+ assert.equal(normalizeTrainingTitle('CAP 6 - Calidad y metodologia 5S'), 'Calidad y metodologia 5S');
 });

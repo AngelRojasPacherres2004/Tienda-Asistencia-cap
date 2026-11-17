@@ -9,11 +9,11 @@ export const trainingGroups = [
       "gerente_comercial"
     ],
     "courses": [
-      "CAP 1 - Inducción general (cultura y empresa)",
+      "Inducción general (cultura y empresa)",
       "Manual de funciones",
-      "CAP 2 - Capacitación del puesto (técnica y operativa)",
-      "CAP 3 - Seguridad y salud en el trabajo (SST)",
-      "CAP 6 - Calidad y metodología 5S"
+      "Capacitación del puesto (técnica y operativa)",
+      "Seguridad y salud en el trabajo (SST)",
+      "Calidad y metodología 5S"
     ]
   },
   {
@@ -23,13 +23,13 @@ export const trainingGroups = [
       "trabajador"
     ],
     "courses": [
-      "CAP 1 - Inducción general (cultura y empresa)",
+      "Inducción general (cultura y empresa)",
       "Manual de funciones",
-      "CAP 2 - Capacitación del puesto (técnica y operativa)",
-      "CAP 3 - Seguridad y salud en el trabajo (SST)",
-      "CAP 6 - Calidad y metodología 5S",
+      "Capacitación del puesto (técnica y operativa)",
+      "Seguridad y salud en el trabajo (SST)",
+      "Calidad y metodología 5S",
       "Técnica de venta",
-      "CAP 7 Comunicación asertiva y escucha activa",
+      "Comunicación asertiva y escucha activa",
       "Dominio del producto"
     ]
   },
@@ -40,14 +40,14 @@ export const trainingGroups = [
       "asistente_tienda"
     ],
     "courses": [
-      "CAP 1 - Inducción general (cultura y empresa)",
+      "Inducción general (cultura y empresa)",
       "Manual de funciones",
       "Cronograma comercial",
-      "CAP 2 - Capacitación del puesto (técnica y operativa)",
-      "CAP 3 - Seguridad y salud en el trabajo (SST)",
-      "CAP 6 - Calidad y metodología 5S",
+      "Capacitación del puesto (técnica y operativa)",
+      "Seguridad y salud en el trabajo (SST)",
+      "Calidad y metodología 5S",
       "Técnica de venta",
-      "CAP 7 Comunicación asertiva y escucha activa",
+      "Comunicación asertiva y escucha activa",
       "Dominio del producto"
     ]
   }
@@ -57,8 +57,8 @@ export function compareTrainingCourses(role) {
   const plan = trainingGroups.find(group => group.roles.includes(role))?.courses
     || trainingGroups.find(group => group.id === 'administracion').courses;
   return (a, b) => {
-    const titleA = a.nombre ?? a.titulo ?? '';
-    const titleB = b.nombre ?? b.titulo ?? '';
+    const titleA = normalizeTrainingTitle(a.nombre ?? a.titulo ?? '');
+    const titleB = normalizeTrainingTitle(b.nombre ?? b.titulo ?? '');
     const indexA = plan.indexOf(titleA);
     const indexB = plan.indexOf(titleB);
     return (indexA < 0 ? Infinity : indexA) - (indexB < 0 ? Infinity : indexB)
@@ -69,7 +69,11 @@ export function compareTrainingCourses(role) {
 // Number by the recipient's plan; historical courses keep an unnumbered title.
 export function trainingCourseLabel(title, role) {
   const plan = trainingGroups.find(group => group.roles.includes(role))?.courses;
-  const index = plan?.indexOf(title) ?? -1;
-  const cleanTitle = title.replace(/^CAP\s*\d+\s*(?:-\s*)?/i, '');
+  const cleanTitle = normalizeTrainingTitle(title);
+  const index = plan?.indexOf(cleanTitle) ?? -1;
   return index < 0 ? cleanTitle : (index + 1) + '. ' + cleanTitle;
+}
+
+export function normalizeTrainingTitle(title) {
+  return title.replace(/^CAP\s*\d+\s*(?:-\s*)?/i, '').trim();
 }
