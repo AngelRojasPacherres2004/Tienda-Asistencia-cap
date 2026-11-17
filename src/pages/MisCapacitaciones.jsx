@@ -24,7 +24,7 @@ export default function MisCapacitaciones() {
             <article className="task-catalog-card" key={item.curso_id}>
               <span className="catalog-icon"><GraduationCap size={18} /></span>
               <div>
-                <strong>{item.titulo}</strong>
+                <strong>{item.titulo_visual || item.titulo}</strong>
                 <span>
                   {item.competencia}
                   {item.duracion_horas ? ` · ${item.duracion_horas} h` : ""}

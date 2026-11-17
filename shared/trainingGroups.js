@@ -65,3 +65,11 @@ export function compareTrainingCourses(role) {
       || titleA.localeCompare(titleB, 'es');
   };
 }
+
+// Number by the recipient's plan; historical courses keep an unnumbered title.
+export function trainingCourseLabel(title, role) {
+  const plan = trainingGroups.find(group => group.roles.includes(role))?.courses;
+  const index = plan?.indexOf(title) ?? -1;
+  const cleanTitle = title.replace(/^CAP\s*\d+\s*(?:-\s*)?/i, '');
+  return index < 0 ? cleanTitle : (index + 1) + '. ' + cleanTitle;
+}
