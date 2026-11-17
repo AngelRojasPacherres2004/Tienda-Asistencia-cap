@@ -64,7 +64,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
   const dashboardActions = <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button>{!isStoreAdmin && <button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button>}<button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   if (renderSections && isStoreAdmin) return renderSections({
-    demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
+    demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
   });
   return <section className="store-dashboard-shell is-light">
     <header className="store-dashboard-hero"><div><span><Users size={28} /></span><div><h1>{view === "commercial" ? "OPERACIÓN Y EQUIPO" : isZonal ? storeName.toUpperCase() : "RESUMEN DE MI TIENDA"}</h1></div></div><div className="store-dashboard-view-controls">{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button type="button" onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={15} />Limpiar filtros</button></div></header>
@@ -81,7 +81,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
       <SalesForecastMatrix forecast={salesForecast} error={salesForecastError} storeName={storeName} />
       {!isStoreAdmin && dashboardActions}
       <DashboardSection kicker="Afluencia de clientes" title={`Tráfico de ${storeName} por hora`} />
-      <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
+      <TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
       {!isStoreAdmin && <><DashboardSection kicker="Personal de tienda" title={`Asistencia y movimientos de ${storeName}`} />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} showErrors={!isStoreAdmin} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} isZonal={isZonal} storeId={storeId} />}
       <TrainingDevelopmentHome /></>}
