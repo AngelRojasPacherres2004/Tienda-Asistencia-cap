@@ -10,5 +10,5 @@ export default function CommercialTrafficMatrix({ user }) {
     api('/tiendas').then(rows => { if (active) setStores(rows); }).catch(() => {});
     return () => { active = false; };
   }, []);
-  return <div className="store-commercial-panels store-dashboard-shell is-light commercial-traffic-matrix"><TrafficHourMatrix user={user} scopeName="Todas las tiendas" comparisonStores={stores} storeFormat currentMonth /></div>;
+  return <div className="store-commercial-panels store-dashboard-shell is-light commercial-traffic-matrix"><TrafficHourMatrix user={user} scopeName="Todas las tiendas" comparisonStores={stores} storeFormat currentMonth coloredHeatmap /></div>;
 }

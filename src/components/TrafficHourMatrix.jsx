@@ -1,3 +1,5 @@
+import { trafficHeatScale } from "../lib/trafficHeatScale";
+import "./traffic-heat-scale.css";
 import { TRAFFIC_HOURS, trafficPeak } from "../../shared/metrics.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, CalendarDays, Maximize2, Minimize2, RefreshCw, UsersRound, X } from "lucide-react";
@@ -13,7 +15,7 @@ const shortDate = (value) => new Intl.DateTimeFormat("es-PE", { weekday: "short"
 const rangeLabel = (range) => range.replaceAll(":00", "h").replace("-", "–");
 const dateFromParts = (year, month, day) => `${year}-${month}-${String(day).padStart(2, "0")}`;
 
-export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, refreshKey = 0, storeFormat = false, currentMonth = false }) {
+export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, refreshKey = 0, storeFormat = false, currentMonth = false, coloredHeatmap = false }) {
   const [data, setData] = useState(null); const [error, setError] = useState(""); const [loading, setLoading] = useState(false); const [expanded, setExpanded] = useState(false);
   const [today, setToday] = useState(todayISO);
   const [filter, setFilter] = useState({ mode: "month", month: today.slice(0, 7), year: today.slice(0, 4), from: today.slice(0, 8) + "01", to: today });
@@ -108,6 +110,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
     return { rows, maximum, total, peak: peakTotal > 0 ? peak : null, unassigned: records.filter(row => !HOURS.includes(row.rango_hora)).length, records };
   }, [data, dates, tiendaId]);
   const hourRows = useMemo(() => trafficMatrixHours(view.rows, HOURS), [view.rows]);
+  const heatScale = useMemo(() => trafficHeatScale(view.rows), [view.rows]);
   const colorRanges = useMemo(() => { if (!view.maximum) return []; return Array.from({ length: 5 }, (_, index) => { const start = Math.floor(index * view.maximum / 5) + 1; const end = Math.floor((index + 1) * view.maximum / 5); return start <= end ? { level: index + 1, label: start === end ? `${start}` : `${start}–${end}` } : null; }).filter(Boolean); }, [view.maximum]);
   const comparison = useMemo(() => {
     if (tiendaId || !comparisonStores.length) return [];
@@ -129,7 +132,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
   if (error && !data) return <section className="traffic-matrix-card"><h2>Matriz de tráfico por hora</h2><p role="alert">{error}</p><button type="button" onClick={load}>Reintentar</button></section>;
   if (!data) return <section className="traffic-matrix-card"><p role="status">Cargando tráfico del período seleccionado...</p></section>;
   const periodLabel = desde === hasta ? desde : `${desde} al ${hasta}`;
-  return <section className={`traffic-matrix-card ${expanded ? "is-expanded" : ""}`}>
+  return <section className={`traffic-matrix-card ${coloredHeatmap ? "traffic-matrix-card--colored" : ""} ${expanded ? "is-expanded" : ""}`}>
     <header className="traffic-matrix-head"><div>{!compact && <span className="traffic-matrix-eyebrow"><Activity size={14} />{roleEyebrow}</span>}<h2>{compact ? (storeFormat ? `Tráfico por hora · ${periodLabel} · Total: ${loading ? "Cargando..." : view.records.length ? `${view.total.toLocaleString("es-PE")} personas` : "Sin registros"}` : "Tráfico por hora") : `Matriz de tráfico por hora${scopeName ? ` · ${scopeName}` : ""}`}</h2></div><div className="traffic-matrix-actions"><button type="button" onClick={load} aria-label="Actualizar matriz"><RefreshCw size={17} className={loading ? "is-spinning" : ""} /></button><button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Cerrar vista ampliada" : "Ampliar matriz"}>{expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>{expanded && <button type="button" onClick={() => setExpanded(false)} aria-label="Cerrar"><X size={19} /></button>}</div></header>
     <form className="traffic-matrix-filters" onSubmit={applyFilter} aria-label="Filtros de tráfico por hora">
       <label>Período<select value={filter.mode} onChange={event => changeFilter("mode", event.target.value)}>
@@ -169,7 +172,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
         <div className="traffic-matrix-hour">Total por hora</div>
         {hourRows.map(row => <div className="traffic-matrix-row" key={row.hour} style={{ display: "contents" }}>
           <div className="traffic-matrix-date"><strong>{rangeLabel(row.hour)}</strong></div>
-          {row.cells.map(cell => <div key={cell.date} className={`traffic-matrix-cell ${cell.value ? "has-value" : ""}`} style={{ "--heat": view.maximum ? Math.ceil(cell.value / view.maximum * 5) / 5 : 0 }} title={`${shortDate(cell.date)}, ${rangeLabel(row.hour)}: ${cell.recorded ? `${cell.value} personas` : "Sin registro"}`}><strong>{cell.recorded ? cell.value : "—"}</strong></div>)}
+          {row.cells.map(cell => <div key={cell.date} className={`traffic-matrix-cell ${cell.value ? "has-value" : ""}`} style={{ ...(coloredHeatmap ? { backgroundColor: heatScale.color(cell) } : {}), "--heat": view.maximum ? Math.ceil(cell.value / view.maximum * 5) / 5 : 0 }} title={`${shortDate(cell.date)}, ${rangeLabel(row.hour)}: ${cell.recorded ? `${cell.value} personas` : "Sin registro"}`}><strong>{cell.recorded ? cell.value : "—"}</strong></div>)}
           <div className="traffic-matrix-total">{row.recorded ? row.total.toLocaleString("es-PE") : "—"}</div>
         </div>)}
         <div className="traffic-matrix-date"><strong>Total por día</strong></div>
@@ -177,6 +180,6 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
         <div className="traffic-matrix-total">{view.records.length ? view.total.toLocaleString("es-PE") : "—"}</div>
       </div>
     </div>
-    <footer className="traffic-matrix-legend"><span>Menor tráfico</span><div className="traffic-matrix-legend-ranges">{colorRanges.length ? colorRanges.map((range) => <span key={range.level}><i style={{ "--legend-heat": range.level / 5 }} />{range.label}</span>) : <span>Sin registros</span>}</div><span>Mayor tráfico</span><small>{loading ? "Actualizando…" : `Actualizado ${data.loadedAt.toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })}`}</small></footer>
+    <footer className="traffic-matrix-legend"><span>Menor tráfico</span><div className="traffic-matrix-legend-ranges">{(coloredHeatmap ? heatScale.ranges : colorRanges).length ? (coloredHeatmap ? heatScale.ranges : colorRanges).map((range) => <span key={range.label}><i style={{ ...(coloredHeatmap ? { backgroundColor: range.color } : {}), "--legend-heat": range.level / 5 }} />{range.label}</span>) : <span>Sin registros</span>}</div><span>Mayor tráfico</span><small>{loading ? "Actualizando…" : `Actualizado ${data.loadedAt.toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "2-digit", minute: "2-digit" })}`}</small></footer>
   </section>;
 }
