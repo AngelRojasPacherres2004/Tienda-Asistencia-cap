@@ -1,3 +1,4 @@
+import { rankingRelativeScore, visibleRankingDetails } from "../../shared/rankingPresentation.js";
 import { Injectable, OnInit, computed, effect, inject, signal } from './reactivity-react';
 import type { EChartsOption } from 'echarts';
 import { AssistantService } from './assistant.service';
@@ -1689,6 +1690,7 @@ export class CommercialDashboardController implements OnInit {
       ? 'COMPARANDO TIENDAS' : this.rankingStoreCountLabel(), metrics: this.rankingMetrics(),
     loading: this.cloud.portalEnabled && this.companyRankingState() === 'loading',
     error: this.companyRankingState() === 'error',
+    relativeRanking: this.cloud.accessProfile()?.roleCode === 'jefe_tienda',
     option: blackChartText(this.rankingOption()),
   }));
 
@@ -4007,6 +4009,8 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly rankingOption = computed<EChartsOption>(() => {
     const d = this.data(); if (!d) return {};
+    const role = this.cloud.accessProfile()?.roleCode || '';
+    const relativeRanking = role === 'jefe_tienda';
     const company = this.companyRankingData();
     const selectedMetrics = this.rankingMetrics();
     const selectedYear = this.year(); const periods = this.selectedPeriods();
@@ -4070,6 +4074,7 @@ export class CommercialDashboardController implements OnInit {
       return { ...row, details, score };
     });
     const rows = scored.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label, 'es'));
+    const relativeScores = rows.map(row => rankingRelativeScore(rows[0]?.score, row.score));
     const positionScaleMax = Math.max(1, rows.length);
     const singleMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : null;
     const formatMetric = (metric: RankingMetric, value: number | null): string => {
@@ -4085,16 +4090,19 @@ export class CommercialDashboardController implements OnInit {
       animation: false,
       tooltip: { trigger: 'item', confine: true, borderColor: C.gold, position: this.tooltipToRight, formatter: (params: any) => {
         const row = rows[params.dataIndex ?? 0];
-        return this.tooltip(row.label, row.details.map(detail => ({
+        const details = visibleRankingDetails(row.details, role).map((detail: (typeof row.details)[number]) => ({
           label: `${metricLabel[detail.metric]} #${detail.points}`,
           value: formatMetric(detail.metric, detail.value)
-        })));
+        }));
+        return this.tooltip(row.label, relativeRanking
+          ? [{ label: 'Respecto al primer puesto', value: this.percent(relativeScores[params.dataIndex ?? 0]) }, ...details]
+          : details);
       } },
       grid: { left: 48, right: 18, top: 25, bottom: 78 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
-      yAxis: { type: 'value', min: 0, max: positionScaleMax + 1, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      series: [{ type: 'bar', data: rows.map((_, index) => positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'MARKUP' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : singleMetric === 'SALES' ? C.navy : C.gold, borderRadius: [4, 4, 0, 0] },
-        label: { show: true, position: 'top', formatter: (params: any) => String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+      yAxis: { type: 'value', min: 0, max: relativeRanking ? 100 : positionScaleMax + 1, axisLabel: { show: relativeRanking, formatter: (value: number) => `${value}%` }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      series: [{ type: 'bar', data: rows.map((_, index) => relativeRanking ? (relativeScores[index] ?? 0) * 100 : positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'MARKUP' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : singleMetric === 'SALES' ? C.navy : C.gold, borderRadius: [4, 4, 0, 0] },
+        label: { show: true, position: 'top', formatter: (params: any) => relativeRanking ? this.percent(relativeScores[params.dataIndex]) : String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
     } as EChartsOption;
   });
 
