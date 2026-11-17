@@ -18,18 +18,19 @@ export default function CommercialReactChart({ chartId, label, onClick, option }
   const host = useRef(null);
   const chart = useRef(null);
   const chartOption = useMemo(() => {
-    if (!['inventory-antiquity', 'inventory-sizes'].includes(chartId) || !baseChartOption?.tooltip) return baseChartOption;
+    const widerTooltips = ['inventory-antiquity', 'inventory-sizes', 'meta-vs-real', 'meta-vs-real-expanded', 'category-participation', 'brand-sales', 'hourly-performance', 'store-ranking', 'gender-donut', 'growth', 'growth-expanded', 'price-range', 'modal-ticket', 'modal-conversion', 'modal-traffic'];
+    if (!widerTooltips.includes(chartId) || !baseChartOption?.tooltip) return baseChartOption;
     const tooltip = baseChartOption.tooltip;
     return { ...baseChartOption, tooltip: {
       ...tooltip,
       confine: false,
       appendTo: () => document.body,
-      padding: [10, 14],
+      padding: [8, 10],
       extraCssText: 'box-sizing:border-box;max-width:calc(100vw - 24px);white-space:normal;z-index:10000;',
       position: (point, _params, _element, _rect, size) => viewportTooltipPosition(point, size.contentSize, host.current.getBoundingClientRect(), [window.innerWidth, window.innerHeight]),
       formatter: (...args) => {
         const html = typeof tooltip.formatter === 'function' ? tooltip.formatter(...args) : '';
-        return typeof html === 'string' ? html.replaceAll('width:min(360px,calc(100% - 16px),calc(100vw - 24px))', 'width:min(420px,calc(100vw - 52px))') : html;
+        return typeof html === 'string' ? html.replaceAll('width:min(360px,calc(100% - 16px),calc(100vw - 24px))', 'width:min(380px,calc(100vw - 44px))') : html;
       },
     } };
   }, [baseChartOption, chartId]);
