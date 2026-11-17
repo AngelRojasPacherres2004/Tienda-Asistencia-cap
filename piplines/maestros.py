@@ -10,6 +10,8 @@ import re
 import unicodedata
 from typing import Any
 
+from homologaciones_usuario import aplicar_homologaciones_usuario
+
 ANIO_INICIO_MODELO = 2023
 ANIO_FIN_MODELO = 2026
 FECHA_INICIO_MODELO = f"{ANIO_INICIO_MODELO:04d}-01-01"
@@ -209,6 +211,18 @@ MESES_EQUIVALENCIAS = {
 }
 
 TOKENS_NULOS = {"", "N/A", "NA", "NULL", "NONE", "NULO", "-", "--", "#N/A", "S/N", "S/F", "SIN DATO"}
+
+aplicar_homologaciones_usuario(
+    {
+        "tiendas": TIENDAS_EQUIVALENCIAS,
+        "proveedores": PROVEEDORES_EQUIVALENCIAS,
+        "marcas": MARCAS_EQUIVALENCIAS,
+        "rubros": RUBROS_EQUIVALENCIAS,
+        "lineas": LINEAS_EQUIVALENCIAS,
+        "sublineas": SUBLINEAS_EQUIVALENCIAS,
+    },
+    "maestros",
+)
 
 
 def clave_texto(valor: Any) -> str:

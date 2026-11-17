@@ -14,6 +14,7 @@ from pathlib import Path
 from runtime_config import configurar_duckdb, cerrar_duckdb_seguro, finalizar_proceso
 from xlsx_fast import leer_filas_xlsx
 from capa1_cache import limpiar_versiones_anteriores, ruta_cache
+from homologaciones_usuario import aplicar_homologaciones_usuario
 from typing import Union
 import xml.etree.ElementTree as ET
 
@@ -408,6 +409,17 @@ MONEDAS_EQUIVALENCIAS = {
 RUBROS_INVALIDOS = {"X ERROR", "X PRUEBA", "ERROR", "N A", "NA", "NULL"}
 TOKENS_NULOS = {"", "N/A", "NA", "NULL", "NONE", "-", "--", "ERROR", "#N/A"}
 
+aplicar_homologaciones_usuario(
+    {
+        "tiendas": TIENDAS_EQUIVALENCIAS,
+        "proveedores": PROVEEDORES_EQUIVALENCIAS,
+        "marcas": MARCAS_EQUIVALENCIAS,
+        "rubros": RUBROS_EQUIVALENCIAS,
+        "sublineas": SUBLINEAS_EQUIVALENCIAS,
+    },
+    "ventas",
+)
+
 
 def numero_a_letras(n: int) -> str:
     """Convierte número de columna (base 1) a letras Excel (A, B, …, AA, AB, …)."""
@@ -658,11 +670,19 @@ def consulta_read_xlsx(archivo: Path, hoja: str, rango: str, tiene_encabezado: b
 
 
 def detectar_encabezado(
-    conexion: duckdb.DuckDBPyConnection, archivo: Path, hoja: str
+    conexion: duckdb.DuckDBPyConnection,
+    archivo: Path,
+    hoja: str,
+    cantidad_columnas: int,
 ) -> tuple[bool, list[str]]:
     """Detecta el detalle RMS aunque el reporte cambie el orden de columnas."""
     del conexion
-    filas = leer_filas_xlsx(archivo, hoja, max_filas=1, max_columnas=128)
+    filas = leer_filas_xlsx(
+        archivo,
+        hoja,
+        max_filas=1,
+        max_columnas=max(1, cantidad_columnas),
+    )
     primera_fila = filas[0] if filas else None
     if not primera_fila:
         raise ValueError(
@@ -706,10 +726,10 @@ def inspeccionar_fuentes(
 
         print(f"\n{archivo.name}")
         for nombre_hoja, rango, filas_dimension, col_final_real in hojas_estructura:
-            tiene_encabezado, headers_reales = detectar_encabezado(
-                conexion, archivo, nombre_hoja
-            )
             cantidad_columnas = letras_a_numero(col_final_real)
+            tiene_encabezado, headers_reales = detectar_encabezado(
+                conexion, archivo, nombre_hoja, cantidad_columnas
+            )
             if not tiene_encabezado and cantidad_columnas != TOTAL_COLUMNAS_ORIGEN:
                 print(
                     f"  - Se omite {nombre_hoja}: hoja auxiliar sin encabezados RMS "

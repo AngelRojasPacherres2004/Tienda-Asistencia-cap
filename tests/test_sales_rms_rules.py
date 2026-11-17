@@ -1,4 +1,6 @@
 import sys
+import json
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -9,9 +11,28 @@ sys.path.insert(0, str(PIPELINES_DIR))
 
 import _base_ventas as ventas
 import kpis_modelo as kpis
+import homologaciones_usuario as homologaciones
 
 
 class SalesRmsRulesTests(unittest.TestCase):
+    def test_user_homologations_override_base_rules_without_editing_pipeline(self):
+        previous = homologaciones.ARCHIVO_REGLAS
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                archivo = Path(temporary) / "homologaciones_usuario.json"
+                archivo.write_text(
+                    json.dumps({"marcas": {"NUEVA MARCA RMS": "MARCA OFICIAL"}}),
+                    encoding="utf-8",
+                )
+                homologaciones.ARCHIVO_REGLAS = archivo
+                marcas = {"OTRA": "OTRA"}
+                homologaciones.aplicar_homologaciones_usuario(
+                    {"marcas": marcas}, "prueba"
+                )
+                self.assertEqual(marcas["NUEVA MARCA RMS"], "MARCA OFICIAL")
+        finally:
+            homologaciones.ARCHIVO_REGLAS = previous
+
     def test_sales_headers_are_mapped_by_name_when_rms_reorders_and_extends_report(self):
         headers = (
             "FECHA Y HORA VENTA", "TIENDA", "CODIGO NISSEI", "PROVEEDOR", "LOTE",
