@@ -60,7 +60,7 @@ export function mergeStockInsights(results) {
     .sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9)
       || (a.coverageDays == null ? -Infinity : a.coverageDays) - (b.coverageDays == null ? -Infinity : b.coverageDays)
       || b.vendibleValue - a.vendibleValue)
-    .slice(0, 5);
+    .slice(0, 10);
   return {
     rowCount: results.reduce((total, result) => total + result.rowCount, 0),
     brandRows: grouped({ collection: "brandRows", key: "name", metrics: ["stockUnits", "stockValue", "demandUnits", "movementUnits"] }),

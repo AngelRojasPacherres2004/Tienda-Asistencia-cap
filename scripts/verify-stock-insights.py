@@ -103,7 +103,7 @@ def verify(local: dict, remote: dict) -> None:
             values = local[local_key][row[name_key]]
             for field, target in zip(columns, values, strict=True):
                 assert close(row[field], target), (remote_key, row[name_key], field, row[field], target)
-    assert len(remote["priorityProducts"]) <= 5
+    assert len(remote["priorityProducts"]) <= 10
 
 
 def main() -> None:

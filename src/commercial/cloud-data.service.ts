@@ -76,7 +76,7 @@ export type StockInsights = {
   healthRows: { status: string; value: number; products: number }[];
   projectionRows: { status: string; value: number; products: number }[];
   riskRows: { storeId: string; totalValue: number; riskValue: number; riskProducts: number; products: number }[];
-  priorityProducts: { storeId: string; product: string; brand: string; stockUnits: number;
+  priorityProducts: { storeId: string; productCode: string; product: string; brand: string; stockUnits: number;
     vendibleValue: number; status: string; coverageDays: number | null }[];
 };
 

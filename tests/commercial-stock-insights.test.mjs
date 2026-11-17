@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commercialStockInsights } from '../netlify/lib/commercial-stock-insights.js';
+import { commercialStockInsights, mergeStockInsights } from '../netlify/lib/commercial-stock-insights.js';
 
 const access = { storeIds: ['A', 'B'] };
 const release = { stock_cutoff: '2026-07-31' };
@@ -44,7 +44,7 @@ test('multiple stores are queried separately and chart aggregates preserve total
     healthRows: [{ status: 'ALERTA', value: store === 'A' ? 30 : 50, products: store === 'A' ? 2 : 3 }],
     projectionRows: [{ status: 'CRÍTICO', value: store === 'A' ? 30 : 50, products: store === 'A' ? 2 : 3 }],
     riskRows: [{ storeId: store, totalValue: 30, riskValue: 10, riskProducts: 1, products: 2 }],
-    priorityProducts: [{ storeId: store, product: store, status: store === 'A' ? 'ALERTA' : 'CRÍTICO', coverageDays: 2, vendibleValue: 20 }],
+    priorityProducts: [{ storeId: store, productCode: `COD-${store}`, product: store, status: store === 'A' ? 'ALERTA' : 'CRÍTICO', coverageDays: 2, vendibleValue: 20 }],
   });
   const db = { async rpc(_name, params) {
     calls.push(params.p_store_ids);
@@ -57,4 +57,14 @@ test('multiple stores are queried separately and chart aggregates preserve total
   assert.deepEqual(result.healthRows[0], { status: 'ALERTA', value: 80, products: 5 });
   assert.equal(result.riskRows.length, 2);
   assert.deepEqual(result.priorityProducts.map(row => row.storeId), ['B', 'A']);
+});
+
+test('la consolidación conserva diez productos prioritarios para la matriz', () => {
+  const rows = Array.from({ length: 12 }, (_, index) => ({
+    storeId: 'A', productCode: `COD-${index}`, product: `Producto ${index}`,
+    status: 'CRÍTICO', coverageDays: index, vendibleValue: 100 - index,
+  }));
+  const result = mergeStockInsights([{ rowCount: rows.length, brandRows: [], healthRows: [], projectionRows: [], riskRows: [], priorityProducts: rows }]);
+  assert.equal(result.priorityProducts.length, 10);
+  assert.deepEqual(result.priorityProducts.map(row => row.productCode), Array.from({ length: 10 }, (_, index) => `COD-${index}`));
 });

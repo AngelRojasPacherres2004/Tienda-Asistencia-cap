@@ -4,11 +4,10 @@ import CommercialReactRotationCard from "./CommercialReactRotationCard";
 import CommercialReactAntiquityCard from "./CommercialReactAntiquityCard";
 import CommercialReactStoreValueCard from "./CommercialReactStoreValueCard";
 import CommercialReactSizeCard from "./CommercialReactSizeCard";
-import CommercialReactHealthCard from "./CommercialReactHealthCard";
 import CommercialReactReplenishmentCard from "./CommercialReactReplenishmentCard";
 import CommercialReactProjectionCard from "./CommercialReactProjectionCard";
 
-export default function CommercialReactInventoryPage({ model, onAction, storeAdmin = false, manager = false }) {
+export default function CommercialReactInventoryPage({ model, onAction, storeAdmin = false }) {
   const forward = source => action => onAction({ ...action, source });
   const heading = key => ({ ...model.headings[key], transferVisible: false });
   return <section className="page page-two" aria-label="Inventario y analítica predictiva" data-react-commercial-module="inventory-page">
@@ -29,9 +28,8 @@ export default function CommercialReactInventoryPage({ model, onAction, storeAdm
           <CommercialReactSectionHeading model={heading('c')} onAction={forward("section")} />
           {model.refreshError && <div className="predictive-refresh-error" role="alert"><span>{model.refreshError}</span><button type="button" className="retry-button" onClick={() => onAction({ source: 'detail', type: 'retry' })}>REINTENTAR</button></div>}
           <div className="predictive-overview-grid">
-            <CommercialReactHealthCard model={model.predictive.health} />
-            <CommercialReactReplenishmentCard model={model.predictive.replenishment} onAction={forward("replenishment")} />
-            <CommercialReactProjectionCard model={model.predictive.projection} onAction={forward("projection")} storeView={storeAdmin || manager} manager={manager} />
+            <CommercialReactReplenishmentCard model={model.predictive.replenishment} />
+            <CommercialReactProjectionCard model={model.predictive.projection} />
           </div>
         </section>}
   </section>;

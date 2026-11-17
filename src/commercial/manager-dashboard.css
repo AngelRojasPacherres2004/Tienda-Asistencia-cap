@@ -50,3 +50,6 @@
 .manager-commercial-dashboard .projection-store-filter select { width:100%; min-height:42px; padding:8px 10px; border:1px solid #aebfd3; border-radius:8px; background:#fff; color:#172033; font:inherit; }
 .manager-commercial-dashboard .projection-store-filter small { font-size:12px; color:#475569; padding-bottom:8px; }
 .manager-commercial-dashboard .projection-store-error { margin:8px 0; padding:10px; border:1px solid #e5b8b8; border-radius:8px; color:#9c2525; background:#fff5f5; font-size:13px; }
+.manager-commercial-dashboard .predictive-overview-grid { grid-template-columns:minmax(0,1fr); }
+.manager-commercial-dashboard .predictive-overview-grid>.replenishment-matrix-card,
+.manager-commercial-dashboard .predictive-overview-grid>.priority-replenishment-card { height:auto; min-height:0; }

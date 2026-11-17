@@ -614,7 +614,9 @@ export class CommercialDashboardController implements OnInit {
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
   readonly trainingAudience = signal<'SELLERS' | 'ADMINISTRATORS'>('SELLERS');
-  readonly coverageProjectionHorizon = signal<0 | 30 | 60 | 90>(0);
+  // La cobertura usa venta acumulada de 90 días. Ya no se proyectan escenarios
+  // +30/+60/+90: la prioridad muestra únicamente el estado vigente.
+  readonly coverageProjectionHorizon = signal<0>(0);
   readonly projectionStore = signal('TODAS');
   private readonly projectionInsightsData = signal<StockInsights | null>(null);
   private readonly projectionInsightsStore = signal('');
@@ -1775,50 +1777,29 @@ export class CommercialDashboardController implements OnInit {
     else this.applyZoomHierarchyFilter(type, value);
   }
 
-  readonly healthCardModel = computed<Record<string, unknown>>(() => ({
-    loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
-    option: blackChartText(this.predictiveHealthOption()),
-    rows: this.predictiveHealthRows().map(row => ({ status: row.status, color: row.color,
-      value: this.money(row.value, true), share: this.percent(row.share) })),
-  }));
-
   readonly projectionCardModel = computed<Record<string, unknown>>(() => ({
     loading: this.projectionStore() === 'TODAS' ? this.stockInsightsRefreshing() : this.projectionInsightsLoading(),
-    store: this.projectionStore(),
-    storeOptions: this.inventoryStoresIgnoringStoreFilter().map(store => ({ value: store.storeId, label: store.alias || store.store })).sort((a, b) => a.label.localeCompare(b.label, 'es')),
     error: this.projectionInsightsError(),
-    horizon: this.coverageProjectionHorizon(), option: blackChartText(this.predictiveProjectionOption()),
-    stores: this.projectionRiskDetails().map(row => ({ ...row,
-      riskAmount: riskMoneyFormat.format(row.riskValue), totalAmount: riskMoneyFormat.format(row.totalValue),
-      remainingAmount: riskMoneyFormat.format(row.totalValue - row.riskValue), riskShare: this.percent(row.totalValue > 0 ? row.riskValue / row.totalValue : null),
-    })),
-    rows: this.predictiveProjectionRows().map(row => ({ status: row.status, color: row.color,
-      value: riskMoneyFormat.format(row.value), share: this.percent(row.share), products: this.number(row.products) })),
-    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, product: row.product,
+    rows: this.priorityReplenishmentRows().map(row => ({ status: row.status, color: row.color,
+      value: riskMoneyFormat.format(row.value), share: this.percent(row.share), products: this.number(row.products), productCount: row.products })),
+    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, code: row.productCode, product: row.product,
       store: row.store, coverageDays: row.coverageDays, coverage: this.number(row.coverageDays, ' días'),
       color: this.predictiveStatusColor(row.status) })),
   }));
 
   onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'horizon' && (value === 0 || value === 30 || value === 60 || value === 90)) this.coverageProjectionHorizon.set(value);
-    else if (type === 'store' && typeof value === 'string' && this.cloud.accessProfile()?.roleCode === 'gerente_comercial'
+    if (type === 'store' && typeof value === 'string' && this.cloud.accessProfile()?.roleCode === 'gerente_comercial'
       && (value === 'TODAS' || this.inventoryStoresIgnoringStoreFilter().some(store => store.storeId === value))) this.projectionStore.set(value);
   }
 
   readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
     loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
-    expanded: this.expandedChart() === 'predictive-replenishment',
-    option: blackChartText(this.predictiveReplenishmentOption()),
     rows: this.predictiveReplenishmentRows().map(row => ({ name: row.name,
       priority: row.priority, color: row.priorityColor,
       deficitUnits: this.number(row.deficitUnits, ' und'),
       coverage: row.coverageDays == null ? 'SIN MOVIMIENTO' : this.number(row.coverageDays, ' días'),
       vendibleUnits: this.number(row.vendibleUnits, ' und') })),
   }));
-
-  onReactReplenishmentAction({ type }: { type: string }): void {
-    if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
-  }
 
   sectionHeadingModel(id: string): Record<string, unknown> {
     const heading = SECTION_HEADINGS[id];
@@ -1924,7 +1905,6 @@ export class CommercialDashboardController implements OnInit {
       storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
       detailState, detailProgress: this.stockDetailProgress(), refreshError: this.stockInsightsRefreshError(),
       predictive: detailState === 'ready' ? {
-        health: this.healthCardModel(),
         replenishment: this.replenishmentCardModel(), projection: this.projectionCardModel(),
       } : null,
     };
@@ -1937,7 +1917,6 @@ export class CommercialDashboardController implements OnInit {
     else if (source === 'storeValue') this.onReactStoreValueAction(action);
     else if (source === 'size') this.onReactSizeCardAction(action);
     else if (source === 'transfers') this.onReactTransferAction(action);
-    else if (source === 'replenishment') this.onReactReplenishmentAction(action);
     else if (source === 'projection') this.onReactProjectionAction(action);
     else if (source === 'detail' && type === 'retry') this.retryStockDetail();
   }
@@ -3603,7 +3582,8 @@ export class CommercialDashboardController implements OnInit {
       const vendibleValue = row.stockValue * (1 - nonSellableRate);
       const coverageDays = demandDaily > 0 ? row.stockUnits * (1 - nonSellableRate) / demandDaily : null;
       const status = this.predictiveStatus(coverageDays, movementUnits <= 0);
-      return { status: status.label, vendibleValue, product: row.product, brand: row.brand, storeId: row.storeId, coverageDays, stockUnits: row.stockUnits };
+      return { status: status.label, vendibleValue, product: row.product, productCode: row.productCode || row.productId,
+        brand: row.brand, storeId: row.storeId, coverageDays, stockUnits: row.stockUnits };
     });
   });
   readonly predictiveHealthRows = computed(() => {
@@ -3647,7 +3627,7 @@ export class CommercialDashboardController implements OnInit {
         return { ...row, coverageDays, status };
       })
       .sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || (a.coverageDays ?? -1) - (b.coverageDays ?? -1) || b.vendibleValue - a.vendibleValue)
-      .slice(0, 5)
+      .slice(0, 10)
       .map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId }));
   });
   readonly predictiveBreakageOption = computed<EChartsOption>(() => {
@@ -3691,6 +3671,22 @@ export class CommercialDashboardController implements OnInit {
     return raw.map(row => ({ ...row, share: total ? row.value / total : 0 }));
   }
   readonly predictiveProjectionRows = computed(() => this.coverageProjectionRowsFor(this.coverageProjectionHorizon()));
+  readonly priorityReplenishmentRows = computed(() => {
+    const source = this.predictiveProjectionRows();
+    const groups = [
+      { status: 'CRÍTICO', color: '#DC2626', members: new Set(['CRÍTICO', 'ALERTA']) },
+      { status: 'ÓPTIMO', color: C.green, members: new Set(['ÓPTIMO']) },
+      { status: 'SIN ROTACIÓN', color: '#94A3B8', members: new Set(['BAJA ROTACIÓN', 'SIN ROTACIÓN', 'SIN DATOS']) },
+    ];
+    const rows = groups.map(group => {
+      const matches = source.filter(row => group.members.has(row.status));
+      return { status: group.status, color: group.color,
+        value: matches.reduce((total, row) => total + row.value, 0),
+        products: matches.reduce((total, row) => total + row.products, 0) };
+    });
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    return rows.map(row => ({ ...row, share: total > 0 ? row.value / total : 0 }));
+  });
   readonly predictiveStoreRiskRows = computed(() => {
     const days = this.coverageProjectionHorizon();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
