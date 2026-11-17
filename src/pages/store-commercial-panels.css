@@ -147,3 +147,10 @@
 .manager-summary-panels.store-dashboard-shell .store-dashboard-personnel-kpi b { font-size:32px; }
 .manager-summary-panels.store-dashboard-shell .training-history>div>* { font-size:14px!important; line-height:1.5; }
 .manager-summary-panels.store-dashboard-shell .training-development-bars>div>strong { font-size:14px; }
+
+.store-dashboard-shell .training-development--chart-only { margin-top:0; }
+.store-dashboard-shell .training-development--chart-only .training-development-grid { grid-template-columns:minmax(0,1fr); }
+.store-dashboard-shell .training-development--chart-only .training-development-bars { padding-top:20px; }
+.store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(100px,1fr) minmax(100px,2fr) auto; cursor:default; }
+.store-dashboard-shell .training-development--chart-only .training-worker > .training-status { height:auto; background:transparent; overflow:visible; }
+@media(max-width:540px) { .store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(0,1fr) auto; } .store-dashboard-shell .training-development--chart-only .training-worker > strong { grid-column:1 / -1; } }
