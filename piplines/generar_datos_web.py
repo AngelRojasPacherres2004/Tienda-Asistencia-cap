@@ -1097,6 +1097,7 @@ def generar() -> dict:
         WITH st AS (
             SELECT tienda_id, producto_id,
                 COALESCE(NULLIF(TRIM(descripcion), ''), codigo_nissei, producto_id) AS product,
+                MAX(NULLIF(TRIM(serie), '')) AS serie,
                 {rubro_dashboard} AS category,
                 COALESCE(NULLIF(TRIM(linea), ''), 'SIN LINEA') AS line,
                 COALESCE(NULLIF(TRIM(sub_linea), ''), 'SIN SUBLINEA') AS subline,
@@ -1108,7 +1109,7 @@ def generar() -> dict:
                 SUM(CASE WHEN estado_grupo = 'MERMA' THEN cantidad ELSE 0 END) AS merma_stock_units,
                 SUM(CASE WHEN estado_grupo = 'DESMEDRO' THEN cantidad ELSE 0 END) AS desmedro_stock_units
             FROM {stock}
-            GROUP BY 1, 2, 3, 4, 5, 6, 7
+            GROUP BY 1, 2, 3, 5, 6, 7, 8
             HAVING SUM(cantidad) > 0
         ), ventas_producto AS (
             SELECT tienda_id, producto_id,
@@ -1128,6 +1129,7 @@ def generar() -> dict:
             GROUP BY 1, 2
         )
         SELECT st.tienda_id AS "storeId", st.producto_id AS "productId", st.product_code AS "productCode", st.product,
+            st.serie AS serie,
             st.category, st.line, st.subline, st.brand,
             CAST(st.stock_units AS DOUBLE) AS "stockUnits",
             CAST(st.stock_value AS DOUBLE) AS "stockValue",
@@ -1212,6 +1214,7 @@ def generar() -> dict:
             v.producto_id AS "productId",
             MAX(TRIM(CAST(v.codigo_nissei AS VARCHAR))) AS "productCode",
             MAX(COALESCE(NULLIF(TRIM(v.descripcion), ''), v.producto_id)) AS product,
+            MAX(NULLIF(TRIM(v.serie), '')) AS serie,
             {rubro_dashboard} AS category,
             COALESCE(NULLIF(TRIM(v.linea), ''), 'SIN LINEA') AS line,
             COALESCE(NULLIF(TRIM(v.sub_linea), ''), 'SIN SUBLINEA') AS subline,

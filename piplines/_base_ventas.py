@@ -113,6 +113,7 @@ COLUMNAS_CAPA2 = [
     "marca",
     "modelo",
     "descripcion",
+    "serie",
     "cliente",
     "temporada",
     "cantidad",
@@ -169,6 +170,10 @@ ENCABEZADOS_ALTERNATIVOS_VENTAS = {
     "TIPO  DOCUM": ("TIPO DOCUM", "TIPO DOCUMENTO"),
     "NRO.DOC": ("NRO DOC", "NRO DOCUMENTO", "NUMERO DOCUMENTO"),
     "SIZE": ("TALLA",),
+    # DESC3 es el nombre histórico del RMS. En algunos reportes de calzado
+    # llega como SERIE; internamente siempre se normaliza y publica como
+    # ``serie`` para que el modelo no dependa del rótulo del Excel.
+    "DESC3": ("SERIE", "SERIE MODELO", "MODELO SERIE"),
 }
 
 # Una hoja con estas cinco columnas es el detalle RMS de ventas. Las tablas
@@ -1195,6 +1200,7 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
             {sql_limpiar_texto(sql_identificador('MARCA'))} AS marca_origen,
             {sql_limpiar_texto(sql_identificador('MODELO'))} AS modelo,
             {sql_limpiar_texto(sql_identificador('DESCRIPCION'))} AS descripcion,
+            {sql_limpiar_texto(sql_identificador('DESC3'))} AS serie_origen,
             {sql_limpiar_texto(sql_identificador('CLIENTE'))} AS cliente,
             {sql_limpiar_texto(sql_identificador('TEMPORADA'))} AS temporada_origen,
             {sql_limpiar_texto(sql_identificador('CANT'), False)} AS cantidad_origen,
@@ -1228,6 +1234,16 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
             COALESCE({tienda_mapeada}, 'N/A') AS tienda,
             COALESCE({proveedor_mapeado}, 'N/A') AS proveedor,
             COALESCE({marca_mapeada}, 'N/A') AS marca,
+            CASE
+                -- En calzado DESC3/SERIE identifica el modelo comercial aun
+                -- cuando el código Nissei cambia por lote. S/C y equivalentes
+                -- son marcadores de ausencia, no series utilizables.
+                WHEN {sql_clave('serie_origen')} IN (
+                    '', 'S C', 'S S', 'S M', 'M V', 'SIN CODIGO',
+                    'SIN SERIE', 'N A', 'NA', 'NO APLICA', '0'
+                ) THEN NULL
+                ELSE serie_origen
+            END AS serie,
             CASE
                 WHEN temporada_origen IS NULL THEN 'N/A'
                 WHEN {temporada_conocida} THEN COALESCE({temporada_mapeada}, 'N/A')
@@ -1495,6 +1511,7 @@ def construir_sql_capa2(fecha_limpieza: datetime) -> str:
         marca,
         modelo,
         descripcion,
+        serie,
         cliente,
         temporada,
         cantidad,

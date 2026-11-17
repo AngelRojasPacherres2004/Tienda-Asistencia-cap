@@ -92,6 +92,7 @@ def select_fuente(con, archivo: Path, prioridad: int, nombre_fuente: str) -> str
     marca = _texto_limpio_fact(cols, "marca", "SIN MARCA")
     modelo = expresion_columna(cols, "modelo", "NULL")
     descripcion = expresion_columna(cols, "descripcion", "NULL")
+    serie = expresion_columna(cols, "serie", "NULL")
     ruta = sql_literal(archivo.as_posix())
     return f"""
     SELECT DISTINCT
@@ -103,6 +104,7 @@ def select_fuente(con, archivo: Path, prioridad: int, nombre_fuente: str) -> str
         {marca} AS marca,
         upper(NULLIF(trim(CAST({modelo} AS VARCHAR)), '')) AS modelo,
         upper(NULLIF(trim(CAST({descripcion} AS VARCHAR)), '')) AS descripcion,
+        upper(NULLIF(trim(CAST({serie} AS VARCHAR)), '')) AS serie,
         {prioridad}::INTEGER AS prioridad_fuente,
         {sql_literal(nombre_fuente)} AS fuente_maestra
     FROM read_parquet({ruta})
@@ -133,7 +135,8 @@ def consulta(con) -> str:
              + CASE WHEN sub_linea <> 'SIN CLASIFICACIÓN' THEN 1 ELSE 0 END
              + CASE WHEN marca <> 'SIN MARCA' THEN 1 ELSE 0 END
              + CASE WHEN modelo IS NOT NULL THEN 1 ELSE 0 END
-             + CASE WHEN descripcion IS NOT NULL THEN 2 ELSE 0 END) AS completitud
+             + CASE WHEN descripcion IS NOT NULL THEN 2 ELSE 0 END
+             + CASE WHEN serie IS NOT NULL THEN 2 ELSE 0 END) AS completitud
         FROM candidatos
     ), puntuado AS (
         SELECT *,
@@ -165,6 +168,7 @@ def consulta(con) -> str:
         marca,
         modelo,
         descripcion,
+        serie,
         (rubro='SERVICIOS' OR codigo_nissei='ENVIO') AS es_servicio,
         fuente_maestra,
         (codigo_nissei IS NOT NULL AND descripcion IS NOT NULL) AS es_producto_valido

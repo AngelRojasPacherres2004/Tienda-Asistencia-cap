@@ -50,6 +50,21 @@ class SalesRmsRulesTests(unittest.TestCase):
         self.assertEqual(mapped["CLIENTE"], 29)
         self.assertEqual(mapped["TTTT"], 27)
 
+    def test_calzado_serie_is_published_from_desc3_or_renamed_rms_header(self):
+        headers = (
+            "FECHA Y HORA VENTA", "TIENDA", "CODIGO NISSEI", "CANT",
+            "TOTAL VENTA", "SERIE",
+        )
+        mapped = ventas._mapear_columnas_por_nombre(headers, ventas.COLUMNAS_VENTAS)
+
+        self.assertEqual(mapped["DESC3"], 5)
+        self.assertEqual(
+            ventas.COLUMNAS_CAPA2[ventas.COLUMNAS_CAPA2.index("descripcion") + 1],
+            "serie",
+        )
+        self.assertIn("AS serie_origen", ventas.construir_sql_capa2(datetime(2026, 11, 3)))
+        self.assertIn("END AS serie", ventas.construir_sql_capa2(datetime(2026, 11, 3)))
+
     def test_pivot_sheet_is_not_treated_as_sales_detail(self):
         self.assertFalse(
             ventas.es_encabezado_detalle_ventas(("MARCA", "H&M", "", ""))

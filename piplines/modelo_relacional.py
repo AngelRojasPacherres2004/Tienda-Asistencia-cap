@@ -240,7 +240,7 @@ def transformar_ventas() -> Path:
                 "linea_origen_id", "fecha_hora_venta", "fecha_venta",
                 "nro_venta", "tienda", "tienda_rms",
                 "codigo_nissei", "proveedor", "rubro", "linea", "sub_linea",
-                "marca", "cantidad", "precio_sugerido", "precio_real",
+                "marca", "serie", "cantidad", "precio_sugerido", "precio_real",
                 "total_venta", "tipo_documento", "estado", "tipo_movimiento",
             ],
         )
@@ -267,6 +267,7 @@ def transformar_ventas() -> Path:
              "COALESCE(CAST(b.temporada AS VARCHAR),'') || '|' || "
              "COALESCE(CAST(b.vendedor_nombre AS VARCHAR),'') || '|' || "
              "COALESCE(CAST(b.modelo AS VARCHAR),'') || '|' || "
+             "COALESCE(CAST(b.serie AS VARCHAR),'') || '|' || "
              "COALESCE(CAST(b.descripcion AS VARCHAR),'')",
             18,
         )
@@ -313,7 +314,7 @@ def transformar_ventas() -> Path:
             b.semana_venta, b.dia_semana_numero, b.dia_semana_nombre,
             b.linea_origen_id, b.nro_venta, b.tienda, b.tienda_rms,
             b.codigo_nissei, b.proveedor, b.lote, b.rubro,
-            b.linea, b.sub_linea, b.marca, b.modelo, b.descripcion, b.cliente, b.temporada,
+            b.linea, b.sub_linea, b.marca, b.modelo, b.descripcion, b.serie, b.cliente, b.temporada,
             b.cantidad, b.precio_sugerido, b.precio_real, b.total_venta,
             b.tipo_documento, b.estado, b.nro_documento, b.talla,
             b.mes_lote, b.mes_lote_numero, b.anio_lote,
