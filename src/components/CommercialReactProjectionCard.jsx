@@ -7,7 +7,7 @@ export default function CommercialReactProjectionCard({ model }) {
     <div className="title-row"><span className="card-letter">C</span><h2><svg><use href="/comercial/assets/icons.svg#alert" /></svg> PRIORIDAD DE REPOSICIÓN</h2></div>
     {model.error && <p className="projection-store-error" role="alert">{model.error}</p>}
     <div className="priority-status-bar" role="img" aria-label={`Prioridad de reposición a 90 días: ${model.rows.map(row => `${row.status} ${row.share}`).join(', ')}`}>
-      {model.rows.map(row => <span key={row.status} style={{ flexGrow: row.productCount || 0, backgroundColor: row.color }} title={`${row.status}: ${row.value} · ${row.share}`}><b>{row.status}</b><em>{row.share}</em></span>)}
+      {model.rows.map(row => <span key={row.status} style={{ flexGrow: row.productCount || 0, backgroundColor: row.color }} title={`${row.status}: ${row.value} · ${row.share}`} />)}
     </div>
     <div className="priority-status-legend">{model.rows.map(row => <span key={row.status}><i style={{ backgroundColor: row.color }} />{row.status}<b>{row.products} SKU</b></span>)}{total === 0 && <span>Sin datos evaluados</span>}</div>
     <section className="priority-products-matrix" aria-label="Productos prioritarios">

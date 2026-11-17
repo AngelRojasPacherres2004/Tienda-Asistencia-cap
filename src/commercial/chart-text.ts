@@ -13,7 +13,7 @@ export function blackChartText<T>(value: T): T {
       copy['backgroundColor'] = '#ffffff';
       copy['borderColor'] = '#123a6a';
       copy['textStyle'] = { ...textStyle, color: '#111827', fontSize: 9 };
-      copy['extraCssText'] = 'box-sizing:border-box;max-width:274px;white-space:normal;';
+      copy['extraCssText'] = 'box-sizing:border-box;max-width:min(360px,calc(100vw - 24px));white-space:normal;';
     }
     return copy;
   };

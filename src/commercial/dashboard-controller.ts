@@ -227,6 +227,7 @@ export class CommercialDashboardController implements OnInit {
   readonly stockInsightsRefreshing = signal(false);
   readonly stockInsightsRefreshScope = signal<'all' | 'projection'>('all');
   readonly stockInsightsRefreshError = signal('');
+  readonly replenishmentSelectedBrand = signal('');
   private stockInsightsResolvedCommonKey = '';
   private readonly stockInsightBrands = computed(() => this.stockInsightsData()?.brandRows);
   private readonly stockInsightHealth = computed(() => this.stockInsightsData()?.healthRows);
@@ -1794,12 +1795,31 @@ export class CommercialDashboardController implements OnInit {
 
   readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
     loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
+    expanded: this.expandedChart() === 'predictive-replenishment',
+    selectedBrand: this.replenishmentSelectedBrand(),
+    detailLoading: !!this.replenishmentSelectedBrand() && this.stockDetailLoading() && !this.stockDetailLoaded(),
+    detailRows: this.replenishmentBrandProducts().map(row => ({
+      code: row.productCode, product: row.product,
+      coverage: row.coverageDays == null ? 'SIN ROTACIÓN' : this.number(row.coverageDays, ' días'),
+      vendibleUnits: this.number(row.vendibleUnits, ' und'),
+    })),
     rows: this.predictiveReplenishmentRows().map(row => ({ name: row.name,
       priority: row.priority, color: row.priorityColor,
       deficitUnits: this.number(row.deficitUnits, ' und'),
       coverage: row.coverageDays == null ? 'SIN MOVIMIENTO' : this.number(row.coverageDays, ' días'),
-      vendibleUnits: this.number(row.vendibleUnits, ' und') })),
+      vendibleUnits: this.number(row.vendibleUnits, ' und'), selected: row.name === this.replenishmentSelectedBrand() })),
   }));
+
+  onReactReplenishmentAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') {
+      this.toggleChartExpansion('predictive-replenishment');
+      return;
+    }
+    if (type !== 'brand' || typeof value !== 'string' || !this.predictiveReplenishmentRows().some(row => row.name === value)) return;
+    this.replenishmentSelectedBrand.set(value);
+    if (this.expandedChart() !== 'predictive-replenishment') this.toggleChartExpansion('predictive-replenishment');
+    void this.ensureStockDetail();
+  }
 
   sectionHeadingModel(id: string): Record<string, unknown> {
     const heading = SECTION_HEADINGS[id];
@@ -1917,6 +1937,7 @@ export class CommercialDashboardController implements OnInit {
     else if (source === 'storeValue') this.onReactStoreValueAction(action);
     else if (source === 'size') this.onReactSizeCardAction(action);
     else if (source === 'transfers') this.onReactTransferAction(action);
+    else if (source === 'replenishment') this.onReactReplenishmentAction(action);
     else if (source === 'projection') this.onReactProjectionAction(action);
     else if (source === 'detail' && type === 'retry') this.retryStockDetail();
   }
@@ -3586,6 +3607,35 @@ export class CommercialDashboardController implements OnInit {
         brand: row.brand, storeId: row.storeId, coverageDays, stockUnits: row.stockUnits };
     });
   });
+  readonly replenishmentBrandProducts = computed(() => {
+    const brand = this.replenishmentSelectedBrand();
+    if (!brand || !this.stockDetailLoaded()) return [];
+    const normalizedBrand = this.normalized(brand);
+    const nonSellableRate = Math.min(.95, Math.max(0, .18 + PREDICTIVE_MERMA_PCT / 100));
+    const groupedProducts = new Map<string, { productCode: string; product: string; stockUnits: number; demandUnits: number; movementUnits: number }>();
+    for (const row of this.predictiveScopedProducts()) {
+      if (this.normalized(row.brand) !== normalizedBrand) continue;
+      const key = row.productId || row.productCode || row.product;
+      const current = groupedProducts.get(key) || {
+        productCode: row.productCode || row.productId || '', product: row.product,
+        stockUnits: 0, demandUnits: 0, movementUnits: 0,
+      };
+      current.stockUnits += Number(row.stockUnits) || 0;
+      current.demandUnits += this.predictiveWindowUnits(row, PREDICTIVE_WINDOW_DAYS);
+      current.movementUnits += this.predictiveWindowUnits(row, PREDICTIVE_WINDOW_DAYS);
+      groupedProducts.set(key, current);
+    }
+    const priority: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'SIN ROTACIÓN': 2, 'BAJA ROTACIÓN': 3, 'ÓPTIMO': 4 };
+    return [...groupedProducts.values()].map(row => {
+      const vendibleUnits = row.stockUnits * (1 - nonSellableRate);
+      const demandDaily = row.demandUnits / PREDICTIVE_WINDOW_DAYS;
+      const coverageDays = demandDaily > 0 ? vendibleUnits / demandDaily : null;
+      const status = this.predictiveStatus(coverageDays, row.movementUnits <= 0).label;
+      return { ...row, vendibleUnits, coverageDays, status };
+    }).sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9)
+      || (a.coverageDays ?? -Infinity) - (b.coverageDays ?? -Infinity)
+      || b.vendibleUnits - a.vendibleUnits).slice(0, 100);
+  });
   readonly predictiveHealthRows = computed(() => {
     const order = ['CRÍTICO', 'ALERTA', 'ÓPTIMO', 'BAJA ROTACIÓN', 'SIN ROTACIÓN'];
     const colors: Record<string, string> = { 'CRÍTICO': '#DC2626', 'ALERTA': C.orange, 'ÓPTIMO': C.green, 'BAJA ROTACIÓN': C.gold, 'SIN ROTACIÓN': '#94A3B8' };
@@ -4235,7 +4285,7 @@ export class CommercialDashboardController implements OnInit {
       });
     return {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'max-width:180px;', formatter: (params: any[]) => {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'box-sizing:border-box;max-width:min(360px,calc(100vw - 24px));white-space:normal;', formatter: (params: any[]) => {
         const index = params[0]?.dataIndex ?? 0; const v = values[index];
         return this.tooltip(v.name, [
           { label: 'Venta neta', value: this.money(v.net, true) },
@@ -6122,9 +6172,9 @@ export class CommercialDashboardController implements OnInit {
   private tooltip(title: string, rows: Detail[], floating = false, compactLabels = true): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(82px,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(360px,calc(100% - 16px),calc(100vw - 24px));max-width:calc(100vw - 24px);font:clamp(11px,3.1vw,13px)/1.35 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:start;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827"><span style="min-width:0;color:#111827;overflow-wrap:anywhere">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="color:#111827;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(82px,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(360px,calc(100% - 16px),calc(100vw - 24px));max-width:calc(100vw - 24px);font:clamp(11px,3.1vw,13px)/1.35 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:start;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827"><span style="min-width:0;color:#111827;overflow-wrap:anywhere">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="color:#111827;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private tooltipFull(title: string, rows: Detail[]): string { return this.tooltip(title, rows, false, false); }
   private compactTooltipLabel(label: string): string {

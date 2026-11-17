@@ -28,7 +28,7 @@ export default function CommercialReactInventoryPage({ model, onAction, storeAdm
           <CommercialReactSectionHeading model={heading('c')} onAction={forward("section")} />
           {model.refreshError && <div className="predictive-refresh-error" role="alert"><span>{model.refreshError}</span><button type="button" className="retry-button" onClick={() => onAction({ source: 'detail', type: 'retry' })}>REINTENTAR</button></div>}
           <div className="predictive-overview-grid">
-            <CommercialReactReplenishmentCard model={model.predictive.replenishment} />
+            <CommercialReactReplenishmentCard model={model.predictive.replenishment} onAction={forward("replenishment")} />
             <CommercialReactProjectionCard model={model.predictive.projection} />
           </div>
         </section>}
