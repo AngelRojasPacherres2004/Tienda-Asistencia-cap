@@ -12,6 +12,28 @@ import kpis_modelo as kpis
 
 
 class SalesRmsRulesTests(unittest.TestCase):
+    def test_sales_headers_are_mapped_by_name_when_rms_reorders_and_extends_report(self):
+        headers = (
+            "FECHA Y HORA VENTA", "TIENDA", "CODIGO NISSEI", "PROVEEDOR", "LOTE",
+            "RUBRO", "LINEA", "SUB LINEA", "MARCA", "MODELO", "DESCRIPCION",
+            "DESC3", "CANT", "PRECIO SUGERIDO", "PRECIO REAL", "TOTAL VENTA",
+            "ESTADO", "MES", "AÑO", "TIPO  DOCUM", "NRO.DOC", "SIZE", "COLOR",
+            "EST TRABAJO", "VENDEDOR", "MONEDA", "NRO VTA", "NOMBRE VENDEDOR",
+            "TEMPORADA", "CLIENTE", "CAMPAÑA",
+        )
+
+        self.assertTrue(ventas.es_encabezado_detalle_ventas(headers))
+        mapped = ventas._mapear_columnas_por_nombre(headers, ventas.COLUMNAS_VENTAS)
+        self.assertEqual(mapped["NRO VTA"], 26)
+        self.assertEqual(mapped["TEMPORADA"], 28)
+        self.assertEqual(mapped["CLIENTE"], 29)
+        self.assertEqual(mapped["TTTT"], 27)
+
+    def test_pivot_sheet_is_not_treated_as_sales_detail(self):
+        self.assertFalse(
+            ventas.es_encabezado_detalle_ventas(("MARCA", "H&M", "", ""))
+        )
+
     def test_clean_sales_exclude_canceled_and_preserve_same_source_lines(self):
         sql = ventas.construir_sql_capa2(datetime(2026, 11, 3))
 

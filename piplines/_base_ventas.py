@@ -42,7 +42,7 @@ CAPA1_TEMP = WORK_TEMP_DIR / "Fact_Ventas_temporal.parquet"
 CAPA2_FINAL = WORK_INTERMEDIATE_DIR / "FactVentasLimpio.parquet"
 CAPA2_TEMP = WORK_TEMP_DIR / "FactVentasLimpio_temporal.parquet"
 
-CACHE_VERSION_CAPA1 = "ventas_v24_1"
+CACHE_VERSION_CAPA1 = "ventas_v24_2"
 
 COLUMNAS_VENTAS = [
     "FECHA Y HORA VENTA",
@@ -156,6 +156,30 @@ COLUMNAS_NO_PUBLICABLES_CAPA2 = {
 
 TOTAL_COLUMNAS_ORIGEN = len(COLUMNAS_VENTAS)
 COLUMNA_FINAL_EXCEL = "AD"
+
+# El RMS ha usado más de un nombre para el mismo campo. La importación se
+# guía por los encabezados y no por su posición, por lo que una columna nueva
+# o el reordenamiento normal del reporte no desplaza los datos comerciales.
+ENCABEZADOS_ALTERNATIVOS_VENTAS = {
+    "TTTT": ("NOMBRE VENDEDOR", "VENDEDOR NOMBRE"),
+    "NRO VTA": ("NRO VENTA", "NRO. VTA", "NUMERO VTA", "NUMERO VENTA"),
+    "CODIGO NISSEI": ("COD NISSEI", "CODIGO", "CODIGO PRODUCTO"),
+    "SUB LINEA": ("SUBLINEA",),
+    "TIPO  DOCUM": ("TIPO DOCUM", "TIPO DOCUMENTO"),
+    "NRO.DOC": ("NRO DOC", "NRO DOCUMENTO", "NUMERO DOCUMENTO"),
+    "SIZE": ("TALLA",),
+}
+
+# Una hoja con estas cinco columnas es el detalle RMS de ventas. Las tablas
+# dinámicas, resúmenes y gráficos que a veces viajan en el mismo Excel quedan
+# fuera del proceso de forma deliberada.
+ENCABEZADOS_IDENTIDAD_VENTAS = (
+    "FECHA Y HORA VENTA",
+    "TIENDA",
+    "CODIGO NISSEI",
+    "CANT",
+    "TOTAL VENTA",
+)
 
 NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 NS_REL_OFFICE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -415,20 +439,30 @@ def _mapear_columnas_por_nombre(
     claves_reales = [_clave_encabezado(c) for c in columnas_reales]
     resultado: dict[str, int | None] = {}
     for esperada in columnas_esperadas:
-        clave_esp = _clave_encabezado(esperada)
-        if clave_esp in claves_reales:
-            resultado[esperada] = claves_reales.index(clave_esp)
-            continue
-        encontrado = next(
-            (i for i, cr in enumerate(claves_reales) if cr.startswith(clave_esp + " ")),
-            None,
-        )
+        candidatas = (esperada, *ENCABEZADOS_ALTERNATIVOS_VENTAS.get(esperada, ()))
+        encontrado = None
+        for candidata in candidatas:
+            clave_esp = _clave_encabezado(candidata)
+            if clave_esp in claves_reales:
+                encontrado = claves_reales.index(clave_esp)
+                break
+            encontrado = next(
+                (i for i, cr in enumerate(claves_reales) if cr.startswith(clave_esp + " ")),
+                None,
+            )
+            if encontrado is not None:
+                break
         resultado[esperada] = encontrado
     return resultado
 
 
-# Primeras columnas estables para detectar si la fila 1 es un encabezado de ventas.
-_COLS_ESTABLES_HEADER_VENTAS = COLUMNAS_VENTAS[:6]  # Hasta LOTE inclusive.
+def es_encabezado_detalle_ventas(columnas: list[object] | tuple[object, ...]) -> bool:
+    """Indica si la fila pertenece al detalle RMS y no a una tabla auxiliar."""
+    mapa = _mapear_columnas_por_nombre(
+        tuple("" if valor is None else str(valor) for valor in columnas),
+        list(ENCABEZADOS_IDENTIDAD_VENTAS),
+    )
+    return all(mapa.get(nombre) is not None for nombre in ENCABEZADOS_IDENTIDAD_VENTAS)
 
 
 @dataclass(frozen=True)
@@ -566,18 +600,6 @@ def obtener_hojas_desde_xlsx(archivo: Path) -> list[tuple[str, str, int]]:
             cantidad_columnas, ultima_fila = analizar_dimension(dimension)
             if ultima_fila < 1:
                 continue
-            if cantidad_columnas > TOTAL_COLUMNAS_ORIGEN:
-                print(
-                    f"  - Aviso: {nombre_hoja} tiene {cantidad_columnas} columnas; "
-                    f"se procesarán únicamente A:{COLUMNA_FINAL_EXCEL}."
-                )
-                cantidad_columnas = TOTAL_COLUMNAS_ORIGEN
-            elif cantidad_columnas < TOTAL_COLUMNAS_ORIGEN:
-                print(
-                    f"  - Aviso: {nombre_hoja} tiene {cantidad_columnas} columnas "
-                    f"(esperadas {TOTAL_COLUMNAS_ORIGEN}); columnas faltantes -> NULL."
-                )
-
             col_final_real = numero_a_letras(cantidad_columnas)
             hojas.append((nombre_hoja, f"A1:{col_final_real}{ultima_fila}", ultima_fila, col_final_real))
         return hojas
@@ -638,25 +660,19 @@ def consulta_read_xlsx(archivo: Path, hoja: str, rango: str, tiene_encabezado: b
 def detectar_encabezado(
     conexion: duckdb.DuckDBPyConnection, archivo: Path, hoja: str
 ) -> tuple[bool, list[str]]:
-    """Detecta si la fila 1 es encabezado; devuelve (tiene_enc, headers_reales).
-
-    Compara sólo las primeras columnas estables de la lista canónica para
-    admitir archivos con más o menos columnas de lo esperado.
-    Si la fila es encabezado, devuelve también todos los headers reales del archivo
-    (pueden ser menos que TOTAL_COLUMNAS_ORIGEN) para el mapeo por nombre posterior.
-    """
+    """Detecta el detalle RMS aunque el reporte cambie el orden de columnas."""
     del conexion
-    filas = leer_filas_xlsx(archivo, hoja, max_filas=1, max_columnas=TOTAL_COLUMNAS_ORIGEN)
+    filas = leer_filas_xlsx(archivo, hoja, max_filas=1, max_columnas=128)
     primera_fila = filas[0] if filas else None
     if not primera_fila:
         raise ValueError(
             f"No se pudo leer la primera fila de {archivo.name} / {hoja}."
         )
-    n = len(_COLS_ESTABLES_HEADER_VENTAS)
-    esperado = [normalizar_encabezado(x) for x in _COLS_ESTABLES_HEADER_VENTAS]
-    recibido = [normalizar_encabezado(x) for x in primera_fila[:n]]
-    tiene_enc = recibido == esperado
-    return tiene_enc, list(primera_fila) if tiene_enc else []
+    headers = list(primera_fila)
+    while headers and headers[-1] in (None, ""):
+        headers.pop()
+    tiene_enc = es_encabezado_detalle_ventas(headers)
+    return tiene_enc, headers if tiene_enc else []
 
 
 
@@ -693,6 +709,13 @@ def inspeccionar_fuentes(
             tiene_encabezado, headers_reales = detectar_encabezado(
                 conexion, archivo, nombre_hoja
             )
+            cantidad_columnas = letras_a_numero(col_final_real)
+            if not tiene_encabezado and cantidad_columnas != TOTAL_COLUMNAS_ORIGEN:
+                print(
+                    f"  - Se omite {nombre_hoja}: hoja auxiliar sin encabezados RMS "
+                    f"({cantidad_columnas} columnas; se requieren {TOTAL_COLUMNAS_ORIGEN})."
+                )
+                continue
             hoja = HojaExcel(
                 archivo=archivo,
                 nombre=nombre_hoja,
@@ -705,15 +728,33 @@ def inspeccionar_fuentes(
             )
             resultado.append(hoja)
             tipo = "con encabezado" if tiene_encabezado else "sin encabezado"
-            ncols_real = len(headers_reales) if headers_reales else TOTAL_COLUMNAS_ORIGEN
-            aviso = (
-                f" [{ncols_real}/{TOTAL_COLUMNAS_ORIGEN} cols, faltantes->NULL]"
-                if ncols_real < TOTAL_COLUMNAS_ORIGEN else ""
-            )
+            if tiene_encabezado:
+                ncols_real = len(headers_reales)
+                extras = max(0, ncols_real - TOTAL_COLUMNAS_ORIGEN)
+                faltantes = sum(
+                    1
+                    for posicion in _mapear_columnas_por_nombre(
+                        tuple(headers_reales), COLUMNAS_VENTAS
+                    ).values()
+                    if posicion is None
+                )
+                detalle = []
+                if extras:
+                    detalle.append(f"{extras} extra(s) ignorada(s)")
+                if faltantes:
+                    detalle.append(f"{faltantes} faltante(s)->NULL")
+                aviso = f" [{'; '.join(detalle)}]" if detalle else ""
+            else:
+                aviso = " [modo posicional legado]"
             print(
                 f"  - {nombre_hoja}: {hoja.rango_datos} | {tipo}{aviso} | "
                 f"filas de datos esperadas: {hoja.filas_datos_esperadas:,}"
             )
+    if not resultado:
+        raise ValueError(
+            "El archivo no contiene una hoja de detalle RMS de ventas. "
+            "Se requiere la cabecera FECHA Y HORA VENTA, TIENDA, CODIGO NISSEI, CANT y TOTAL VENTA."
+        )
     return resultado
 
 
