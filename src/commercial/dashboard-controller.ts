@@ -1,4 +1,4 @@
-import { rankingRelativeScore, visibleRankingDetails } from "../../shared/rankingPresentation.js";
+import { rankingRelativeScore, rankingMetricShare } from "../../shared/rankingPresentation.js";
 import { Injectable, OnInit, computed, effect, inject, signal } from './reactivity-react';
 import type { EChartsOption } from 'echarts';
 import { AssistantService } from './assistant.service';
@@ -4079,6 +4079,10 @@ export class CommercialDashboardController implements OnInit {
     const singleMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : null;
     const formatMetric = (metric: RankingMetric, value: number | null): string => {
       if (value == null) return 'N/A';
+      if (relativeRanking && (metric === 'SALES' || metric === 'SALE_M2')) {
+        const maximum = Math.max(0, ...metrics.map(row => metricValue(row, metric) ?? 0));
+        return this.percent(rankingMetricShare(value, maximum));
+      }
       if (metric === 'ROTATION' || metric === 'MARKUP') return this.percent(value);
       return this.money(value);
     };
@@ -4090,8 +4094,13 @@ export class CommercialDashboardController implements OnInit {
       animation: false,
       tooltip: { trigger: 'item', confine: true, borderColor: C.gold, position: this.tooltipToRight, formatter: (params: any) => {
         const row = rows[params.dataIndex ?? 0];
-        const details = visibleRankingDetails(row.details, role).map((detail: (typeof row.details)[number]) => ({
-          label: `${metricLabel[detail.metric]} #${detail.points}`,
+        const tooltipDetails = relativeRanking
+          ? [...row.details, ...(['SALES', 'SALE_M2'] as RankingMetric[])
+            .filter(metric => !row.details.some(detail => detail.metric === metric))
+            .map(metric => ({ metric, value: metricValue(row, metric), points: null }))]
+          : row.details;
+        const details = tooltipDetails.map(detail => ({
+          label: `${metricLabel[detail.metric]}${detail.points == null ? '' : ` #${detail.points}`}`,
           value: formatMetric(detail.metric, detail.value)
         }));
         return this.tooltip(row.label, relativeRanking
@@ -4100,9 +4109,9 @@ export class CommercialDashboardController implements OnInit {
       } },
       grid: { left: 48, right: 18, top: 25, bottom: 78 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
-      yAxis: { type: 'value', min: 0, max: relativeRanking ? 100 : positionScaleMax + 1, axisLabel: { show: relativeRanking, formatter: (value: number) => `${value}%` }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      yAxis: { type: 'value', min: 0, max: relativeRanking ? 100 : positionScaleMax + 1, axisLabel: { show: false, formatter: (value: number) => `${value}%` }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [{ type: 'bar', data: rows.map((_, index) => relativeRanking ? (relativeScores[index] ?? 0) * 100 : positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'MARKUP' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : singleMetric === 'SALES' ? C.navy : C.gold, borderRadius: [4, 4, 0, 0] },
-        label: { show: true, position: 'top', formatter: (params: any) => relativeRanking ? this.percent(relativeScores[params.dataIndex]) : String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+        label: { show: !relativeRanking, position: 'top', formatter: (params: any) => relativeRanking ? this.percent(relativeScores[params.dataIndex]) : String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
     } as EChartsOption;
   });
 
