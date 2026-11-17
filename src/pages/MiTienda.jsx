@@ -64,6 +64,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
   const dashboardActions = <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button>{!isStoreAdmin && <button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button>}<button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   if (renderSections && isStoreAdmin) return renderSections({
+    training: <TrainingDevelopmentHome compactTitles />,
     demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
   });
   return <section className="store-dashboard-shell is-light">
