@@ -4100,12 +4100,10 @@ export class CommercialDashboardController implements OnInit {
             .map(metric => ({ metric, value: metricValue(row, metric), points: null }))]
           : row.details;
         const details = tooltipDetails.map(detail => ({
-          label: `${metricLabel[detail.metric]}${detail.points == null ? '' : ` #${detail.points}`}`,
+          label: `${metricLabel[detail.metric]}${relativeRanking && ['SALES', 'SALE_M2'].includes(detail.metric) || detail.points == null ? '' : ` #${detail.points}`}`,
           value: formatMetric(detail.metric, detail.value)
         }));
-        return this.tooltip(row.label, relativeRanking
-          ? [{ label: 'Respecto al primer puesto', value: this.percent(relativeScores[params.dataIndex ?? 0]) }, ...details]
-          : details);
+        return this.tooltipFull(row.label, details);
       } },
       grid: { left: 48, right: 18, top: 25, bottom: 78 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
