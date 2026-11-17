@@ -154,3 +154,9 @@
 .store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(100px,1fr) minmax(100px,2fr) auto; cursor:default; }
 .store-dashboard-shell .training-development--chart-only .training-worker > .training-status { height:auto; background:transparent; overflow:visible; }
 @media(max-width:540px) { .store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(0,1fr) auto; } .store-dashboard-shell .training-development--chart-only .training-worker > strong { grid-column:1 / -1; } }
+
+.store-dashboard-shell .training-development--chart-only { padding:12px; border-radius:14px; }
+.store-dashboard-shell .training-development--chart-only .training-development-grid > article > header { min-height:48px; padding:12px; flex-wrap:wrap; }
+.store-dashboard-shell .training-development--chart-only .training-development-bars { max-height:260px; padding:12px; gap:8px; }
+.store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(80px,1fr) minmax(80px,1.3fr) auto; gap:7px; }
+@media(max-width:540px) { .store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(0,1fr) auto; } }
