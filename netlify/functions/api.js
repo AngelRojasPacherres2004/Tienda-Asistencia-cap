@@ -820,8 +820,8 @@ export async function handler(event) {
     if (path === "/mis-capacitaciones" && method === "GET") return json(200, await misCapacitaciones(user));
 
     if (path === "/gerencia/alertas" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial"]);
-      return json(200, await executiveAlerts());
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal"]);
+      return json(200, await executiveAlerts(user));
     }
     if (path === "/personal/resumen" && method === "GET") {
       ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);

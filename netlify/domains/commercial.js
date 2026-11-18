@@ -32,7 +32,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
   async function commercialOperationalSummary(sessionUser) {
     const access = await currentCommercialAccess(sessionUser);
     const { data: mappings, error: mappingError } = await supabase.from('commercial_store_map')
-      .select('dashboard_store_id,tienda_id').in('dashboard_store_id', access.storeIds);
+      .select('dashboard_store_id,tienda_id,cluster_code').in('dashboard_store_id', access.storeIds);
     if (mappingError) throw dbError(mappingError);
     const storeIds = [...new Set((mappings || []).map(row => row.tienda_id))];
     if (!storeIds.length) return { activeWorkers: [], courses: [], training: [], departures: [], incidents: [], stores: [], monthlyPersonnelArea: [], personnelProfiles: [] };
