@@ -2365,3 +2365,20 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .traffic-matrix-filters p {
   flex-basis: 100%;
 }
+
+.modal-shell {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+}
+
+.modal-shell::backdrop { background: transparent; }
