@@ -1,11 +1,12 @@
 import { attendanceDayIndex, attendancePersonId, PRESENT_STATES } from "../../shared/attendance.js";
 import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CalendarCheck2, ChevronLeft, ChevronRight, FileClock, SlidersHorizontal, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { demoTrafficTotal, demoZonalComparison, isOperationalDemo } from "../lib/operationalDemo";
 import { exportExcel } from "../lib/excelExport";
+import { createMouseDragScroll } from "../lib/mouseDragScroll";
 import { Loading, Notice, Pagination } from "../components/UI";
 import TrafficHourMatrix from "../components/TrafficHourMatrix";
 import { WorkerInsightsPanels } from "./Dashboard";
@@ -64,6 +65,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
   const dashboardActions = <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button>{!isStoreAdmin && <button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button>}<button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   if (renderSections && isStoreAdmin) return renderSections({
+    attendance: <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={[]} showErrors={false} tableOnly onNavigate={onNavigate} period={matrixPeriod} onPeriodChange={setMatrixPeriod} storeId={storeId} />,
     training: <TrainingDevelopmentHome compactTitles />,
     demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
   });
@@ -277,7 +279,8 @@ const attendanceCodes = {
   suspension: { code: "S", label: "Suspensión" },
 };
 
-function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true }) {
+function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true, tableOnly = false }) {
+  const dragScroll = useMemo(() => createMouseDragScroll(), []);
   const currentDate = todayISO();
   const { year, monthNumber, week, day } = period;
   const setYear = (value) => onPeriodChange((current) => ({ ...current, year: value }));
@@ -361,7 +364,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
       <button className="button button--ghost button--small" onClick={resetFilters}><RotateCcw size={14} />Restablecer</button>
     </aside>}
     {error ? <Notice type="error">{error}</Notice> : records === null ? <Loading /> : visiblePeople.length ? (
-      <div className="attendance-matrix-scroll" role="region" aria-label="Matriz de asistencia, desplazable horizontalmente" tabIndex={0}>
+      <div className="attendance-matrix-scroll" {...dragScroll} title="Mantén presionado el clic y arrastra para desplazarte" role="region" aria-label="Matriz de asistencia, desplazable horizontalmente" tabIndex={0}>
         <div className="attendance-matrix" style={{ "--attendance-days": days.length }}>
           <div className="attendance-matrix-row attendance-matrix-row--totals">
             <strong className="attendance-matrix-person">Total asistencia</strong>
@@ -391,7 +394,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
       </div>
     ) : <p className="store-empty-copy">No hay trabajadores para mostrar con estos filtros.</p>}
   </section>
-  <PersonnelCharts showErrors={showErrors} people={people} errors={errors} year={year} monthNumber={monthNumber} week={week} day={day} isZonal={isZonal} storeId={storeId} />
+  {!tableOnly && <PersonnelCharts showErrors={showErrors} people={people} errors={errors} year={year} monthNumber={monthNumber} week={week} day={day} isZonal={isZonal} storeId={storeId} />}
   </>;
 }
 

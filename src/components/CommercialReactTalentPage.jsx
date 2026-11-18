@@ -43,6 +43,7 @@ export default function CommercialReactTalentPage({ model, onAction, storeAdmin 
         <slot name="store-training" />
         <CommercialReactSimpleChartCard model={model.exit} />
       </div>
+      <slot name="store-attendance" />
     </section>;
   }
   return <section className="page talent-page" aria-label="Talento y tiendas"
