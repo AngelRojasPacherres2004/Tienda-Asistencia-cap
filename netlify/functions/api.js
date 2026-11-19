@@ -1,5 +1,5 @@
 import { createModulePermissionsDomain } from '../domains/module-permissions.js';
-import { allowsSummaryRequest } from '../../shared/commercial-summary-only.js';
+import { allowsSectionRequest } from '../../shared/section-api-access.js';
 import { ATTENDANCE_OPTIONS, ATTENDANCE_LABELS, PRESENT_STATES } from "../../shared/attendance.js";
 import { readRows } from "../lib/read-rows.js";
 import { createReportQueries } from "../lib/report-queries.js";
@@ -209,6 +209,7 @@ function sessionClaims(user) {
   return {
     id: user.id, nombres: user.nombres, apellidos: user.apellidos, dni: user.dni || null, usuario: user.usuario,
     rol: user.rol, tienda_id: user.tienda_principal_id ?? user.tienda_id,
+    secciones_permitidas: user.secciones_permitidas ?? null,
     acceso_solo_resumen_comercial: user.acceso_solo_resumen_comercial === true,
     cambio_credenciales_pendiente: Boolean(user.cambio_credenciales_pendiente),
     credenciales_actualizadas_en: user.credenciales_actualizadas_en || null,
@@ -221,10 +222,11 @@ async function authenticatedContext(event, allowFallback = false) {
   const session = ensureAuth(event);
   // Read the live permission on every request, never trust an older JWT grant.
   const { data: permission, error: permissionError } = await supabase.from("usuarios")
-    .select("rol,estado,acceso_solo_resumen_comercial").eq("id", session.id).maybeSingle();
+    .select("rol,estado,acceso_solo_resumen_comercial,secciones_permitidas").eq("id", session.id).maybeSingle();
   if (permissionError) throw dbError(permissionError);
   if (!permission || permission.estado !== "activo" || permission.rol !== session.rol)
     throw httpError("Tu cuenta ya no tiene acceso. Inicia sesión nuevamente.", 401);
+  session.secciones_permitidas = permission.secciones_permitidas ?? null;
   session.acceso_solo_resumen_comercial = permission?.acceso_solo_resumen_comercial === true;
   if (session.rol === "jefe_tienda" || session.tienda_contexto_id) {
     if (!allowFallback && session.tienda_contexto_id && !event.headers["x-store-context"]) {
@@ -632,6 +634,7 @@ export async function handler(event) {
       const sessionUser = {
         id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
         usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
+        secciones_permitidas: account.secciones_permitidas ?? null,
         acceso_solo_resumen_comercial: account.acceso_solo_resumen_comercial === true,
         cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
         credenciales_actualizadas_en: account.credenciales_actualizadas_en,
@@ -649,7 +652,7 @@ export async function handler(event) {
     const user = await authenticatedContext(event, path === "/auth/change-credentials");
     event.authUser = user;
     if (path === "/auth/change-credentials" && method === "POST") return await changeCredentials(event, user);
-    if (!allowsSummaryRequest(user, method, path)) throw Object.assign(httpError("Esta cuenta solo tiene acceso de lectura a Resumen comercial.", 403), { code: "ACCOUNT_ACCESS_CHANGED" });
+    if (!allowsSectionRequest(user, method, path)) throw Object.assign(httpError("Sistemas no ha habilitado esta sección o acción para tu cuenta.", 403), { code: "ACCOUNT_ACCESS_CHANGED" });
     if (user.cambio_credenciales_pendiente) throw httpError("Actualiza tu usuario y contraseña para continuar.", 403);
     if (user.rol === "asistente_comercial" && !path.startsWith("/systems/batches")) {
       throw httpError("El Asistente Comercial solo tiene acceso a Carga de archivos.", 403);

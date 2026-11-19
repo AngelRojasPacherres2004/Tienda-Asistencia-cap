@@ -154,7 +154,7 @@ export class CloudDataService {
         this.portalUser.set(account.user);
         this.accessProfile.set({
           roleCode,
-          roleName: roleCode === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
+          roleName: roleCode === 'gerencia_general' ? 'Gerencia general' : roleCode === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
           canAccessDashboard: true,
           scopeType: access.scopeType,
           stores: access.scopeType === 'store' ? [access.scopeValue || ''] : [],

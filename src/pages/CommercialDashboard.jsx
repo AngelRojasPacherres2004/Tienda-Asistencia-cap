@@ -18,7 +18,8 @@ const isCoreCluster = cluster => cluster.estado === "activo" && /^(?:CL[ÚU]STER
 
 export default function CommercialDashboard({ user, embedded = false, renderSections, dashboardFilters }) {
   const isZonal = user?.rol === "jefe_zonal";
-  const scopeLabel = isZonal ? "Tiendas de tu zona" : "Clústeres A y B";
+  const isGeneral = user?.rol === "gerencia_general";
+  const scopeLabel = isGeneral ? "Todas las tiendas de la empresa" : isZonal ? "Tiendas de tu zona" : "Clústeres A y B";
   const today = todayISO();
   const [filters, setFilters] = useState({ tienda_id: "", anio: today.slice(0, 4), mes: today.slice(5, 7), dia: "" });
   const externalFilterKey = JSON.stringify(dashboardFilters || null);
@@ -48,19 +49,19 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
   const alerts=useMemo(()=>{
     if(!data) return {};
     const today=selectedRange.hasta;
-    const clusterIds = new Set(data.zones.filter(cluster => isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
-    const storeIds = new Set(data.stores.filter(store=>clusterIds.has(Number(store.cluster_id))&&(!filters.tienda_id||String(store.id)===filters.tienda_id)).map(store=>Number(store.id)));
+    const clusterIds = new Set(data.zones.filter(cluster => isGeneral || isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
+    const storeIds = new Set(data.stores.filter(store=>(isGeneral || clusterIds.has(Number(store.cluster_id)))&&(!filters.tienda_id||String(store.id)===filters.tienda_id)).map(store=>Number(store.id)));
     const expired=data.documents.filter((row)=>storeIds.has(Number(row.tienda_id))&&row.fecha_vencimiento&&row.fecha_vencimiento<today);
     const expiring=data.documents.filter((row)=>storeIds.has(Number(row.tienda_id))&&row.fecha_vencimiento&&row.fecha_vencimiento>=today&&row.fecha_vencimiento<=addDays(today, Number(row.dias_alerta ?? 30)));
     const courses=data.dashboard.progresoCursos||[];
     return {expired,expiring,pendingCourses:courses.reduce((sum,row)=>sum+Number(row.pendientes||0),0)};
-  },[data, filters.tienda_id, selectedRange.hasta, isZonal]);
+  },[data, filters.tienda_id, selectedRange.hasta, isZonal, isGeneral]);
   if(error && embedded) return renderSections({ overview: <div className="commercial-load-error"><Notice type="error">{error}</Notice><button type="button" className="button button--ghost" onClick={load}>Reintentar</button></div> });
   if(!data && embedded) return renderSections({ overview: <Loading/> });
   if(error) return <div className="commercial-load-error"><Notice type="error">{error}</Notice><button type="button" className="button button--ghost" onClick={load}>Reintentar</button></div>;
   if(!data) return <Loading/>;
   const summary=data.dashboard.summary;
-  const coreClusterIds=new Set(data.zones.filter(cluster => isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
+  const coreClusterIds=new Set(data.zones.filter(cluster => isGeneral || isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
   const personnelByStore=new Map();
   for (const person of personnel||[]) {
     const storeId=Number(person.tienda_id);
@@ -70,7 +71,7 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
     personnelByStore.set(storeId,count);
   }
   const campaignMonth=["02","07","12"].includes(today.slice(5,7));
-  const filterStores=data.stores.filter(store=>coreClusterIds.has(Number(store.cluster_id))&&store.estado==="activo");
+  const filterStores=data.stores.filter(store=>(isGeneral || coreClusterIds.has(Number(store.cluster_id)))&&store.estado==="activo");
   const activeStores=filterStores.filter(store=>!filters.tienda_id||String(store.id)===filters.tienda_id);
   const storePersonnel=filterStores.map(store=>{
     const counts=personnelByStore.get(Number(store.id))||{active:0,total:0};

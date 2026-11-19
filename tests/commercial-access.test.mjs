@@ -12,6 +12,14 @@ test("commercial manager can see all stores", () => {
     { scopeType: "all", scopeValue: null, storeIds: ["T001", "T002"] });
 });
 
+test("general management has the company dashboard scope without manual grants", () => {
+  const company = [...map, { dashboard_store_id: "T003", tienda_id: 30, cluster_code: "C" }];
+  const expected = { scopeType: "all", scopeValue: null, storeIds: ["T001", "T002", "T003"] };
+  assert.deepEqual(commercialAccess({ rol: "gerencia_general", estado: "activo" }, null, company), expected);
+  assert.deepEqual(commercialAccess({ rol: "gerencia_general", estado: "activo" }, { scope_type: "store", scope_value: "T001" }, company), expected);
+  assert.equal(commercialAccess({ rol: "gerencia_general", estado: "inactivo" }, null, company), null);
+});
+
 test("active coach shares the commercial manager dashboard scope without provisioning", () => {
   const expected = commercialAccess({ rol: "gerente_comercial", estado: "activo" }, { scope_type: "all", scope_value: null }, map);
   assert.deepEqual(commercialAccess({ rol: "coach", estado: "activo" }, null, map), expected);

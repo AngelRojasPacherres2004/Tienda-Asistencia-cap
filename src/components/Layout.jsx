@@ -1,4 +1,4 @@
-import { isCommercialSummaryOnly } from '../../shared/commercial-summary-only.js';
+import { canAccessSection, sectionsForRole } from '../../shared/section-catalog.js';
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
   FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, Truck, UserCircle2, Users, X,
@@ -13,95 +13,8 @@ import "../store-support.css";
 import { isOperationalDemo } from "../lib/operationalDemo";
 import StoreMailbox from "./StoreMailbox";
 
-const navByRole = {
-  gerencia_general: [
-    { id: "dashboard", label: "Inicio", icon: BarChart3 },
-    { id: "usuarios", label: "Usuarios", icon: Users },
-    { id: "clusters", label: "Clústeres", icon: Building2 },
-    { id: "tiendas", label: "Tiendas", icon: Building2 },
-    { id: "zonal-supervisiones", label: "Auditorías", icon: ClipboardCheck },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
-    { id: "gestion", label: "Gestión operativa", icon: AlertTriangle },
-    { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
-    { id: "historial", label: "Historial", icon: History },
-  ],
-  gerente_comercial: [
-    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "transferencia", label: "Transferencia", icon: Truck },
-    { id: "metas-comerciales", label: "Metas comerciales", icon: Target },
-    { id: "tiendas", label: "Tiendas y clústeres", icon: Building2 },
-    { id: "usuarios", label: "Personal", icon: Users },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
-    { id: "historial", label: "Historial", icon: History },
-  ],
-  marketing: [
-    { id: "marketing-inicio", label: "Inicio", icon: BarChart3 },
-    { id: "marketing-personal", label: "Personal", icon: Users },
-    { id: "marketing-asistencia", label: "Asistencia", icon: CalendarCheck2 },
-    { id: "marketing-validacion", label: "Validación", icon: ClipboardCheck },
-    { id: "marketing-campanas", label: "Campaña", icon: FileSpreadsheet },
-    { id: "marketing-incidencias", label: "Incidencias", icon: AlertTriangle },
-    { id: "marketing-capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "marketing-seguidores", label: "Seguidores por redes", icon: Users },
-  ],
-  coach: [
-    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "cursos", label: "Crear capacitaciones", icon: GraduationCap },
-    { id: "capacitaciones", label: "Asignar y seguimiento", icon: BarChart3 },
-    { id: "reportes", label: "Reportes de ventas", icon: FileSpreadsheet },
-  ],
-  jefe_zonal: [
-    { id: "transferencia", label: "Transferencia", icon: Truck },
-    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "asiste-operativo", label: "Resumen", icon: ClipboardCheck },
-    { id: "tiendas", label: "Mis tiendas", icon: Building2 },
-    { id: "zonal-personal", label: "Mis equipos", icon: Users },
-    { id: "zonal-supervisiones", label: "Auditorías", icon: ClipboardCheck },
-    { id: "zonal-incidencias", label: "Incidencias", icon: AlertTriangle },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
-    { id: "historial", label: "Historial", icon: History },
-  ],
-  jefe_tienda: [
-    { id: "dashboard", label: "Resumen comercial", icon: BarChart3 },
-    { id: "mi-tienda-gestion", label: "Mi tienda", icon: Building2 },
-    { id: "transferencia", label: "Transferencia", icon: Truck },
-    { id: "usuarios", label: "Personal", icon: Users },
-    { id: "asistencias", label: "Asistencias", icon: CalendarCheck2 },
-    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
-    { id: "reportes", label: "Reportes", icon: FileSpreadsheet },
-    { id: "historial", label: "Historial", icon: History },
-  ],
-  trabajador: [
-    { id: "mi-asistencia", label: "Mi asistencia", icon: CalendarCheck2 },
-    { id: "mis-capacitaciones", label: "Mis capacitaciones", icon: GraduationCap },
-    { id: "profile", label: "Mi perfil", icon: UserCircle2 },
-  ],
-  seguridad: [
-    { id: "seguridad-trafico", label: "Tráfico", icon: Users },
-    { id: "seguridad-incidencias", label: "Incidencias", icon: ShieldCheck },
-  ],
-  administrador_seguridad: [
-    { id: "seguridad-central", label: "Control de seguridad", icon: ShieldCheck },
-  ],
-  sistemas: [
-    { id: "sistemas", label: "Carga de datos", icon: FileSpreadsheet },
-    { id: "sistemas-credenciales", label: "Acceso y credenciales", icon: KeyRound },
-    { id: "sistemas-registros", label: "Gestión de registros", icon: Users },
-  ],
-};
-navByRole.asistente_tienda = navByRole.jefe_tienda;
-navByRole.jefe_seguridad = navByRole.seguridad;
-navByRole.vendedor = navByRole.trabajador;
-navByRole.asistente = navByRole.trabajador;
-navByRole.caja = navByRole.trabajador;
-navByRole.almacenero = navByRole.trabajador;
-navByRole.jefe_area = navByRole.trabajador;
-navByRole.asistente_comercial = [
-  { id: "sistemas", label: "Carga de archivos", icon: FileSpreadsheet },
-];
+const sectionIcons = { AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
+  FileSpreadsheet, History, KeyRound, ShieldCheck, Target, Truck, UserCircle2, Users };
 const roleLabels = {
   gerencia_general: "Gerencia general", gerente_comercial: "Gerente comercial", administrador_seguridad: "Administrador de seguridad", sistemas: "Sistemas", asistente_comercial: "Asistente comercial", marketing: "Marketing", coach: "Coach",
   jefe_zonal: "Jefe zonal", jefe_tienda: "Administrador de tienda", asistente_tienda: "Asistente de tienda",
@@ -129,8 +42,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   const hidePersonInitials = ["jefe_zonal", "seguridad", "jefe_seguridad", "administrador_seguridad"].includes(user.rol);
   const isStoreSecurity = ["seguridad", "jefe_seguridad"].includes(user.rol);
   const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
-  const isCommercial = ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol);
-  const isCommercialDashboard = page === "dashboard" && ["gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user.rol);
+  const isCommercial = ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol);
+  const isCommercialDashboard = page === "dashboard" && ["gerencia_general", "gerente_comercial", "coach", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user.rol);
   const [marketingTheme, setMarketingTheme] = useState(() => {
     try { return (localStorage.getItem("app-theme") || localStorage.getItem("marketing-theme")) === "dark" ? "dark" : "light"; }
     catch { return "light"; }
@@ -142,30 +55,30 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
     try { localStorage.setItem("app-theme", next); } catch { /* Keep switching available when storage is disabled. */ }
   };
   const toggleMarketingTheme = () => setLightMode(marketingTheme !== "light");
-  const summaryOnly = isCommercialSummaryOnly(user);
-  const items = (navByRole[user.rol] || []).filter(item => !summaryOnly || item.id === "dashboard");
+  const canOpenSettings = canAccessSection(user, "ajustes-zonal");
+  const items = sectionsForRole(user.rol).filter(item => !item.hidden && canAccessSection(user, item.id));
   const activeStore = user.tiendas_disponibles?.find(store => Number(store.id) === Number(user.tienda_id));
   const storeName = activeStore?.nombre || user.tienda_nombre;
   const activeAlias = activeStore?.alias || user.tienda_alias || storeAlias(storeName);
   useEffect(() => { setMobileOpen(false); setUserMenuOpen(false); }, [page]);
 
   return (
-    <div className={`app-shell app-theme ${["gerente_comercial", "jefe_tienda", "asistente_tienda"].includes(user.rol) ? "store-navigation-readable" : ""} ${hidePersonInitials ? "without-person-initials" : ""} app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
+    <div className={`app-shell app-theme ${["gerencia_general", "gerente_comercial", "jefe_tienda", "asistente_tienda"].includes(user.rol) ? "store-navigation-readable" : ""} ${hidePersonInitials ? "without-person-initials" : ""} app-${marketingTheme} marketing-theme marketing-${marketingTheme} ${compact ? "app-shell--compact" : ""} ${isCommercialDashboard ? "app-shell--commercial-dashboard" : ""}`}>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar sidebar--readable ${mobileOpen ? "sidebar--open" : ""}`}>
         <div className="brand">
           <button className="sidebar-mobile-close" onClick={() => setMobileOpen(false)}><X size={20} /></button>
         </div>
         <nav>
-          {items.map(({ id, label, icon: Icon }) => (
+          {items.map(({ id, label, icon }) => { const Icon = sectionIcons[icon] || BarChart3; return (
             <button key={id} className={page === id ? "active" : ""} onClick={() => onNavigate(id)} title={label}>
               <Icon size={19} /><span>{label}</span>
             </button>
-          ))}
+          ); })}
         </nav>
         <div className="sidebar__footer">
-          {(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
-          <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? "button" : undefined} tabIndex={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? 0 : undefined} aria-expanded={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? userMenuOpen : undefined} aria-label={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? "Abrir menú de usuario" : undefined} onClick={() => { if ((!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol))) setUserMenuOpen(value => !value); }} onKeyDown={event => { if ((!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
+          {canOpenSettings && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
+          <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={canOpenSettings ? "button" : undefined} tabIndex={canOpenSettings ? 0 : undefined} aria-expanded={canOpenSettings ? userMenuOpen : undefined} aria-label={canOpenSettings ? "Abrir menú de usuario" : undefined} onClick={() => { if (canOpenSettings) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (canOpenSettings && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
             {!['jefe_tienda', 'asistente_tienda'].includes(user.rol) && !hidePersonInitials && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
             <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{['jefe_tienda', 'asistente_tienda'].includes(user.rol) || isStoreSecurity ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{!['jefe_tienda', 'asistente_tienda'].includes(user.rol) && user.dni ? ` · DNI ${user.dni}` : ""}</small>{isStoreSecurity && <small className="user-chip__store">Tienda: {storeName || "Sin tienda asignada"}</small>}{['jefe_tienda', 'asistente_tienda'].includes(user.rol) && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
           </div>
@@ -193,7 +106,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
           {children}
         </div>
       </main>
-      {["jefe_zonal", "jefe_tienda"].includes(user.rol) && <StoreMailbox user={user} hidden={isCommercialDashboard} />}
+      {!["secciones_permitidas"].some(key => Array.isArray(user[key])) && !user.acceso_solo_resumen_comercial && ["jefe_zonal", "jefe_tienda"].includes(user.rol) && <StoreMailbox user={user} hidden={isCommercialDashboard} />}
     </div>
   );
 }

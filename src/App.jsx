@@ -1,3 +1,4 @@
+import { canAccessSection, firstAllowedSection } from '../shared/section-catalog.js';
 import { isCommercialSummaryOnly } from '../shared/commercial-summary-only.js';
 import { Component, Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, clearApiCache, lockStoreContext, setStoreContext } from "./lib/api";
@@ -73,7 +74,7 @@ export default function App() {
         const navigation = consumeStoreNavigation(account);
         const nextPage = navigation?.page === "seguridad" && ["seguridad", "jefe_seguridad"].includes(account.rol)
           ? "seguridad-trafico" : navigation?.page;
-        setPage(nextPage || homePageByRole[account.rol] || "dashboard");
+        setPage(canAccessSection(account, nextPage) ? nextPage : firstAllowedSection(account));
         setSessionNotice(navigation?.notice || "");
       })
       .catch(() => { if (active) setUser(null); })
@@ -96,9 +97,9 @@ export default function App() {
           restartStoreNavigation(account, page, event?.detail || (account.apoyo_revocado ? "El apoyo se deshabilitó. Se ha restablecido tu tienda principal." : "La tienda activa cambió en otra ventana. Se actualizó esta vista."));
           return;
         }
-        if (isCommercialSummaryOnly(account) !== isCommercialSummaryOnly(user)) {
+        if (JSON.stringify(account.secciones_permitidas) !== JSON.stringify(user.secciones_permitidas) || isCommercialSummaryOnly(account) !== isCommercialSummaryOnly(user)) {
           clearApiCache();
-          setPage("dashboard");
+          setPage(firstAllowedSection(account));
           setSessionNotice("Sistemas actualizó tu acceso a las secciones.");
         }
         setStoreContext(account);
@@ -118,7 +119,7 @@ export default function App() {
   const login = (account) => {
     setStoreContext(account);
     setUser(account);
-    setPage(homePageByRole[account.rol] || "dashboard");
+    setPage(firstAllowedSection(account) || homePageByRole[account.rol]);
   };
   const logout = async () => {
     ++sessionRequest.current;
@@ -159,10 +160,11 @@ export default function App() {
   const storeHome = isStoreManagement
     ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={user.tienda_id} onStoreChange={changeStore} switchingStore={switchingStore} />
     : <MiTienda user={user} onNavigate={setPage} />;
+  const permittedPage = canAccessSection(user, page) ? page : firstAllowedSection(user);
   const content = {
     transferencia: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"].includes(user.rol)
       ? <CommercialPortal key="transferencia" transferOnly user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : <Dashboard user={user} />,
-    dashboard: ["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol)
+    dashboard: ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"].includes(user.rol)
       ? <CommercialPortal user={user} onNavigate={setPage} storeContextId={isStoreManagement ? user.tienda_id : null} onStoreChange={changeStore} switchingStore={switchingStore} /> : ["sistemas", "asistente_comercial"].includes(user.rol) ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "asiste-operativo": user.rol === "gerente_comercial" ? <CommercialPortal user={user} onNavigate={setPage} /> : user.rol === "jefe_zonal" || isStoreManagement ? storeHome : <Dashboard user={user} />,
     "metas-comerciales": user.rol === "gerente_comercial" ? <MetasComerciales /> : <Dashboard user={user} />,
@@ -202,10 +204,10 @@ export default function App() {
     sistemas: ["sistemas", "asistente_comercial"].includes(user.rol) ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "sistemas-credenciales": user.rol === "sistemas" ? <CredentialPermissions /> : <Dashboard user={user} />,
     "sistemas-registros": user.rol === "sistemas" ? <SystemsMaintenance /> : <Dashboard user={user} />,
-  }[isCommercialSummaryOnly(user) ? "dashboard" : page] || <Dashboard user={user} />;
+  }[permittedPage] || <Dashboard user={user} />;
 
   return (
-    <Layout user={user} page={isCommercialSummaryOnly(user) ? "dashboard" : page} onNavigate={setPage} onLogout={logout} onStoreChange={changeStore} switchingStore={switchingStore}>
+    <Layout user={user} page={permittedPage} onNavigate={setPage} onLogout={logout} onStoreChange={changeStore} switchingStore={switchingStore}>
       {sessionNotice && <Notice type="error" onClose={() => setSessionNotice("")}>{sessionNotice}</Notice>}
       {switchingStore ? <Loading label="Cambiando de tienda…" /> : <PageErrorBoundary key={`${user.id}:${user.tienda_id}:${page}`}><Suspense fallback={<Loading />}>{content}</Suspense></PageErrorBoundary>}
     </Layout>

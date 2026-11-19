@@ -75,3 +75,18 @@ test('HTTP permite el cambio obligatorio de credenciales manteniendo la restricc
     assert.equal((await invoke('/usuarios', nextCookie)).statusCode, 403);
   } finally { fixture.restore(); }
 });
+
+test('Sistemas limita secciones de otros roles y cookies antiguas obedecen cambios', async () => {
+ const fixture=setup(); const {commercial,systems,token,invoke}=fixture;
+ try {
+  commercial.rol='seguridad';
+  const old=token(commercial);
+  const r=await invoke('/systems/module-permissions/7',token(systems),'PATCH',{sections:['seguridad-trafico']});
+  assert.equal(r.statusCode,200,r.body);
+  assert.deepEqual(parsed(r).account.secciones_permitidas,['seguridad-trafico']);
+  const me=await invoke('/auth/me',old);
+  assert.deepEqual(parsed(me).user.secciones_permitidas,['seguridad-trafico']);
+  assert.equal((await invoke('/incidencias',old)).statusCode,403);
+  assert.equal((await invoke('/systems/module-permissions/8',token(systems),'PATCH',{sections:['sistemas']})).statusCode,400);
+ }finally{fixture.restore();}
+});

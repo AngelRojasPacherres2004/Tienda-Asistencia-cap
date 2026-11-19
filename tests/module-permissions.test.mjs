@@ -72,7 +72,7 @@ test('rechaza identificadores y valores de permiso inválidos sin escribir', asy
 });
 
 test('permite restringir cada rol con Resumen comercial y conserva sus credenciales', async () => {
-  for (const rol of ['gerente_comercial', 'jefe_zonal', 'jefe_tienda', 'asistente_tienda', 'coach']) {
+  for (const rol of ['gerencia_general', 'gerente_comercial', 'jefe_zonal', 'jefe_tienda', 'asistente_tienda', 'coach']) {
     const { domain, rows, writes } = fixture();
     rows[1].rol = rol;
     const result = await call(domain, true);
@@ -80,7 +80,7 @@ test('permite restringir cada rol con Resumen comercial y conserva sus credencia
     assert.equal(result.account.acceso_solo_resumen_comercial, true);
     assert.equal(rows[1].password, 'existing-hash');
     assert.equal(rows[1].usuario, 'comercial');
-    assert.deepEqual(writes, [{ payload: { acceso_solo_resumen_comercial: true }, ids: [2] }]);
+    assert.deepEqual(writes, [{ payload: { acceso_solo_resumen_comercial: true, secciones_permitidas: ['dashboard'] }, ids: [2] }]);
   }
 });
 
@@ -90,7 +90,7 @@ test('desactivar la restricción restablece el acceso del rol sin tocar la contr
   const result = await call(domain, false);
   assert.equal(result.account.acceso_solo_resumen_comercial, false);
   assert.equal(rows[1].password, 'existing-hash');
-  assert.deepEqual(writes[0].payload, { acceso_solo_resumen_comercial: false });
+  assert.deepEqual(writes[0].payload, { acceso_solo_resumen_comercial: false, secciones_permitidas: null });
 });
 
 test('no permite restringir Sistemas ni roles sin dashboard comercial', async () => {
@@ -109,4 +109,14 @@ test('no modifica cuentas inexistentes, inactivas o sin acceso de usuario', asyn
     await assert.rejects(call(domain, true), error => [400, 404].includes(error.status));
     assert.equal(writes.length, 0);
   }
+});
+
+test('permisos personalizados reducen cualquier rol sin ampliar privilegios', async () => {
+ const {domain,rows}=fixture(); rows[1].rol='seguridad';
+ const result=await domain.setModulePermission({body:{sections:['seguridad-trafico']}},systems,2);
+ assert.deepEqual(result.account.secciones_permitidas,['seguridad-trafico']);
+ for (const sections of [[],['usuarios'],['sistemas-credenciales'],['seguridad-trafico',null]])
+  await assert.rejects(domain.setModulePermission({body:{sections}},systems,2),{status:400});
+ rows[1].rol='sistemas';
+ await assert.rejects(domain.setModulePermission({body:{sections:['sistemas']}},systems,2),{status:400});
 });

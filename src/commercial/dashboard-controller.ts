@@ -641,7 +641,7 @@ export class CommercialDashboardController implements OnInit {
   ];
   readonly selectedClusters = signal<string[]>([]); readonly selectedFormats = signal<string[]>([]);
   readonly storeFilterLocked = computed(() => this.cloud.accessProfile()?.scopeType === 'store');
-  readonly sectionAdviceEnabled = computed(() => ['gerente_comercial', 'jefe_comercial', 'jefe_zonal', 'coach']
+  readonly sectionAdviceEnabled = computed(() => ['gerencia_general', 'gerente_comercial', 'jefe_comercial', 'jefe_zonal', 'coach']
     .includes(this.cloud.accessProfile()?.roleCode || ''));
   readonly clusterFilterLocked = computed(() => {
     const scope = this.cloud.accessProfile()?.scopeType;
@@ -1485,7 +1485,7 @@ export class CommercialDashboardController implements OnInit {
     }
     const personnel = activeWorkers ? this.number(workers.length) : 'N/A';
     const saleCollaborator = this.selectedSalesPeriods().size && activeWorkers && workers.length ? metrics.net / workers.length : null;
-    const showTopStore = ['gerente_comercial', 'coach'].includes(this.cloud.accessProfile()?.roleCode || '');
+    const showTopStore = ['gerencia_general', 'gerente_comercial', 'coach'].includes(this.cloud.accessProfile()?.roleCode || '');
     const sales = grouped(this.yearRows().filter(row => this.selectedSalesPeriods().has(row.periodId)), row => row.storeId);
     const topStore = activeWorkers ? this.filteredStores().map(store => {
       const count = workers.filter(worker => worker.storeId === store.storeId).length;
@@ -1792,7 +1792,7 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'store' && typeof value === 'string' && this.cloud.accessProfile()?.roleCode === 'gerente_comercial'
+    if (type === 'store' && typeof value === 'string' && ['gerencia_general', 'gerente_comercial'].includes(this.cloud.accessProfile()?.roleCode || '')
       && (value === 'TODAS' || this.inventoryStoresIgnoringStoreFilter().some(store => store.storeId === value))) this.projectionStore.set(value);
   }
 
@@ -3747,7 +3747,7 @@ export class CommercialDashboardController implements OnInit {
     const serverRows = this.projectionInsights()?.riskRows;
     if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId,
       share: row.totalValue ? row.riskValue / row.totalValue : 0 }))
-      .sort((a, b) => b.riskValue - a.riskValue).slice(0, this.cloud.accessProfile()?.roleCode === 'gerente_comercial' ? 3 : 7);
+      .sort((a, b) => b.riskValue - a.riskValue).slice(0, ['gerencia_general', 'gerente_comercial'].includes(this.cloud.accessProfile()?.roleCode || '') ? 3 : 7);
     const byStore = grouped(this.predictiveProductHealthRows().filter(row => this.projectionStore() === 'TODAS' || row.storeId === this.projectionStore()), row => row.storeId);
     return [...byStore.entries()].map(([storeId, storeRows]) => {
       const risky = storeRows.filter(row => {
@@ -3758,7 +3758,7 @@ export class CommercialDashboardController implements OnInit {
       const totalValue = storeRows.reduce((total, row) => total + row.vendibleValue, 0);
       const riskValue = risky.reduce((total, row) => total + row.vendibleValue, 0);
       return { storeId, store: stores.get(storeId) || storeId, riskValue, totalValue, share: totalValue ? riskValue / totalValue : 0, riskProducts: risky.length, products: storeRows.length };
-    }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, this.cloud.accessProfile()?.roleCode === 'gerente_comercial' ? 3 : 7);
+    }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, ['gerencia_general', 'gerente_comercial'].includes(this.cloud.accessProfile()?.roleCode || '') ? 3 : 7);
   });
   readonly projectionRiskDetails = computed(() => {
     const rows = this.predictiveStoreRiskRows();

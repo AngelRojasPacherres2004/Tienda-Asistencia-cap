@@ -1,3 +1,4 @@
+import { canAccessSection } from '../../shared/section-catalog.js';
 import { isCommercialSummaryOnly } from '../../shared/commercial-summary-only.js';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -27,7 +28,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     shell.append(target);
     return [name, target];
   })) : null;
-  const managerHosts = ['gerente_comercial', 'jefe_zonal'].includes(user?.rol) ? Object.fromEntries(['overview', 'personnel', 'alerts', 'training'].map(name => {
+  const managerHosts = ['gerencia_general', 'gerente_comercial', 'jefe_zonal'].includes(user?.rol) ? Object.fromEntries(['overview', 'personnel', 'alerts', 'training'].map(name => {
     const target = document.createElement('div');
     target.slot = `manager-${name}`;
     target.className = 'store-commercial-panels store-dashboard-shell commercial-dashboard manager-summary-panels is-light';
@@ -99,7 +100,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     const model = controller.reactStandaloneModel();
     const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate() };
     root.render(<>
-      <CommercialReactStandalone summaryOnly={isCommercialSummaryOnly(user)} model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
+      <CommercialReactStandalone summaryOnly={isCommercialSummaryOnly(user) || (Array.isArray(user?.secciones_permitidas) && !canAccessSection(user, "transferencia"))} model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
       {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
       {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} />, trafficHost)}

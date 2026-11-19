@@ -1,10 +1,13 @@
-const summaryRoles = new Set(['gerente_comercial', 'jefe_zonal', 'jefe_tienda', 'asistente_tienda', 'coach']);
+const summaryRoles = new Set(['gerencia_general', 'gerente_comercial', 'jefe_zonal', 'jefe_tienda', 'asistente_tienda', 'coach']);
 
 export function canLimitToCommercialSummary(user) {
   return summaryRoles.has(user?.rol);
 }
 
 export function isCommercialSummaryOnly(user) {
+  if (Array.isArray(user?.secciones_permitidas)) {
+    return canLimitToCommercialSummary(user) && user.secciones_permitidas.length === 1 && user.secciones_permitidas[0] === 'dashboard';
+  }
   return user?.acceso_solo_resumen_comercial === true;
 }
 
