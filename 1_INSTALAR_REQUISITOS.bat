@@ -3,31 +3,59 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 cd /d "%~dp0"
 
+rem Al abrir con doble clic se muestra una consola que permanece disponible
+rem para revisar el avance, pero el proceso no se detiene esperando Enter.
+if /I not "%~1"=="--sin-pausa" (
+    start "Dashboard General · Instalación" cmd.exe /d /k call "%~f0" --sin-pausa
+    exit /b 0
+)
+
 echo ============================================================
 echo INSTALACION - DASHBOARD GENERAL
 echo ============================================================
 echo.
 
 set "PYTHON_CMD="
+for %%V in (3.12 3.13 3.11 3.10) do (
+    call :usar_python py -%%V
+    if not errorlevel 1 goto :python_ready
+)
+call :usar_python python
+if not errorlevel 1 goto :python_ready
+
+echo No hay un Python compatible ^(3.10 a 3.13^). Intentando instalar Python 3.12...
 where py >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=py -3"
-
-if not defined PYTHON_CMD (
-    where python >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=python"
+if not errorlevel 1 (
+    py install 3.12
+    call :usar_python py -3.12
+    if not errorlevel 1 goto :python_ready
 )
 
-if not defined PYTHON_CMD (
-    echo ERROR: No se encontro Python.
-    echo Instala Python 3.10 o superior desde https://www.python.org/downloads/
-    echo Durante la instalacion marca la opcion "Add Python to PATH".
-    goto :error
+where winget >nul 2>nul
+if not errorlevel 1 (
+    echo Instalando Python 3.12 con Windows Package Manager...
+    winget install --id Python.Python.3.12 --exact --accept-package-agreements --accept-source-agreements
+    call :usar_python py -3.12
+    if not errorlevel 1 goto :python_ready
 )
 
-%PYTHON_CMD% -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
-if errorlevel 1 (
-    echo ERROR: Se requiere Python 3.10 o superior.
-    goto :error
+echo ERROR: no se encontro un runtime de Python compatible.
+echo Usa el Python 3.10 que ya instalaste o instala Python 3.12 x64 y vuelve a ejecutar este archivo.
+echo No uses Python 3.14 ni 3.15 para este paquete.
+goto :error
+
+:python_ready
+echo Python compatible listo: %PYTHON_CMD%
+
+set "RECREAR_VENV=0"
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)" >nul 2>nul
+    if errorlevel 1 set "RECREAR_VENV=1"
+)
+
+if "!RECREAR_VENV!"=="1" (
+    echo Reemplazando el entorno virtual incompatible...
+    rmdir /s /q ".venv"
 )
 
 if not exist ".venv\Scripts\python.exe" (
@@ -46,19 +74,15 @@ echo Instalando dependencias...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 goto :error
 
-".venv\Scripts\python.exe" -m pip install -r "piplines\requirements.txt"
+".venv\Scripts\python.exe" -m pip install --only-binary=:all: -r "piplines\requirements.txt"
 if errorlevel 1 goto :error
 
 echo Verificando el entorno...
 ".venv\Scripts\python.exe" "piplines\diagnosticar_duckdb.py"
 if errorlevel 1 goto :error
 
-where npm >nul 2>nul
-if errorlevel 1 (
-    echo ERROR: No se encontro Node.js/npm.
-    echo Instala Node.js LTS para compilar y ejecutar la interfaz local.
-    goto :error
-)
+call :asegurar_node
+if errorlevel 1 goto :error
 
 if not exist "package-lock.json" (
     echo ERROR: Falta package-lock.json.
@@ -95,3 +119,59 @@ echo.
 echo La instalacion no pudo completarse. Revisa el mensaje anterior.
 if /I not "%~1"=="--sin-pausa" pause
 exit /b 1
+
+:usar_python
+set "VERSION_REAL="
+for /f "usebackq delims=" %%P in (`%* -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')" 2^>nul`) do set "VERSION_REAL=%%P"
+if "%VERSION_REAL%"=="3.10" goto :python_elegido
+if "%VERSION_REAL%"=="3.11" goto :python_elegido
+if "%VERSION_REAL%"=="3.12" goto :python_elegido
+if "%VERSION_REAL%"=="3.13" goto :python_elegido
+exit /b 1
+
+:python_elegido
+set "PYTHON_CMD=%*"
+exit /b 0
+
+:asegurar_node
+where node >nul 2>nul
+if not errorlevel 1 goto :node_listo
+
+rem Winget puede instalar Node por usuario o para todo el equipo. Ambos
+rem directorios se agregan al PATH actual para no obligar a abrir otra consola.
+if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+if exist "%LocalAppData%\Programs\nodejs\node.exe" set "PATH=%LocalAppData%\Programs\nodejs;%PATH%"
+where node >nul 2>nul
+if not errorlevel 1 goto :node_listo
+
+where winget >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: falta Node.js LTS y Windows Package Manager no esta disponible.
+    echo Instala Node.js LTS desde https://nodejs.org/ y vuelve a ejecutar este archivo.
+    exit /b 1
+)
+
+echo Node.js LTS no esta instalado. Instalando automaticamente...
+winget install --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements
+if errorlevel 1 (
+    echo ERROR: Windows no pudo instalar Node.js LTS automaticamente.
+    echo Instala Node.js LTS desde https://nodejs.org/ y vuelve a ejecutar este archivo.
+    exit /b 1
+)
+if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+if exist "%LocalAppData%\Programs\nodejs\node.exe" set "PATH=%LocalAppData%\Programs\nodejs;%PATH%"
+where node >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Node.js se instalo pero no se encontro en esta sesion.
+    echo Cierra esta ventana, abre 1_INSTALAR_REQUISITOS.bat otra vez y continua.
+    exit /b 1
+)
+
+:node_listo
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Node.js esta disponible pero npm no. Reinstala Node.js LTS desde https://nodejs.org/.
+    exit /b 1
+)
+for /f "delims=" %%N in ('node --version') do echo Node.js listo: %%N
+exit /b 0

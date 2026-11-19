@@ -1,3 +1,4 @@
+import { rankingRelativeScore, rankingMetricShare } from "../../shared/rankingPresentation.js";
 import { Injectable, OnInit, computed, effect, inject, signal } from './reactivity-react';
 import type { EChartsOption } from 'echarts';
 import { AssistantService } from './assistant.service';
@@ -9,12 +10,13 @@ import { mergeStockInsights, stockInsightsCommonKey } from './stock-insights-ref
 import { CloudDataService, type AnnualGoal, type CompanyRankingData, type OperationalSummary, type StockInsights, type StoreGoal, type SavedTransferGroup } from './cloud-data.service';
 import { nextBirthday } from './next-birthday';
 import { closingCommercialPeriod } from '../lib/currentCommercialPeriod';
-import { mergeCommercialTraffic, availableTrafficMonths } from '../lib/commercialTraffic';
+import { mergeCommercialTraffic, availableTrafficMonths, trafficMonthsForStores } from '../lib/commercialTraffic';
+
 import { watchTrafficUpdates } from '../lib/trafficRefresh';
 import { teamProductivity } from './team-productivity';
 import { publishedSalesPeriods, publishedSalesDays, averageRecordedPersonnel } from './sales-period-context';
 import { activeWorkerMetrics, workerRoleLabel } from './active-worker-metrics';
-import { conversionComparable, stockPeriodForDate } from './source-cutoffs';
+import { conversionComparable, salesCalendarMax, stockPeriodForDate } from './source-cutoffs';
 import { stockTransfers, transferTotals } from './stock-transfers';
 import { aggregateStoreMetrics, stockExtremes, aggregateSellerRanking, dashboardMoneyFormat, dashboardNumberFormat, dashboardPercentFormat, storeRotationRatio } from './inventory-performance';
 import { SectionLoads } from './section-loads';
@@ -227,6 +229,7 @@ export class CommercialDashboardController implements OnInit {
   readonly stockInsightsRefreshing = signal(false);
   readonly stockInsightsRefreshScope = signal<'all' | 'projection'>('all');
   readonly stockInsightsRefreshError = signal('');
+  readonly replenishmentSelectedBrand = signal('');
   private stockInsightsResolvedCommonKey = '';
   private readonly stockInsightBrands = computed(() => this.stockInsightsData()?.brandRows);
   private readonly stockInsightHealth = computed(() => this.stockInsightsData()?.healthRows);
@@ -261,6 +264,7 @@ export class CommercialDashboardController implements OnInit {
   private dailyDetailRange = '';
   readonly dailyDetailLoaded = signal(false);
   private readonly dailyTrafficRows = signal<{ date: string; storeId: string; traffic: number }[]>([]);
+  private readonly recordedTrafficRows = signal<{ date: string; storeId: string; traffic: number }[]>([]);
   private dailyReceivedRows: { date: string; storeId: string; received: number }[] = [];
   private monthlyPersonnelAreaIndex = new Map<string, PersonnelAreaRow[]>();
   private monthlyCategoryIndex = new Map<string, Monthly[]>();
@@ -367,29 +371,36 @@ export class CommercialDashboardController implements OnInit {
   readonly trafficChartLabel = computed(() => this.trafficChartType() === 'METRO' ? 'TRÁFICO METRO' : 'TRÁFICO OTRAS TIENDAS');
   readonly trafficChartStores = computed(() => this.ticketChartStores().filter(store => {
     const isMetro = store.format?.trim().toUpperCase() === 'METRO';
-    return this.trafficChartType() === 'METRO' ? isMetro : !isMetro;
+    return store.isStore && (this.trafficChartType() === 'METRO' ? isMetro : !isMetro);
   }));
   readonly trafficMonthlyRows = computed(() => {
     this.data();
     const year = this.ticketChartYear();
-    const cutoff = [this.data()?.metadata.salesCutoff, this.data()?.metadata.trafficCutoff].filter(Boolean).sort().at(-1) || '';
+    const cutoff = [this.recordedTrafficRows().reduce((latest, row) => row.date > latest ? row.date : latest, ''), this.data()?.metadata.salesCutoff, this.data()?.metadata.trafficCutoff].filter(Boolean).sort().at(-1) || '';
     const cutoffYear = Number(cutoff.slice(0, 4));
     const cutoffMonth = Number(cutoff.slice(5, 7));
     const visibleMonths = year === cutoffYear ? MONTHS.slice(0, cutoffMonth) : MONTHS;
     const selectedStores = new Set(this.ticketChartSelectedStores());
-    const ids = new Set(this.trafficChartStores()
-      .filter(store => !selectedStores.size || selectedStores.has(store.storeId))
-      .map(store => store.storeId));
+    const stores = this.trafficChartStores().filter(store => !selectedStores.size || selectedStores.has(store.storeId));
+    const trafficByMonth = trafficMonthsForStores(this.recordedTrafficRows(), year, new Map(stores.map(store => [store.storeId, store])));
+    const salesCutoff = this.data()?.metadata.salesCutoff || '';
     return visibleMonths.map((label, index) => {
-      const rows = this.indexedRows(this.monthlyStoreIndex, [year * 100 + index + 1], ids);
-      const traffic = sum(rows, 'traffic');
-      const transactions = sum(rows, 'transactions');
-      const metadata = this.data()?.metadata;
-      const through = `${year}-${String(index + 1).padStart(2, '0')}-${new Date(year, index + 1, 0).getDate()}`;
-      return { label, traffic, transactions, conversion: traffic > 0 && (!metadata || `${year}-${String(index + 1).padStart(2, '0')}-01` <= metadata.salesCutoff && conversionComparable(metadata.salesCutoff, metadata.trafficCutoff, through)) ? transactions / traffic : null };
+      const month = index + 1;
+      const period = year * 100 + month;
+      const ids = new Set(stores.filter(store => this.storeOverlapsPeriod(store, period, period)).map(store => store.storeId));
+      const rows = this.indexedRows(this.monthlyStoreIndex, [period], ids);
+      const recorded = trafficByMonth.get(month);
+      const traffic = recorded?.traffic ?? null;
+      const prefix = `${year}-${String(month).padStart(2, '0')}`;
+      const monthEnd = `${prefix}-${new Date(year, month, 0).getDate()}`;
+      const salesThrough = salesCutoff < monthEnd ? salesCutoff : monthEnd;
+      const transactions = rows.length && salesThrough.startsWith(prefix) ? sum(rows, 'transactions') : null;
+      const conversion = traffic != null && traffic > 0 && transactions != null && recorded?.through === salesThrough
+        ? transactions / traffic : null;
+      return { label, traffic, transactions, conversion, through: recorded?.through };
     });
   });
-  readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic > 0));
+  readonly trafficChartHasData = computed(() => this.trafficMonthlyRows().some(row => row.traffic != null));
   readonly trafficMonthlyOption = computed<EChartsOption>(() => {
     const rows = this.trafficMonthlyRows();
     return {
@@ -550,6 +561,7 @@ export class CommercialDashboardController implements OnInit {
         const updated = mergeCommercialTraffic(current, summary);
         this.monthlyStoreIndex = this.indexPeriodStore(updated.monthlyStore);
         this.dailyTrafficRows.set(updated.dailyTraffic);
+        this.recordedTrafficRows.set(updated.dailyTraffic);
         this.data.set(updated);
         this.trafficRevision.update(value => value + 1);
       }
@@ -578,6 +590,7 @@ export class CommercialDashboardController implements OnInit {
   readonly year = signal(0);
   // Filtros múltiples. Arreglo vacío = TODOS / ACUMULADO.
   readonly selectedMonths = signal<number[]>([]);
+  private readonly trafficMonthChosen = signal(false);
   readonly fromDate = signal('');
   readonly toDate = signal('');
   readonly categoryView = signal<CategoryView>('RUBRO');
@@ -604,7 +617,9 @@ export class CommercialDashboardController implements OnInit {
   // Vacío equivale a GENERAL. Los años pueden combinarse libremente.
   readonly stockHistoryBucketsSelected = signal<StockHistoryBucket[]>([]);
   readonly trainingAudience = signal<'SELLERS' | 'ADMINISTRATORS'>('SELLERS');
-  readonly coverageProjectionHorizon = signal<0 | 30 | 60 | 90>(0);
+  // La cobertura usa venta acumulada de 90 días. Ya no se proyectan escenarios
+  // +30/+60/+90: la prioridad muestra únicamente el estado vigente.
+  readonly coverageProjectionHorizon = signal<0>(0);
   readonly projectionStore = signal('TODAS');
   private readonly projectionInsightsData = signal<StockInsights | null>(null);
   private readonly projectionInsightsStore = signal('');
@@ -667,10 +682,11 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly dayFilterMax = computed(() => {
     if (!this.dayFilterEnabled()) return '';
-    const month = this.selectedMonths()[0]; const last = new Date(Date.UTC(this.year(), month, 0)).getUTCDate();
-    const metadata = this.data()?.metadata;
-    const cutoff = [metadata?.salesCutoff, metadata?.trafficCutoff].filter(Boolean).sort().at(-1) || `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
-    return cutoff.slice(0, 7) === `${this.year()}-${String(month).padStart(2, '0')}` ? cutoff : `${this.year()}-${String(month).padStart(2, '0')}-${last}`;
+    return salesCalendarMax(
+      this.data()?.metadata.salesCutoff,
+      this.year(),
+      this.selectedMonths()[0],
+    );
   });
 
   readonly calendarOpen = signal(false);
@@ -701,6 +717,7 @@ export class CommercialDashboardController implements OnInit {
 
   async onCalendarDayClick(dateStr: string): Promise<void> {
     if (!dateStr || !this.dayFilterEnabled() || this.dayFilterLoading()) return;
+    if (dateStr < this.dayFilterMin() || dateStr > this.dayFilterMax()) return;
     const range = this.nextDayRange(dateStr);
     this.dayFilterLoading.set(true);
     this.dayFilterError.set('');
@@ -729,6 +746,7 @@ export class CommercialDashboardController implements OnInit {
 
   readonly selectedMonthSingle = computed(() => this.selectedMonths().length === 1 ? this.selectedMonths()[0] : 0);
   onMonthSelectChange(val: any): void {
+    this.trafficMonthChosen.set(true);
     const m = Number(val);
     if (m === 0) {
       this.selectedMonths.set([]);
@@ -1540,7 +1558,8 @@ export class CommercialDashboardController implements OnInit {
   }));
   readonly talentTrafficCardModel = computed<Record<string, unknown>>(() => ({
     moduleId: 'talent-traffic-card', baseClasses: 'card talent-card', cardClass: 'area-distribution-card',
-    icon: 'comparison', title: 'TRÁFICO POR TIENDA',
+    icon: 'comparison', title: this.trafficMonthChosen() || this.dateRangeActive()
+      ? 'TRÁFICO POR TIENDA' : 'TRÁFICO POR TIENDA · ÚLTIMO MES REGISTRADO',
     chartId: 'talent-traffic-store', label: 'Tráfico registrado por tienda en el período seleccionado', ready: true,
     option: blackChartText(this.talentTrafficOption()),
   }));
@@ -1672,6 +1691,7 @@ export class CommercialDashboardController implements OnInit {
       ? 'COMPARANDO TIENDAS' : this.rankingStoreCountLabel(), metrics: this.rankingMetrics(),
     loading: this.cloud.portalEnabled && this.companyRankingState() === 'loading',
     error: this.companyRankingState() === 'error',
+    relativeRanking: this.cloud.accessProfile()?.roleCode === 'jefe_tienda',
     option: blackChartText(this.rankingOption()),
   }));
 
@@ -1761,49 +1781,47 @@ export class CommercialDashboardController implements OnInit {
     else this.applyZoomHierarchyFilter(type, value);
   }
 
-  readonly healthCardModel = computed<Record<string, unknown>>(() => ({
-    loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
-    option: blackChartText(this.predictiveHealthOption()),
-    rows: this.predictiveHealthRows().map(row => ({ status: row.status, color: row.color,
-      value: this.money(row.value, true), share: this.percent(row.share) })),
-  }));
-
   readonly projectionCardModel = computed<Record<string, unknown>>(() => ({
     loading: this.projectionStore() === 'TODAS' ? this.stockInsightsRefreshing() : this.projectionInsightsLoading(),
-    store: this.projectionStore(),
-    storeOptions: this.inventoryStoresIgnoringStoreFilter().map(store => ({ value: store.storeId, label: store.alias || store.store })).sort((a, b) => a.label.localeCompare(b.label, 'es')),
     error: this.projectionInsightsError(),
-    horizon: this.coverageProjectionHorizon(), option: blackChartText(this.predictiveProjectionOption()),
-    stores: this.projectionRiskDetails().map(row => ({ ...row,
-      riskAmount: riskMoneyFormat.format(row.riskValue), totalAmount: riskMoneyFormat.format(row.totalValue),
-      remainingAmount: riskMoneyFormat.format(row.totalValue - row.riskValue), riskShare: this.percent(row.totalValue > 0 ? row.riskValue / row.totalValue : null),
-    })),
-    rows: this.predictiveProjectionRows().map(row => ({ status: row.status, color: row.color,
-      value: riskMoneyFormat.format(row.value), share: this.percent(row.share), products: this.number(row.products) })),
-    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, product: row.product,
+    rows: this.priorityReplenishmentRows().map(row => ({ status: row.status, color: row.color,
+      value: riskMoneyFormat.format(row.value), share: this.percent(row.share), products: this.number(row.products), productCount: row.products })),
+    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, code: row.productCode, product: row.product,
       store: row.store, coverageDays: row.coverageDays, coverage: this.number(row.coverageDays, ' días'),
       color: this.predictiveStatusColor(row.status) })),
   }));
 
   onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'horizon' && (value === 0 || value === 30 || value === 60 || value === 90)) this.coverageProjectionHorizon.set(value);
-    else if (type === 'store' && typeof value === 'string' && this.cloud.accessProfile()?.roleCode === 'gerente_comercial'
+    if (type === 'store' && typeof value === 'string' && this.cloud.accessProfile()?.roleCode === 'gerente_comercial'
       && (value === 'TODAS' || this.inventoryStoresIgnoringStoreFilter().some(store => store.storeId === value))) this.projectionStore.set(value);
   }
 
   readonly replenishmentCardModel = computed<Record<string, unknown>>(() => ({
     loading: this.stockInsightsRefreshing() && this.stockInsightsRefreshScope() === 'all',
     expanded: this.expandedChart() === 'predictive-replenishment',
-    option: blackChartText(this.predictiveReplenishmentOption()),
+    selectedBrand: this.replenishmentSelectedBrand(),
+    detailLoading: !!this.replenishmentSelectedBrand() && this.stockDetailLoading() && !this.stockDetailLoaded(),
+    detailRows: this.replenishmentBrandProducts().map(row => ({
+      code: row.productCode, product: row.product,
+      coverage: row.coverageDays == null ? 'SIN ROTACIÓN' : this.number(row.coverageDays, ' días'),
+      vendibleUnits: this.number(row.vendibleUnits, ' und'),
+    })),
     rows: this.predictiveReplenishmentRows().map(row => ({ name: row.name,
       priority: row.priority, color: row.priorityColor,
       deficitUnits: this.number(row.deficitUnits, ' und'),
       coverage: row.coverageDays == null ? 'SIN MOVIMIENTO' : this.number(row.coverageDays, ' días'),
-      vendibleUnits: this.number(row.vendibleUnits, ' und') })),
+      vendibleUnits: this.number(row.vendibleUnits, ' und'), selected: row.name === this.replenishmentSelectedBrand() })),
   }));
 
-  onReactReplenishmentAction({ type }: { type: string }): void {
-    if (type === 'expand') this.toggleChartExpansion('predictive-replenishment');
+  onReactReplenishmentAction({ type, value }: { type: string; value?: string | number }): void {
+    if (type === 'expand') {
+      this.toggleChartExpansion('predictive-replenishment');
+      return;
+    }
+    if (type !== 'brand' || typeof value !== 'string' || !this.predictiveReplenishmentRows().some(row => row.name === value)) return;
+    this.replenishmentSelectedBrand.set(value);
+    if (this.expandedChart() !== 'predictive-replenishment') this.toggleChartExpansion('predictive-replenishment');
+    void this.ensureStockDetail();
   }
 
   sectionHeadingModel(id: string): Record<string, unknown> {
@@ -1910,7 +1928,6 @@ export class CommercialDashboardController implements OnInit {
       storeValue: this.storeValueCardModel(), size: this.sizeCardModel(),
       detailState, detailProgress: this.stockDetailProgress(), refreshError: this.stockInsightsRefreshError(),
       predictive: detailState === 'ready' ? {
-        health: this.healthCardModel(),
         replenishment: this.replenishmentCardModel(), projection: this.projectionCardModel(),
       } : null,
     };
@@ -1992,16 +2009,19 @@ export class CommercialDashboardController implements OnInit {
       rows: this.conversionMonthlyRows().map(row => ({ label: row.label, cells: [
         { value: row.conversion, text: this.percent(row.conversion) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.traffic, text: this.number(row.traffic) },
       ] })) };
+    const trafficRows = this.trafficMonthlyRows();
+    const through = trafficRows.flatMap(row => row.through ? [row.through] : []).at(-1);
     const status = this.trafficChartStatus();
     const dataNote = status === 'loading' ? 'Actualizando tráfico…'
       : status === 'error' ? 'No se pudo actualizar el tráfico. Se muestra la última lectura disponible.'
-      : '';
+      : through ? `Último registro de tráfico para esta selección: ${through}.` : '';
+
     return { ...common, dataNote, loading: status === 'loading', retryTraffic: status === 'error', keepResults: this.trafficChartHasData(), titleId: 'traffic-chart-title', title: `${this.trafficChartLabel()} POR MES`,
       closeLabel: 'Cerrar gráfico de tráfico', chartId: 'modal-traffic', chartLabel: `Evolución mensual de ${this.trafficChartLabel().toLowerCase()}`,
       hasData: this.trafficChartHasData(), emptyText: `No hay tráfico registrado para ${year} con estos filtros.`,
       option: blackChartText(this.trafficMonthlyOption()), tableLabel: 'Tráfico mensual por formato',
       headers: ['Mes', 'Tráfico', 'Transacciones', 'Conversión'], legendItems: [{ label: this.trafficChartLabel(), color: C.navy }],
-      rows: this.trafficMonthlyRows().map(row => ({ label: row.label, cells: [
+      rows: trafficRows.map(row => ({ label: row.label, cells: [
         { value: row.traffic, text: this.number(row.traffic) }, { value: row.transactions, text: this.number(row.transactions) }, { value: row.conversion, text: this.percent(row.conversion) },
       ] })) };
   }
@@ -2750,9 +2770,15 @@ export class CommercialDashboardController implements OnInit {
     if (!this.data()) return [];
     const ids = this.filteredStoreIds();
     const from = this.fromDate(); const to = this.toDate() || from;
-    const rows = this.dateRangeActive()
-      ? this.dailyTrafficRows().filter(row => ids.has(row.storeId) && row.date >= from && row.date <= to)
-      : this.indexedRows(this.monthlyStoreIndex, this.selectedPeriods(), ids);
+    const months = this.trafficMonthChosen() ? this.selectedMonths() : [];
+    const latest = this.recordedTrafficRows().reduce((date, row) =>
+      ids.has(row.storeId) && Number(row.date.slice(0, 4)) === this.year() && row.date > date ? row.date : date, '');
+    const rows = this.recordedTrafficRows().filter(row => ids.has(row.storeId) && (
+      this.dateRangeActive() ? row.date >= from && row.date <= to
+        : Number(row.date.slice(0, 4)) === this.year() && (this.trafficMonthChosen()
+          ? !months.length || months.includes(Number(row.date.slice(5, 7)))
+          : row.date.slice(0, 7) === latest.slice(0, 7))
+    ));
     const byStore = grouped(rows, row => row.storeId);
     return this.filteredStores().map(store => {
       const records = byStore.get(store.storeId) || [];
@@ -3581,8 +3607,38 @@ export class CommercialDashboardController implements OnInit {
       const vendibleValue = row.stockValue * (1 - nonSellableRate);
       const coverageDays = demandDaily > 0 ? row.stockUnits * (1 - nonSellableRate) / demandDaily : null;
       const status = this.predictiveStatus(coverageDays, movementUnits <= 0);
-      return { status: status.label, vendibleValue, product: row.product, brand: row.brand, storeId: row.storeId, coverageDays, stockUnits: row.stockUnits };
+      return { status: status.label, vendibleValue, product: row.product, productCode: row.productCode || row.productId,
+        brand: row.brand, storeId: row.storeId, coverageDays, stockUnits: row.stockUnits };
     });
+  });
+  readonly replenishmentBrandProducts = computed(() => {
+    const brand = this.replenishmentSelectedBrand();
+    if (!brand || !this.stockDetailLoaded()) return [];
+    const normalizedBrand = this.normalized(brand);
+    const nonSellableRate = Math.min(.95, Math.max(0, .18 + PREDICTIVE_MERMA_PCT / 100));
+    const groupedProducts = new Map<string, { productCode: string; product: string; stockUnits: number; demandUnits: number; movementUnits: number }>();
+    for (const row of this.predictiveScopedProducts()) {
+      if (this.normalized(row.brand) !== normalizedBrand) continue;
+      const key = row.productId || row.productCode || row.product;
+      const current = groupedProducts.get(key) || {
+        productCode: row.productCode || row.productId || '', product: row.product,
+        stockUnits: 0, demandUnits: 0, movementUnits: 0,
+      };
+      current.stockUnits += Number(row.stockUnits) || 0;
+      current.demandUnits += this.predictiveWindowUnits(row, PREDICTIVE_WINDOW_DAYS);
+      current.movementUnits += this.predictiveWindowUnits(row, PREDICTIVE_WINDOW_DAYS);
+      groupedProducts.set(key, current);
+    }
+    const priority: Record<string, number> = { 'CRÍTICO': 0, 'ALERTA': 1, 'SIN ROTACIÓN': 2, 'BAJA ROTACIÓN': 3, 'ÓPTIMO': 4 };
+    return [...groupedProducts.values()].map(row => {
+      const vendibleUnits = row.stockUnits * (1 - nonSellableRate);
+      const demandDaily = row.demandUnits / PREDICTIVE_WINDOW_DAYS;
+      const coverageDays = demandDaily > 0 ? vendibleUnits / demandDaily : null;
+      const status = this.predictiveStatus(coverageDays, row.movementUnits <= 0).label;
+      return { ...row, vendibleUnits, coverageDays, status };
+    }).sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9)
+      || (a.coverageDays ?? -Infinity) - (b.coverageDays ?? -Infinity)
+      || b.vendibleUnits - a.vendibleUnits).slice(0, 100);
   });
   readonly predictiveHealthRows = computed(() => {
     const order = ['CRÍTICO', 'ALERTA', 'ÓPTIMO', 'BAJA ROTACIÓN', 'SIN ROTACIÓN'];
@@ -3625,7 +3681,7 @@ export class CommercialDashboardController implements OnInit {
         return { ...row, coverageDays, status };
       })
       .sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || (a.coverageDays ?? -1) - (b.coverageDays ?? -1) || b.vendibleValue - a.vendibleValue)
-      .slice(0, 5)
+      .slice(0, 10)
       .map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId }));
   });
   readonly predictiveBreakageOption = computed<EChartsOption>(() => {
@@ -3669,6 +3725,22 @@ export class CommercialDashboardController implements OnInit {
     return raw.map(row => ({ ...row, share: total ? row.value / total : 0 }));
   }
   readonly predictiveProjectionRows = computed(() => this.coverageProjectionRowsFor(this.coverageProjectionHorizon()));
+  readonly priorityReplenishmentRows = computed(() => {
+    const source = this.predictiveProjectionRows();
+    const groups = [
+      { status: 'CRÍTICO', color: '#DC2626', members: new Set(['CRÍTICO', 'ALERTA']) },
+      { status: 'ÓPTIMO', color: C.green, members: new Set(['ÓPTIMO']) },
+      { status: 'SIN ROTACIÓN', color: '#94A3B8', members: new Set(['BAJA ROTACIÓN', 'SIN ROTACIÓN', 'SIN DATOS']) },
+    ];
+    const rows = groups.map(group => {
+      const matches = source.filter(row => group.members.has(row.status));
+      return { status: group.status, color: group.color,
+        value: matches.reduce((total, row) => total + row.value, 0),
+        products: matches.reduce((total, row) => total + row.products, 0) };
+    });
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    return rows.map(row => ({ ...row, share: total > 0 ? row.value / total : 0 }));
+  });
   readonly predictiveStoreRiskRows = computed(() => {
     const days = this.coverageProjectionHorizon();
     const stores = new Map((this.data()?.stores || []).map(store => [store.storeId, store.alias || store.store]));
@@ -3939,6 +4011,8 @@ export class CommercialDashboardController implements OnInit {
   });
   readonly rankingOption = computed<EChartsOption>(() => {
     const d = this.data(); if (!d) return {};
+    const role = this.cloud.accessProfile()?.roleCode || '';
+    const relativeRanking = role === 'jefe_tienda';
     const company = this.companyRankingData();
     const selectedMetrics = this.rankingMetrics();
     const selectedYear = this.year(); const periods = this.selectedPeriods();
@@ -4002,10 +4076,15 @@ export class CommercialDashboardController implements OnInit {
       return { ...row, details, score };
     });
     const rows = scored.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label, 'es'));
+    const relativeScores = rows.map(row => rankingRelativeScore(rows[0]?.score, row.score));
     const positionScaleMax = Math.max(1, rows.length);
     const singleMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : null;
     const formatMetric = (metric: RankingMetric, value: number | null): string => {
       if (value == null) return 'N/A';
+      if (relativeRanking && (metric === 'SALES' || metric === 'SALE_M2')) {
+        const maximum = Math.max(0, ...metrics.map(row => metricValue(row, metric) ?? 0));
+        return this.percent(rankingMetricShare(value, maximum));
+      }
       if (metric === 'ROTATION' || metric === 'MARKUP') return this.percent(value);
       return this.money(value);
     };
@@ -4017,16 +4096,22 @@ export class CommercialDashboardController implements OnInit {
       animation: false,
       tooltip: { trigger: 'item', confine: true, borderColor: C.gold, position: this.tooltipToRight, formatter: (params: any) => {
         const row = rows[params.dataIndex ?? 0];
-        return this.tooltip(row.label, row.details.map(detail => ({
-          label: `${metricLabel[detail.metric]} #${detail.points}`,
+        const tooltipDetails = relativeRanking
+          ? [...row.details, ...(['SALES', 'SALE_M2'] as RankingMetric[])
+            .filter(metric => !row.details.some(detail => detail.metric === metric))
+            .map(metric => ({ metric, value: metricValue(row, metric), points: null }))]
+          : row.details;
+        const details = tooltipDetails.map(detail => ({
+          label: `${metricLabel[detail.metric]}${relativeRanking && ['SALES', 'SALE_M2'].includes(detail.metric) || detail.points == null ? '' : ` #${detail.points}`}`,
           value: formatMetric(detail.metric, detail.value)
-        })));
+        }));
+        return this.tooltipFull(row.label, details);
       } },
       grid: { left: 48, right: 18, top: 25, bottom: 78 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 42, fontWeight: 800, color: '#475569', fontSize: 7, width: 62, overflow: 'truncate', lineHeight: 8 } },
-      yAxis: { type: 'value', min: 0, max: positionScaleMax + 1, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
-      series: [{ type: 'bar', data: rows.map((_, index) => positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'MARKUP' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : singleMetric === 'SALES' ? C.navy : C.gold, borderRadius: [4, 4, 0, 0] },
-        label: { show: true, position: 'top', formatter: (params: any) => String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
+      yAxis: { type: 'value', min: 0, max: relativeRanking ? 100 : positionScaleMax + 1, axisLabel: { show: false, formatter: (value: number) => `${value}%` }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      series: [{ type: 'bar', data: rows.map((_, index) => relativeRanking ? (relativeScores[index] ?? 0) * 100 : positionScaleMax - index), barMaxWidth: 25, barCategoryGap: '22%', itemStyle: { color: singleMetric === 'ROTATION' ? C.green : singleMetric === 'MARKUP' ? C.teal : singleMetric === 'TICKET' ? C.purple : singleMetric === 'SALE_M2' ? C.blue : singleMetric === 'SALES' ? C.navy : C.gold, borderRadius: [4, 4, 0, 0] },
+        label: { show: !relativeRanking, position: 'top', formatter: (params: any) => relativeRanking ? this.percent(relativeScores[params.dataIndex]) : String(Math.round(rows[params.dataIndex]?.score || 0)), color: '#172033', fontSize: 8, fontWeight: 900, backgroundColor: 'rgba(255,255,255,.92)', padding: [1, 3], borderRadius: 3 } }]
     } as EChartsOption;
   });
 
@@ -4217,7 +4302,7 @@ export class CommercialDashboardController implements OnInit {
       });
     return {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'max-width:180px;', formatter: (params: any[]) => {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, backgroundColor: '#FFFFFF', borderColor: C.purple, borderWidth: 1, padding: [5, 7], textStyle: { color: '#111827', fontSize: 9 }, position: this.tooltipToRight, extraCssText: 'box-sizing:border-box;max-width:min(360px,calc(100vw - 24px));white-space:normal;', formatter: (params: any[]) => {
         const index = params[0]?.dataIndex ?? 0; const v = values[index];
         return this.tooltip(v.name, [
           { label: 'Venta neta', value: this.money(v.net, true) },
@@ -4872,6 +4957,8 @@ export class CommercialDashboardController implements OnInit {
       // decenas de miles de filas completas cada vez que cambia un selector.
       this.monthlyStoreIndex = this.indexPeriodStore(loaded.monthlyStore || []);
       this.dailyTrafficRows.set(loaded.dailyTraffic || []);
+      this.recordedTrafficRows.set(trafficResult.status === 'fulfilled' && trafficResult.value
+        ? trafficResult.value.daily || [] : loaded.dailyTraffic || []);
       this.dailyReceivedRows = loaded.dailyReceived || [];
       this.monthlyPersonnelAreaIndex = this.indexPeriodStore(loaded.monthlyPersonnelArea || []);
       this.monthlyCategoryIndex = this.indexPeriodStore(loaded.monthlyCategory || []);
@@ -4884,6 +4971,7 @@ export class CommercialDashboardController implements OnInit {
       // Abrir en el cierre publicado, aunque el calendario ya haya cambiado de mes.
       const current = closingCommercialPeriod(loaded.metadata.salesCutoff);
       this.year.set(current.year);
+      this.trafficMonthChosen.set(false);
       this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
       this.data.set(loaded);
       this.trafficRevision.update(value => value + 1);
@@ -5070,6 +5158,7 @@ export class CommercialDashboardController implements OnInit {
     return values.includes(value) ? values.filter(item => item !== value) : [...values, value];
   }
   clearMonths(): void {
+    this.trafficMonthChosen.set(true);
     // MES es estrictamente temporal. No toca Tienda, Clúster, Formato, Rubro, Línea ni Sublínea.
     this.selectedMonths.set([]);
     this.invalidateSellerDetailForMonth();
@@ -5077,6 +5166,7 @@ export class CommercialDashboardController implements OnInit {
   }
   toggleMonth(value: number): void {
     const month = Number(value); if (!this.availableMonths().includes(month)) return;
+    this.trafficMonthChosen.set(true);
     // ÚNICA mutación de este evento: selectedMonths.
     this.selectedMonths.set(this.toggleValue(this.selectedMonths(), month).sort((a, b) => a - b));
     this.clearDateRange();
@@ -5393,6 +5483,7 @@ export class CommercialDashboardController implements OnInit {
   selectStore(id: string): void { if (!this.storeFilterLocked()) this.toggleStore(id); }
   resetFilters(): void {
     const current = closingCommercialPeriod(this.data()?.metadata.salesCutoff); this.year.set(current.year); this.selectedMonths.set([current.month]); this.fromDate.set(''); this.toDate.set('');
+    this.trafficMonthChosen.set(false);
     this.selectedClusters.set([]); this.selectedFormats.set([]); this.selectedStores.set([]); this.selectedCategories.set([]); this.selectedGenders.set([]); this.selectedLines.set([]); this.selectedSublines.set([]); this.selectedChartBrands.set([]);
     this.productId.set('AUTO'); this.orderCost.set(this.data()?.metadata.eoq.orderCost || 5000); this.holdingCost.set(this.data()?.metadata.eoq.annualHoldingCost || 8);
     this.replenishmentType.set('internal'); this.internalLeadTime.set(30); this.supplierLeadTime.set(30); this.securityDays.set(15);
@@ -6098,9 +6189,9 @@ export class CommercialDashboardController implements OnInit {
   private tooltip(title: string, rows: Detail[], floating = false, compactLabels = true): string {
     if (floating) {
       // This tooltip lives outside the shadow root and carries its own styles.
-      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(82px,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+      return `<div class="transfer-chart-tooltip" style="box-sizing:border-box;width:min(360px,calc(100% - 16px),calc(100vw - 24px));max-width:calc(100vw - 24px);font:clamp(11px,3.1vw,13px)/1.35 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:start;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827"><span style="min-width:0;color:#111827;overflow-wrap:anywhere">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="color:#111827;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${safe(r.value)}</b></div>`).join('')}</div>`;
     }
-    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(274px,calc(100% - 16px),calc(100vw - 32px));max-width:calc(100vw - 32px);font:clamp(11px,3.1vw,13px)/1.3 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(82px,1fr) auto;align-items:center;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827;white-space:nowrap"><span style="min-width:0;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="max-width:128px;color:#111827;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safe(r.value)}</b></div>`).join('')}</div>`;
+    return `<div class="chart-tooltip" style="box-sizing:border-box;width:min(360px,calc(100% - 16px),calc(100vw - 24px));max-width:calc(100vw - 24px);font:clamp(11px,3.1vw,13px)/1.35 Arial,sans-serif;color:#111827"><strong style="display:block;margin-bottom:7px;color:#111827;font-size:clamp(13px,3.6vw,15px);overflow-wrap:anywhere">${safe(title)}</strong>${rows.map(r => `<div style="display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:start;gap:clamp(10px,3vw,18px);margin:6px 0;color:#111827"><span style="min-width:0;color:#111827;overflow-wrap:anywhere">${safe(compactLabels ? this.compactTooltipLabel(r.label) : r.label)}</span><b style="color:#111827;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${safe(r.value)}</b></div>`).join('')}</div>`;
   }
   private tooltipFull(title: string, rows: Detail[]): string { return this.tooltip(title, rows, false, false); }
   private compactTooltipLabel(label: string): string {

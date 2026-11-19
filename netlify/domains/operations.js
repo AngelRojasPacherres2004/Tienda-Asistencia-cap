@@ -522,8 +522,8 @@ export function createOperationsDomain({
     return coverage;
   }
 
-  async function executiveAlerts() {
-    const ids = await activeStoreIds();
+  async function executiveAlerts(user) {
+    const ids = user?.rol === "jefe_zonal" ? await zonalStoreIds(user.id) : await activeStoreIds();
     const [incidents, documents] = await Promise.all([
       fetchAllReportPages(supabase.from("incidencias").select("id,tienda_id,fecha,tipo,asunto,gravedad,estado,tiendas(nombre)").in("tienda_id", ids.length ? ids : [0]).order("fecha", { ascending: false }).order("id")),
       fetchAllReportPages(supabase.from("documentos_municipales").select("id,tienda_id,tipo_documento,fecha_vencimiento,dias_alerta,tiendas(nombre)").in("tienda_id", ids.length ? ids : [0]).order("id")),

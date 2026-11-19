@@ -13,6 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from runtime_config import configurar_duckdb, cerrar_duckdb_seguro, finalizar_proceso
+from homologaciones_usuario import aplicar_homologaciones_usuario
 from typing import Any
 
 try:
@@ -569,6 +570,18 @@ ESTADOS_EQUIVALENCIAS = {
 # ==========================================================
 # 4. UTILIDADES SQL
 # ==========================================================
+
+aplicar_homologaciones_usuario(
+    {
+        "tiendas": TIENDAS_EQUIVALENCIAS,
+        "proveedores": PROVEEDORES_EQUIVALENCIAS,
+        "marcas": MARCAS_EQUIVALENCIAS,
+        "rubros": RUBROS_EQUIVALENCIAS,
+        "lineas": LINEAS_EQUIVALENCIAS,
+        "sublineas": SUBLINEAS_EQUIVALENCIAS,
+    },
+    "stock",
+)
 
 NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 

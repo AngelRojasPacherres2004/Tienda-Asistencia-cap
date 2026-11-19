@@ -26,7 +26,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     shell.append(target);
     return [name, target];
   })) : null;
-  const managerHosts = user?.rol === 'gerente_comercial' ? Object.fromEntries(['overview', 'personnel', 'alerts', 'training'].map(name => {
+  const managerHosts = ['gerente_comercial', 'jefe_zonal'].includes(user?.rol) ? Object.fromEntries(['overview', 'personnel', 'alerts', 'training'].map(name => {
     const target = document.createElement('div');
     target.slot = `manager-${name}`;
     target.className = 'store-commercial-panels store-dashboard-shell commercial-dashboard manager-summary-panels is-light';
@@ -46,7 +46,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
   styles.textContent = `:host{display:block;width:100%;font-family:"Segoe UI",Arial,sans-serif}\n${appStyles}\n${transferModalStyles}\n${globalStyles}
     @media (min-width:1101px) and (max-width:1899px) { .static-charts > .gender-card:not(.chart-expanded) { height:315px !important; } }
     @media (min-width:1900px) { .static-charts > .gender-card:not(.chart-expanded) { height:360px !important; } }`;
-  styles.textContent += '.store-talent-page{display:grid;gap:12px}.store-talent-development{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:800px){.store-talent-development{grid-template-columns:1fr}}';
+  styles.textContent += '.store-talent-page{display:grid;gap:12px}.store-training-pair>slot{display:block;min-width:0}.store-talent-development{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:800px){.store-talent-development{grid-template-columns:1fr}}';
   if (operationsHosts || managerHosts) styles.textContent += `
     .store-admin-dashboard .dashboard-filter-toolbar { position:fixed; z-index:150; top:50%; right:0; transform:translateY(-50%); transition:right .25s ease; }
     .store-admin-dashboard .dashboard-filter-toolbar .dashboard-filter-trigger,
@@ -100,7 +100,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     root.render(<>
       <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
-      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
+      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
       {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} />, trafficHost)}
     </>);
   });

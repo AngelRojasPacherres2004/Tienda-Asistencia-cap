@@ -8,7 +8,7 @@ export function supportFixture() {
       { id: 4, nombres: "Juan", apellidos: "Soto", dni: "45678912", usuario: "IND", rol: "jefe_tienda", estado: "activo", tienda_id: 30 },
       { id: 5, nombres: "Personal", apellidos: "Principal", rol: "vendedor", estado: "activo", tienda_id: 10 },
       { id: 6, nombres: "Personal", apellidos: "Apoyo", rol: "vendedor", estado: "activo", tienda_id: 20 },
-    ],
+    ].map(row => ({ suspendido_sistemas: false, ...row })),
     tiendas: [
       { id: 10, nombre: "ALFONSO UGARTE", estado: "activo", cluster_id: 100, direccion: "Dirección principal" },
       { id: 20, nombre: "MARISCAL", estado: "activo", cluster_id: 100, direccion: "Dirección apoyo" },

@@ -45,6 +45,11 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
+server.once("error", error => {
+  console.error(`No se pudo iniciar la API local en el puerto ${apiPort}:`, error.message);
+  process.exitCode = 1;
+});
+
 server.listen(apiPort, "127.0.0.1", () => {
   console.log(`API local disponible en http://127.0.0.1:${apiPort}`);
 });

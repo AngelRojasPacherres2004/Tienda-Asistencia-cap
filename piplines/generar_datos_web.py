@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 
 from project_paths import PROJECT_ROOT, CAPA2_DIR
-from runtime_config import finalizar_proceso
+from runtime_config import cerrar_duckdb_seguro, configurar_duckdb, finalizar_proceso
 from compactar_dashboard import (
     candidatos_traslado, compactar_diario, compactar_predictivo, compactar_registros,
     compactar_stock, compactar_tallas, resumir_stock_jerarquia,
@@ -328,6 +328,27 @@ def cargar_reporte_cobertura() -> dict:
     return json.loads(REPORTE_COBERTURA.read_text(encoding="utf-8"))
 
 
+def materializar_fuente_web(
+    conexion: duckdb.DuckDBPyConnection,
+    nombre: str,
+    consulta: str,
+) -> str:
+    """Materializa una fuente filtrada una sola vez para las gráficas web.
+
+    El generador usa la misma venta histórica en numerosos resúmenes. Leer el
+    Parquet para cada visual provoca decenas de escaneos de millones de filas.
+    DuckDB puede conservar una tabla temporal y reutilizarla en todas las
+    consultas posteriores; si no entra en memoria, utiliza su directorio
+    temporal configurado sin modificar Capa 2 ni los JSON finales.
+    """
+
+    print(f"[WEB] Preparando caché local: {nombre}...", flush=True)
+    conexion.execute(f"CREATE TEMP TABLE {nombre} AS {consulta}")
+    rows = conexion.execute(f"SELECT COUNT(*) FROM {nombre}").fetchone()[0]
+    print(f"[WEB] Caché lista: {nombre} · {rows:,} filas", flush=True)
+    return nombre
+
+
 def fecha_excel_sql(expresion: str) -> str:
     """Convierte fecha ISO/dd-mm-yyyy o serial Excel sin alterar el archivo fuente."""
     raw = f"NULLIF(TRIM(CAST({expresion} AS VARCHAR)), '')"
@@ -422,7 +443,8 @@ def generar() -> dict:
     trafico_fuente = "(SELECT NULL::DATE AS fecha, NULL::INTEGER AS periodo_id, NULL::VARCHAR AS tienda_id, NULL::DOUBLE AS cantidad_personas, FALSE AS es_dato_valido WHERE FALSE)"
     rubro_dashboard = rubro_homologado_sql("rubro")
     catalogo_tiendas = catalogo_tiendas_supabase()
-    conexion = duckdb.connect()
+    conexion = duckdb.connect(database=":memory:")
+    configurar_duckdb(conexion, PROJECT_ROOT, preserve_insertion_order=False)
     conexion.execute("""
         CREATE TEMP TABLE maestro_tiendas_supabase (
             tienda_id VARCHAR, tienda VARCHAR, alias VARCHAR, formato_tienda VARCHAR,
@@ -465,11 +487,21 @@ def generar() -> dict:
     corte_sql = f"DATE '{fecha_corte.isoformat()}'"
     # El Parquet conserva el día posterior para el siguiente corte. Ninguna
     # agregación del dashboard actual puede leerlo antes de su publicación.
-    ventas = f"(SELECT * FROM {ventas_fuente} WHERE fecha_venta <= {corte_sql})"
-    ingresos = f"(SELECT * FROM {ingresos_fuente} WHERE fecha_ingreso <= {corte_sql})"
+    # La misma fuente se consulta para cada visual. Materializar aquí evita
+    # decenas de lecturas completas del Parquet sin cambiar los cálculos.
+    ventas = materializar_fuente_web(
+        conexion, "web_ventas", f"SELECT * FROM {ventas_fuente} WHERE fecha_venta <= {corte_sql}",
+    )
+    ingresos = materializar_fuente_web(
+        conexion, "web_ingresos", f"SELECT * FROM {ingresos_fuente} WHERE fecha_ingreso <= {corte_sql}",
+    )
     trafico = f"(SELECT * FROM {trafico_fuente} WHERE fecha <= {corte_sql})"
     corte_stock = date.fromisoformat(reporte_cobertura.get('stockCutoff') or fecha_corte.isoformat())
-    stock_historico = f"(SELECT * FROM {stock_fuente} WHERE fecha_corte <= DATE '{corte_stock.isoformat()}')"
+    stock_historico = materializar_fuente_web(
+        conexion,
+        "web_stock_historico",
+        f"SELECT * FROM {stock_fuente} WHERE fecha_corte <= DATE '{corte_stock.isoformat()}'",
+    )
     fecha_stock = conexion.execute(
         f"SELECT MAX(fecha_corte) FROM {stock_historico}"
     ).fetchone()[0]
@@ -1279,6 +1311,7 @@ def generar() -> dict:
         "stockProducts": producto_extremos,
         "sizeSales90": ventas_talla_90,
     }
+    cerrar_duckdb_seguro(conexion)
     return resultado
 
 

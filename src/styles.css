@@ -2382,3 +2382,14 @@ h1, h2, h3, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 }
 
 .modal-shell::backdrop { background: transparent; }
+@media (pointer: fine) { .attendance-matrix-scroll { cursor: grab; } }
+.attendance-matrix-scroll.is-dragging,
+.attendance-matrix-scroll.is-dragging * { cursor: grabbing; user-select: none; }
+@media (max-width: 600px) {
+  .attendance-matrix-panel { min-width: 0; max-width: 100%; }
+  .attendance-matrix-header { flex-wrap: wrap; gap: 10px; }
+  .attendance-matrix-actions { flex-wrap: wrap; }
+  .attendance-matrix-legend { flex-wrap: wrap; }
+  .attendance-matrix-panel--expanded { max-height: calc(100dvh - 8px); overflow-y: auto; }
+  .attendance-matrix-panel--expanded .attendance-matrix-scroll { flex: 1 0 200px; }
+}

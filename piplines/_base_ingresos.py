@@ -14,6 +14,7 @@ from pathlib import Path
 from runtime_config import configurar_duckdb, cerrar_duckdb_seguro, finalizar_proceso
 from xlsx_fast import leer_filas_xlsx
 from capa1_cache import limpiar_versiones_anteriores, ruta_cache
+from homologaciones_usuario import aplicar_homologaciones_usuario
 from typing import Union
 import xml.etree.ElementTree as ET
 
@@ -476,6 +477,19 @@ MARCAS_NO_NORMALIZADAS = {
     "HITECH", "AIR WALK", "POLO RALPH LAUREN", "BOSS",
     "MIA BY APOLO", "APOLITO", "LA COSTE"
 }
+
+aplicar_homologaciones_usuario(
+    {
+        "tiendas": TIENDAS_EQUIVALENCIAS,
+        "proveedores": PROVEEDORES_EQUIVALENCIAS,
+        "marcas": MARCAS_EQUIVALENCIAS,
+        "lineas": LINEAS_EQUIVALENCIAS,
+        "sublineas": SUBLINEAS_EQUIVALENCIAS,
+        "personal": PERSONAL_EQUIVALENCIAS,
+    },
+    "ingresos",
+)
+
 MESES_NO_NORMALIZADOS = {
     "FEFRERO", "SETIEMBRE", "SEPTIEMBREE", "OCTUBE", "NOBIEMBRE",
     "DICIEMPRE"
