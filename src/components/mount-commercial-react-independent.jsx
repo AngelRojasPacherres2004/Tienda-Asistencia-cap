@@ -1,3 +1,4 @@
+import { isCommercialSummaryOnly } from '../../shared/commercial-summary-only.js';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
@@ -98,7 +99,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     const model = controller.reactStandaloneModel();
     const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate() };
     root.render(<>
-      <CommercialReactStandalone model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
+      <CommercialReactStandalone summaryOnly={isCommercialSummaryOnly(user)} model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
       {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
       {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} />, trafficHost)}
