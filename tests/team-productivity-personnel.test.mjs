@@ -25,6 +25,7 @@ vm.runInNewContext(code, { exports, computed, grouped, teamProductivity, sum: (r
 
 function fixture() {
   const s = new exports.Subject();
+  s.year=()=>2026; s.trafficMonthChosen=()=>true; s.selectedMonths=()=>[1,2]; s.recordedTrafficRows=signal([]);
   s.period = signal(202602);
   s.stores = signal(['A']);
   s.categories = signal([]);
@@ -100,12 +101,12 @@ test('trafico por tienda suma el periodo mensual y distingue cero de falta de re
   s.filteredStoreIds = () => new Set(s.stores());
   s.filteredStores = () => s.stores().map(storeId => ({ storeId, alias: storeId }));
   s.fromDate = () => '2026-02-01'; s.toDate = () => '2026-02-02';
-  s.monthlyStoreIndex = [
-    { storeId: 'A', periodId: 202601, traffic: 10 },
-    { storeId: 'A', periodId: 202602, traffic: 20 },
-    { storeId: 'B', periodId: 202602, traffic: 50 },
-    { storeId: 'C', periodId: 202602, traffic: 0 },
-  ];
+  s.recordedTrafficRows.set([
+    { storeId: 'A', date: '2026-01-01', traffic: 10 },
+    { storeId: 'A', date: '2026-02-01', traffic: 20 },
+    { storeId: 'B', date: '2026-02-01', traffic: 50 },
+    { storeId: 'C', date: '2026-02-01', traffic: 0 },
+  ]);
   s.stores.set(['A', 'B', 'C', 'D']);
   const totals = Object.fromEntries(s.talentTrafficRows().map(row => [row.storeId, row.traffic]));
   assert.deepEqual(totals, { B: 50, A: 30, C: 0, D: null });
@@ -120,7 +121,7 @@ test('trafico diario respeta fechas y acceso a tiendas sin multiplicar trafico p
   s.filteredStoreIds = () => new Set(['A']);
   s.filteredStores = () => [{ storeId: 'A', alias: 'A' }];
   s.fromDate = () => '2026-02-01'; s.toDate = () => '2026-02-02';
-  s.dailyTrafficRows = () => [
+  s.recordedTrafficRows = () => [
     { storeId: 'A', date: '2026-02-01', traffic: 10 },
     { storeId: 'A', date: '2026-02-02', traffic: 20 },
     { storeId: 'A', date: '2026-02-03', traffic: 100 },

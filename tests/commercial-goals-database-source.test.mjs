@@ -27,12 +27,12 @@ test('la tarjeta META cambia al contexto de mes, tienda y rubro', () => {
   assert.match(contextual, /storeFilterLabel/);
 });
 
-test('el tráfico respeta el corte comercial y conserva meses sin cobertura en Supabase', () => {
-  const load = controller.slice(controller.indexOf('const salesCutoff = loaded.metadata.salesCutoff'), controller.indexOf("} else if (trafficResult.status === 'rejected')"));
-  assert.match(load, /row\.date <= salesCutoff/);
-  assert.match(load, /databaseMonths/);
-  assert.match(load, /publishedDaily/);
-  assert.match(load, /mergedDaily/);
+test('el tráfico independiente se integra sin limitarlo al corte de ventas', () => {
+  assert.match(controller, /mergeCommercialTraffic\(loaded, trafficResult.value\)/);
+  const traffic = readFileSync(new URL('../src/lib/commercialTraffic.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(traffic, /date <= salesCutoff/);
+  assert.match(traffic, /dailyTraffic: daily/);
+  assert.match(traffic, /trafficCutoff: cutoff/);
 });
 
 test('la brecha acumulada compara meta al corte contra venta neta acumulada', () => {

@@ -26,6 +26,7 @@ const signal = initial => {
   return read;
 };
 const sellerSubject = () => Object.assign(new exports.Subject(), {
+  expandedChart: signal(null), selectedChartBrands: signal([]), dateRangeActive: signal(false),
   sectionLoads: new SectionLoads(), year: signal(2026), selectedMonths: signal([]),
   selectedCategories: signal([]), selectedLines: signal([]), selectedSublines: signal([]),
   sellerDetailGeneration: 0, sellerDetailLoaded: signal(false), sellerDetailLoading: signal(false), sellerPerformanceData: signal([])
@@ -239,14 +240,15 @@ test('inventory hierarchy loads a small exact aggregate before product detail', 
 
 test('transfer modal loads only candidate SKUs from the compact file', async () => {
   const subject = new exports.Subject();
-  subject.cloud = { accessProfile: () => null };
+  subject.cloud = { accessProfile: () => null, remoteEnabled: () => true, availableFiles: () => [] };
   subject.sectionLoads = new SectionLoads();
   subject.stockDetailLoaded = signal(false);
   subject.stockTransfersLoaded = signal(false);
   subject.storeTransferRoutes = signal(null);
   subject.storeTransferStores = signal([]);
-  subject.stockTransfersError = signal('');
-  subject.cloud = { accessProfile: () => null };
+  subject.stockTransfersError = signal(''); subject.transferStore = signal('');
+  subject.cloud = { accessProfile: () => null, remoteEnabled: () => true, availableFiles: () => [] };
+  subject.ensurePredictiveDetail = async () => {}; subject.predictiveDetailLoaded = () => true; subject.predictiveIndex = () => new Map();
   subject.stockTransferProductsData = signal([]);
   const requested = [];
   subject.loadDetail = async file => {
@@ -277,8 +279,8 @@ test('store transfer detail uses authorized server routes instead of a scoped st
   subject.stockTransferProductsData = signal([]);
   subject.storeTransferRoutes = signal(null);
   subject.storeTransferStores = signal([]);
-  subject.stockTransfersError = signal('');
-  subject.cloud = { accessProfile: () => ({ scopeType: 'store' }), storeTransfers: async () => ({ products: [{ productId: 'P1' }], stores: [{ storeId: 'A' }], routes: [{ source: 'A', destination: 'B' }] }) };
+  subject.stockTransfersError = signal(''); subject.transferStore = signal('');
+  subject.cloud = { accessProfile: () => ({ scopeType: 'store', stores: ['A'] }), storeTransfers: async () => ({ products: [{ productId: 'P1' }], stores: [{ storeId: 'A' }], routes: [{ source: 'A', destination: 'B' }] }) };
   subject.loadDetail = async () => { throw new Error('Unexpected scoped stock download'); };
   await subject.ensureStockTransfers();
   assert.equal(subject.stockTransfersLoaded(), true);
