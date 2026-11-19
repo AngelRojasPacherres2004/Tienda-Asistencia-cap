@@ -1,6 +1,6 @@
 export function createAuthenticationDomain({ supabase, bodyOf, requireFields, cleanUsuario, dbError, json, disabledPassword, verifyOperationalPassword, hashOperationalPassword, resolveAdministratorContext, withStoreName, jwt, sessionClaims, jwtSecret, sessionCookie, readAllResult, httpError, todayISO, cleanText }) {
   async function authAccount(query) {
-    const fields = "id,nombres,apellidos,dni,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en";
+    const fields = "id,nombres,apellidos,dni,usuario,password,rol,estado,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en,acceso_solo_resumen_comercial";
     let result = await query(fields);
     if (["42703", "PGRST204"].includes(result.error?.code)) {
       // Mantiene el ingreso disponible mientras la migración se aplica en bd-app.
@@ -35,6 +35,7 @@ export function createAuthenticationDomain({ supabase, bodyOf, requireFields, cl
     const sessionUser = {
       id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
       usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
+      acceso_solo_resumen_comercial: account.acceso_solo_resumen_comercial === true,
       cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
       credenciales_actualizadas_en: account.credenciales_actualizadas_en,
     };
@@ -47,7 +48,7 @@ export function createAuthenticationDomain({ supabase, bodyOf, requireFields, cl
   async function credentialPermissions(user) {
     await requireSystemsCredentialAdmin(user);
     const { data, error } = await readAllResult(supabase.from("usuarios")
-      .select("id,nombres,apellidos,usuario,rol,estado,cambio_credenciales_pendiente")
+      .select("id,nombres,apellidos,usuario,rol,estado,cambio_credenciales_pendiente,acceso_solo_resumen_comercial")
       .eq("estado", "activo").neq("password", disabledPassword).not("usuario", "is", null), "nombres");
     if (error) throw dbError(error);
     return { accounts: data || [] };
@@ -110,7 +111,7 @@ export function createAuthenticationDomain({ supabase, bodyOf, requireFields, cl
     const { data: updated, error } = await supabase.from("usuarios")
       .update({ usuario, password: hash, cambio_credenciales_pendiente: false, credenciales_actualizadas_en: new Date().toISOString() })
       .eq("id", user.id).eq("cambio_credenciales_pendiente", true)
-      .select("id,nombres,apellidos,usuario,rol,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en").maybeSingle();
+      .select("id,nombres,apellidos,usuario,rol,tienda_id,cambio_credenciales_pendiente,credenciales_actualizadas_en,acceso_solo_resumen_comercial").maybeSingle();
     if (error) throw dbError(error);
     if (!updated) throw httpError("El permiso ya fue utilizado o deshabilitado. Vuelve a iniciar sesión.", 409);
     const sessionUser = { ...updated, tienda_contexto_id: user.tienda_contexto_id };

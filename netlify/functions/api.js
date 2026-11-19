@@ -1,3 +1,5 @@
+import { createModulePermissionsDomain } from '../domains/module-permissions.js';
+import { allowsSummaryRequest } from '../../shared/commercial-summary-only.js';
 import { ATTENDANCE_OPTIONS, ATTENDANCE_LABELS, PRESENT_STATES } from "../../shared/attendance.js";
 import { readRows } from "../lib/read-rows.js";
 import { createReportQueries } from "../lib/report-queries.js";
@@ -207,6 +209,7 @@ function sessionClaims(user) {
   return {
     id: user.id, nombres: user.nombres, apellidos: user.apellidos, dni: user.dni || null, usuario: user.usuario,
     rol: user.rol, tienda_id: user.tienda_principal_id ?? user.tienda_id,
+    acceso_solo_resumen_comercial: user.acceso_solo_resumen_comercial === true,
     cambio_credenciales_pendiente: Boolean(user.cambio_credenciales_pendiente),
     credenciales_actualizadas_en: user.credenciales_actualizadas_en || null,
     ...(user.rol === "jefe_tienda" ? { tienda_contexto_id: user.tienda_contexto_id ?? user.tienda_id } : {}),
@@ -216,6 +219,13 @@ function sessionClaims(user) {
 
 async function authenticatedContext(event, allowFallback = false) {
   const session = ensureAuth(event);
+  // Read the live permission on every request, never trust an older JWT grant.
+  const { data: permission, error: permissionError } = await supabase.from("usuarios")
+    .select("rol,estado,acceso_solo_resumen_comercial").eq("id", session.id).maybeSingle();
+  if (permissionError) throw dbError(permissionError);
+  if (!permission || permission.estado !== "activo" || permission.rol !== session.rol)
+    throw httpError("Tu cuenta ya no tiene acceso. Inicia sesión nuevamente.", 401);
+  session.acceso_solo_resumen_comercial = permission?.acceso_solo_resumen_comercial === true;
   if (session.rol === "jefe_tienda" || session.tienda_contexto_id) {
     if (!allowFallback && session.tienda_contexto_id && !event.headers["x-store-context"]) {
       throw Object.assign(httpError("Actualiza esta ventana para continuar con la tienda activa.", 409), { code: "STORE_CONTEXT_CHANGED" });
@@ -228,9 +238,6 @@ async function authenticatedContext(event, allowFallback = false) {
     if (!account || account.estado !== "activo" || account.rol !== "jefe_zonal") throw httpError("Tu autorización ha cambiado. Inicia sesión nuevamente.", 401);
     return { ...session, ...account };
   }
-  const { data: account, error } = await supabase.from("usuarios").select("rol,estado").eq("id", session.id).maybeSingle();
-  if (error) throw dbError(error);
-  if (!account || account.estado !== "activo" || account.rol !== session.rol) throw httpError("Tu cuenta ya no tiene acceso. Inicia sesión nuevamente.", 401);
   return session;
 }
 
@@ -595,6 +602,8 @@ const { getMarketingData, createMarketingRecord, registerApprovedMarketingCampai
   supabase, dbError, readAllResult, todayISO, storeStaffRoles, bodyOf, requireFields, cleanText, httpError,
 });
 
+const { setModulePermission } = createModulePermissionsDomain({ supabase, bodyOf, httpError, dbError, disabledPassword });
+
 // ---------- Router ----------
 
 export async function handler(event) {
@@ -623,6 +632,7 @@ export async function handler(event) {
       const sessionUser = {
         id: account.id, nombres: account.nombres, apellidos: account.apellidos, dni: account.dni,
         usuario: account.usuario, rol: account.rol, tienda_id: account.tienda_id,
+        acceso_solo_resumen_comercial: account.acceso_solo_resumen_comercial === true,
         cambio_credenciales_pendiente: account.cambio_credenciales_pendiente,
         credenciales_actualizadas_en: account.credenciales_actualizadas_en,
         ...(session.apoyo_temporal ? { apoyo_temporal: true } : {}),
@@ -639,6 +649,7 @@ export async function handler(event) {
     const user = await authenticatedContext(event, path === "/auth/change-credentials");
     event.authUser = user;
     if (path === "/auth/change-credentials" && method === "POST") return await changeCredentials(event, user);
+    if (!allowsSummaryRequest(user, method, path)) throw Object.assign(httpError("Esta cuenta solo tiene acceso de lectura a Resumen comercial.", 403), { code: "ACCOUNT_ACCESS_CHANGED" });
     if (user.cambio_credenciales_pendiente) throw httpError("Actualiza tu usuario y contraseña para continuar.", 403);
     if (user.rol === "asistente_comercial" && !path.startsWith("/systems/batches")) {
       throw httpError("El Asistente Comercial solo tiene acceso a Carga de archivos.", 403);
@@ -654,6 +665,10 @@ export async function handler(event) {
 
     if (path === "/systems/credential-permissions" && method === "GET") {
       return json(200, await credentialPermissions(user));
+    }
+    const modulePermissionMatch = path.match(/^\/systems\/module-permissions\/(\d+)$/);
+    if (modulePermissionMatch && method === "PATCH") {
+      return json(200, await setModulePermission(event, user, modulePermissionMatch[1]));
     }
     const credentialPermissionMatch = path.match(/^\/systems\/credential-permissions\/(\d+)$/);
     if (credentialPermissionMatch && method === "PATCH") {

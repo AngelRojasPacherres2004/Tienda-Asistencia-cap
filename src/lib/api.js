@@ -23,6 +23,10 @@ function assertStoreContextOpen() {
   if (storeContextLocked) throw new Error("La tienda está cambiando. Espera a que termine para continuar.");
 }
 function checkContextError(payload) {
+  if (payload.code === "ACCOUNT_ACCESS_CHANGED") {
+    clearApiCache();
+    window.dispatchEvent(new CustomEvent("account-access-changed"));
+  }
   if (["STORE_ACCESS_REVOKED", "STORE_CONTEXT_CHANGED"].includes(payload.code)) {
     window.dispatchEvent(new CustomEvent("store-access-changed", { detail: payload.error }));
   }

@@ -1,5 +1,6 @@
+import { isCommercialSummaryOnly } from '../shared/commercial-summary-only.js';
 import { Component, Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
-import { api, lockStoreContext, setStoreContext } from "./lib/api";
+import { api, clearApiCache, lockStoreContext, setStoreContext } from "./lib/api";
 import { consumeStoreNavigation, restartStoreNavigation } from "./lib/storeNavigation";
 import Layout from "./components/Layout";
 import { Loading, Notice } from "./components/UI";
@@ -81,7 +82,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (user?.rol !== "jefe_tienda" || switchingStore) return;
+    if (!user?.id || switchingStore) return;
     let active = true, pending = false;
     const refresh = async event => {
       if (pending) return;
@@ -90,10 +91,15 @@ export default function App() {
       try {
         const { user: account } = await api("/auth/me");
         if (!active || request !== sessionRequest.current) return;
-        if (Number(account.tienda_id) !== Number(user.tienda_id)) {
+        if (user.rol === "jefe_tienda" && Number(account.tienda_id) !== Number(user.tienda_id)) {
           lockStoreContext();
           restartStoreNavigation(account, page, event?.detail || (account.apoyo_revocado ? "El apoyo se deshabilitó. Se ha restablecido tu tienda principal." : "La tienda activa cambió en otra ventana. Se actualizó esta vista."));
           return;
+        }
+        if (isCommercialSummaryOnly(account) !== isCommercialSummaryOnly(user)) {
+          clearApiCache();
+          setPage("dashboard");
+          setSessionNotice("Sistemas actualizó tu acceso a las secciones.");
         }
         setStoreContext(account);
         setUser(current => JSON.stringify(current) === JSON.stringify(account) ? current : account);
@@ -104,9 +110,10 @@ export default function App() {
     };
     const interval = window.setInterval(refresh, 30000);
     window.addEventListener("focus", refresh);
+    window.addEventListener("account-access-changed", refresh);
     window.addEventListener("store-access-changed", refresh);
-    return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); window.removeEventListener("store-access-changed", refresh); };
-  }, [user?.rol, user?.tienda_id, page, switchingStore]);
+    return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); window.removeEventListener("account-access-changed", refresh); window.removeEventListener("store-access-changed", refresh); };
+  }, [user, page, switchingStore]);
 
   const login = (account) => {
     setStoreContext(account);
@@ -195,10 +202,10 @@ export default function App() {
     sistemas: ["sistemas", "asistente_comercial"].includes(user.rol) ? <RmsBatchUpload /> : <Dashboard user={user} />,
     "sistemas-credenciales": user.rol === "sistemas" ? <CredentialPermissions /> : <Dashboard user={user} />,
     "sistemas-registros": user.rol === "sistemas" ? <SystemsMaintenance /> : <Dashboard user={user} />,
-  }[page] || <Dashboard user={user} />;
+  }[isCommercialSummaryOnly(user) ? "dashboard" : page] || <Dashboard user={user} />;
 
   return (
-    <Layout user={user} page={page} onNavigate={setPage} onLogout={logout} onStoreChange={changeStore} switchingStore={switchingStore}>
+    <Layout user={user} page={isCommercialSummaryOnly(user) ? "dashboard" : page} onNavigate={setPage} onLogout={logout} onStoreChange={changeStore} switchingStore={switchingStore}>
       {sessionNotice && <Notice type="error" onClose={() => setSessionNotice("")}>{sessionNotice}</Notice>}
       {switchingStore ? <Loading label="Cambiando de tienda…" /> : <PageErrorBoundary key={`${user.id}:${user.tienda_id}:${page}`}><Suspense fallback={<Loading />}>{content}</Suspense></PageErrorBoundary>}
     </Layout>

@@ -1,3 +1,4 @@
+import { isCommercialSummaryOnly } from '../../shared/commercial-summary-only.js';
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
   FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, Truck, UserCircle2, Users, X,
@@ -141,7 +142,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
     try { localStorage.setItem("app-theme", next); } catch { /* Keep switching available when storage is disabled. */ }
   };
   const toggleMarketingTheme = () => setLightMode(marketingTheme !== "light");
-  const items = navByRole[user.rol] || [];
+  const summaryOnly = isCommercialSummaryOnly(user);
+  const items = (navByRole[user.rol] || []).filter(item => !summaryOnly || item.id === "dashboard");
   const activeStore = user.tiendas_disponibles?.find(store => Number(store.id) === Number(user.tienda_id));
   const storeName = activeStore?.nombre || user.tienda_nombre;
   const activeAlias = activeStore?.alias || user.tienda_alias || storeAlias(storeName);
@@ -162,8 +164,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
           ))}
         </nav>
         <div className="sidebar__footer">
-          {["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
-          <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "button" : undefined} tabIndex={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? 0 : undefined} aria-expanded={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? userMenuOpen : undefined} aria-label={["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) ? "Abrir menú de usuario" : undefined} onClick={() => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) setUserMenuOpen(value => !value); }} onKeyDown={event => { if (["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
+          {(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) && userMenuOpen && <button className="logout-button" onClick={() => { setUserMenuOpen(false); onNavigate("ajustes-zonal"); }}><Settings size={18} /><span>Ajustes</span></button>}
+          <div className={`user-chip ${isStoreSecurity ? "user-chip--security" : ""}`} role={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? "button" : undefined} tabIndex={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? 0 : undefined} aria-expanded={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? userMenuOpen : undefined} aria-label={(!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) ? "Abrir menú de usuario" : undefined} onClick={() => { if ((!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol))) setUserMenuOpen(value => !value); }} onKeyDown={event => { if ((!summaryOnly && ["jefe_zonal", "gerencia_general", "gerente_comercial"].includes(user.rol)) && ["Enter", " "].includes(event.key)) { event.preventDefault(); setUserMenuOpen(value => !value); } if (event.key === "Escape") setUserMenuOpen(false); }}>
             {!['jefe_tienda', 'asistente_tienda'].includes(user.rol) && !hidePersonInitials && <span>{(user.nombres || user.usuario || "U").charAt(0).toUpperCase()}</span>}
             <div title={`${user.nombres || ""} ${user.apellidos || ""}`.trim()}><strong>{conciseUserName(user)}</strong><small>{['jefe_tienda', 'asistente_tienda'].includes(user.rol) || isStoreSecurity ? roleLabels[user.rol] : compactRoleLabels[user.rol] || roleLabels[user.rol] || user.rol}{!['jefe_tienda', 'asistente_tienda'].includes(user.rol) && user.dni ? ` · DNI ${user.dni}` : ""}</small>{isStoreSecurity && <small className="user-chip__store">Tienda: {storeName || "Sin tienda asignada"}</small>}{['jefe_tienda', 'asistente_tienda'].includes(user.rol) && storeName && <small title={[storeName, activeAlias].filter(Boolean).join(' · ')}>{storeName}{activeAlias && activeAlias !== storeName ? ` · ${activeAlias}` : ''}</small>}</div>
           </div>
