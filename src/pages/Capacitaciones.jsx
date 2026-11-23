@@ -200,7 +200,7 @@ function CoachComparisonPanel({ cursos, cursoId, setCursoId, stores, clusters, r
     <header className="panel__header">
       <div><span className="eyebrow">Comparativas</span><h2>Avance por tienda</h2><p>Personal activo con la capacitación asignada. Mayoría completada: más del 50% del personal de la tienda.</p></div>
       <div className="training-comparison-filters">
-        <label className="field"><span>Capacitación</span><select aria-label="Capacitación de la comparativa" value={cursoId} onChange={event => setCursoId(event.target.value)}>{cursos.map(curso => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}</select></label>
+        <label className="field"><span>Capacitación</span><select aria-label="Capacitación de la comparativa" value={cursoId} onChange={event => setCursoId(event.target.value)}>{cursos.map(curso => <option key={curso.id} value={curso.id}>{curso.nombre_visual || curso.nombre}</option>)}</select></label>
         <label className="field"><span>Clúster</span><select aria-label="Filtrar comparativa por clúster" value={clusterFilter} onChange={event => setClusterFilter(event.target.value)}><option value="todos">Todos los clústeres</option><option value="A">Clúster A</option><option value="B">Clúster B</option></select></label>
       </div>
     </header>
@@ -277,7 +277,7 @@ function TrabajadorPerfilView({ id, onClose, readOnly = false }) {
                     <span>{curso.competencia}</span>
                     {!curso.curso_activo && <span className="status status--inactivo"><i />Inactivo</span>}
                   </div>
-                  <h3>{curso.titulo}</h3>
+                  <h3>{curso.titulo_visual || curso.titulo}</h3>
                   {readOnly ? <>
                     <Field label="Estado"><StatusBadge value={draft.estado || "pendiente"} label={progresoLabels[draft.estado || "pendiente"]} /></Field>
                     <Field label="Duración"><span>{draft.duracion_horas ? `${draft.duracion_horas} h` : "Sin registrar"}</span></Field>
@@ -353,7 +353,7 @@ function ResumenPanel({ cursos, cursoId, setCursoId, refreshVersion, scopeQuery 
         <label>
           <span>Capacitaciones</span>
           <select value={cursoId} onChange={(e) => setCursoId(e.target.value)} aria-label="Seleccionar capacitación">
-            {cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}
+            {cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre_visual || curso.nombre}</option>)}
           </select>
         </label>
         {loadingResumen && resumen && <small>Actualizando…</small>}
@@ -481,7 +481,7 @@ export function AsignarPanel({ cursos, onAssigned, estadosPermitidos = ["pendien
       <div className="form-grid">
         <Field label="Capacitación" className="span-2">
           <select value={form.curso_id} onChange={(e) => setForm({ ...form, curso_id: e.target.value })}>
-            {cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre}</option>)}
+            {cursos.map((curso) => <option key={curso.id} value={curso.id}>{curso.nombre_visual || curso.nombre}</option>)}
           </select>
         </Field>
         <Field label="Nuevo estado">

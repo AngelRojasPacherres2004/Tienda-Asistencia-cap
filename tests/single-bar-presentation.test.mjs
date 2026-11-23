@@ -66,7 +66,7 @@ test('inventory separates its scale from the central amount and preserves the in
   assert.equal(chart.series[0].data[0].value, datum.value);
   const tooltip = chart.tooltip.formatter({});
   assert.equal((tooltip.match(/grid-template-columns/g) || []).length, 5);
-  for (const label of ['Valor del inventario', 'Stock físico', 'Vendidas en 30 días', 'Cobertura estimada', 'Estado de cobertura']) assert.ok(tooltip.includes(label));
+  for (const label of ['VAL. INV.', 'STK', 'VT 30D', 'COB.', 'ESTADO']) assert.ok(tooltip.includes(label));
   assert.match(tooltip, /994,464.75/);
 });
 test('rotation is sold units divided by current stock, with separate tooltip rows', () => {
@@ -82,8 +82,8 @@ test('rotation is sold units divided by current stock, with separate tooltip row
   assert.equal(gauge.series[0].axisLabel.show, false);
   const tooltip = gauge.tooltip.formatter({});
   assert.equal((tooltip.match(/grid-template-columns/g) || []).length, 5);
-  assert.match(tooltip, /Stock físico actual/);
-  assert.match(tooltip, /1,000 unidades/);
-  assert.match(tooltip, /66 unidades/);
+  assert.match(tooltip, /STK/);
+  assert.match(tooltip, /1,000 und\./);
+  assert.match(tooltip, /66 und\./);
   assert.match(tooltip, /vendidas en 90 días ÷ stock actual × 100/);
 });

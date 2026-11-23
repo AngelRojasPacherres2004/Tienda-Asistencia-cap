@@ -41,7 +41,9 @@ export default function StoreNewPersonForm({ value, set, errors, formError, onSu
     {field('nombres', 'Nombres', input('nombres', { required: true, minLength: 2 }))}
     {field('apellidos', 'Apellidos', input('apellidos', { required: true, minLength: 2 }))}
     {field('telefono', 'Teléfono', input('telefono', { inputMode: 'numeric', pattern: '[0-9]{9}', maxLength: 9 }))}
-    <OptionalProfileField label="Correo" checked={optionalFields.email} onChange={(enabled) => toggleOptional('email', enabled)}>{field('email', 'Correo', input('email', { type: 'email', required: true }))}</OptionalProfileField>
+    {editing ? field('email', 'Correo', input('email', { type: 'email' })) : (
+      <OptionalProfileField label="Correo" checked={optionalFields.email} onChange={(enabled) => toggleOptional('email', enabled)}>{field('email', 'Correo', input('email', { type: 'email', required: true }))}</OptionalProfileField>
+    )}
     {section('Información laboral')}
     {field('fecha_ingreso', 'Fecha de ingreso', input('fecha_ingreso', { type: 'date', required: true }))}
     {field('fecha_nacimiento', 'Fecha de nacimiento', input('fecha_nacimiento', { type: 'date', max: today }))}
@@ -51,7 +53,7 @@ export default function StoreNewPersonForm({ value, set, errors, formError, onSu
     {stores && field('tienda_id', 'Tienda asignada', <select name="tienda_id" value={value.tienda_id || ''} onChange={event => set('tienda_id', event.target.value)}><option value="">Sin asignar (disponible)</option>{stores.map(store => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select>)}
     {field('regimen_jornada', 'Régimen / jornada (horas)', input('regimen_jornada', { type: 'number', min: 0.01, max: 24, step: 0.01, placeholder: 'Ej. 8 o 4.5' }))}
     {field('tipo_turno', 'Turno', select('tipo_turno', [['apertura', 'Apertura'], ['cierre', 'Cierre']]))}
-    {accessRoles.has(value.rol) && <>{field('usuario', 'Usuario', input('usuario', { required: false, pattern: '[A-Za-z0-9._-]{2,}' }))}{field('password', 'Contraseña', input('password', { required: false, type: 'password', minLength: 3 }))}</>}
+    {(accessRoles.has(value.rol) || (editing && value.usuario)) && <>{field('usuario', 'Usuario', input('usuario', { required: false, pattern: '[A-Za-z0-9._-]{2,}' }))}{field('password', 'Contraseña', input('password', { required: false, type: 'password', autoComplete: 'new-password', minLength: 3 }))}</>}
     {section('Datos personales y emergencia')}
     {field('sexo', 'Sexo', select('sexo', [['hombre', 'Hombre'], ['mujer', 'Mujer'], ['no_especificado', 'Sin especificar']]))}
     {field('nacionalidad', 'País de origen', select('nacionalidad', countries.map(country => [country, country])))}
@@ -71,6 +73,6 @@ export default function StoreNewPersonForm({ value, set, errors, formError, onSu
     {field('talla_zapatillas', 'Talla de zapatos', input('talla_zapatillas', { type: 'number', min: 0, step: 0.5 }))}
     <OptionalProfileField label="Alergia" className="span-2" checked={optionalFields.alergia} onChange={(enabled) => toggleOptional('alergia', enabled)}>{field('alergia', 'Alergia', <textarea name="alergia" required placeholder="Describe la alergia" maxLength={500} value={value.alergia || ''} onChange={event => set('alergia', event.target.value)} />)}</OptionalProfileField>
     <OptionalProfileField label="Condición de salud" className="span-2" checked={optionalFields.condicion_salud} onChange={(enabled) => toggleOptional('condicion_salud', enabled)}>{field('condicion_salud', 'Condición de salud', <textarea name="condicion_salud" required placeholder="Describe la condición, tratamiento o restricción" maxLength={500} value={value.condicion_salud || ''} onChange={event => set('condicion_salud', event.target.value)} />)}</OptionalProfileField>
-    <div className="form-actions span-2"><button type="button" className="button button--ghost" onClick={onClose}>Cancelar</button><button className="button button--primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button></div>
+    <div className="form-actions span-2">{onClose && <button type="button" className="button button--ghost" onClick={onClose}>Cancelar</button>}<button className="button button--primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button></div>
   </form>;
 }

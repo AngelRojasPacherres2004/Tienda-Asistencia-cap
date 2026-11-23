@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { ATTENDANCE_LABELS } from '../../shared/attendance.js';
 
@@ -20,11 +21,24 @@ export function StatusBadge({ value, label }) {
   return <span className={`status status--${key}`}><i />{text}</span>;
 }
 
-export function Modal({ open, title, subtitle, children, onClose, wide = false, extraWide = false, className = "" }) {
+export function Modal({ open, title, subtitle, children, onClose, wide = false, extraWide = false, className = "", closeOnlyWithX = false }) {
+  const dialog = useRef(null);
+  useEffect(() => {
+    if (!open || !closeOnlyWithX) return;
+    const element = dialog.current;
+    const previousOverflow = document.body.style.overflow;
+    element.showModal();
+    document.body.style.overflow = "hidden";
+    return () => {
+      element.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, closeOnlyWithX]);
+
   if (!open) return null;
-  return (
-    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className={`modal ${wide ? "modal--wide" : ""} ${extraWide ? "modal--extra-wide" : ""} ${className}`} role="dialog" aria-modal="true">
+  const content = (
+    <div className="modal-backdrop" onMouseDown={(event) => !closeOnlyWithX && event.target === event.currentTarget && onClose()}>
+      <section className={`modal ${wide ? "modal--wide" : ""} ${extraWide ? "modal--extra-wide" : ""} ${className}`} role={closeOnlyWithX ? undefined : "dialog"} aria-modal={closeOnlyWithX ? undefined : "true"}>
         <header className="modal__header">
           <div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
@@ -33,6 +47,11 @@ export function Modal({ open, title, subtitle, children, onClose, wide = false, 
       </section>
     </div>
   );
+  return closeOnlyWithX ? (
+    <dialog ref={dialog} className="modal-shell" aria-label={title} onCancel={event => event.preventDefault()}>
+      {content}
+    </dialog>
+  ) : content;
 }
 
 export function ConfirmDialog({ open, title, message, onConfirm, onClose, busy, error, confirmLabel = "Sí, eliminar", busyLabel = "Eliminando…" }) {

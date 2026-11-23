@@ -16,7 +16,10 @@ function dashboardRange(filters, today) {
 
 const isCoreCluster = cluster => cluster.estado === "activo" && /^(?:CL[ÚU]STER\s*)?[AB]$/i.test(String(cluster.codigo || cluster.nombre || "").trim());
 
-export default function CommercialDashboard({ embedded = false, renderSections, dashboardFilters }) {
+export default function CommercialDashboard({ user, embedded = false, renderSections, dashboardFilters }) {
+  const isZonal = user?.rol === "jefe_zonal";
+  const isGeneral = user?.rol === "gerencia_general";
+  const scopeLabel = isGeneral ? "Todas las tiendas de la empresa" : isZonal ? "Tiendas de tu zona" : "Clústeres A y B";
   const today = todayISO();
   const [filters, setFilters] = useState({ tienda_id: "", anio: today.slice(0, 4), mes: today.slice(5, 7), dia: "" });
   const externalFilterKey = JSON.stringify(dashboardFilters || null);
@@ -38,27 +41,27 @@ export default function CommercialDashboard({ embedded = false, renderSections, 
     });
     Promise.all([
       Promise.all(dashboardRequests).then(mergeCommercialSummaries),
-      api("/tiendas"), api("/clusters"), api("/gerencia/alertas"),
+      api("/tiendas"), isZonal ? api("/zonal/cluster").then(cluster => [cluster]) : api("/clusters"), api("/gerencia/alertas"),
     ]).then(([dashboard,stores,zones,alerts])=>{if(version===loadVersion.current)setData({dashboard,stores,zones,...alerts});}).catch((err)=>{if(version===loadVersion.current)setError(err.message);});
     api("/personal/resumen").then((rows)=>{if(version===loadVersion.current)setPersonnel(rows);}).catch((err)=>{if(version===loadVersion.current)setPersonnelError(err.message);});
-  },[ranges, effectiveYear, filters.tienda_id]);
+  },[ranges, effectiveYear, filters.tienda_id, isZonal]);
   useEffect(()=>{load();const version=loadVersion.current;return()=>{loadVersion.current=version+1;};},[load]);
   const alerts=useMemo(()=>{
     if(!data) return {};
     const today=selectedRange.hasta;
-    const clusterIds = new Set(data.zones.filter(isCoreCluster).map(cluster=>Number(cluster.id)));
-    const storeIds = new Set(data.stores.filter(store=>clusterIds.has(Number(store.cluster_id))&&(!filters.tienda_id||String(store.id)===filters.tienda_id)).map(store=>Number(store.id)));
+    const clusterIds = new Set(data.zones.filter(cluster => isGeneral || isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
+    const storeIds = new Set(data.stores.filter(store=>(isGeneral || clusterIds.has(Number(store.cluster_id)))&&(!filters.tienda_id||String(store.id)===filters.tienda_id)).map(store=>Number(store.id)));
     const expired=data.documents.filter((row)=>storeIds.has(Number(row.tienda_id))&&row.fecha_vencimiento&&row.fecha_vencimiento<today);
     const expiring=data.documents.filter((row)=>storeIds.has(Number(row.tienda_id))&&row.fecha_vencimiento&&row.fecha_vencimiento>=today&&row.fecha_vencimiento<=addDays(today, Number(row.dias_alerta ?? 30)));
     const courses=data.dashboard.progresoCursos||[];
     return {expired,expiring,pendingCourses:courses.reduce((sum,row)=>sum+Number(row.pendientes||0),0)};
-  },[data, filters.tienda_id, selectedRange.hasta]);
+  },[data, filters.tienda_id, selectedRange.hasta, isZonal, isGeneral]);
   if(error && embedded) return renderSections({ overview: <div className="commercial-load-error"><Notice type="error">{error}</Notice><button type="button" className="button button--ghost" onClick={load}>Reintentar</button></div> });
   if(!data && embedded) return renderSections({ overview: <Loading/> });
   if(error) return <div className="commercial-load-error"><Notice type="error">{error}</Notice><button type="button" className="button button--ghost" onClick={load}>Reintentar</button></div>;
   if(!data) return <Loading/>;
   const summary=data.dashboard.summary;
-  const coreClusterIds=new Set(data.zones.filter(isCoreCluster).map(cluster=>Number(cluster.id)));
+  const coreClusterIds=new Set(data.zones.filter(cluster => isGeneral || isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
   const personnelByStore=new Map();
   for (const person of personnel||[]) {
     const storeId=Number(person.tienda_id);
@@ -68,7 +71,7 @@ export default function CommercialDashboard({ embedded = false, renderSections, 
     personnelByStore.set(storeId,count);
   }
   const campaignMonth=["02","07","12"].includes(today.slice(5,7));
-  const filterStores=data.stores.filter(store=>coreClusterIds.has(Number(store.cluster_id))&&store.estado==="activo");
+  const filterStores=data.stores.filter(store=>(isGeneral || coreClusterIds.has(Number(store.cluster_id)))&&store.estado==="activo");
   const activeStores=filterStores.filter(store=>!filters.tienda_id||String(store.id)===filters.tienda_id);
   const storePersonnel=filterStores.map(store=>{
     const counts=personnelByStore.get(Number(store.id))||{active:0,total:0};
@@ -80,9 +83,9 @@ export default function CommercialDashboard({ embedded = false, renderSections, 
   const scopedPersonnel=storePersonnel.filter(store=>!filters.tienda_id||String(store.id)===filters.tienda_id);
   const sections = {
     overview: <div className="manager-summary-group">
-      <section className="store-dashboard-personnel-kpis"><CommercialKpi icon={Building2} label="Tiendas activas" value={activeStores.length} detail="Clústeres A y B"/><CommercialKpi icon={Users} label="Equipo activo" value={personnel===null?"—":scopedPersonnel.reduce((total,store)=>total+store.active,0)} detail={personnel===null?"Cargando dotación":"Colaboradores de tienda"}/></section>
+      <section className="store-dashboard-personnel-kpis"><CommercialKpi icon={Building2} label="Tiendas activas" value={activeStores.length} detail={scopeLabel}/><CommercialKpi icon={Users} label="Equipo activo" value={personnel===null?"—":scopedPersonnel.reduce((total,store)=>total+store.active,0)} detail={personnel===null?"Cargando dotación":"Colaboradores de tienda"}/></section>
 </div>,
-    personnel: <div className="manager-summary-group">      <header className="store-dashboard-section"><div><span>Dotación · clústeres A y B</span><h2>Personal por tienda</h2></div></header>
+    personnel: <div className="manager-summary-group">      <header className="store-dashboard-section"><div><span>Dotación · {scopeLabel}</span><h2>Personal por tienda</h2></div></header>
       {personnelError && <Notice type="error">No se pudo cargar la dotación: {personnelError}</Notice>}
       {personnel===null ? !personnelError && <p className="commercial-inline-loading" role="status">Cargando dotación por tienda…</p> : <div className="commercial-store-personnel"><div className="commercial-store-personnel__head"><span>Tienda</span><span>Equipo</span><span>Meta</span><span>Brecha</span><span>Cobertura</span></div>{scopedPersonnel.map(store=><div key={store.id}><strong>{store.nombre}<small>{clusterLabel(store.cluster_nombre)}{store.campaign&&store.base&&store.campaign>store.base?` · +${store.campaign-store.base} en campaña`:""}</small></strong><b>{store.active}</b><span>{store.target??"—"}</span><span className={store.gap<0?"is-short":""}>{store.gap===null?"Sin meta":store.gap<0?`Faltan ${-store.gap}`:store.gap?`+${store.gap}`:"Completa"}</span><span className="commercial-personnel-coverage">{store.coverage===null?"—":<><i><em style={{width:`${Math.min(store.coverage,100)}%`}}/></i><strong>{store.coverage}%</strong></>}</span></div>)}</div>}
 </div>,

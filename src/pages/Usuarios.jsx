@@ -119,7 +119,7 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
   const openNew = () => { clearErrors(); setOptionalFields(optionalStateFor(blank)); setEditing({ ...blank, rol: availableRoles.includes("vendedor") ? "vendedor" : (availableRoles[0] || "trabajador"), fecha_ingreso: todayISO() }); };
   const openEdit = (item) => {
     clearErrors();
-    const normalized = { ...item, numero_hijos: Number(item.numero_hijos) > 0 ? item.numero_hijos : "", motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "" };
+    const normalized = { ...item, usuario: item.usuario ?? "", numero_hijos: Number(item.numero_hijos) > 0 ? item.numero_hijos : "", motivo_salida: normalizeDepartureReason(item.motivo_salida), tipo_documento: item.tipo_documento || "dni", tienda_id: item.tienda_id || "", cluster_id: item.cluster_id || "", mes_cumpleanos: item.mes_cumpleanos || item.fecha_nacimiento?.slice(5, 7) || "", password: "" };
     setOptionalFields(optionalStateFor(normalized));
     setEditing(normalized);
   };
@@ -442,12 +442,13 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
 
       <Modal
         open={!!editing}
+        closeOnlyWithX
         wide
         title={zonalTeam ? (editing?.id ? "Editar administrador" : "Nuevo trabajador") : (editing?.id ? "Editar usuario" : isStoreAdmin ? "Nuevo personal" : "Nuevo usuario")}
         subtitle={zonalTeam ? "Completa la ficha laboral y, si tendrá acceso, sus credenciales de administrador." : "Los campos marcados son obligatorios."}
         onClose={closeEditor}
       >
-        {editing && (isStoreAdmin || zonalTeam) ? <StoreNewPersonForm value={editing} editing={Boolean(editing.id)} set={set} errors={fieldErrors} formError={formError} onSubmit={save} onClose={closeEditor} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} stores={zonalTeam ? tiendaOptions : undefined} /> : editing && (
+        {editing && (isStoreAdmin || zonalTeam) ? <StoreNewPersonForm value={editing} editing={Boolean(editing.id)} set={set} errors={fieldErrors} formError={formError} onSubmit={save} busy={busy} roles={availableRoles} roleLabels={roleLabels} districts={districts} today={todayISO()} stores={zonalTeam ? tiendaOptions : undefined} /> : editing && (
           <form className="form-grid" onSubmit={save} noValidate>
             {formError && <div className="span-2"><Notice type="error" onClose={() => setFormError("")}>{formError}</Notice></div>}
             <Field label="Nombres" error={fieldErrors.nombres}><input required value={editing.nombres} onChange={(e) => set("nombres", e.target.value)} /></Field>
@@ -455,11 +456,15 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <Field label="Tipo de documento"><select value={editing.tipo_documento || "dni"} onChange={(e) => { set("tipo_documento", e.target.value); set("dni", ""); }}><option value="dni">DNI</option><option value="ce">Carné de extranjería (CE)</option></select></Field>
             <Field label={editing.tipo_documento === "ce" ? "Número de CE" : "Número de DNI"} error={fieldErrors.dni} hint={`${editing.tipo_documento === "ce" ? 9 : 8} dígitos`}><input required inputMode="numeric" maxLength={editing.tipo_documento === "ce" ? 9 : 8} value={editing.dni} onChange={(e) => set("dni", e.target.value.replace(/\D/g, ""))} /></Field>
             <Field label="Teléfono" error={fieldErrors.telefono} hint="9 dígitos, opcional"><input maxLength={9} value={editing.telefono} onChange={(e) => set("telefono", e.target.value.replace(/\D/g, ""))} /></Field>
-            <OptionalProfileField label="Correo" checked={optionalFields.email} onChange={(enabled) => toggleOptionalField("email", enabled)}><Field label="Correo" hint="Se usa para notificaciones de incidencias"><input required type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field></OptionalProfileField>
+            {editing.id ? (
+              <Field label="Correo" hint="Se usa para notificaciones de incidencias"><input type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
+            ) : (
+              <OptionalProfileField label="Correo" checked={optionalFields.email} onChange={(enabled) => toggleOptionalField("email", enabled)}><Field label="Correo" hint="Se usa para notificaciones de incidencias"><input required type="email" value={editing.email || ""} onChange={(e) => set("email", e.target.value)} /></Field></OptionalProfileField>
+            )}
             {zonalTeam && <div className="form-section-title span-2"><strong>Credenciales de acceso</strong><span>Define usuario y contraseña para que el administrador pueda ingresar con su rol.</span></div>}
             <Field label="Usuario" error={fieldErrors.usuario} hint="Opcional. Sin usuario no podrá iniciar sesión."><input value={editing.usuario || ""} onChange={(e) => set("usuario", e.target.value)} /></Field>
             <Field label={editing.id ? "Nueva contraseña" : "Contraseña"} error={fieldErrors.password} hint={editing.id ? "Déjala vacía para conservar la actual." : "Opcional; mínimo 3 caracteres si se asigna."}>
-              <input type="password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
+              <input type="password" autoComplete="new-password" value={editing.password} onChange={(e) => set("password", e.target.value)} />
             </Field>
             <Field label="Fecha de ingreso" error={fieldErrors.fecha_ingreso}><input required type="date" value={editing.fecha_ingreso || ""} onChange={(e) => set("fecha_ingreso", e.target.value)} /></Field>
             <Field label="Fecha de nacimiento"><input type="date" max={todayISO()} value={editing.fecha_nacimiento || ""} onChange={(e) => set("fecha_nacimiento", e.target.value)} /></Field>
@@ -522,7 +527,6 @@ export default function Usuarios({ user, zonalTeam = false, embedded = false }) 
             <OptionalProfileField label="Alergia" className="span-2" checked={optionalFields.alergia} onChange={(enabled) => toggleOptionalField("alergia", enabled)}><Field label="Alergia"><textarea required rows={2} maxLength={500} placeholder="Describe la alergia" value={editing.alergia || ""} onChange={(e) => set("alergia", e.target.value)} /></Field></OptionalProfileField>
             <OptionalProfileField label="Condición de salud" className="span-2" checked={optionalFields.condicion_salud} onChange={(enabled) => toggleOptionalField("condicion_salud", enabled)}><Field label="Condición de salud" hint="Tratamientos, restricciones o consideraciones médicas relevantes."><textarea required rows={3} maxLength={500} placeholder="Describe la condición, tratamiento o restricción" value={editing.condicion_salud || ""} onChange={(e) => set("condicion_salud", e.target.value)} /></Field></OptionalProfileField>
             <div className="form-actions span-2">
-              <button type="button" className="button button--ghost" onClick={closeEditor}>Cancelar</button>
               <button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button>
             </div>
           </form>

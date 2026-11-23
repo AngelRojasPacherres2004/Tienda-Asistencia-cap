@@ -1,3 +1,4 @@
+import { compareTrainingCourses, trainingCourseLabel } from "../../shared/trainingGroups.js";
 import { attendancePersonId, attendancePersonName } from '../../shared/attendance.js';
 
 export function createWorkforceDomain({
@@ -169,7 +170,9 @@ export function createWorkforceDomain({
     const targets = new Set(trainingTargetRoles(user.rol));
     return data
       .map(({ curso_roles, ...curso }) => ({ ...curso, roles: (curso_roles || []).map((row) => row.rol_codigo) }))
-      .filter((curso) => user.rol === "coach" || curso.roles.some((role) => targets.has(role)));
+      .filter((curso) => user.rol === "coach" || curso.roles.some((role) => targets.has(role)))
+      .sort(compareTrainingCourses([...targets][0]))
+      .map(curso => ({ ...curso, nombre_visual: trainingCourseLabel(curso.nombre, [...targets][0]) }));
   }
 
   async function replaceCursoRoles(cursoId, roles) {
@@ -365,7 +368,7 @@ export function createWorkforceDomain({
         usuario: trabajador.usuario, rol: trabajador.rol, estado: trabajador.estado,
       },
       resumen: { completados, total: items.length },
-      cursos: items,
+      cursos: items.sort(compareTrainingCourses(trabajador.rol)).map(curso => ({ ...curso, titulo_visual: trainingCourseLabel(curso.titulo, trabajador.rol) })),
     };
   }
 
@@ -505,7 +508,8 @@ export function createWorkforceDomain({
         nota: progreso?.nota ?? null,
         fecha_finalizacion: progreso?.fecha_finalizacion ?? null,
       };
-    }).sort((a, b) => a.titulo.localeCompare(b.titulo));
+    }).sort(compareTrainingCourses(user.rol))
+      .map(curso => ({ ...curso, titulo_visual: trainingCourseLabel(curso.titulo, user.rol) }));
   }
 
   return { listAsistenciasDia, guardarAsistenciasLote, eliminarAsistencia, listAsistenciasHistorial, listLogAsistencias, misAsistencias, listCursos, createCurso, updateCurso, deleteCurso, listEncargados, createEncargado, updateEncargado, listTrabajadores, getTrabajadorPerfil, guardarProgreso, getResumenCurso, asignarLote, misCapacitaciones };

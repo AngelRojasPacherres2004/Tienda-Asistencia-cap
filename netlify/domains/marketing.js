@@ -1,3 +1,4 @@
+import { allowedSections } from '../../shared/section-catalog.js';
 export function createMarketingDomain({ supabase, dbError, readAllResult, todayISO, storeStaffRoles, bodyOf, requireFields, cleanText, httpError }) {
   async function marketingStoreIds(user) {
     const { data: account, error } = await supabase.from("usuarios").select("acceso_todas_tiendas").eq("id", user.id).single();
@@ -92,7 +93,21 @@ export function createMarketingDomain({ supabase, dbError, readAllResult, todayI
     ].map(request => readAllResult(request)));
     const failed = results.find((result) => result.error); if (failed) throw dbError(failed.error);
     const [stores,traffic,attendance,warnings,errors,campaigns,validations,incidents,deliverables,followers,trainings] = results.map((result) => result.data || []);
-    return { stores,people,traffic,attendance,warnings,errors,campaigns,validations,incidents,deliverables,followers,trainings,access:{allStores:ids===null,storeIds:ids||[]} };
+    const result = { stores,people,traffic,attendance,warnings,errors,campaigns,validations,incidents,deliverables,followers,trainings,access:{allStores:ids===null,storeIds:ids||[]} };
+    if (Array.isArray(user.secciones_permitidas)) {
+      const sections = new Set(allowedSections(user));
+      const needs = {
+        people: ['marketing-inicio','marketing-personal','marketing-asistencia','marketing-incidencias','marketing-capacitaciones'],
+        traffic: ['marketing-inicio'], attendance: ['marketing-inicio','marketing-asistencia'],
+        warnings: ['marketing-inicio','marketing-incidencias'], errors: ['marketing-inicio','marketing-incidencias'],
+        campaigns: ['marketing-inicio','marketing-campanas','marketing-validacion','marketing-incidencias'],
+        validations: ['marketing-inicio','marketing-validacion'], incidents: ['marketing-inicio','marketing-incidencias'],
+        deliverables: ['marketing-inicio','marketing-campanas'], followers: ['marketing-inicio','marketing-seguidores'],
+        trainings: ['marketing-inicio','marketing-capacitaciones'],
+      };
+      for (const [key, required] of Object.entries(needs)) if (!required.some(id => sections.has(id))) result[key] = [];
+    }
+    return result;
   }
 
   async function assertMarketingPerson(user, id) {

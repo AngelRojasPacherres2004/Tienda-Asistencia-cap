@@ -4,13 +4,13 @@ const routeKey = row => JSON.stringify([row.productId, row.source, row.destinati
 export function createTransferGroupsDomain({ supabase, currentCommercialAccess, commercialStoreTransfers, commercialCompanyRanking, readAllResult, bodyOf, httpError, dbError }) {
   const table = 'commercial_transfer_items';
   const fail = (message, status = 400) => { throw httpError(message, status); };
-  async function accessFor(user) {
+  async function accessFor(user, readOnly = false) {
     const access = await currentCommercialAccess(user);
-    if (!['jefe_tienda', 'asistente_tienda', 'gerente_comercial', 'jefe_zonal'].includes(access.role)) fail('No tienes permiso para gestionar traslados.', 403);
+    if (!(readOnly && access.role === 'gerencia_general') && !['jefe_tienda', 'asistente_tienda', 'gerente_comercial', 'jefe_zonal'].includes(access.role)) fail('No tienes permiso para gestionar traslados.', 403);
     return access;
   }
   async function listTransferGroups(user) {
-    const access = await accessFor(user);
+    const access = await accessFor(user, true);
     const { data, error } = await readAllResult(supabase.from(table).select('*').in('tienda_origen', access.storeIds).order('creado_en', { ascending: false }).order('id'));
     if (error) throw dbError(error);
     const ranking = await commercialCompanyRanking(user);

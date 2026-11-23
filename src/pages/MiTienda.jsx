@@ -1,11 +1,12 @@
 import { attendanceDayIndex, attendancePersonId, PRESENT_STATES } from "../../shared/attendance.js";
 import { employmentPeriods, rotationCounts } from "../../shared/metrics.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CalendarCheck2, ChevronLeft, ChevronRight, FileClock, SlidersHorizontal, GraduationCap, Maximize2, Minimize2, RotateCcw, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatDate, todayISO } from "../lib/api";
 import { demoTrafficTotal, demoZonalComparison, isOperationalDemo } from "../lib/operationalDemo";
 import { exportExcel } from "../lib/excelExport";
+import { createMouseDragScroll } from "../lib/mouseDragScroll";
 import { Loading, Notice, Pagination } from "../components/UI";
 import TrafficHourMatrix from "../components/TrafficHourMatrix";
 import { WorkerInsightsPanels } from "./Dashboard";
@@ -64,7 +65,9 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
   const dashboardActions = <div className="store-dashboard-actions"><button onClick={() => onNavigate(isZonal ? "zonal-personal" : "usuarios")}><Users size={16} />{isZonal ? "Mis equipos" : "Gestionar personal"}</button>{!isZonal && <button onClick={() => onNavigate("asistencias")}><CalendarCheck2 size={16} />Registrar asistencia</button>}<button onClick={() => onNavigate("capacitaciones")}><GraduationCap size={16} />Capacitaciones</button>{!isStoreAdmin && <button onClick={() => onNavigate(isZonal ? "zonal-incidencias" : "incidencias-tienda")}><AlertTriangle size={16} />Incidencias</button>}<button onClick={exportSummary}><FileClock size={16} />Exportar resumen</button></div>;
   const storeAttendance = zonalAlerts?.attendance?.tiendas?.find((store) => String(store.id) === String(storeId));
   if (renderSections && isStoreAdmin) return renderSections({
-    demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
+    attendance: <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={[]} showErrors={false} tableOnly onNavigate={onNavigate} period={matrixPeriod} onPeriodChange={setMatrixPeriod} storeId={storeId} />,
+    training: <TrainingDevelopmentHome compactTitles />,
+    demand: <><SalesForecastMatrix compactTitles forecast={salesForecast} error={salesForecastError} storeName={storeName} /><TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId="" scopeName={storeName} period={matrixPeriod} /></>,
   });
   return <section className="store-dashboard-shell is-light">
     <header className="store-dashboard-hero"><div><span><Users size={28} /></span><div><h1>{view === "commercial" ? "OPERACIÓN Y EQUIPO" : isZonal ? storeName.toUpperCase() : "RESUMEN DE MI TIENDA"}</h1></div></div><div className="store-dashboard-view-controls">{isZonal && <label className="store-dashboard-store-picker"><span>Tienda</span><select value={storeId} onChange={(event) => changeStore(event.target.value)} aria-label="Seleccionar tienda"><option value="all">Todas las tiendas</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.nombre}</option>)}</select></label>}<button type="button" onClick={() => setDashboardKey((value) => value + 1)}><RotateCcw size={15} />Limpiar filtros</button></div></header>
@@ -81,7 +84,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
       <SalesForecastMatrix forecast={salesForecast} error={salesForecastError} storeName={storeName} />
       {!isStoreAdmin && dashboardActions}
       <DashboardSection kicker="Afluencia de clientes" title={`Tráfico de ${storeName} por hora`} />
-      <TrafficHourMatrix user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
+      <TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
       {!isStoreAdmin && <><DashboardSection kicker="Personal de tienda" title={`Asistencia y movimientos de ${storeName}`} />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} showErrors={!isStoreAdmin} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} isZonal={isZonal} storeId={storeId} />}
       <TrainingDevelopmentHome /></>}
@@ -243,6 +246,23 @@ function TrainingDevelopmentHome({ compactTitles = false }) {
   useEffect(() => setPage(1), [courseId, status, selectedWorkerId]);
   const stateLabel = (value) => ({ completado: "Completado", en_curso: "En curso", pendiente: "Pendiente" }[value] || "Pendiente");
   const selectedWorker = selectableWorkers.find((person) => String(person.trabajador_id) === String(selectedWorkerId));
+  if (compactTitles) return <section className="training-development training-development--chart-only" aria-label="Avance de capacitaciones">
+    {error && <Notice type="error">{error}</Notice>}
+    <div className="training-development-grid"><article>
+      <header><h3>Avance de capacitaciones</h3><strong>{people.length ? Math.round(people.filter(person => person.progreso_estado === 'completado').length * 100 / people.length) : 0}% completado</strong></header>
+      <div className="training-development-bars">{loading ? <Loading /> : selectableWorkers.length ? selectableWorkers.map(person => {
+        const done = person.total > 0 && person.completados === person.total;
+        const state = done ? 'completado' : person.en_curso || person.completados ? 'en_curso' : 'pendiente';
+        return <div className="training-worker" key={person.trabajador_id}>
+          <strong title={person.nombres + ' ' + person.apellidos}>{person.nombres} {person.apellidos}</strong>
+          <span className="training-progress" data-state={state} role="progressbar" aria-label={person.nombres + ' ' + person.apellidos} aria-valuemin={0} aria-valuemax={person.total} aria-valuenow={person.completados} aria-valuetext={stateLabel(state) + ': ' + person.completados + ' de ' + person.total}>
+            <i style={{ width: (person.completados * 100 / person.total) + '%' }} /><b>{person.completados}/{person.total}</b>
+          </span>
+          <span className={'training-status training-status--' + state}>{stateLabel(state)}</span>
+        </div>;
+      }) : <p className="training-development-empty">No hay capacitaciones asignadas al equipo.</p>}</div>
+    </article></div>
+  </section>;
   return <section className="training-development"><header><div><span>Desarrollo</span><h2>{compactTitles ? "Capacitación" : "Capacitación y desarrollo"}</h2></div><p>Avance y estado de cursos asignados al personal.</p></header><div className="training-development-filters"><label>Curso<select value={courseId} onChange={(event) => { setCourseId(event.target.value); setSelectedWorkerId(null); }}><option value="">Todos</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.nombre}</option>)}</select></label><label>Estado<select value={status} onChange={(event) => { setStatus(event.target.value); setSelectedWorkerId(null); }}><option value="todos">Todos</option><option value="completado">Completado</option><option value="en_curso">En curso</option><option value="pendiente">Pendiente</option></select></label></div>{error && <Notice type="error">{error}</Notice>}<div className="training-development-grid"><article><header><h3>Avance de capacitaciones</h3><strong>{selectedWorker ? `${selectedWorker.nombres} ${selectedWorker.apellidos}` : `${visible.length ? Math.round(completed * 100 / visible.length) : 0}% completado`}</strong></header><div className="training-development-legend"><span><i />Completado</span><span><i />En curso</span><span><i />Pendiente</span></div><div className="training-development-bars">{loading ? <Loading /> : selectableWorkers.length ? selectableWorkers.map((person) => { const state = person.completados === person.total ? "completado" : person.en_curso ? "en_curso" : "pendiente"; const active = String(person.trabajador_id) === String(selectedWorkerId); return <button type="button" key={person.trabajador_id} className={`training-worker ${active ? "is-selected" : ""}`} onClick={() => { setSelectedWorkerId(active ? null : person.trabajador_id); setStatus("todos"); }} aria-pressed={active}><strong title={`${person.nombres} ${person.apellidos}`}>{person.nombres} {person.apellidos}</strong><span className="training-progress" data-state={state}><i style={{ width: `${person.total ? person.completados * 100 / person.total : 0}%` }} /><b>{person.completados}/{person.total}</b></span></button>; }) : <p className="training-development-empty">No hay personas que coincidan con este filtro.</p>}</div>{selectedWorker && <button type="button" className="training-clear-worker" onClick={() => setSelectedWorkerId(null)}>Quitar selección</button>}</article><article><header><h3>Historial de capacitaciones</h3><strong>{visible.length} asignaciones</strong></header><div className="training-history"><div className="training-history-head"><span>Trabajador</span><span>Curso</span><span>Estado</span></div>{loading ? <div className="training-history-empty">Cargando asignaciones...</div> : visible.length ? visiblePage.map((person) => <div key={person.id}><strong title={`${person.nombres} ${person.apellidos}`}>{person.nombres} {person.apellidos}</strong><span title={person.curso_nombre || selectedCourse?.nombre || ""}>{person.curso_nombre || selectedCourse?.nombre || "Sin capacitación seleccionada"}</span><span className={`training-status training-status--${person.progreso_estado || "pendiente"}`}>{stateLabel(person.progreso_estado)}</span></div>) : <div className="training-history-empty">No hay asignaciones para este filtro.</div>}</div></article></div><Pagination page={page} pages={pages} onChange={setPage}/></section>;
 }
 
@@ -259,7 +279,8 @@ const attendanceCodes = {
   suspension: { code: "S", label: "Suspensión" },
 };
 
-function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true }) {
+function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true, tableOnly = false }) {
+  const dragScroll = useMemo(() => createMouseDragScroll(), []);
   const currentDate = todayISO();
   const { year, monthNumber, week, day } = period;
   const setYear = (value) => onPeriodChange((current) => ({ ...current, year: value }));
@@ -343,7 +364,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
       <button className="button button--ghost button--small" onClick={resetFilters}><RotateCcw size={14} />Restablecer</button>
     </aside>}
     {error ? <Notice type="error">{error}</Notice> : records === null ? <Loading /> : visiblePeople.length ? (
-      <div className="attendance-matrix-scroll" role="region" aria-label="Matriz de asistencia, desplazable horizontalmente" tabIndex={0}>
+      <div className="attendance-matrix-scroll" {...dragScroll} title="Mantén presionado el clic y arrastra para desplazarte" role="region" aria-label="Matriz de asistencia, desplazable horizontalmente" tabIndex={0}>
         <div className="attendance-matrix" style={{ "--attendance-days": days.length }}>
           <div className="attendance-matrix-row attendance-matrix-row--totals">
             <strong className="attendance-matrix-person">Total asistencia</strong>
@@ -373,7 +394,7 @@ function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = fal
       </div>
     ) : <p className="store-empty-copy">No hay trabajadores para mostrar con estos filtros.</p>}
   </section>
-  <PersonnelCharts showErrors={showErrors} people={people} errors={errors} year={year} monthNumber={monthNumber} week={week} day={day} isZonal={isZonal} storeId={storeId} />
+  {!tableOnly && <PersonnelCharts showErrors={showErrors} people={people} errors={errors} year={year} monthNumber={monthNumber} week={week} day={day} isZonal={isZonal} storeId={storeId} />}
   </>;
 }
 

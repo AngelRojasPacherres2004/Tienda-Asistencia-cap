@@ -17,7 +17,7 @@ import CommercialReactSizeDetailModal from "./CommercialReactSizeDetailModal";
 import CommercialReactAssistantController from "./CommercialReactAssistantController";
 import CommercialTransferCart from "./CommercialTransferCart";
 
-export default function CommercialReactStandalone({ model, controller, storeOperations = null, managerOperations = false, transferOnly = false }) {
+export default function CommercialReactStandalone({ model, controller, storeOperations = null, managerOperations = false, transferOnly = false, summaryOnly = false }) {
   useEffect(() => {
     if (model.mode === "ready" && transferOnly) controller.prepareTransferMatrix();
   }, [controller, model.mode, transferOnly]);
@@ -29,14 +29,14 @@ export default function CommercialReactStandalone({ model, controller, storeOper
   const modal = model.modal;
   if (transferOnly) return <main className="app-shell portal-embed" data-react-commercial-shell="true">
     <header className="section-heading"><div><h1>Transferencia</h1></div></header>
-    <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
-    {model.transfers && <CommercialReactTransferModal embedded model={model.transfers} onAction={action => controller.onReactTransferAction(action)} />}
+    {!summaryOnly && <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />}
+    {model.transfers && <CommercialReactTransferModal readOnly={summaryOnly} embedded model={model.transfers} onAction={action => controller.onReactTransferAction(action)} />}
   </main>;
   return <CommercialChartTypography.Provider value={managerOperations ? 'manager' : false}><SingleBarPresentation.Provider value={Boolean(storeOperations)}><main className={`app-shell portal-embed${storeOperations || managerOperations ? ' store-admin-dashboard' : ''}${managerOperations ? ' manager-commercial-dashboard' : ''}`} data-react-commercial-shell="true">
-    <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />
+    {!summaryOnly && <CommercialTransferCart model={model.transferCart} onAction={action => controller.onReactTransferAction(action)} />}
     {model.expanded && <button type="button" className="chart-backdrop" aria-label="Cerrar gráfico ampliado" onClick={() => controller.closeExpandedChart()} />}
     {modal?.type === "birthday" && <CommercialReactBirthdayModal model={modal.model} onAction={action => controller.onReactBirthdayAction(action)} />}
-    {modal?.type === "transfer" && <CommercialReactTransferModal model={modal.model} onAction={action => controller.onReactTransferAction(action)} />}
+    {modal?.type === "transfer" && <CommercialReactTransferModal readOnly={summaryOnly} model={modal.model} onAction={action => controller.onReactTransferAction(action)} />}
     {modal?.type === "stock-origin" && <CommercialReactStockOriginModal model={modal.model} onAction={action => controller.onReactStockOriginModalAction(action)} />}
     {modal?.type === "monthly" && <CommercialReactMonthlyModal model={modal.model} onAction={action => controller.onReactMonthlyModalAction(action)} />}
     {modal?.type === "size-detail" && <CommercialReactSizeDetailModal model={modal.model} onClose={() => controller.closeExpandedChart()} />}

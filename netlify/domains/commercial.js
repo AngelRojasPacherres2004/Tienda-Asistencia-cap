@@ -32,7 +32,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
   async function commercialOperationalSummary(sessionUser) {
     const access = await currentCommercialAccess(sessionUser);
     const { data: mappings, error: mappingError } = await supabase.from('commercial_store_map')
-      .select('dashboard_store_id,tienda_id').in('dashboard_store_id', access.storeIds);
+      .select('dashboard_store_id,tienda_id,cluster_code').in('dashboard_store_id', access.storeIds);
     if (mappingError) throw dbError(mappingError);
     const storeIds = [...new Set((mappings || []).map(row => row.tienda_id))];
     if (!storeIds.length) return { activeWorkers: [], courses: [], training: [], departures: [], incidents: [], stores: [], monthlyPersonnelArea: [], personnelProfiles: [] };
@@ -487,10 +487,19 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
       return part.encoding === 'gzip' ? gunzipSync(bytes).toString('utf8') : bytes.toString('utf8');
     }));
     const dashboard = JSON.parse(chunks.join(''));
+    // Older published files may omit the floor area needed for sales per m2.
+    const [areasResult, mappingResult] = await Promise.all([
+      supabase.from('tiendas').select('id,metraje_m2'),
+      supabase.from('commercial_store_map').select('dashboard_store_id,tienda_id'),
+    ]);
+    if (areasResult.error || mappingResult.error) throw dbError(areasResult.error || mappingResult.error);
+    const areasById = new Map((areasResult.data || []).map(store => [store.id, Number(store.metraje_m2) || 0]));
+    const rankingAreas = new Map((mappingResult.data || []).map(row => [row.dashboard_store_id, areasById.get(row.tienda_id) || 0]));
+
     const value = {
       stores: (dashboard.stores || []).filter(store => store.isStore).map(store => ({
         storeId: store.storeId, store: store.store, alias: store.alias, isStore: true,
-        format: store.format, cluster: store.cluster, areaM2: store.areaM2, capacity: store.capacity,
+        format: store.format, cluster: store.cluster, areaM2: Number(store.areaM2) > 0 ? Number(store.areaM2) : rankingAreas.get(store.storeId) || 0, capacity: store.capacity,
         status: store.status, openingDate: store.openingDate, closingDate: store.closingDate,
       })),
       monthlyStore: (dashboard.monthlyStore || []).map(row => ({ periodId: row.periodId, storeId: row.storeId,

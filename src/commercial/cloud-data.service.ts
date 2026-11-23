@@ -110,6 +110,7 @@ export class CloudDataService {
   private fileManifest = new Map<string, DashboardFileRow>();
   private readonly portalGetRequests = new Map<string, Promise<unknown>>();
   private storeGoalsCache: { goals: StoreGoal[]; annualTargets: AnnualGoal[] } | null = null;
+  private trafficSummaryCache: TrafficSummary | null = null;
 
   readonly authReady = signal(false);
   readonly session = signal<Session | null>(null);
@@ -153,7 +154,7 @@ export class CloudDataService {
         this.portalUser.set(account.user);
         this.accessProfile.set({
           roleCode,
-          roleName: roleCode === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
+          roleName: roleCode === 'gerencia_general' ? 'Gerencia general' : roleCode === 'coach' ? 'Coach comercial' : access.scopeType === 'all' ? 'Gerencia comercial' : access.scopeType === 'cluster' ? 'Jefatura zonal' : 'Administración de tienda',
           canAccessDashboard: true,
           scopeType: access.scopeType,
           stores: access.scopeType === 'store' ? [access.scopeValue || ''] : [],
@@ -382,9 +383,14 @@ export class CloudDataService {
     return this.storeGoalsCache;
   }
 
-  async trafficSummary(): Promise<TrafficSummary | null> {
+  async trafficSummary({ refresh = false } = {}): Promise<TrafficSummary | null> {
     if (!this.portalMode) return null;
-    return this.portalRequest<TrafficSummary>('/commercial/traffic-summary');
+    if (!refresh && this.trafficSummaryCache) return this.trafficSummaryCache;
+    const summary = refresh
+      ? await this.portalRequest<TrafficSummary>('/commercial/traffic-summary')
+      : await this.criticalPortalGet<TrafficSummary>('/commercial/traffic-summary');
+    this.trafficSummaryCache = summary;
+    return summary;
   }
 
   async invokeFunction<T>(name: string, body: object | FormData): Promise<T> {

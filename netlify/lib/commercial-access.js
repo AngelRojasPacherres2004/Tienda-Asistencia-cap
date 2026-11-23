@@ -1,8 +1,8 @@
-const commercialRoles = new Set(["gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"]);
+const commercialRoles = new Set(["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "coach"]);
 
 export function commercialAccess(account, scope, storeMap, assignedCluster) {
   if (!account || account.estado !== "activo" || !commercialRoles.has(account.rol)) return null;
-  if (account.rol === "coach") {
+  if (["gerencia_general", "coach"].includes(account.rol)) {
     return { scopeType: "all", scopeValue: null, storeIds: storeMap.map(row => row.dashboard_store_id) };
   }
   if (account.rol === "asistente_tienda") {

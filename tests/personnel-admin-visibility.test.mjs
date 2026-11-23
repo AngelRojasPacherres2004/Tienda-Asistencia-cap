@@ -9,6 +9,7 @@ function setup() {
     { id: 3, nombres: 'Vendedor', apellidos: 'Tienda', rol: 'vendedor', tienda_id: 10, estado: 'activo' },
     { id: 4, nombres: 'Administrador', apellidos: 'Ajeno', rol: 'jefe_tienda', tienda_id: 20, estado: 'activo' },
   ];
+  people.forEach(person => { person.suspendido_sistemas = false; });
   const supabase = { from(table) {
     const filters = [];
     const query = {
