@@ -27,12 +27,12 @@ SCHEMAS: dict[str, tuple[str, ...]] = {
         "goodUnits", "units30", "sales30",
     ),
     "sizeSales90": (
-        "periodId", "storeId", "productId", "productCode", "product", "category",
+        "periodId", "storeId", "productId", "productCode", "serie", "product", "category",
         "line", "subline", "brand", "units90",
     ),
 }
 
-DIMENSIONS = frozenset({"periodId", "storeId", "productId", "productCode", "product", "category", "line", "subline", "brand", "priceBand"})
+DIMENSIONS = frozenset({"periodId", "storeId", "productId", "productCode", "serie", "product", "category", "line", "subline", "brand", "priceBand"})
 SELLER_GROUP_FIELDS = SCHEMAS["sellerPerformance"][:5]
 SELLER_DIMENSIONS = (*SELLER_GROUP_FIELDS, "seller")
 DAILY_FIELDS = frozenset({
@@ -47,7 +47,7 @@ PREDICTIVE_FIELDS = frozenset({
     "storeId", "productId", "units60", "units90", "merma30", "merma60", "merma90",
 })
 PREDICTIVE_METRICS = ("units60", "units90", "merma30", "merma60", "merma90")
-STOCK_METADATA = ("productId", "productCode", "product", "category", "line", "subline", "brand")
+STOCK_METADATA = ("productId", "productCode", "serie", "product", "category", "line", "subline", "brand")
 STOCK_METRICS = (
     "stockUnits", "stockValue", "goodUnits", "mermaStockUnits", "desmedroStockUnits",
     "units30", "sales30", "units12", "sales12",
@@ -418,7 +418,7 @@ def compactar_tallas(registros: list[dict[str, Any]], rubro: str, predictivos: l
             tiendas.append(tienda)
         producto = registro["productId"]
         codigo = registro["productCode"]
-        metadatos = [producto, codigo, registro["product"] if len(codigo) == 14 else "",
+        metadatos = [producto, codigo, registro.get("serie") or "", registro["product"],
                      indice("line", registro["line"]), indice("subline", registro["subline"]),
                      indice("brand", registro.get("brand", "SIN MARCA"))]
         indice_producto = indices_producto.get(producto)
@@ -440,14 +440,19 @@ def descompactar_tallas(payload: dict[str, Any]) -> list[dict[str, Any]]:
     resultado: list[dict[str, Any]] = []
     for valores in payload["rows"]:
         tienda, producto, stock, venta, *resto = valores
-        sku, codigo, nombre, linea, sublinea, *marca = payload["products"][producto]
+        datos_producto = payload["products"][producto]
+        if len(datos_producto) == 7:
+            sku, codigo, serie, nombre, linea, sublinea, *marca = datos_producto
+        else:  # Compatibilidad con publicaciones anteriores sin serie.
+            sku, codigo, nombre, linea, sublinea, *marca = datos_producto
+            serie = ""
         if "dictionary" in payload:
             linea = payload["dictionary"]["line"][linea]
             sublinea = payload["dictionary"]["subline"][sublinea]
             marca = [payload["dictionary"]["brand"][marca[0]]]
         resultado.append({
             "storeId": payload["stores"][tienda], "productId": sku, "productCode": codigo,
-            "product": nombre, "category": payload["category"], "line": linea,
+            "serie": serie, "product": nombre, "category": payload["category"], "line": linea,
             "subline": sublinea, "brand": marca[0] if marca else "SIN MARCA",
             "stockUnits": stock, "units30": venta, "units90": resto[0] if resto else venta,
         })

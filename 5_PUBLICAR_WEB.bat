@@ -38,6 +38,7 @@ if not exist ".venv\Scripts\python.exe" (
     goto :error
 )
 
+echo Publicando producto analitico, serie y catalogo de SKU en Supabase...
 ".venv\Scripts\python.exe" "piplines\publicar_web_local.py" --periodo "%PERIODO%" --fecha-corte "%FECHA_CORTE%"
 if errorlevel 1 goto :error
 
@@ -49,5 +50,6 @@ exit /b 0
 :error
 echo.
 echo La publicacion no se completo. El dashboard publicado no fue reemplazado.
+echo Si falta dashboard_stock_skus, aplica primero la migracion stock_sku_series_catalog.
 if "%SIN_PAUSA%"=="0" pause
 exit /b 1

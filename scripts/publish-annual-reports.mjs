@@ -18,8 +18,9 @@ if (releaseError || !release) throw new Error("No se encontró un corte comercia
 const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"));
 const monthly = [2, 3].includes(manifest.schemaVersion);
 const reportVersion = monthly ? manifest.schemaVersion : null;
-if (manifest.cutoffs?.ventas !== release.sales_cutoff || manifest.cutoffs?.stock !== release.stock_cutoff) {
-  throw new Error("La Capa 2 no coincide con el corte publicado; no se mezclarán fuentes.");
+if (!manifest.cutoffs?.ventas || !manifest.cutoffs?.stock
+  || manifest.cutoffs.ventas > release.sales_cutoff || manifest.cutoffs.stock > release.stock_cutoff) {
+  throw new Error("El paquete de reportes supera el corte comercial publicado.");
 }
 if (!Array.isArray(manifest.files) || !Array.isArray(manifest.summaries) || !Array.isArray(manifest.years)) {
   throw new Error("Catálogo anual incompleto.");
@@ -99,7 +100,7 @@ async function uploadOnceAvailable(file) {
     }
   }
 }
-await Promise.all(Array.from({ length: Math.min(2, files.length) }, async () => {
+await Promise.all(Array.from({ length: Math.min(8, files.length) }, async () => {
   while (nextFile < files.length && uploadErrors.length === 0) {
     const file = files[nextFile++];
     try {

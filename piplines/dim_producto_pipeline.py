@@ -30,8 +30,8 @@ from maestros import (
     sql_sublinea_id,
 )
 
-from project_paths import PROJECT_ROOT, WORK_TEMP_DIR
-BASE_DIR = PROJECT_ROOT
+from project_paths import DATA_ROOT, WORK_TEMP_DIR
+BASE_DIR = DATA_ROOT
 CAPA2_DIR = BASE_DIR / "capa2"
 SALIDA = CAPA2_DIR / "DimProducto.parquet"
 TEMP = WORK_TEMP_DIR / "DimProducto_temporal.parquet"
@@ -93,9 +93,13 @@ def select_fuente(con, archivo: Path, prioridad: int, nombre_fuente: str) -> str
     modelo = expresion_columna(cols, "modelo", "NULL")
     descripcion = expresion_columna(cols, "descripcion", "NULL")
     serie = expresion_columna(cols, "serie", "NULL")
+    producto_id = expresion_columna(cols, "producto_id", sql_producto_id('codigo_nissei'))
+    sku_id = expresion_columna(cols, "sku_id", sql_producto_id('codigo_nissei'))
     ruta = sql_literal(archivo.as_posix())
     return f"""
     SELECT DISTINCT
+        {producto_id} AS producto_id,
+        {sku_id} AS sku_id,
         {codigo} AS codigo_nissei,
         {proveedor} AS proveedor,
         {rubro} AS rubro,
@@ -127,6 +131,16 @@ def consulta(con) -> str:
     return f"""
     WITH candidatos AS (
         {union}
+    ), codigos AS (
+        SELECT
+            producto_id,
+            MIN(sku_id) AS sku_principal_id,
+            MIN(codigo_nissei) AS codigo_nissei_principal,
+            string_agg(DISTINCT codigo_nissei, ' | ' ORDER BY codigo_nissei) AS codigos_nissei,
+            COUNT(DISTINCT codigo_nissei)::INTEGER AS cantidad_codigos_nissei
+        FROM candidatos
+        WHERE producto_id IS NOT NULL
+        GROUP BY producto_id
     ), puntuado_base AS (
         SELECT *,
             (CASE WHEN proveedor <> 'SIN PROVEEDOR' THEN 1 ELSE 0 END
@@ -141,7 +155,7 @@ def consulta(con) -> str:
     ), puntuado AS (
         SELECT *,
             ROW_NUMBER() OVER (
-                PARTITION BY codigo_nissei
+                PARTITION BY producto_id
                 ORDER BY prioridad_fuente ASC, completitud DESC,
                          descripcion NULLS LAST, proveedor, rubro, linea, sub_linea
             ) AS rn
@@ -152,28 +166,32 @@ def consulta(con) -> str:
         WHERE rn = 1
     )
     SELECT
-        {sql_producto_id('codigo_nissei')} AS producto_id,
-        codigo_nissei,
+        m.producto_id,
+        c.sku_principal_id AS sku_id,
+        c.codigo_nissei_principal AS codigo_nissei,
+        c.codigos_nissei,
+        c.cantidad_codigos_nissei,
         {sql_proveedor_id('proveedor')} AS proveedor_id,
-        proveedor,
-        {sql_clasificacion_id('rubro','linea','sub_linea')} AS clasificacion_producto_id,
-        {sql_rubro_id('rubro')} AS rubro_id,
-        {sql_rubro_codigo('rubro')} AS rubro_codigo,
-        rubro,
-        {sql_linea_id('rubro','linea')} AS linea_id,
-        linea,
-        {sql_sublinea_id('rubro','linea','sub_linea')} AS sub_linea_id,
-        sub_linea,
-        {sql_marca_id('marca')} AS marca_id,
-        marca,
-        modelo,
-        descripcion,
-        serie,
-        (rubro='SERVICIOS' OR codigo_nissei='ENVIO') AS es_servicio,
-        fuente_maestra,
-        (codigo_nissei IS NOT NULL AND descripcion IS NOT NULL) AS es_producto_valido
-    FROM maestro
-    ORDER BY codigo_nissei
+        m.proveedor,
+        {sql_clasificacion_id('m.rubro','m.linea','m.sub_linea')} AS clasificacion_producto_id,
+        {sql_rubro_id('m.rubro')} AS rubro_id,
+        {sql_rubro_codigo('m.rubro')} AS rubro_codigo,
+        m.rubro,
+        {sql_linea_id('m.rubro','m.linea')} AS linea_id,
+        m.linea,
+        {sql_sublinea_id('m.rubro','m.linea','m.sub_linea')} AS sub_linea_id,
+        m.sub_linea,
+        {sql_marca_id('m.marca')} AS marca_id,
+        m.marca,
+        m.modelo,
+        m.descripcion,
+        m.serie,
+        (m.rubro='SERVICIOS' OR c.codigo_nissei_principal='ENVIO') AS es_servicio,
+        m.fuente_maestra,
+        (c.codigo_nissei_principal IS NOT NULL AND m.descripcion IS NOT NULL) AS es_producto_valido
+    FROM maestro m
+    INNER JOIN codigos c USING (producto_id)
+    ORDER BY c.codigo_nissei_principal
     """
 
 
@@ -328,14 +346,14 @@ def verificar() -> None:
         raise FileNotFoundError(f"No existe {SALIDA}")
     con = conectar()
     try:
-        filas, ids, codigos, nulos = con.execute(
-            f"SELECT COUNT(*), COUNT(DISTINCT producto_id), COUNT(DISTINCT codigo_nissei), "
+        filas, ids, nulos = con.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT producto_id), "
             f"COUNT(*) FILTER (WHERE producto_id IS NULL OR codigo_nissei IS NULL) "
             f"FROM read_parquet({sql_literal(SALIDA.as_posix())})"
         ).fetchone()
-        if not filas or filas != ids or filas != codigos or nulos:
+        if not filas or filas != ids or nulos:
             raise RuntimeError(
-                f"DimProducto inválida: filas={filas}, ids={ids}, códigos={codigos}, nulos={nulos}"
+                f"DimProducto inválida: filas={filas}, ids={ids}, nulos={nulos}"
             )
         print("\nDIM_PRODUCTO VERIFICADA")
         print(f"Productos : {filas:,}")

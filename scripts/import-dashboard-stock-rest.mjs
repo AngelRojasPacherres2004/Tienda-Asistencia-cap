@@ -8,8 +8,8 @@ const python = process.env.DASHBOARD_PYTHON || resolve(root, '.venv/Scripts/pyth
 const code = `import importlib.util,json
 s=importlib.util.spec_from_file_location('stock_import','scripts/import-dashboard-stock.py')
 m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-cutoff,sha,catalog,facts,totals=m.prepare()
-print(json.dumps(dict(cutoff=cutoff,sha=sha,catalog=catalog,facts=facts,totals=totals)))`;
+cutoff,sha,catalog,facts,skus,totals=m.prepare()
+print(json.dumps(dict(cutoff=cutoff,sha=sha,catalog=catalog,facts=facts,skus=skus,totals=totals)))`;
 const result = spawnSync(python, ['-c', code], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true });
 if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'No se pudo preparar el stock');
 const data = JSON.parse(result.stdout);
@@ -18,24 +18,26 @@ if (!process.argv.includes('--apply')) process.exit(0);
 if (process.env.SUPABASE_URL?.replace(/\/$/, '') !== 'https://xtnihjzqnxozbotymoma.supabase.co') throw new Error('Proyecto Supabase inesperado');
 const c = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
 function checked(result) { if (result.error) throw new Error(result.error.message); return result; }
+const schema = await c.from('dashboard_stock_skus').select('sku_id', { head: true }).limit(1);
+if (schema.error) throw new Error('Falta aplicar la migración stock_sku_series_catalog en Supabase: ' + schema.error.message);
 const existing = checked(await c.from('dashboard_stock_snapshots').select('source_sha256,row_count,status').eq('stock_cutoff', data.cutoff).maybeSingle()).data;
 if (existing && (existing.source_sha256 !== data.sha || existing.row_count !== data.facts.length)) throw new Error('El corte ya existe con otro contenido; no se reemplaza');
 if (!existing) checked(await c.from('dashboard_stock_snapshots').insert({ stock_cutoff: data.cutoff, source_sha256: data.sha, row_count: data.facts.length }));
-const catalogFields = ['stock_cutoff','product_id','product_code','product','category','line','subline','brand'];
+const catalogFields = ['stock_cutoff','product_id','product_code','product','category','line','subline','brand','serie'];
+const skuFields = ['stock_cutoff','product_id','sku_id','product_code','serie'];
 const factFields = ['stock_cutoff','store_id','product_id','stock_units','stock_value','good_units','merma_stock_units','desmedro_stock_units','units30','sales30','units12','sales12','units60','units90','merma30','merma60','merma90'];
-if (existing?.status !== 'ready') {
-  for (const [table, rows, fields, conflict] of [
-    ['dashboard_stock_catalog', data.catalog, catalogFields, 'stock_cutoff,product_id'],
-    ['dashboard_stock_metrics', data.facts, factFields, 'stock_cutoff,store_id,product_id'],
-  ]) {
+for (const [table, rows, fields, conflict] of [
+  ['dashboard_stock_catalog', data.catalog, catalogFields, 'stock_cutoff,product_id'],
+  ...(existing?.status === 'ready' ? [] : [['dashboard_stock_metrics', data.facts, factFields, 'stock_cutoff,store_id,product_id']]),
+  ['dashboard_stock_skus', data.skus, skuFields, 'stock_cutoff,product_id,sku_id'],
+]) {
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500).map(row => Object.fromEntries(fields.map((field, index) => [field, row[index]])));
       checked(await c.from(table).upsert(batch, { onConflict: conflict }));
       if (i % 10000 === 0) console.log(`${table}: ${Math.min(i + 500, rows.length)}/${rows.length}`);
     }
-  }
 }
-for (const [table, count] of [['dashboard_stock_catalog', data.catalog.length], ['dashboard_stock_metrics', data.facts.length]]) {
+for (const [table, count] of [['dashboard_stock_catalog', data.catalog.length], ['dashboard_stock_metrics', data.facts.length], ['dashboard_stock_skus', data.skus.length]]) {
   const actual = checked(await c.from(table).select('*', { head: true, count: 'exact' }).eq('stock_cutoff', data.cutoff)).count;
   if (actual !== count) throw new Error(`${table}: ${actual}/${count} filas`);
 }

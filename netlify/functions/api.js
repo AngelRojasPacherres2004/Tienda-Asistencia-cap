@@ -44,7 +44,7 @@ import { COMMERCIAL_BATCH_MAX_BYTES, COMMERCIAL_BATCH_SOURCES, commercialBatchCu
 import { NORMALIZED_REPORTS, normalizedReportPath } from "../../shared/normalizedReports.js";
 import { ANNUAL_REPORT_KINDS, ANNUAL_DETAIL_COLUMNS, annualReportPath, annualSummaryPath, annualMonthlyReportPath, annualMonthlySummaryPath, parseAnnualFilters, csvLine } from "../../shared/annualReports.js";
 import { summarizeAnnualReports, buildAnnualSummaryWorkbook } from "../lib/annual-report-workbook.js";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
@@ -365,7 +365,7 @@ const { systemUploadStart, systemUploadComplete, systemUploadCancel, systemUploa
   commercialAssistantMessages, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources, validateBatchChecksum, validateCommercialBatchFile,
   currentCommercialAccess, dbError, excelResponse, gunzipSync, httpError,
   join, jwt, jwtSecret, NORMALIZED_REPORTS, normalizedReportPath,
-  parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile,
+  parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile, readdir,
   resolve, summarizeAnnualReports, supabase, SYSTEM_SOURCES,
   SYSTEM_UPLOAD_CHUNK_SIZE, systemManifestPath, systemPartPath,
   validateBatchId, validateCutoff, validateSystemUpload,

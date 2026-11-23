@@ -46,7 +46,7 @@ type StockPriceRangeRow = { periodId: number; cutoff: string; storeId: string; c
 type SellerPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; seller: string; net: number; units: number; transactions: number };
 type ClientPerformanceRow = { periodId: number; storeId: string; category: string; line: string; subline: string; client: string; net: number; units: number; transactions: number };
 type ProductRow = {
-  storeId: string; productId: string; productCode?: string; product: string; category: string; line: string; subline: string; brand: string;
+  storeId: string; productId: string; productCode?: string; serie?: string; product: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits?: number; mermaStockUnits?: number; desmedroStockUnits?: number;
   units30: number; units90?: number; sales30: number; units12: number; sales12: number;
 };
@@ -59,9 +59,9 @@ type StockOrigin = { storeId: string; category: string; line: string; subline: s
 type StockHierarchyRow = { storeId: string; category: string; line: string; subline: string; brand: string;
   stockUnits: number; stockValue: number; goodUnits: number; units30: number; sales30: number;
   mermaStockUnits?: number; desmedroStockUnits?: number };
-type SizeProductRow = { storeId: string; productId: string; productCode: string; product: string;
+type SizeProductRow = { storeId: string; productId: string; productCode: string; serie?: string; product: string;
   category: SizeRubro; line: string; subline: string; brand?: string; stockUnits: number; units30: number; units90?: number };
-type SizeSaleRow = { periodId: number; storeId: string; productId: string; productCode: string; product: string;
+type SizeSaleRow = { periodId: number; storeId: string; productId: string; productCode: string; serie?: string; product: string;
   category: SizeRubro; line: string; subline: string; brand: string; units90: number };
 type PredictiveStore = { storeId: string; stockUnits: number; stockValue: number; units30: number; sales30: number; coverageDays: number | null; rotation: number | null };
 type PredictiveCategory = { storeId: string; category: string; stockUnits: number; stockValue: number; units30: number; sales30: number; rotation: number | null };
@@ -1626,10 +1626,10 @@ export class CommercialDashboardController implements OnInit {
   readonly sizeDetailModel = computed<Record<string, unknown>>(() => {
     const size = this.sizeDetailSelected(); const rubro = this.sizeRubro(); const system = this.shoeSizeSystem();
     const rows = new Map<string, { brand: string; product: string; code: string; sales: number; stock: number }>();
-    const add = (row: { storeId: string; productId: string; productCode?: string; product?: string; brand?: string; category?: string; line?: string }, field: 'sales' | 'stock', value: number) => {
+    const add = (row: { storeId: string; productId: string; productCode?: string; serie?: string; product?: string; brand?: string; category?: string; line?: string }, field: 'sales' | 'stock', value: number) => {
       if (resolveProductSize(row, rubro, system)?.label !== size) return;
       const brand = row.brand || 'SIN MARCA'; const key = `${brand}|${row.productId}`;
-      const current = rows.get(key) || { brand, product: row.product || row.productId, code: row.productCode || '', sales: 0, stock: 0 };
+      const current = rows.get(key) || { brand, product: row.product || row.productId, code: this.productIdentifier(row), sales: 0, stock: 0 };
       current[field] += Number(value) || 0; rows.set(key, current);
     };
     for (const row of this.sizeProductsForChart(rubro)) add(row, 'stock', row.stockUnits);
@@ -1645,6 +1645,7 @@ export class CommercialDashboardController implements OnInit {
       rows: products.map(row => ({ ...row, sales: this.number(row.sales, ' und'), stock: this.number(row.stock, ' und') })),
     }));
     return { size, rubro, system, loading: !this.sizeDetailLoaded()[rubro] && !this.stockDetailLoaded(),
+      identifierLabel: rubro === 'CALZADO' ? 'SERIE' : 'CÓDIGO NISSEI',
       period: this.periodLabel(this.sizeSalesPeriod()), stockCutoff: this.formatDate(this.data()?.metadata.stockCutoff || ''),
       totalSales: this.number(detail.reduce((total, row) => total + row.sales, 0), ' und'),
       totalStock: this.number(detail.reduce((total, row) => total + row.stock, 0), ' und'),
@@ -1783,7 +1784,8 @@ export class CommercialDashboardController implements OnInit {
     error: this.projectionInsightsError(),
     rows: this.priorityReplenishmentRows().map(row => ({ status: row.status, color: row.color,
       value: riskMoneyFormat.format(row.value), share: this.percent(row.share), products: this.number(row.products), productCount: row.products })),
-    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, code: row.productCode, product: row.product,
+    identifierLabel: 'SERIE / CÓDIGO',
+    products: this.predictivePriorityProducts().map(row => ({ storeId: row.storeId, code: this.productIdentifier(row), product: row.product,
       store: row.store, coverageDays: row.coverageDays, coverage: this.number(row.coverageDays, ' días'),
       color: this.predictiveStatusColor(row.status) })),
   }));
@@ -1798,8 +1800,9 @@ export class CommercialDashboardController implements OnInit {
     expanded: this.expandedChart() === 'predictive-replenishment',
     selectedBrand: this.replenishmentSelectedBrand(),
     detailLoading: !!this.replenishmentSelectedBrand() && this.stockDetailLoading() && !this.stockDetailLoaded(),
+    identifierLabel: 'SERIE / CÓDIGO',
     detailRows: this.replenishmentBrandProducts().map(row => ({
-      code: row.productCode, product: row.product,
+      code: this.productIdentifier(row), product: row.product,
       coverage: row.coverageDays == null ? 'SIN ROTACIÓN' : this.number(row.coverageDays, ' días'),
       vendibleUnits: this.number(row.vendibleUnits, ' und'),
     })),
@@ -2227,7 +2230,7 @@ export class CommercialDashboardController implements OnInit {
       page, pageCount: this.transferPageCount(), hasEstimates: this.transferHasEstimates(),
       rows: this.transferPageRows().map(row => ({
         key: row.key, open: this.transferExpandedRow() === row.key,
-        productTitle: `Código: ${row.origin.productCode || 'No disponible'}\n${row.origin.brand} / ${row.origin.category}`,
+        productTitle: `${row.origin.category === 'CALZADO' && row.origin.serie ? `Serie: ${row.origin.serie}\n` : ''}Código: ${row.origin.productCode || 'No disponible'}\n${row.origin.brand} / ${row.origin.category}`,
         product: row.origin.product,
         size: row.origin.category === 'CALZADO' || row.origin.category === 'TEXTIL' ? this.transferSizeLabel(row.origin) : '',
         sourceName: row.origin.sourceName, sourceStock: this.number(row.origin.sourceStock),
@@ -3369,7 +3372,7 @@ export class CommercialDashboardController implements OnInit {
       && (!this.transferLine() || row.line === this.transferLine())
       && (!this.transferBrand() || row.brand === this.transferBrand())
       && (!this.transferSize() || sizeLabels?.get(row.productId) === this.transferSize())
-      && (!query || this.normalized(`${row.productCode || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
+      && (!query || this.normalized(`${row.productCode || ''} ${row.serie || ''} ${row.productId} ${row.product} ${row.brand}`).includes(query)));
   });
   readonly transferAllRecommendations = computed(() => {
     const names = new Map(this.transferStores().map(store => [store.storeId, store.alias || store.store]));
@@ -5019,6 +5022,10 @@ export class CommercialDashboardController implements OnInit {
     if (!values.length) return allLabel;
     if (values.length <= 2) return values.join(' + ');
     return `${values.length} ${plural}`;
+  }
+  private productIdentifier(row: { category?: string; serie?: string; productCode?: string; productId?: string }): string {
+    if (row.category === 'CALZADO' && row.serie?.trim()) return row.serie.trim();
+    return row.productCode?.trim() || row.productId?.trim() || '';
   }
   private normalized(value: unknown): string {
     return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();

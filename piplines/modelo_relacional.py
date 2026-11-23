@@ -35,6 +35,7 @@ from maestros import (
     sql_marca,
     sql_marca_id,
     sql_periodo_id,
+    sql_producto_analitico_id,
     sql_producto_id,
     sql_proveedor,
     sql_proveedor_id,
@@ -174,6 +175,26 @@ def expresion_linaje(columnas: Iterable[str]) -> str:
     return " || '|' || ".join(partes) if partes else "''"
 
 
+def fuente_puente_series_ventas() -> str:
+    """SQL del puente SKU -> serie disponible durante la reconstrucción.
+
+    Ingresos y transferencias RMS no incluyen DESC3/SERIE. Ventas sí lo hace,
+    así que después de procesarla se usa como catálogo de correspondencia para
+    que los movimientos de calzado compartan el mismo producto analítico. Si
+    un SKU todavía no tiene serie conocida, se conserva su llave física.
+    """
+    ventas = CAPA2_DIR / "FactVentas.parquet"
+    if not ventas.exists():
+        return "SELECT NULL::VARCHAR AS codigo_nissei, NULL::VARCHAR AS serie WHERE FALSE"
+    return f"""
+        SELECT codigo_nissei, MIN(serie) AS serie
+        FROM read_parquet({sql_literal(ventas.as_posix())})
+        WHERE upper(trim(COALESCE(rubro, ''))) = 'CALZADO'
+          AND NULLIF(trim(COALESCE(serie, '')), '') IS NOT NULL
+        GROUP BY codigo_nissei
+    """
+
+
 
 def _id_md5(prefijo: str, expr: str, longitud: int) -> str:
     """ID determinista rápido para valores ya homologados en la Capa 2 base."""
@@ -282,8 +303,9 @@ def transformar_ventas() -> Path:
             FROM (SELECT DISTINCT tienda FROM origen)
         ), productos_distintos AS MATERIALIZED (
             SELECT
-                codigo_nissei, proveedor, rubro, linea, sub_linea, marca,
-                {sql_producto_id('codigo_nissei')} AS producto_id,
+                codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie,
+                {sql_producto_id('codigo_nissei')} AS sku_id,
+                {sql_producto_analitico_id('rubro', 'serie', 'codigo_nissei')} AS producto_id,
                 {sql_clasificacion_id('rubro', 'linea', 'sub_linea')} AS clasificacion_producto_id,
                 {sql_proveedor_id('proveedor')} AS proveedor_id,
                 {sql_rubro_id('rubro')} AS rubro_id,
@@ -292,7 +314,7 @@ def transformar_ventas() -> Path:
                 {sql_sublinea_id('rubro', 'linea', 'sub_linea')} AS sub_linea_id,
                 {sql_marca_id('marca')} AS marca_id
             FROM (
-                SELECT DISTINCT codigo_nissei, proveedor, rubro, linea, sub_linea, marca
+                SELECT DISTINCT codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie
                 FROM origen
             )
         )
@@ -302,6 +324,7 @@ def transformar_ventas() -> Path:
             {sql_periodo_id('b.fecha_venta')} AS periodo_id,
             t.tienda_id,
             p.producto_id,
+            p.sku_id,
             p.clasificacion_producto_id,
             p.proveedor_id,
             p.rubro_id,
@@ -328,6 +351,7 @@ def transformar_ventas() -> Path:
          AND b.linea IS NOT DISTINCT FROM p.linea
          AND b.sub_linea IS NOT DISTINCT FROM p.sub_linea
          AND b.marca IS NOT DISTINCT FROM p.marca
+         AND b.serie IS NOT DISTINCT FROM p.serie
         """
         print(
             "Agregando claves a FactVentas con diccionarios de valores distintos...",
@@ -382,18 +406,26 @@ def transformar_ingresos() -> Path:
             "COALESCE(CAST(b.total_ingreso AS VARCHAR),'')",
             18,
         )
+        puente_series = fuente_puente_series_ventas()
         consulta = f"""
-        WITH origen AS MATERIALIZED (
+        WITH puente_series AS MATERIALIZED ({puente_series}),
+        origen_base AS MATERIALIZED (
             SELECT *
             FROM read_parquet({ruta})
             WHERE tienda IS NOT NULL AND codigo_nissei IS NOT NULL
+        ), origen AS MATERIALIZED (
+            SELECT b.*, s.serie
+            FROM origen_base b
+            LEFT JOIN puente_series s
+              ON b.codigo_nissei IS NOT DISTINCT FROM s.codigo_nissei
         ), tiendas_distintas AS MATERIALIZED (
             SELECT tienda, {sql_tienda_id('tienda')} AS tienda_id
             FROM (SELECT DISTINCT tienda FROM origen)
         ), productos_distintos AS MATERIALIZED (
             SELECT
-                codigo_nissei, proveedor, rubro, linea, sub_linea, marca,
-                {sql_producto_id('codigo_nissei')} AS producto_id,
+                codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie,
+                {sql_producto_id('codigo_nissei')} AS sku_id,
+                {sql_producto_analitico_id('rubro', 'serie', 'codigo_nissei')} AS producto_id,
                 {sql_clasificacion_id('rubro', 'linea', 'sub_linea')} AS clasificacion_producto_id,
                 {sql_proveedor_id('proveedor')} AS proveedor_id,
                 {sql_rubro_id('rubro')} AS rubro_id,
@@ -402,7 +434,7 @@ def transformar_ingresos() -> Path:
                 {sql_sublinea_id('rubro', 'linea', 'sub_linea')} AS sub_linea_id,
                 {sql_marca_id('marca')} AS marca_id
             FROM (
-                SELECT DISTINCT codigo_nissei, proveedor, rubro, linea, sub_linea, marca
+                SELECT DISTINCT codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie
                 FROM origen
             )
         )
@@ -412,6 +444,7 @@ def transformar_ingresos() -> Path:
             {sql_periodo_id('b.fecha_ingreso')} AS periodo_id,
             t.tienda_id,
             p.producto_id,
+            p.sku_id,
             p.clasificacion_producto_id,
             p.proveedor_id,
             p.rubro_id,
@@ -423,7 +456,7 @@ def transformar_ingresos() -> Path:
             b.mes_numero_ingreso, b.mes_nombre_ingreso, b.trimestre_ingreso,
             b.anio_ingreso, b.semana_ingreso, b.dia_semana_numero, b.dia_semana_nombre,
             b.tienda, b.codigo_nissei, b.proveedor, b.lote, b.departamento_codigo,
-            b.rubro, b.linea, b.sub_linea, b.marca, b.modelo, b.descripcion,
+            b.rubro, b.linea, b.sub_linea, b.marca, b.modelo, b.descripcion, b.serie,
             b.modelo_codigo, b.cantidad_recibida, b.precio_sugerido, b.total_ingreso,
             b.estado_producto, b.mes_lote, b.mes_lote_numero, b.anio_lote,
             b.personal, b.tipo_movimiento_ingreso
@@ -437,6 +470,7 @@ def transformar_ingresos() -> Path:
          AND b.linea IS NOT DISTINCT FROM p.linea
          AND b.sub_linea IS NOT DISTINCT FROM p.sub_linea
          AND b.marca IS NOT DISTINCT FROM p.marca
+         AND b.serie IS NOT DISTINCT FROM p.serie
         """
         print("Agregando claves a FactIngresos con diccionarios distintos...", flush=True)
         copiar_atomico(con, consulta, salida)
@@ -486,13 +520,20 @@ def transformar_transferencias() -> Path:
             "COALESCE(CAST(b.fecha_hora_creacion AS VARCHAR),'')",
             18,
         )
+        puente_series = fuente_puente_series_ventas()
         consulta = f"""
-        WITH origen AS MATERIALIZED (
+        WITH puente_series AS MATERIALIZED ({puente_series}),
+        origen_base AS MATERIALIZED (
             SELECT *
             FROM read_parquet({ruta})
             WHERE tienda_origen IS NOT NULL
               AND tienda_destino IS NOT NULL
               AND codigo_nissei IS NOT NULL
+        ), origen AS MATERIALIZED (
+            SELECT b.*, s.serie
+            FROM origen_base b
+            LEFT JOIN puente_series s
+              ON b.codigo_nissei IS NOT DISTINCT FROM s.codigo_nissei
         ), tiendas_distintas AS MATERIALIZED (
             SELECT tienda, {sql_tienda_id('tienda')} AS tienda_id
             FROM (
@@ -502,8 +543,9 @@ def transformar_transferencias() -> Path:
             )
         ), productos_distintos AS MATERIALIZED (
             SELECT
-                codigo_nissei, proveedor, rubro, linea, sub_linea, marca,
-                {sql_producto_id('codigo_nissei')} AS producto_id,
+                codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie,
+                {sql_producto_id('codigo_nissei')} AS sku_id,
+                {sql_producto_analitico_id('rubro', 'serie', 'codigo_nissei')} AS producto_id,
                 {sql_clasificacion_id('rubro', 'linea', 'sub_linea')} AS clasificacion_producto_id,
                 {sql_proveedor_id('proveedor')} AS proveedor_id,
                 {sql_rubro_id('rubro')} AS rubro_id,
@@ -512,7 +554,7 @@ def transformar_transferencias() -> Path:
                 {sql_sublinea_id('rubro', 'linea', 'sub_linea')} AS sub_linea_id,
                 {sql_marca_id('marca')} AS marca_id
             FROM (
-                SELECT DISTINCT codigo_nissei, proveedor, rubro, linea, sub_linea, marca
+                SELECT DISTINCT codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie
                 FROM origen
             )
         )
@@ -523,6 +565,7 @@ def transformar_transferencias() -> Path:
             ot.tienda_id AS tienda_origen_id,
             dt.tienda_id AS tienda_destino_id,
             p.producto_id,
+            p.sku_id,
             p.clasificacion_producto_id,
             p.proveedor_id,
             p.rubro_id,
@@ -536,7 +579,7 @@ def transformar_transferencias() -> Path:
             b.dia_semana_numero, b.dia_semana_nombre, b.estado_transferencia, b.nro_guia,
             b.tienda_origen, b.tienda_destino, b.codigo_nissei, b.proveedor, b.lote,
             b.departamento_codigo, b.rubro, b.linea, b.sub_linea, b.marca, b.modelo,
-            b.descripcion, b.modelo_codigo, b.cantidad, b.precio_sugerido,
+            b.descripcion, b.serie, b.modelo_codigo, b.cantidad, b.precio_sugerido,
             b.total_transferencia, b.fecha_hora_creacion, b.fecha_creacion
         FROM origen b
         INNER JOIN tiendas_distintas ot
@@ -550,6 +593,7 @@ def transformar_transferencias() -> Path:
          AND b.linea IS NOT DISTINCT FROM p.linea
          AND b.sub_linea IS NOT DISTINCT FROM p.sub_linea
          AND b.marca IS NOT DISTINCT FROM p.marca
+         AND b.serie IS NOT DISTINCT FROM p.serie
         """
         print("Agregando claves a FactTransferencias con diccionarios distintos...", flush=True)
         copiar_atomico(con, consulta, salida)
@@ -904,8 +948,9 @@ def transformar_stock(fecha_corte: date) -> Path:
             f"""
             CREATE OR REPLACE TEMP TABLE st_stock_productos_norm AS
             SELECT
-                codigo_nissei, proveedor, rubro, linea, sub_linea, marca,
+                codigo_nissei, proveedor, rubro, linea, sub_linea, marca, serie,
                 {sql_codigo('codigo_nissei')} AS codigo_norm,
+                {sql_limpiar_texto('serie')} AS serie_norm,
                 {n['proveedor']} AS proveedor_norm,
                 {n['rubro']} AS rubro_norm,
                 {n['linea']} AS linea_norm,
@@ -913,7 +958,7 @@ def transformar_stock(fecha_corte: date) -> Path:
                 {n['marca']} AS marca_norm
             FROM (
                 SELECT DISTINCT codigo_nissei, proveedor, rubro, linea,
-                                sub_linea, marca
+                                sub_linea, marca, serie
                 FROM st_stock_origen
             )
             """
@@ -922,7 +967,8 @@ def transformar_stock(fecha_corte: date) -> Path:
             f"""
             CREATE OR REPLACE TEMP TABLE st_stock_productos AS
             SELECT *,
-                {sql_producto_id('codigo_norm')} AS producto_id,
+                {sql_producto_id('codigo_norm')} AS sku_id,
+                {sql_producto_analitico_id('rubro_norm', 'serie_norm', 'codigo_norm')} AS producto_id,
                 {sql_clasificacion_id('rubro_norm', 'linea_norm', 'sub_linea_norm')}
                     AS clasificacion_producto_id,
                 {sql_proveedor_id('proveedor_norm')} AS proveedor_id,
@@ -972,7 +1018,7 @@ def transformar_stock(fecha_corte: date) -> Path:
                     ELSE o.es_fecha_corte_inferida
                 END AS es_fecha_corte_inferida,
                 t.tienda_norm, t.tienda_id,
-                p.codigo_norm, p.producto_id, p.clasificacion_producto_id,
+                p.codigo_norm, p.sku_id, p.producto_id, p.clasificacion_producto_id,
                 p.proveedor_id, p.proveedor_norm,
                 p.rubro_id, p.rubro_codigo, p.rubro_norm,
                 p.linea_id, p.linea_norm,
@@ -991,6 +1037,7 @@ def transformar_stock(fecha_corte: date) -> Path:
              AND o.linea IS NOT DISTINCT FROM p.linea
              AND o.sub_linea IS NOT DISTINCT FROM p.sub_linea
              AND o.marca IS NOT DISTINCT FROM p.marca
+             AND o.serie IS NOT DISTINCT FROM p.serie
             LEFT JOIN st_stock_meses m
               ON o.mes IS NOT DISTINCT FROM m.mes
             LEFT JOIN st_stock_estados e
@@ -1108,7 +1155,7 @@ def transformar_stock(fecha_corte: date) -> Path:
                 )
             END AS edad_stock_meses,
             tienda_id, tienda_norm AS tienda,
-            producto_id, codigo_norm AS codigo_nissei,
+            producto_id, sku_id, codigo_norm AS codigo_nissei,
             clasificacion_producto_id,
             proveedor_id, proveedor_norm AS proveedor,
             rubro_id, rubro_codigo, rubro_norm AS rubro,

@@ -6,7 +6,7 @@ export function createIntakeDomain({
   commercialAssistantMessages, commercialBatchCutoffPath, commercialBatchPath, commercialBatchSources,
   currentCommercialAccess, dbError, excelResponse, gunzipSync, httpError,
   join, jwt, jwtSecret, NORMALIZED_REPORTS, normalizedReportPath,
-  parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile,
+  parseAnnualFilters, publishedCommercialRelease, randomUUID, readFile, readdir,
   resolve, summarizeAnnualReports, supabase, SYSTEM_SOURCES,
   SYSTEM_UPLOAD_CHUNK_SIZE, systemManifestPath, systemPartPath,
   validateBatchChecksum, validateBatchId, validateCommercialBatchFile, validateCutoff, validateSystemUpload,
@@ -376,26 +376,56 @@ export function createIntakeDomain({
   async function loadAnnualReportManifest() {
     const release = await publishedCommercialRelease();
     // En local se prefiere la partición mensual; la versión anual sigue disponible como respaldo.
+    const localRoots = [resolve(process.cwd(), ".etl_work"), resolve(process.cwd(), "..", ".etl_work")];
+    const availableLocal = process.env.CONTEXT === "production" ? [] : (await Promise.all(localRoots.map(async root => {
+      try { return (await readdir(root, { withFileTypes: true })).filter(entry => entry.isDirectory()
+        && entry.name.startsWith("annual-reports-monthly")).map(entry => join(root, entry.name)); }
+      catch { return []; }
+    }))).flat();
     const localDirectories = process.env.CONTEXT === "production" ? [] : [
       ...(process.env.ANNUAL_REPORTS_DIR ? [process.env.ANNUAL_REPORTS_DIR] : []),
+      ...availableLocal,
       resolve(process.cwd(), "..", ".etl_work", `annual-reports-monthly-${release.sales_cutoff}-v3`),
       resolve(process.cwd(), "..", ".etl_work", `annual-reports-monthly-${release.sales_cutoff}`),
       resolve(process.cwd(), "..", ".etl_work", "annual-reports-monthly"),
       resolve(process.cwd(), "..", ".etl_work", "annual-reports"),
     ];
+    let latestLocal = null;
     for (const localDirectory of localDirectories) {
       try {
         const local = JSON.parse(await readFile(join(localDirectory, "manifest.json"), "utf8"));
-        if (local.cutoffs?.ventas === release.sales_cutoff
-          && local.cutoffs?.stock === release.stock_cutoff) {
-          return { release, manifest: { ...local, version: release.version, releaseId: release.id }, localDirectory };
-        }
+        if (local.cutoffs?.ventas <= release.sales_cutoff
+          && local.cutoffs?.stock <= release.stock_cutoff
+          && [2, 3].includes(local.schemaVersion)
+          && (!latestLocal || local.cutoffs.ventas > latestLocal.manifest.cutoffs.ventas))
+          latestLocal = { release, manifest: { ...local, version: release.version, releaseId: release.id }, localDirectory };
       } catch { /* Sin archivos locales: consultar la publicación privada. */ }
     }
+    if (latestLocal?.manifest.cutoffs.ventas === release.sales_cutoff
+      && latestLocal.manifest.cutoffs.stock === release.stock_cutoff) return latestLocal;
     let result = await systemsStorage().download(`commercial-annual-v3/${release.version}/manifest.json`);
     if (result.error || !result.data) result = await systemsStorage().download(`commercial-annual-v2/${release.version}/manifest.json`);
     if (result.error || !result.data) result = await systemsStorage().download(`commercial-annual/${release.version}/manifest.json`);
-    if (result.error || !result.data) return { release, manifest: null, localDirectory: null };
+    if (result.error || !result.data) {
+      const listing = await systemsStorage().list("commercial-annual-v3", { limit: 100, sortBy: { column: "name", order: "desc" } });
+      if (!listing.error) {
+        for (const entry of listing.data || []) {
+          if (entry.name === release.version) continue;
+          const older = await systemsStorage().download(`commercial-annual-v3/${entry.name}/manifest.json`);
+          if (older.error || !older.data) continue;
+          try {
+            const candidate = JSON.parse(await older.data.text());
+            if (candidate.version === entry.name && [2, 3].includes(candidate.schemaVersion)
+              && candidate.cutoffs?.ventas <= release.sales_cutoff
+              && candidate.cutoffs?.stock <= release.stock_cutoff
+              && Array.isArray(candidate.files) && Array.isArray(candidate.summaries)) {
+              return { release: { ...release, version: candidate.version }, manifest: candidate, localDirectory: null };
+            }
+          } catch { /* Ignorar catálogos incompletos y probar el siguiente. */ }
+        }
+      }
+      return latestLocal || { release, manifest: null, localDirectory: null };
+    }
     let manifest;
     try { manifest = JSON.parse(await result.data.text()); }
     catch { throw httpError("El catálogo anual no se pudo leer.", 503); }

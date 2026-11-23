@@ -176,7 +176,8 @@ export function decodeStockCompact<T extends object>(payload: StockCompact, sign
       !Array.isArray(payload.products) || !Array.isArray(payload.rows)) {
     throw new Error('Formato de stock no válido.');
   }
-  const metadata = ['productId', 'productCode', 'product', 'category', 'line', 'subline', 'brand'];
+  const metadata = ['productId', 'productCode', 'serie', 'product', 'category', 'line', 'subline', 'brand'];
+  const legacyMetadata = ['productId', 'productCode', 'product', 'category', 'line', 'subline', 'brand'];
   const metrics = ['stockValue', 'goodUnits', 'mermaStockUnits', 'desmedroStockUnits',
     'units30', 'sales30', 'units12', 'sales12'];
   return payload.rows.map((values, rowIndex) => {
@@ -190,12 +191,13 @@ export function decodeStockCompact<T extends object>(payload: StockCompact, sign
       throw new Error('Máscara de stock no válida.');
     }
     const product = indexedValue(payload.products, values[1]);
-    if (!Array.isArray(product) || product.length !== metadata.length) throw new Error('SKU de stock no válido.');
+    if (!Array.isArray(product) || ![metadata.length, legacyMetadata.length].includes(product.length)) throw new Error('SKU de stock no válido.');
     const record: Record<string, unknown> = {
       storeId: indexedValue(payload.stores, values[0]),
       stockUnits: values[2],
     };
-    metadata.forEach((column, index) => { record[column] = product[index]; });
+    (product.length === metadata.length ? metadata : legacyMetadata).forEach((column, index) => { record[column] = product[index]; });
+    if (product.length === legacyMetadata.length) record['serie'] = '';
     let position = 4;
     metrics.forEach((metric, index) => {
       record[metric] = mask & (1 << index) ? values[position++] : index === 1 ? values[2] : 0;
@@ -213,14 +215,16 @@ export function decodeSizeCompact<T extends object>(payload: SizeCompact, signal
     if (rowIndex % 4096 === 0) signal?.throwIfAborted();
     if (!Array.isArray(values) || ![4, 5].includes(values.length)) throw new Error('Fila de tallas incompleta.');
     const product = indexedValue(payload.products, values[1]);
-    if (!Array.isArray(product) || ![5, 6].includes(product.length)) throw new Error('SKU de tallas no válido.');
+    if (!Array.isArray(product) || ![6, 7].includes(product.length)) throw new Error('SKU de tallas no válido.');
     return {
       storeId: indexedValue(payload.stores, values[0]),
-      productId: product[0], productCode: product[1], product: product[2],
+      productId: product[0], productCode: product[1],
+      serie: product.length === 7 ? product[2] : '',
+      product: product.length === 7 ? product[3] : product[2],
       category: payload.category,
-      line: payload.dictionary ? indexedValue(payload.dictionary.line, product[3]) : product[3],
-      subline: payload.dictionary ? indexedValue(payload.dictionary.subline, product[4]) : product[4],
-      brand: payload.dictionary ? indexedValue(payload.dictionary.brand, product[5]) : product[5] || 'SIN MARCA',
+      line: payload.dictionary ? indexedValue(payload.dictionary.line, product[product.length === 7 ? 4 : 3]) : product[product.length === 7 ? 4 : 3],
+      subline: payload.dictionary ? indexedValue(payload.dictionary.subline, product[product.length === 7 ? 5 : 4]) : product[product.length === 7 ? 5 : 4],
+      brand: payload.dictionary ? indexedValue(payload.dictionary.brand, product[product.length === 7 ? 6 : 5]) : product[product.length === 7 ? 6 : 5] || 'SIN MARCA',
       stockUnits: values[2], units30: values[3], units90: values[4] ?? values[3],
     } as T;
   });

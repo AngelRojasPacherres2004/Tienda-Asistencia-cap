@@ -11,7 +11,7 @@ export default function CommercialReactReplenishmentCard({ model, onAction }) {
     {model.expanded && <section className="replenishment-products" aria-live="polite" aria-label={`Productos de ${model.selectedBrand || "la marca seleccionada"}`}>
       <h3>{model.selectedBrand ? `PRODUCTOS · ${model.selectedBrand}` : "SELECCIONA UNA MARCA"}</h3>
       {model.detailLoading ? <div className="replenishment-detail-loading"><span className="loader" />Cargando productos…</div>
-        : model.detailRows?.length ? <div className="replenishment-products-table"><div className="replenishment-products-head"><span>CÓDIGO</span><span>DESCRIPCIÓN</span><span>COBERTURA</span><span>STOCK VENDIBLE</span></div><div className="replenishment-products-body">{model.detailRows.map(row => <div key={`${row.code}-${row.product}`}><strong title={row.code}>{row.code || "S/C"}</strong><span title={row.product}>{row.product}</span><span>{row.coverage}</span><span>{row.vendibleUnits}</span></div>)}</div></div>
+        : model.detailRows?.length ? <div className="replenishment-products-table"><div className="replenishment-products-head"><span>{model.identifierLabel || "SERIE / CÓDIGO"}</span><span>DESCRIPCIÓN</span><span>COBERTURA</span><span>STOCK VENDIBLE</span></div><div className="replenishment-products-body">{model.detailRows.map(row => <div key={`${row.code}-${row.product}`}><strong title={row.code}>{row.code || "S/C"}</strong><span title={row.product}>{row.product}</span><span>{row.coverage}</span><span>{row.vendibleUnits}</span></div>)}</div></div>
           : <p>{model.selectedBrand ? "No hay productos para los filtros actuales." : "Selecciona una fila para ver sus productos."}</p>}
     </section>}
   </article>;

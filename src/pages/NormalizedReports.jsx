@@ -199,6 +199,7 @@ export default function NormalizedReports({ user }) {
   return <section className="panel annual-reports">
     <header className="report-workspace__header"><h2>Análisis y cifras</h2></header>
     {message && <Notice type={message.type} onClose={() => setMessage(null)}>{message.text}</Notice>}
+    {catalog?.ready && <p className="annual-reports__cutoff">Datos disponibles hasta ventas: {catalog.cutoffs?.ventas || '—'} · stock: {catalog.cutoffs?.stock || '—'}</p>}
     {!catalog ? (message?.type === "error"
       ? <button type="button" className="button button--ghost" onClick={() => { setMessage(null); setRetry(value => value + 1); }}>Reintentar carga de reportes</button>
       : <div className="annual-reports__skeleton" aria-label="Preparando catálogo de reportes"/>) : !catalog.ready ?

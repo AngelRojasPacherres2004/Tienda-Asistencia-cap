@@ -25,10 +25,35 @@ STOCK_FIELDS = (
     "desmedroStockUnits", "units30", "sales30", "units12", "sales12",
 )
 PREDICTIVE_FIELDS = ("units60", "units90", "merma30", "merma60", "merma90")
-CATALOG_FIELDS = ("productCode", "product", "category", "line", "subline", "brand")
+CATALOG_FIELDS = ("productCode", "product", "category", "line", "subline", "brand", "serie")
 
 
-def prepare() -> tuple[str, str, list[tuple], list[tuple], dict[str, float]]:
+def stock_skus(cutoff: str, product_ids: set[str]) -> list[tuple]:
+    """Keep every physical Nissei code behind each analytical product."""
+    import duckdb
+
+    path = ROOT / "capa2" / "FactStock.parquet"
+    if not path.is_file():
+        raise FileNotFoundError(f"Falta {path}; reconstruye la Capa 2 antes de publicar.")
+    connection = duckdb.connect(database=":memory:")
+    try:
+        rows = connection.execute(
+            "SELECT producto_id, sku_id, TRIM(CAST(codigo_nissei AS VARCHAR)), "
+            "MAX(NULLIF(TRIM(CAST(serie AS VARCHAR)), '')) "
+            "FROM read_parquet(?) WHERE fecha_corte = ? AND producto_id IS NOT NULL "
+            "AND sku_id IS NOT NULL AND codigo_nissei IS NOT NULL "
+            "GROUP BY producto_id, sku_id, TRIM(CAST(codigo_nissei AS VARCHAR))",
+            [str(path), cutoff],
+        ).fetchall()
+    finally:
+        connection.close()
+    result = [(cutoff, *row) for row in rows if row[0] in product_ids]
+    if product_ids - {row[1] for row in result}:
+        raise ValueError("Hay productos de stock sin código Nissei en FactStock.")
+    return result
+
+
+def prepare() -> tuple[str, str, list[tuple], list[tuple], list[tuple], dict[str, float]]:
     stock_path = DATA / "dashboard-stock-products.json"
     predictive_path = DATA / "dashboard-predictive-compact.json"
     stock_bytes = stock_path.read_bytes()
@@ -68,10 +93,11 @@ def prepare() -> tuple[str, str, list[tuple], list[tuple], dict[str, float]]:
     if missing_predictive:
         raise ValueError(f"{len(missing_predictive)} predicciones sin SKU en el stock.")
     catalog_rows = [(cutoff, product_id, *detail) for product_id, detail in catalog.items()]
-    return cutoff, source_sha, catalog_rows, facts, totals
+    skus = stock_skus(cutoff, set(catalog))
+    return cutoff, source_sha, catalog_rows, facts, skus, totals
 
 
-def import_snapshot(cutoff: str, source_sha: str, catalog: list[tuple], facts: list[tuple], totals: dict[str, float]) -> None:
+def import_snapshot(cutoff: str, source_sha: str, catalog: list[tuple], facts: list[tuple], skus: list[tuple], totals: dict[str, float]) -> None:
     try:
         import psycopg
     except ImportError as error:
@@ -90,6 +116,7 @@ def import_snapshot(cutoff: str, source_sha: str, catalog: list[tuple], facts: l
                 ROOT / "supabase/migrations/20261025181000_dashboard_stock_insights.sql",
                 ROOT / "supabase/migrations/20261025181500_dashboard_stock_insights_inline.sql",
                 ROOT / "supabase/migrations/20261025182000_dashboard_window_total_inline.sql",
+                ROOT / "supabase/migrations/20261122032650_stock_sku_series_catalog.sql",
             ):
                 version, name = migration.stem.split("_", 1)
                 cursor.execute("select 1 from supabase_migrations.schema_migrations where version=%s", (version,))
@@ -105,25 +132,37 @@ def import_snapshot(cutoff: str, source_sha: str, catalog: list[tuple], facts: l
             )
             existing = cursor.fetchone()
             if existing:
-                if existing == (source_sha, len(facts), "ready"):
-                    print(f"Corte {cutoff} ya validado; no se importaron filas duplicadas.")
-                    return
-                raise ValueError("El corte ya existe con otro contenido o no terminó de cargarse.")
-            cursor.execute(
-                "insert into public.dashboard_stock_snapshots(stock_cutoff,source_sha256,row_count) values (%s,%s,%s)",
-                (cutoff, source_sha, len(facts)),
-            )
+                if existing != (source_sha, len(facts), "ready"):
+                    raise ValueError("El corte ya existe con otro contenido o no terminó de cargarse.")
+            else:
+                cursor.execute(
+                    "insert into public.dashboard_stock_snapshots(stock_cutoff,source_sha256,row_count) values (%s,%s,%s)",
+                    (cutoff, source_sha, len(facts)),
+                )
             with cursor.copy(
-                "copy public.dashboard_stock_catalog(stock_cutoff,product_id,product_code,product,category,line,subline,brand) from stdin"
+                "copy public.dashboard_stock_catalog(stock_cutoff,product_id,product_code,product,category,line,subline,brand,serie) from stdin"
             ) as copy:
-                for row in catalog:
-                    copy.write_row(row)
+                if not existing:
+                    for row in catalog:
+                        copy.write_row(row)
+            if existing:
+                cursor.executemany(
+                    "update public.dashboard_stock_catalog set serie=%s where stock_cutoff=%s and product_id=%s",
+                    [(row[-1], cutoff, row[1]) for row in catalog],
+                )
+            else:
+                with cursor.copy(
+                    "copy public.dashboard_stock_metrics(stock_cutoff,store_id,product_id,stock_units,stock_value,good_units,"
+                    "merma_stock_units,desmedro_stock_units,units30,sales30,units12,sales12,units60,units90,merma30,"
+                    "merma60,merma90) from stdin"
+                ) as copy:
+                    for row in facts:
+                        copy.write_row(row)
+            cursor.execute("delete from public.dashboard_stock_skus where stock_cutoff=%s", (cutoff,))
             with cursor.copy(
-                "copy public.dashboard_stock_metrics(stock_cutoff,store_id,product_id,stock_units,stock_value,good_units,"
-                "merma_stock_units,desmedro_stock_units,units30,sales30,units12,sales12,units60,units90,merma30,"
-                "merma60,merma90) from stdin"
+                "copy public.dashboard_stock_skus(stock_cutoff,product_id,sku_id,product_code,serie) from stdin"
             ) as copy:
-                for row in facts:
+                for row in skus:
                     copy.write_row(row)
             cursor.execute(
                 "select count(*), sum(stock_units), sum(stock_value), sum(units30) "
@@ -146,11 +185,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Importar después de validar la migración de esquema")
     args = parser.parse_args()
-    cutoff, source_sha, catalog, facts, totals = prepare()
+    cutoff, source_sha, catalog, facts, skus, totals = prepare()
     print(f"Corte {cutoff}; {len(catalog)} SKU; {len(facts)} filas; hash {source_sha}; "
           f"stock {totals['stockUnits']:.2f} unidades; valor {totals['stockValue']:.2f}.")
     if args.apply:
-        import_snapshot(cutoff, source_sha, catalog, facts, totals)
+        import_snapshot(cutoff, source_sha, catalog, facts, skus, totals)
 
 
 if __name__ == "__main__":

@@ -348,8 +348,35 @@ def sql_hash_id(prefijo: str, expr: str, longitud: int = 16) -> str:
 
 
 def sql_producto_id(codigo_expr: str) -> str:
+    """ID del SKU físico: conserva la identidad exacta del código Nissei."""
     codigo = sql_codigo(codigo_expr)
     return f"CASE WHEN {codigo} IS NULL THEN NULL ELSE {sql_hash_id('P_', codigo, 16)} END"
+
+
+def sql_producto_analitico_id(
+    rubro_expr: str,
+    serie_expr: str,
+    codigo_expr: str,
+) -> str:
+    """Devuelve la llave analítica de producto para el dashboard.
+
+    En CALZADO, RMS puede asignar códigos Nissei distintos al mismo modelo por
+    lote. ``SERIE``/``DESC3`` es la identidad comercial estable, por lo que se
+    usa un ID ``S_`` compartido entre dichos códigos. Los demás rubros y las
+    series no utilizables mantienen el ID del SKU físico ``P_``.
+    """
+    rubro = sql_clave(rubro_expr)
+    serie = sql_clave(serie_expr)
+    serie_valida = (
+        f"{serie} NOT IN ('', 'S C', 'S S', 'S M', 'M V', 'SIN CODIGO', "
+        "'SIN SERIE', 'N A', 'NA', 'NO APLICA', '0')"
+    )
+    return (
+        "CASE "
+        f"WHEN {rubro} = 'CALZADO' AND {serie_valida} "
+        f"THEN {sql_hash_id('S_', serie, 16)} "
+        f"ELSE {sql_producto_id(codigo_expr)} END"
+    )
 
 
 def sql_proveedor_id(proveedor_expr: str) -> str:

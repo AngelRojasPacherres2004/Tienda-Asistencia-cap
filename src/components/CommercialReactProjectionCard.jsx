@@ -12,7 +12,7 @@ export default function CommercialReactProjectionCard({ model }) {
     <div className="priority-status-legend">{model.rows.map(row => <span key={row.status}><i style={{ backgroundColor: row.color }} />{row.status}<b>{row.products} SKU</b></span>)}{total === 0 && <span>Sin datos evaluados</span>}</div>
     <section className="priority-products-matrix" aria-label="Productos prioritarios">
       <h3>PRODUCTOS PRIORITARIOS</h3>
-      {model.products.length ? <div className="priority-products-columns">{columns.map((rows, index) => <div className="priority-products-column" key={index}><div className="priority-products-head"><span>CÓDIGO</span><span>DESCRIPCIÓN</span><span>COBERTURA</span></div>{rows.map(row => <div className="priority-product-row" key={`${row.storeId}-${row.code || row.product}`}><strong title={row.code}>{row.code || 'S/C'}</strong><span title={row.product}>{row.product}</span><em>{row.coverageDays == null ? 'Sin rotación' : row.coverage}</em></div>)}</div>)}</div> : <p>Sin productos prioritarios para estos filtros.</p>}
+      {model.products.length ? <div className="priority-products-columns">{columns.map((rows, index) => <div className="priority-products-column" key={index}><div className="priority-products-head"><span>{model.identifierLabel || 'SERIE / CÓDIGO'}</span><span>DESCRIPCIÓN</span><span>COBERTURA</span></div>{rows.map(row => <div className="priority-product-row" key={`${row.storeId}-${row.code || row.product}`}><strong title={row.code}>{row.code || 'S/C'}</strong><span title={row.product}>{row.product}</span><em>{row.coverageDays == null ? 'Sin rotación' : row.coverage}</em></div>)}</div>)}</div> : <p>Sin productos prioritarios para estos filtros.</p>}
     </section>
   </article>;
 }

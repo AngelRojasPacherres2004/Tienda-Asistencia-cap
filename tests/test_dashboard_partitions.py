@@ -46,7 +46,7 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
     def test_size_sales_90_partition_is_compact_and_store_scoped(self) -> None:
         rows = [
             {"periodId": 202610, "storeId": store, "productId": product,
-             "productCode": code, "product": "ZAPATO", "category": "CALZADO",
+             "productCode": code, "serie": "URBAN 25", "product": "ZAPATO", "category": "CALZADO",
              "line": "DAMAS", "subline": "ZAPATOS", "brand": brand, "units90": units}
             for store, product, code, brand, units in [
                 ("T001", "P1", "00000000001007", "A", 3),
@@ -170,7 +170,7 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
         self.assertEqual(scoped["sellerPerformance"]["dictionary"]["storeId"], ["T001"])
 
     def test_stock_codec_preserves_sku_and_store_metrics(self) -> None:
-        metadata = {"productId": "P1", "productCode": "00000000001007", "product": "ZAPATO 7",
+        metadata = {"productId": "P1", "productCode": "00000000001007", "serie": "URBAN 25", "product": "ZAPATO 7",
                     "category": "CALZADO", "line": "DAMAS", "subline": "ZAPATOS", "brand": "MARCA"}
         rows = [
             {"storeId": "T001", **metadata, "stockUnits": 4.0, "stockValue": 100.0,
@@ -212,7 +212,7 @@ class DashboardPartitionDiscoveryTests(unittest.TestCase):
 
     def test_size_codec_keeps_mapped_name_and_scopes_stores(self) -> None:
         rows = [
-            {"storeId": store, "productId": "P1", "productCode": "00000000001007",
+            {"storeId": store, "productId": "P1", "productCode": "00000000001007", "serie": "URBAN 25",
              "product": "ZAPATO 7", "category": "CALZADO", "line": "DAMAS", "subline": "ZAPATOS",
              "brand": "MARCA A", "stockUnits": units, "units30": 1.0, "units90": 4.0}
             for store, units in (("T001", 3.0), ("T002", 2.0))

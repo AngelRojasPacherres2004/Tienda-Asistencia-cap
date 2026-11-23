@@ -38,6 +38,7 @@ if not exist ".venv\Scripts\python.exe" (
     if errorlevel 1 goto :error
 )
 
+echo Preparando Ventas, Ingresos, Transferencias y Stock ^(si es cierre mensual^) con CODIGO NISSEI y SERIE.
 ".venv\Scripts\python.exe" "piplines\operacion_mensual.py" --periodo "%PERIODO%" --fecha-corte "%FECHA_CORTE%"
 if errorlevel 1 goto :error
 
