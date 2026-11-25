@@ -176,7 +176,7 @@ export function createOperationsDomain({
 
   async function createIncident(event, user) {
     const data = bodyOf(event);
-    requireFields(data, ["descripcion", "gravedad", "tipo"]);
+    requireFields(data, ["gravedad", "tipo"]);
     if (data.fecha && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-05:00$/.test(String(data.fecha))) {
       throw httpError("La fecha y hora de la incidencia no son válidas.", 400);
     }
@@ -193,9 +193,7 @@ export function createOperationsDomain({
     const isPriceChange = data.tipo === "cambio_precio";
     const detencion = isSecurityUser && !isPriceChange ? Boolean(data.detencion) : false;
     const detencionDetalle = cleanText(data.detencion_detalle);
-    if (detencion && !detencionDetalle) {
-      throw httpError("Describe los detalles de la detención.", 400);
-    }
+
     if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "electro", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) {
       throw httpError("Selecciona un área o ubicación válida.", 400);
     }
@@ -253,7 +251,7 @@ export function createOperationsDomain({
 
   async function updateIncident(event, user, id) {
     const data = bodyOf(event);
-    requireFields(data, ["descripcion", "gravedad", "tipo", "fecha"]);
+    requireFields(data, ["gravedad", "tipo", "fecha"]);
     const { data: existing, error: lookupError } = await supabase.from("incidencias").select("fecha").eq("id", id).eq("tienda_id", user.tienda_id).maybeSingle();
     if (lookupError) throw dbError(lookupError);
     if (!existing) throw httpError("La incidencia no existe.", 404);
@@ -262,7 +260,7 @@ export function createOperationsDomain({
     if (!["robo", "robo_frustrado", "robo_interno", "estafa", "asalto", "fiscalizacion", "cambio_precio", "otro"].includes(data.tipo) || !["baja", "media", "alta"].includes(data.gravedad)) throw httpError("Revisa el tipo y la severidad.", 400);
     if (!["piso_venta", "textil", "calzado", "hogar", "tecnologia", "electro", "belleza", "bano", "caja", "almacen", "ingreso", "exterior", "proveedores", "otro"].includes(data.area || "otro")) throw httpError("Selecciona un área válida.", 400);
     const isPriceChange = data.tipo === "cambio_precio", detencion = !isPriceChange && Boolean(data.detencion);
-    if (detencion && !cleanText(data.detencion_detalle)) throw httpError("Describe los detalles de la detención.", 400);
+
     for (const item of Array.isArray(data.productos) ? data.productos : []) {
       if (!cleanText(item.marca) || !cleanText(item.producto) || !Number.isInteger(Number(item.cantidad)) || Number(item.cantidad) < 1 || item.valor === "" || !Number.isFinite(Number(item.valor)) || Number(item.valor) < 0) throw httpError("Revisa los productos involucrados.", 400);
     }

@@ -88,6 +88,31 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     @media(max-width:600px) { .store-admin-dashboard .section-heading h2 { font-size:1.1rem; } .store-admin-dashboard .block-heading h2 { font-size:.95rem; } }
   `;
   if (managerHosts) styles.textContent += managerStyles;
+  styles.textContent += `
+    @media(min-width:1200px) {
+      .app-shell:not(.manager-commercial-dashboard) .primary-kpis .flow-row,
+      .app-shell:not(.manager-commercial-dashboard) .kpi-strip { grid-template-columns:repeat(8,minmax(0,1fr)); gap:6px; max-width:none; width:100%; }
+      .app-shell:not(.manager-commercial-dashboard) .primary-kpis .metric-card,
+      .app-shell:not(.manager-commercial-dashboard) .kpi-strip article { min-height:84px; height:auto; }
+      .app-shell:not(.manager-commercial-dashboard) .primary-kpis .metric-card { padding:10px 8px; }
+      .app-shell:not(.manager-commercial-dashboard) .kpi-strip article { padding:9px 5px; }
+      .app-shell:not(.manager-commercial-dashboard) .primary-kpis .metric-card > strong,
+      .app-shell:not(.manager-commercial-dashboard) .kpi-strip article > strong { font-size:clamp(.9rem,1.25vw,1.2rem); line-height:1.16; overflow-wrap:normal; white-space:nowrap; }
+      .app-shell:not(.manager-commercial-dashboard) .primary-kpis .metric-card > span,
+      .app-shell:not(.manager-commercial-dashboard) .kpi-strip article > span { font-size:.6rem; line-height:1.25; }
+    }
+    @media(max-width:600px) {
+      .brand-header { gap:10px; text-align:left; }
+      .brand-header h1 { font-size:17px!important; line-height:1.3; }
+      .dashboard-nav-row { position:relative; display:block!important; }
+      .dashboard-chart-finder { position:absolute; top:0; right:0; margin:0; z-index:5; }
+      .chart-search-toggle { width:46px!important; height:46px!important; border-radius:9px; }
+      .dashboard-chart-finder .chart-search { width:min(680px,calc(100vw - 48px)); z-index:25; }
+      .page-tabs { display:grid!important; grid-template-columns:1fr!important; gap:6px!important; margin:12px 0!important; width:100%; min-width:0; }
+      .page-tabs button:first-child { width:calc(100% - 54px); min-height:46px!important; }
+      .page-tabs button { width:100%; min-width:0!important; min-height:44px!important; padding:10px 8px!important; font-size:12px!important; line-height:1.35!important; border-radius:9px; white-space:normal; }
+    }
+  `;
   shadow.append(styles);
   const view = document.createElement('div');
   shadow.append(view);
@@ -98,12 +123,16 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     () => new CommercialDashboardController());
   const watch = effect(() => {
     const model = controller.reactStandaloneModel();
-    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate() };
+    const selectedStore = user?.rol === 'gerencia_general' && controller.selectedStores().length === 1
+      ? controller.data()?.stores.find(store => store.storeId === controller.selectedStores()[0]) : null;
+    const selectedStoreId = user?.rol === 'gerencia_general' && controller.selectedStores().length
+      ? String(selectedStore?.tiendaId || -1) : '';
+    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate(), tienda_id: selectedStoreId };
     root.render(<>
       <CommercialReactStandalone summaryOnly={isCommercialSummaryOnly(user) || (Array.isArray(user?.secciones_permitidas) && !canAccessSection(user, "transferencia"))} model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
-      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
-      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix user={user} />, trafficHost)}
+      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard key={selectedStoreId} user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
+      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix key={selectedStoreId} user={user} tiendaId={selectedStoreId} scopeName={selectedStore?.alias} />, trafficHost)}
     </>);
   });
   void controller.ngOnInit().catch(error => controller.loadingError.set(

@@ -73,7 +73,7 @@ test('size rows keep Nissei code and filter dimensions for one rubro', () => {
   const rows = decodeSizeCompact({ encoding: 'sizes-v1', category: 'CALZADO', stores: ['T001'],
     products: [['P1', '00000000001007', 'ZAPATO 7', 'DAMAS', 'ZAPATOS']],
     rows: [[0, 0, 3, 2]] });
-  assert.deepEqual(rows[0], { storeId: 'T001', productId: 'P1', productCode: '00000000001007',
+  assert.deepEqual(rows[0], { storeId: 'T001', productId: 'P1', productCode: '00000000001007', serie: '',
     product: 'ZAPATO 7', category: 'CALZADO', line: 'DAMAS', subline: 'ZAPATOS', brand: 'SIN MARCA', stockUnits: 3, units30: 2, units90: 2 });
   const newRows = decodeSizeCompact({ encoding: 'sizes-v1', category: 'CALZADO', stores: ['T001'],
     products: [['P1', '00000000001007', 'ZAPATO 7', 'DAMAS', 'ZAPATOS', 'MARCA A']], rows: [[0, 0, 3, 2, 6]] });
@@ -84,6 +84,11 @@ test('size rows keep Nissei code and filter dimensions for one rubro', () => {
     products: [['P1', '00000000001007', 'ZAPATO 7', 0, 0, 0]], rows: [[0, 0, 3, 2, 6]] });
   assert.equal(dictionaryRows[0].brand, 'MARCA A');
   assert.equal(dictionaryRows[0].line, 'DAMAS');
+  const seriesRows = decodeSizeCompact({ encoding: 'sizes-v1', category: 'CALZADO', stores: ['T001'],
+    products: [['SKU1', '00000000001007', 'SERIE-A', 'ZAPATO 7', 'DAMAS', 'ZAPATOS', 'MARCA A']], rows: [[0, 0, 3, 2, 6]] });
+  assert.equal(seriesRows[0].serie, 'SERIE-A');
+  assert.equal(seriesRows[0].product, 'ZAPATO 7');
+  assert.equal(seriesRows[0].brand, 'MARCA A');
 });
 
 test('predictive rows restore zero windows, growth and sparse spoilage', () => {

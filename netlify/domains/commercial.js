@@ -86,7 +86,7 @@ export function createCommercialDomain({ supabase, commercialAccess, dbError, ht
     }
     return {
       stores: storesResult.data.map(store => ({
-        storeId: dashboardId.get(store.id), store: store.nombre, alias: store.nombre,
+        storeId: dashboardId.get(store.id), tiendaId: store.id, store: store.nombre, alias: store.nombre,
         format: String(store.formato || '').toUpperCase(), cluster: clusterByStore.get(store.id) || '', isStore: true,
         areaM2: Number(store.metraje_m2) || 0, capacity: Number(store.capacidad_stock_unid) || 0,
         normalStaff: Number(store.cant_colaboradores_normal) || 0, campaignStaff: Number(store.colaboradores_camp) || 0,

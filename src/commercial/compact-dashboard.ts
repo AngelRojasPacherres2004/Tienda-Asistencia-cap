@@ -215,7 +215,7 @@ export function decodeSizeCompact<T extends object>(payload: SizeCompact, signal
     if (rowIndex % 4096 === 0) signal?.throwIfAborted();
     if (!Array.isArray(values) || ![4, 5].includes(values.length)) throw new Error('Fila de tallas incompleta.');
     const product = indexedValue(payload.products, values[1]);
-    if (!Array.isArray(product) || ![6, 7].includes(product.length)) throw new Error('SKU de tallas no válido.');
+    if (!Array.isArray(product) || ![5, 6, 7].includes(product.length)) throw new Error('SKU de tallas no válido.');
     return {
       storeId: indexedValue(payload.stores, values[0]),
       productId: product[0], productCode: product[1],

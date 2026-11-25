@@ -27,7 +27,7 @@ import { decodeCompactRows, decodeDailyCompact, decodePredictiveCompact, decodeS
 const riskMoneyFormat = new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Store = {
-  storeId: string; store: string; alias: string; format: string; cluster: string;
+  storeId: string; tiendaId?: number; store: string; alias: string; format: string; cluster: string;
   isStore: boolean; areaM2: number; capacity: number; normalStaff?: number; campaignStaff?: number; openingDate?: string; closingDate?: string; status: string;
 };
 type Monthly = {
@@ -1324,6 +1324,7 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   readonly filtersModel = computed<DashboardFiltersModel>(() => ({
+    storeSelectionEnabled: this.cloud.accessProfile()?.roleCode === 'gerencia_general' && !this.storeFilterLocked(),
     open: this.filtersOpen(), year: this.year(), years: [...new Set(this.data()?.metadata.years ?? [])].filter(y => y >= 2024).sort((a, b) => b - a),
     openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
     selected: {
@@ -1416,10 +1417,15 @@ export class CommercialDashboardController implements OnInit {
     const metrics = this.metrics();
     const locked = this.storeFilterLocked();
     const format = this.filteredStores()[0]?.format?.toUpperCase();
+    const singleGeneralStore = this.cloud.accessProfile()?.roleCode === "gerencia_general" && this.selectedStores().length === 1;
     const actions = [];
     const trafficNote = this.data()?.metadata.trafficCutoff ? ` Tráfico registrado hasta ${this.data()!.metadata.trafficCutoff}.` : '';
-    if (!locked || format === 'METRO') actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficMetro)}. Fórmula: ingresos registrados en METRO.`, action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
-    if (!locked || format !== 'METRO') actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficOther)}. Fórmula: ingresos registrados en otras tiendas.`, action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
+    if (singleGeneralStore) {
+      const traffic = format === 'METRO' ? metrics.trafficMetro : metrics.trafficOther;
+      actions.push({ label: 'TRÁFICO DE LA TIENDA', className: 'ticket-kpi traffic-kpi', title: this.number(traffic) + '. Ingresos registrados en la tienda seleccionada.' + trafficNote, action: format === 'METRO' ? 'trafficMetro' : 'trafficOther', value: this.number(traffic), valueClass: traffic == null ? 'missing' : '' });
+    }
+    if (!singleGeneralStore && (!locked || format === 'METRO')) actions.push({ label: 'TRÁFICO METRO', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficMetro)}. Fórmula: ingresos registrados en METRO.`, action: 'trafficMetro', value: this.number(metrics.trafficMetro), valueClass: metrics.trafficMetro == null ? 'missing' : '' });
+    if (!singleGeneralStore && (!locked || format !== 'METRO')) actions.push({ label: 'TRÁFICO OTRAS TDS.', className: 'ticket-kpi traffic-kpi', title: `${this.number(metrics.trafficOther)}. Fórmula: ingresos registrados en otras tiendas.`, action: 'trafficOther', value: this.number(metrics.trafficOther), valueClass: metrics.trafficOther == null ? 'missing' : '' });
     actions.push({ label: 'CONVERSIÓN', className: 'ticket-kpi conversion-kpi', title: `${this.percent(metrics.conversion)}. Fórmula: transacciones ÷ tráfico.` + trafficNote, action: 'conversion', value: this.percent(metrics.conversion), valueClass: metrics.conversion == null ? 'missing' : '' });
     for (const card of actions) if (card.action === 'trafficOther') card.title += trafficNote;
     actions.push({ label: 'TICKET PROMEDIO', className: 'ticket-kpi', title: `${this.money(metrics.ticket)}. Fórmula: venta neta ÷ transacciones.`, action: 'ticket', value: this.money(metrics.ticket), valueClass: '' });
@@ -2369,6 +2375,16 @@ export class CommercialDashboardController implements OnInit {
   }
 
   onReactFilterAction({ type, value }: DashboardFilterAction): void {
+    if (type === 'singleStore') {
+      if (this.cloud.accessProfile()?.roleCode !== 'gerencia_general' || this.storeFilterLocked()) return;
+      const id = String(value);
+      if (id !== 'TODAS' && !this.storeOptions().some(store => store.storeId === id)) return;
+      this.onStoreSelectChange(id);
+      this.ticketChartSelectedStores.set(id === 'TODAS' ? [] : [id]);
+      this.projectionStore.set('TODAS');
+      this.predictiveStore.set('TODAS');
+      return;
+    }
     if (type === 'toggleDrawer') { this.filtersOpen.set(!this.filtersOpen()); return; }
     if (type === 'closeDrawer') { this.filtersOpen.set(false); return; }
     if (type === 'year') { this.onYear(Number(value)); return; }
@@ -2734,7 +2750,7 @@ export class CommercialDashboardController implements OnInit {
     const rows = this.talentHistoryRows(); const values = rows.map(row => row.actual);
     const max = Math.max(1, ...values.filter((value): value is number => value != null), ...rows.map(row => row.planned));
     return {
-      animation: false, grid: { left: 46, right: 18, top: 34, bottom: 40 },
+      animation: false, grid: { left: 42, right: 14, top: 52, bottom: 42 },
       tooltip: { trigger: 'axis', confine: true, position: this.tooltipToRight, formatter: (params: any[]) => {
         const index = params[0]?.dataIndex ?? 0; const row = rows[index];
         return this.tooltip(`${row.label} ${this.year()}`, [
@@ -2744,7 +2760,7 @@ export class CommercialDashboardController implements OnInit {
       } },
       legend: { top: 0, data: ['REAL', 'ESPERADO'], itemWidth: 16, itemHeight: 8, textStyle: { fontSize: 8, color: '#475569', fontWeight: 800 } },
       xAxis: { type: 'category', name: 'MES', nameLocation: 'middle', nameGap: 27, nameTextStyle: { color: '#64748B', fontSize: 9, fontWeight: 800 }, data: rows.map(row => row.label), axisTick: { show: false }, axisLabel: { color: '#64748B', fontSize: 9 } },
-      yAxis: { type: 'value', name: 'CANTIDAD', nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, min: 0, max: Math.ceil(max * 1.15 / 10) * 10, splitNumber: 4, minInterval: 1, axisLabel: { color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      yAxis: { type: 'value', name: '', nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, min: 0, max: Math.ceil(max * 1.15 / 10) * 10, splitNumber: 4, minInterval: 1, axisLabel: { color: '#64748B' }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       series: [
         { name: 'REAL', type: 'bar', data: values, barMaxWidth: 18, itemStyle: { color: C.blue, borderRadius: [4, 4, 0, 0] } },
         { name: 'ESPERADO', type: 'line', data: rows.map(row => row.planned), symbol: 'circle', symbolSize: 7, lineStyle: { color: C.gold, width: 3 }, itemStyle: { color: C.gold, borderColor: '#FFFFFF', borderWidth: 1.5 } }
@@ -2822,7 +2838,7 @@ export class CommercialDashboardController implements OnInit {
   readonly talentTeamProductivityOption = computed<EChartsOption>(() => {
     const rows = this.talentTeamProductivityRows(); const max = Math.max(1, ...rows.map(row => row.productivity || 0));
     return {
-      animation: false, grid: { left: 102, right: 68, top: 8, bottom: 28 },
+      animation: false, grid: { left: 78, right: 82, top: 14, bottom: 42 },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, formatter: (params: any[]) => {
         const row = rows[params[0]?.dataIndex ?? 0];
         return this.tooltip(row?.team || '', [
@@ -2831,7 +2847,7 @@ export class CommercialDashboardController implements OnInit {
           { label: 'Venta mensual por colaborador', value: this.money(row?.productivity ?? null, true) }
         ]);
       } },
-      xAxis: { type: 'value', min: 0, max: max * 1.2, name: 'VENTA / COLAB.', nameLocation: 'middle', nameGap: 22, nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
+      xAxis: { type: 'value', min: 0, max: max * 1.2, splitNumber: 2, name: 'VENTA / COLAB.', nameLocation: 'middle', nameGap: 22, nameTextStyle: { color: '#64748B', fontSize: 8, fontWeight: 800 }, axisLabel: { color: '#64748B', fontSize: 8, formatter: (value: number) => `S/ ${this.short(value)}` }, splitLine: { lineStyle: { color: '#E5E7EB' } } },
       yAxis: { type: 'category', inverse: true, data: rows.map(row => row.team), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { width: 90, overflow: 'truncate', color: '#334155', fontSize: 8, fontWeight: 800 } },
       series: [{ type: 'bar', data: rows.map(row => row.productivity), barMaxWidth: 18, itemStyle: { color: C.gold, borderRadius: [0, 5, 5, 0] }, label: { show: true, position: 'right', color: '#172033', fontSize: 8, fontWeight: 800, formatter: (params: any) => this.money(Number(params.value), true) } }]
     } as EChartsOption;
@@ -3532,6 +3548,12 @@ export class CommercialDashboardController implements OnInit {
           { label: 'SKU', value: this.number(row?.productIds.size ?? null) }
         ], false, false);
       } },
+      media: [{ query: { maxWidth: 480 }, option: {
+        grid: { left: 42, right: 12, top: 44, bottom: 64 },
+        xAxis: { axisLabel: { interval: 'auto', rotate: 45, align: 'right', verticalAlign: 'top', margin: 12, hideOverlap: true, fontSize: 10 } },
+        yAxis: { name: '' },
+        legend: { top: 4 }
+      } }],
       legend: { top: 2, itemWidth: 14, itemHeight: 8, textStyle: { color: '#334155', fontSize: 9, fontWeight: 800 } },
       grid: { left: 48, right: 20, top: 34, bottom: 72 },
       xAxis: { type: 'category', data: rows.map(row => row.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { interval: 0, rotate: 90, align: 'right', verticalAlign: 'middle', margin: 32, color: '#475569', fontSize: 9, fontWeight: 800 } },
@@ -3842,7 +3864,9 @@ export class CommercialDashboardController implements OnInit {
   // Así Rotación por tienda y Pronóstico de quiebre siempre conservan la comparación completa.
   readonly inventoryStoresIgnoringStoreFilter = computed(() => {
     const d = this.data(); if (!d) return [];
+    const selected = this.cloud.accessProfile()?.roleCode === 'gerencia_general' ? this.selectedStores() : [];
     return d.stores.filter(store =>
+      (!selected.length || selected.includes(store.storeId)) &&
       this.storeAllowedByAccess(store) && this.storeBelongsToSelectedCluster(store) && this.formatMatches(store) &&
       (this.isDistributionChannel(store) || this.storeActiveAtDate(store, d.metadata.stockCutoff))
     );
@@ -4516,6 +4540,12 @@ export class CommercialDashboardController implements OnInit {
     }, color: '#172033', fontSize: 8, fontWeight: 700, distance: 3, backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, padding: [1, 3], borderRadius: 3 });
     return {
       animation: false,
+      media: [{ query: { maxWidth: 480 }, option: {
+        legend: { top: 0, itemWidth: 12, itemGap: 10, textStyle: { fontSize: 9 } },
+        grid: { left: 54, right: 38, top: 68, bottom: 76 },
+        xAxis: { axisLabel: { interval: 'auto', rotate: 45, align: 'right', verticalAlign: 'top', margin: 12, hideOverlap: true, fontSize: 10 } },
+        series: [{ label: { show: false } }, {}, {}, {}]
+      } }],
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true, position: this.tooltipToRight, padding: [6, 8], textStyle: { fontSize: 10 }, formatter: (params: any[]) => {
         const index = params[0]?.dataIndex ?? 0; const current = base[index]; const previous = comparison[index];
         return this.tooltip(current?.label || previous?.label || '', [

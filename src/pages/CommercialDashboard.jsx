@@ -22,6 +22,7 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
   const scopeLabel = isGeneral ? "Todas las tiendas de la empresa" : isZonal ? "Tiendas de tu zona" : "Clústeres A y B";
   const today = todayISO();
   const [filters, setFilters] = useState({ tienda_id: "", anio: today.slice(0, 4), mes: today.slice(5, 7), dia: "" });
+  const selectedStoreId = embedded ? (dashboardFilters?.tienda_id || "") : filters.tienda_id;
   const externalFilterKey = JSON.stringify(dashboardFilters || null);
   const ranges = useMemo(() => {
     const external = JSON.parse(externalFilterKey);
@@ -36,7 +37,7 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
     const version = ++loadVersion.current;
     setError(""); setPersonnelError("");
     const dashboardRequests = ranges.map(range => {
-      const params = new URLSearchParams({ ...range, rotation_year: effectiveYear, ...(filters.tienda_id ? { tienda_id: filters.tienda_id } : {}) });
+      const params = new URLSearchParams({ ...range, rotation_year: effectiveYear, ...(selectedStoreId ? { tienda_id: selectedStoreId } : {}) });
       return api(`/dashboard?${params}`);
     });
     Promise.all([
@@ -44,18 +45,18 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
       api("/tiendas"), isZonal ? api("/zonal/cluster").then(cluster => [cluster]) : api("/clusters"), api("/gerencia/alertas"),
     ]).then(([dashboard,stores,zones,alerts])=>{if(version===loadVersion.current)setData({dashboard,stores,zones,...alerts});}).catch((err)=>{if(version===loadVersion.current)setError(err.message);});
     api("/personal/resumen").then((rows)=>{if(version===loadVersion.current)setPersonnel(rows);}).catch((err)=>{if(version===loadVersion.current)setPersonnelError(err.message);});
-  },[ranges, effectiveYear, filters.tienda_id, isZonal]);
+  },[ranges, effectiveYear, selectedStoreId, isZonal]);
   useEffect(()=>{load();const version=loadVersion.current;return()=>{loadVersion.current=version+1;};},[load]);
   const alerts=useMemo(()=>{
     if(!data) return {};
     const today=selectedRange.hasta;
     const clusterIds = new Set(data.zones.filter(cluster => isGeneral || isZonal ? cluster.estado === "activo" : isCoreCluster(cluster)).map(cluster=>Number(cluster.id)));
-    const storeIds = new Set(data.stores.filter(store=>(isGeneral || clusterIds.has(Number(store.cluster_id)))&&(!filters.tienda_id||String(store.id)===filters.tienda_id)).map(store=>Number(store.id)));
+    const storeIds = new Set(data.stores.filter(store=>(isGeneral || clusterIds.has(Number(store.cluster_id)))&&(!selectedStoreId||String(store.id)===selectedStoreId)).map(store=>Number(store.id)));
     const expired=data.documents.filter((row)=>storeIds.has(Number(row.tienda_id))&&row.fecha_vencimiento&&row.fecha_vencimiento<today);
     const expiring=data.documents.filter((row)=>storeIds.has(Number(row.tienda_id))&&row.fecha_vencimiento&&row.fecha_vencimiento>=today&&row.fecha_vencimiento<=addDays(today, Number(row.dias_alerta ?? 30)));
     const courses=data.dashboard.progresoCursos||[];
     return {expired,expiring,pendingCourses:courses.reduce((sum,row)=>sum+Number(row.pendientes||0),0)};
-  },[data, filters.tienda_id, selectedRange.hasta, isZonal, isGeneral]);
+  },[data, selectedStoreId, selectedRange.hasta, isZonal, isGeneral]);
   if(error && embedded) return renderSections({ overview: <div className="commercial-load-error"><Notice type="error">{error}</Notice><button type="button" className="button button--ghost" onClick={load}>Reintentar</button></div> });
   if(!data && embedded) return renderSections({ overview: <Loading/> });
   if(error) return <div className="commercial-load-error"><Notice type="error">{error}</Notice><button type="button" className="button button--ghost" onClick={load}>Reintentar</button></div>;
@@ -72,7 +73,7 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
   }
   const campaignMonth=["02","07","12"].includes(today.slice(5,7));
   const filterStores=data.stores.filter(store=>(isGeneral || coreClusterIds.has(Number(store.cluster_id)))&&store.estado==="activo");
-  const activeStores=filterStores.filter(store=>!filters.tienda_id||String(store.id)===filters.tienda_id);
+  const activeStores=filterStores.filter(store=>!selectedStoreId||String(store.id)===selectedStoreId);
   const storePersonnel=filterStores.map(store=>{
     const counts=personnelByStore.get(Number(store.id))||{active:0,total:0};
     const base=Number(store.cant_colaboradores_normal)||null;
@@ -80,7 +81,7 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
     const target=campaignMonth&&campaign?campaign:base;
     return {...store,...counts,base,campaign,target,gap:target===null?null:counts.active-target,coverage:target?Math.round(counts.active/target*100):null};
   }).sort((a,b)=>(a.coverage??Infinity)-(b.coverage??Infinity)||a.nombre.localeCompare(b.nombre,"es"));
-  const scopedPersonnel=storePersonnel.filter(store=>!filters.tienda_id||String(store.id)===filters.tienda_id);
+  const scopedPersonnel=storePersonnel.filter(store=>!selectedStoreId||String(store.id)===selectedStoreId);
   const sections = {
     overview: <div className="manager-summary-group">
       <section className="store-dashboard-personnel-kpis"><CommercialKpi icon={Building2} label="Tiendas activas" value={activeStores.length} detail={scopeLabel}/><CommercialKpi icon={Users} label="Equipo activo" value={personnel===null?"—":scopedPersonnel.reduce((total,store)=>total+store.active,0)} detail={personnel===null?"Cargando dotación":"Colaboradores de tienda"}/></section>

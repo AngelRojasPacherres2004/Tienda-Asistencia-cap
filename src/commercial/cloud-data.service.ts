@@ -39,7 +39,7 @@ export type DashboardAccessProfile = {
   allowedStoreIds?: string[];
 };
 export type OperationalSummary = {
-  stores?: { storeId: string; store: string; alias: string; format: string; cluster: string; isStore: boolean;
+  stores?: { storeId: string; tiendaId?: number; store: string; alias: string; format: string; cluster: string; isStore: boolean;
     areaM2: number; capacity: number; normalStaff?: number; campaignStaff?: number; openingDate?: string; closingDate?: string; status: string }[];
   monthlyPersonnelArea?: { periodId: number; storeId: string; area: string; areaType: string; personnel: number }[];
   personnelProfiles?: { name: string; storeId: string; gender: 'M' | 'F' | 'N/A'; birthDate?: string; role: string; area: string;

@@ -9,6 +9,18 @@ function Chart({ id, label, option }) {
 
 export default function CommercialReactRotationCard({ model }) {
   return <article className="card chart-card rotation-card" data-stock-hierarchy-ready={model.hierarchyReady ? "true" : undefined} data-react-commercial-module="rotation-card">
+    <style>{`@media(max-width:600px){
+      .rotation-card { height:auto!important; min-height:0!important; }
+      .rotation-card .inventory-overview-content { display:flex; flex-direction:column; flex:none; gap:14px; }
+      .rotation-card .capacity-donut { flex:none; width:100%; height:240px; min-height:240px; }
+      .rotation-card .capacity-center strong { font-size:22px; }
+      .rotation-card .capacity-center small { font-size:10px; }
+      .rotation-card .inventory-area-legend { display:grid; grid-template-columns:1fr; gap:10px; padding:0 4px; }
+      .rotation-card .inventory-area-legend li { grid-template-columns:10px minmax(0,1fr) auto; gap:8px; font-size:12px; }
+      .rotation-card .inventory-area-legend strong { font-size:12px; }
+      .rotation-card .inventory-ring-guide { margin-top:14px; line-height:1.5; }
+      .rotation-card .capacity-facts { margin-top:12px; }
+    }`}</style>
     <div className="rotation-title"><h2><svg><use href="assets/icons.svg#warehouse" /></svg> CAPACIDAD Y PARTICIPACIÓN</h2></div>
     {model.ready ? <>
       <div className="inventory-overview-content"><div className="capacity-donut"><Chart id="inventory-capacity" label="Anillo exterior: valor de inventario por área. Anillo interior: ocupación de la capacidad física." option={model.capacityOption} /><div className="capacity-center" title="Fórmula: unidades en stock ÷ capacidad total de las tiendas filtradas × 100."><strong>{model.occupancy}</strong><small>OCUPACIÓN</small></div></div><ul className="inventory-area-legend" aria-label="Participación del inventario por área">{model.areas.map(area => <li key={area.area}><i style={{ background: area.color }} /><span>{area.area}</span><strong>{area.share}</strong></li>)}</ul></div>
