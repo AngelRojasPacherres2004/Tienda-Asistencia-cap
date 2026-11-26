@@ -17,6 +17,7 @@ const dashboardReads = new Set([
   '/commercial/store-transfers', '/commercial/transfer-groups',
   '/dashboard', '/tiendas', '/clusters', '/gerencia/alertas', '/personal/resumen',
   '/trafico/matriz', '/asistencias/historial', '/zonal/cluster',
+  '/zonal/comparativa',
   '/perfil', '/operaciones/resumen', '/documentos-alertas',
   '/operaciones/pronostico-ventas', '/cursos', '/capacitaciones/trabajadores',
 ]);

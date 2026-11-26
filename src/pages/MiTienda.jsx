@@ -281,7 +281,7 @@ const attendanceCodes = {
   suspension: { code: "S", label: "Suspensión" },
 };
 
-function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true, tableOnly = false }) {
+export function AttendanceMatrix({ people, errors, onNavigate, tiendaId, readOnly = false, period, onPeriodChange, isZonal = false, storeId, showErrors = true, showPeriodFilter = true, tableOnly = false }) {
   const dragScroll = useMemo(() => createMouseDragScroll(), []);
   const currentDate = todayISO();
   const { year, monthNumber, week, day } = period;

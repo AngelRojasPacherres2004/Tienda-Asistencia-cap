@@ -41,6 +41,7 @@ export function allowsSectionRequest(user, method, path) {
   if (path.startsWith('/zonal/incidencias')) return has('zonal-incidencias');
   if (/^\/zonal\/(personal|administradores)/.test(path)) return has('zonal-personal');
   if (/^\/zonal\/(asistencia|tareas)/.test(path)) return has('zonal-asistencia');
+  if (path === '/zonal/comparativa') return get && has('dashboard','asiste-operativo');
   if (path.startsWith('/gerencia/comparativa')) return has('ajustes-zonal','gestion');
   if (path.startsWith('/trafico')) return has('seguridad-trafico','gestion');
   if (path.startsWith('/seguridad-central')) return has('seguridad-central');

@@ -130,7 +130,7 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     const scopeKey = selectedStoreIds.join(',');
     const allAccessibleStores = !controller.selectedStores().length && !controller.selectedFormats().length
       && (user?.rol === 'jefe_zonal' || !controller.selectedClusters().length);
-    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate(), tienda_id: selectedStoreId, tienda_ids: selectedStoreIds, allAccessibleStores };
+    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate(), tienda_id: selectedStoreId, tienda_ids: selectedStoreIds, allAccessibleStores, singleStoreSelected: controller.selectedStores().length === 1 };
     root.render(<>
       <CommercialReactStandalone summaryOnly={isCommercialSummaryOnly(user) || (Array.isArray(user?.secciones_permitidas) && !canAccessSection(user, "transferencia"))} model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}

@@ -192,6 +192,7 @@ const catalog = {
     {
       "id": "asiste-operativo",
       "label": "Resumen",
+      "hidden": true,
       "icon": "ClipboardCheck"
     },
     {
