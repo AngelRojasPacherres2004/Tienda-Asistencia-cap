@@ -160,3 +160,9 @@
 .store-dashboard-shell .training-development--chart-only .training-development-bars { max-height:260px; padding:12px; gap:8px; }
 .store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(80px,1fr) minmax(80px,1.3fr) auto; gap:7px; }
 @media(max-width:540px) { .store-dashboard-shell .training-development--chart-only .training-worker { grid-template-columns:minmax(0,1fr) auto; } }
+.zonal-operational-details{margin-top:18px;padding:16px;border:1px solid #dce5ee;border-radius:12px;background:#fff;color:#203044}
+.zonal-operational-details>summary{cursor:pointer;font-weight:750;font-size:15px}
+.zonal-operational-details>p{color:#68788c;font-size:12px;line-height:1.5}
+.store-commercial-panels .zonal-operational-details .store-dashboard-section{display:flex;flex-wrap:wrap;gap:12px}
+.zonal-operational-details .attendance-filter-fab{position:static;inset:auto;margin:8px 0}
+.zonal-operational-details .attendance-filter-popover{position:relative;inset:auto;width:min(360px,100%);margin:8px 0;z-index:1}

@@ -1318,13 +1318,13 @@ export class CommercialDashboardController implements OnInit {
     title: `DASHBOARD EJECUTIVO COMERCIAL ${this.year()} · ${this.selectedMonths().length ? `PERÍODO ${this.monthFilterLabel()}` : `CIERRE ${this.monthNamesFull[this.selectedMonth() - 1]}`}`,
     cutoffDate: this.formatDate(this.data()?.metadata.salesCutoff),
     version: this.cloud.dataVersion(),
-    storeSummary: this.cloud.accessProfile()?.scopeType === 'all' ? this.annualStoreSummary() : null,
+    storeSummary: ['all', 'cluster'].includes(this.cloud.accessProfile()?.scopeType || '') ? this.annualStoreSummary() : null,
     showLogout: this.cloud.remoteEnabled() && !this.cloud.portalEnabled,
     userName: this.cloud.userName(),
   }));
 
   readonly filtersModel = computed<DashboardFiltersModel>(() => ({
-    storeSelectionEnabled: this.cloud.accessProfile()?.roleCode === 'gerencia_general' && !this.storeFilterLocked(),
+    storeSelectionEnabled: ['gerencia_general', 'gerente_comercial', 'jefe_zonal'].includes(this.cloud.accessProfile()?.roleCode || '') && !this.storeFilterLocked(),
     open: this.filtersOpen(), year: this.year(), years: [...new Set(this.data()?.metadata.years ?? [])].filter(y => y >= 2024).sort((a, b) => b - a),
     openFilter: this.openFilter(), search: this.filterSearch(), monthNames: this.monthNamesFull,
     selected: {
@@ -1491,7 +1491,7 @@ export class CommercialDashboardController implements OnInit {
     }
     const personnel = activeWorkers ? this.number(workers.length) : 'N/A';
     const saleCollaborator = this.selectedSalesPeriods().size && activeWorkers && workers.length ? metrics.net / workers.length : null;
-    const showTopStore = ['gerencia_general', 'gerente_comercial', 'coach'].includes(this.cloud.accessProfile()?.roleCode || '');
+    const showTopStore = ['gerencia_general', 'gerente_comercial', 'jefe_zonal', 'coach'].includes(this.cloud.accessProfile()?.roleCode || '');
     const sales = grouped(this.yearRows().filter(row => this.selectedSalesPeriods().has(row.periodId)), row => row.storeId);
     const topStore = activeWorkers ? this.filteredStores().map(store => {
       const count = workers.filter(worker => worker.storeId === store.storeId).length;
@@ -1800,7 +1800,7 @@ export class CommercialDashboardController implements OnInit {
   }));
 
   onReactProjectionAction({ type, value }: { type: string; value?: string | number }): void {
-    if (type === 'store' && typeof value === 'string' && ['gerencia_general', 'gerente_comercial'].includes(this.cloud.accessProfile()?.roleCode || '')
+    if (type === 'store' && typeof value === 'string' && ['gerencia_general', 'gerente_comercial', 'jefe_zonal'].includes(this.cloud.accessProfile()?.roleCode || '')
       && (value === 'TODAS' || this.inventoryStoresIgnoringStoreFilter().some(store => store.storeId === value))) this.projectionStore.set(value);
   }
 
@@ -2376,7 +2376,7 @@ export class CommercialDashboardController implements OnInit {
 
   onReactFilterAction({ type, value }: DashboardFilterAction): void {
     if (type === 'singleStore') {
-      if (this.cloud.accessProfile()?.roleCode !== 'gerencia_general' || this.storeFilterLocked()) return;
+      if (!['gerencia_general', 'gerente_comercial', 'jefe_zonal'].includes(this.cloud.accessProfile()?.roleCode || '') || this.storeFilterLocked()) return;
       const id = String(value);
       if (id !== 'TODAS' && !this.storeOptions().some(store => store.storeId === id)) return;
       this.onStoreSelectChange(id);
@@ -3772,7 +3772,7 @@ export class CommercialDashboardController implements OnInit {
     const serverRows = this.projectionInsights()?.riskRows;
     if (serverRows) return serverRows.map(row => ({ ...row, store: stores.get(row.storeId) || row.storeId,
       share: row.totalValue ? row.riskValue / row.totalValue : 0 }))
-      .sort((a, b) => b.riskValue - a.riskValue).slice(0, ['gerencia_general', 'gerente_comercial'].includes(this.cloud.accessProfile()?.roleCode || '') ? 3 : 7);
+      .sort((a, b) => b.riskValue - a.riskValue).slice(0, ['gerencia_general', 'gerente_comercial', 'jefe_zonal'].includes(this.cloud.accessProfile()?.roleCode || '') ? 3 : 7);
     const byStore = grouped(this.predictiveProductHealthRows().filter(row => this.projectionStore() === 'TODAS' || row.storeId === this.projectionStore()), row => row.storeId);
     return [...byStore.entries()].map(([storeId, storeRows]) => {
       const risky = storeRows.filter(row => {
@@ -3783,7 +3783,7 @@ export class CommercialDashboardController implements OnInit {
       const totalValue = storeRows.reduce((total, row) => total + row.vendibleValue, 0);
       const riskValue = risky.reduce((total, row) => total + row.vendibleValue, 0);
       return { storeId, store: stores.get(storeId) || storeId, riskValue, totalValue, share: totalValue ? riskValue / totalValue : 0, riskProducts: risky.length, products: storeRows.length };
-    }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, ['gerencia_general', 'gerente_comercial'].includes(this.cloud.accessProfile()?.roleCode || '') ? 3 : 7);
+    }).filter(row => row.riskValue > 0).sort((a, b) => b.riskValue - a.riskValue).slice(0, ['gerencia_general', 'gerente_comercial', 'jefe_zonal'].includes(this.cloud.accessProfile()?.roleCode || '') ? 3 : 7);
   });
   readonly projectionRiskDetails = computed(() => {
     const rows = this.predictiveStoreRiskRows();

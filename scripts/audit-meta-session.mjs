@@ -1,0 +1,32 @@
+import { loadEnv } from 'vite';
+import jwt from 'jsonwebtoken';
+import { chromium } from 'playwright-core';
+import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+Object.assign(process.env, loadEnv('development', process.cwd(), ''));
+const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/usuarios?select=id,usuario,rol,tienda_id,estado,cambio_credenciales_pendiente&usuario=eq.comercial1`, {headers:{apikey:process.env.SUPABASE_SECRET_KEY,Authorization:`Bearer ${process.env.SUPABASE_SECRET_KEY}`}});
+const [user] = await response.json();
+if (!user) throw new Error('Cuenta no encontrada');
+const origin=process.env.AUDIT_ORIGIN || 'http://127.0.0.1:5180';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try {
+ const context=await browser.newContext();
+ await context.addCookies([{name:'asiste_session',value:jwt.sign(user,process.env.JWT_SECRET,{expiresIn:'10m'}),url:origin,httpOnly:true,sameSite:'Lax'}]);
+ const page=await context.newPage();
+ page.on('pageerror', e=>console.log('PAGE_ERROR',e.message));
+ page.on('response',async r=>{if(r.url().includes('/commercial/store-goals')) console.log('GOALS',r.status());});
+ await page.addInitScript(()=>{window.metaChanges=[];new MutationObserver(()=>{const card=document.querySelector('app-root')?.shadowRoot?.querySelector('.meta-kpi');const text=card?.textContent;if(text&&window.metaChanges.at(-1)?.text!==text)window.metaChanges.push({text,title:card.title,time:Date.now()});}).observe(document,{childList:true,subtree:true});setInterval(()=>{const card=document.querySelector('app-root')?.shadowRoot?.querySelector('.meta-kpi');const text=card?.textContent;if(text&&window.metaChanges.at(-1)?.text!==text)window.metaChanges.push({text,title:card.title,time:Date.now()});},100);});
+ await page.goto(origin);
+ await page.locator('.meta-kpi').waitFor({timeout:90000});
+ await page.waitForTimeout(20000);
+ const changes=await page.evaluate(()=>window.metaChanges);
+ const final=await page.locator('.meta-kpi').innerText();
+ const label=new URL(origin).hostname==='127.0.0.1'?'local':'published';
+ await mkdir('artifacts',{recursive:true});
+ await writeFile(`artifacts/meta-comercial1-${label}.json`,JSON.stringify({origin,account:user.usuario,changes,final},null,2));
+ await page.screenshot({path:`artifacts/meta-comercial1-${label}.png`});
+ console.log('META_CHANGES',JSON.stringify(changes));
+ console.log('FINAL',final);
+ assert.match(final,/70\.86/,'La tarjeta debe conservar la meta general publicada');
+ assert.ok(changes.every(change=>change.text.includes('70.86')||change.text.includes('Cargando')),'La meta cambió durante la carga');
+} finally {await browser.close();}

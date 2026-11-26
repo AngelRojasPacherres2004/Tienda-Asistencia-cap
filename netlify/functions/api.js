@@ -448,14 +448,14 @@ async function getStoreMailbox(event, user) {
   }
 
   const scope = await communicationStoreScope(user, requestedStoreId);
-  const { data: messages, error: messageError } = await supabase.from("bandeja_mensajes_zonal_tienda")
+  const { data: messages, error: messageError } = await readAllResult(supabase.from("bandeja_mensajes_zonal_tienda")
     .select("id,tienda_id,remitente_id,destinatario_id,mensaje,leido_en,created_at,remitente:usuarios!bandeja_mensajes_zonal_tienda_remitente_id_fkey(nombres,apellidos,rol),destinatario:usuarios!bandeja_mensajes_zonal_tienda_destinatario_id_fkey(nombres,apellidos,rol)")
     .eq("tienda_id", scope.storeId).in("remitente_id", [scope.zonalId, scope.managerId])
-    .in("destinatario_id", [scope.zonalId, scope.managerId]).order("created_at", { ascending: false }).limit(100);
+    .in("destinatario_id", [scope.zonalId, scope.managerId]).order("created_at", { ascending: false }).order("id", { ascending: false }));
   if (messageError) throw dbError(messageError);
 
   let documents = [];
-  if (user.rol === "jefe_tienda") {
+  {
     const { data, error } = await supabase.from("documentos_municipales")
       .select("id,tipo_documento,codigo,fecha_vencimiento,dias_alerta,estado")
       .eq("tienda_id", scope.storeId).gte("fecha_vencimiento", todayISO())

@@ -1,7 +1,7 @@
 import { canAccessSection, sectionsForRole } from '../../shared/section-catalog.js';
 import {
   AlertTriangle, BarChart3, Building2, CalendarCheck2, ClipboardCheck, GraduationCap,
-  FileSpreadsheet, History, KeyRound, LogOut, Menu, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, Truck, UserCircle2, Users, X,
+  FileSpreadsheet, History, KeyRound, LogOut, Menu, MessageSquareText, Moon, PanelLeftClose, Settings, ShieldCheck, Sun, Target, Truck, UserCircle2, Users, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { storeAlias } from '../lib/storeAliases';
@@ -39,6 +39,9 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [mailboxOpen, setMailboxOpen] = useState(false);
+  const [mailboxPending, setMailboxPending] = useState(0);
+  const canUseMailbox = !Array.isArray(user.secciones_permitidas) && !user.acceso_solo_resumen_comercial && ["jefe_zonal", "jefe_tienda"].includes(user.rol);
   const hidePersonInitials = ["jefe_zonal", "seguridad", "jefe_seguridad", "administrador_seguridad"].includes(user.rol);
   const isStoreSecurity = ["seguridad", "jefe_seguridad"].includes(user.rol);
   const isDashboard = ["dashboard", "mi-tienda", "asiste-operativo"].includes(page);
@@ -57,6 +60,8 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
   const toggleMarketingTheme = () => setLightMode(marketingTheme !== "light");
   const canOpenSettings = canAccessSection(user, "ajustes-zonal");
   const items = sectionsForRole(user.rol).filter(item => !item.hidden && canAccessSection(user, item.id));
+  const navigationItems = [...items];
+  if (canUseMailbox) navigationItems.splice(Math.ceil(items.length / 2), 0, { id: "bandeja", label: "Bandeja de mensajes", icon: "MessageSquareText" });
   const activeStore = user.tiendas_disponibles?.find(store => Number(store.id) === Number(user.tienda_id));
   const storeName = activeStore?.nombre || user.tienda_nombre;
   const activeAlias = activeStore?.alias || user.tienda_alias || storeAlias(storeName);
@@ -70,9 +75,10 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
           <button className="sidebar-mobile-close" onClick={() => setMobileOpen(false)}><X size={20} /></button>
         </div>
         <nav>
-          {items.map(({ id, label, icon }) => { const Icon = sectionIcons[icon] || BarChart3; return (
-            <button key={id} className={page === id ? "active" : ""} onClick={() => onNavigate(id)} title={label}>
+          {navigationItems.map(({ id, label, icon }) => { const Icon = icon === "MessageSquareText" ? MessageSquareText : sectionIcons[icon] || BarChart3; return (
+            <button key={id} className={(id === "bandeja" ? mailboxOpen : !mailboxOpen && page === id) ? "active" : ""} onClick={() => { setMailboxOpen(id === "bandeja"); setMobileOpen(false); if (id !== "bandeja") onNavigate(id); }} title={label}>
               <Icon size={19} /><span>{label}</span>
+              {id === "bandeja" && mailboxPending > 0 && <b className="sidebar-mailbox-count">{mailboxPending}</b>}
             </button>
           ); })}
         </nav>
@@ -88,7 +94,7 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
       <button type="button" className="compact-toggle" onClick={() => setCompact(!compact)} title={compact ? "Expandir menú" : "Contraer menú"} aria-label={compact ? "Expandir menú" : "Contraer menú"} aria-expanded={!compact}><PanelLeftClose size={18} /></button>
       <main className={`workspace ${isCommercial ? "commercial-role" : ""} ${isDashboard && !isCommercialDashboard ? "app-light marketing-light dashboard-light" : ""}`}>
         <div className="mobile-topbar">
-          <button onClick={() => setMobileOpen(true)}><Menu /></button>
+          <button onClick={() => setMobileOpen(true)} aria-label="Abrir menú"><Menu /></button>
           <strong>Menú</strong>
         </div>
         <div className={`workspace__content ${isCommercialDashboard ? "workspace__content--commercial" : ""}`}>
@@ -103,10 +109,10 @@ export default function Layout({ user, page, onNavigate, onLogout, onStoreChange
               Modo {marketingTheme === "light" ? "oscuro" : "claro"}
             </button>
           </div>}
-          {children}
+          {(!mailboxOpen || !canUseMailbox) && children}
+          {canUseMailbox && <StoreMailbox key={`${user.id}:${user.tienda_id || ""}`} user={user} embedded isOpen={mailboxOpen} onClose={() => setMailboxOpen(false)} onOpen={() => { setMailboxOpen(true); setMobileOpen(false); }} onPendingChange={setMailboxPending} />}
         </div>
       </main>
-      {!["secciones_permitidas"].some(key => Array.isArray(user[key])) && !user.acceso_solo_resumen_comercial && ["jefe_zonal", "jefe_tienda"].includes(user.rol) && <StoreMailbox user={user} hidden={isCommercialDashboard} />}
     </div>
   );
 }

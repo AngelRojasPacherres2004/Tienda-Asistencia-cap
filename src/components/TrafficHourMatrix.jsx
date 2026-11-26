@@ -15,7 +15,7 @@ const shortDate = (value) => new Intl.DateTimeFormat("es-PE", { weekday: "short"
 const rangeLabel = (range) => range.replaceAll(":00", "h").replace("-", "–");
 const dateFromParts = (year, month, day) => `${year}-${month}-${String(day).padStart(2, "0")}`;
 
-export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, refreshKey = 0, storeFormat = false, currentMonth = false, coloredHeatmap = false }) {
+export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, allowedStoreIds, refreshKey = 0, storeFormat = false, currentMonth = false, coloredHeatmap = false }) {
   const [data, setData] = useState(null); const [error, setError] = useState(""); const [loading, setLoading] = useState(false); const [expanded, setExpanded] = useState(false);
   const [today, setToday] = useState(todayISO);
   const [filter, setFilter] = useState({ mode: "month", month: today.slice(0, 7), year: today.slice(0, 4), from: today.slice(0, 8) + "01", to: today });
@@ -99,7 +99,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
   useEffect(() => { if (!expanded) return undefined; const previous = document.body.style.overflow; document.body.style.overflow = "hidden"; const close = (event) => event.key === "Escape" && setExpanded(false); window.addEventListener("keydown", close); return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", close); }; }, [expanded]);
   const view = useMemo(() => {
     const included = new Set(dates);
-    const records = data?.tiendaId === tiendaId ? (data.registros || []).filter(row => included.has(row.fecha)) : [];
+    const records = data?.tiendaId === tiendaId ? (data.registros || []).filter(row => included.has(row.fecha) && (!Array.isArray(allowedStoreIds) || allowedStoreIds.includes(String(row.tienda_id)))) : [];
     const daily = new Map();
     for (const row of records) daily.set(row.fecha, (daily.get(row.fecha) || 0) + Number(row.cantidad || 0));
     const values = new Map(); for (const row of records) { const key = `${row.fecha}|${row.rango_hora}`; values.set(key, (values.get(key) || 0) + Number(row.cantidad || 0)); }
@@ -108,7 +108,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
     const rows = dates.map((date) => { const cells = HOURS.map((hour) => { const value = values.get(`${date}|${hour}`) || 0; maximum = Math.max(maximum, value); return { hour, value, recorded: values.has(`${date}|${hour}`) }; }); return { date, cells, total: daily.get(date) ?? 0, recorded: daily.has(date) }; });
     rows.sort((a, b) => Number(b.recorded) - Number(a.recorded) || b.date.localeCompare(a.date));
     return { rows, maximum, total, peak: peakTotal > 0 ? peak : null, unassigned: records.filter(row => !HOURS.includes(row.rango_hora)).length, records };
-  }, [data, dates, tiendaId]);
+  }, [data, dates, tiendaId, allowedStoreIds]);
   const hourRows = useMemo(() => trafficMatrixHours(view.rows, HOURS), [view.rows]);
   const heatScale = useMemo(() => trafficHeatScale(view.rows), [view.rows]);
   const colorRanges = useMemo(() => { if (!view.maximum) return []; return Array.from({ length: 5 }, (_, index) => { const start = Math.floor(index * view.maximum / 5) + 1; const end = Math.floor((index + 1) * view.maximum / 5); return start <= end ? { level: index + 1, label: start === end ? `${start}` : `${start}–${end}` } : null; }).filter(Boolean); }, [view.maximum]);

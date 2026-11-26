@@ -23,3 +23,24 @@ export function mergeCommercialSummaries(dashboards) {
   }
   return { ...dashboards[0], attendanceByWorker: [...workers.values()] };
 }
+
+export function operationalStoreIds(stores) {
+  return [...new Set(stores.map(store => Number(store.tiendaId)).filter(id => Number.isInteger(id) && id > 0))].map(String);
+}
+
+export function mergeStoreSummaries(dashboards) {
+  const summary = {};
+  const courses = new Map();
+  for (const dashboard of dashboards) {
+    for (const [key, value] of Object.entries(dashboard.summary || {})) {
+      if (typeof value === 'number') summary[key] = (summary[key] || 0) + value;
+    }
+    for (const row of dashboard.progresoCursos || []) {
+      const key = row.curso_id || row.titulo;
+      const merged = courses.get(key) || { ...row, completados: 0, en_curso: 0, pendientes: 0 };
+      for (const field of ['completados', 'en_curso', 'pendientes']) merged[field] += Number(row[field] || 0);
+      courses.set(key, merged);
+    }
+  }
+  return { ...dashboards[0], summary, progresoCursos: [...courses.values()], attendanceByWorker: dashboards.flatMap(row => row.attendanceByWorker || []) };
+}

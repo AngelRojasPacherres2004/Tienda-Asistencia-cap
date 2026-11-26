@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import MiTienda from '../pages/MiTienda';
 import CommercialDashboard from '../pages/CommercialDashboard';
 import CommercialTrafficMatrix from './CommercialTrafficMatrix';
+import { operationalStoreIds } from '../lib/commercialSummaryFilters';
 import '../pages/store-commercial-panels.css';
 import { effect, withReactServices } from '../commercial/reactivity-react';
 import { CloudDataService } from '../commercial/cloud-data.service';
@@ -123,16 +124,18 @@ export function mountCommercialReactIndependent(host, { user, onNavigate, transf
     () => new CommercialDashboardController());
   const watch = effect(() => {
     const model = controller.reactStandaloneModel();
-    const selectedStore = user?.rol === 'gerencia_general' && controller.selectedStores().length === 1
-      ? controller.data()?.stores.find(store => store.storeId === controller.selectedStores()[0]) : null;
-    const selectedStoreId = user?.rol === 'gerencia_general' && controller.selectedStores().length
-      ? String(selectedStore?.tiendaId || -1) : '';
-    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate(), tienda_id: selectedStoreId };
+    const selectedStoreIds = operationalStoreIds(controller.filteredStores());
+    const selectedStore = controller.filteredStores().length === 1 ? controller.filteredStores()[0] : null;
+    const selectedStoreId = selectedStoreIds.length === 1 ? selectedStoreIds[0] : '';
+    const scopeKey = selectedStoreIds.join(',');
+    const allAccessibleStores = !controller.selectedStores().length && !controller.selectedFormats().length
+      && (user?.rol === 'jefe_zonal' || !controller.selectedClusters().length);
+    const summaryFilters = { year: controller.year(), months: controller.activeMonths(), fromDate: controller.fromDate(), toDate: controller.toDate(), tienda_id: selectedStoreId, tienda_ids: selectedStoreIds, allAccessibleStores };
     root.render(<>
       <CommercialReactStandalone summaryOnly={isCommercialSummaryOnly(user) || (Array.isArray(user?.secciones_permitidas) && !canAccessSection(user, "transferencia"))} model={model} controller={controller} storeOperations={Boolean(operationsHosts)} managerOperations={Boolean(managerHosts)} transferOnly={transferOnly} />
       {!transferOnly && operationsHosts && model.mode === 'ready' && model.page === 3 && <MiTienda user={user} onNavigate={onNavigate} view="commercial" renderSections={renderOperations} />}
-      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard key={selectedStoreId} user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
-      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix key={selectedStoreId} user={user} tiendaId={selectedStoreId} scopeName={selectedStore?.alias} />, trafficHost)}
+      {!transferOnly && managerHosts && model.mode === 'ready' && model.page === 3 && <CommercialDashboard key={scopeKey} user={user} embedded dashboardFilters={summaryFilters} onNavigate={onNavigate} renderSections={renderManagerSections} />}
+      {!transferOnly && trafficHost && model.mode === 'ready' && model.page === 3 && createPortal(<CommercialTrafficMatrix key={scopeKey} user={user} tiendaId={selectedStoreId} tiendaIds={selectedStoreIds} scopeName={selectedStore?.alias} />, trafficHost)}
     </>);
   });
   void controller.ngOnInit().catch(error => controller.loadingError.set(

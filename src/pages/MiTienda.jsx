@@ -11,12 +11,13 @@ import { Loading, Notice, Pagination } from "../components/UI";
 import TrafficHourMatrix from "../components/TrafficHourMatrix";
 import { WorkerInsightsPanels } from "./Dashboard";
 
-export default function MiTienda({ user, onNavigate, view = "summary", renderSections }) {
+export default function MiTienda({ user, onNavigate, view = "summary", renderSections, storeContextId = "all", allowedStoreIds = null }) {
   const isZonal = user.rol === "jefe_zonal";
   const isStoreAdmin = ["jefe_tienda", "asistente_tienda"].includes(user.rol);
   const showAnalytics = !isStoreAdmin || view === "commercial";
   const showSummary = view !== "commercial";
-  const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? "all" : user.tienda_id || "");
+  const allowedStoreKey = JSON.stringify(allowedStoreIds);
+  const [stores, setStores] = useState([]); const [storeId, setStoreId] = useState(isZonal ? storeContextId : user.tienda_id || "");
   const [zonalAlerts, setZonalAlerts] = useState(null);
   const [profile, setProfile] = useState(null); const [summary, setSummary] = useState(null); const [people, setPeople] = useState([]); const [documents, setDocuments] = useState([]); const [errors, setErrors] = useState([]); const [notice, setNotice] = useState(null);
   const [salesForecast, setSalesForecast] = useState(null); const [salesForecastError, setSalesForecastError] = useState("");
@@ -39,7 +40,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
       .then(([docs, errorRows, forecast]) => { if (requestId !== dashboardRequestId.current) return; setDocuments(docs.status === "fulfilled" ? docs.value : []); setErrors(errorRows.status === "fulfilled" ? errorRows.value : []); if (forecast.status === "fulfilled") setSalesForecast(forecast.value); else setSalesForecastError(forecast.reason?.message || "No se pudo calcular el pronóstico de ventas."); });
     return essential;
   }, [isZonal, storeId, stores, user.tienda_id, showAnalytics, isStoreAdmin]);
-  useEffect(() => { if (!isZonal) return; api("/tiendas").then((rows) => { setStores(rows); setStoreId((current) => current || rows[0]?.id || ""); }).catch((e) => setNotice({ type: "error", text: e.message })); }, [isZonal]);
+  useEffect(() => { if (!isZonal) return; let active = true; const allowed = JSON.parse(allowedStoreKey); api("/tiendas").then((rows) => { if (!active) return; const scoped = allowed ? rows.filter(store => allowed.includes(String(store.id))) : rows; setStores(scoped); setStoreId(current => current === "all" || scoped.some(store => String(store.id) === String(current)) ? current : "all"); }).catch((e) => { if (active) setNotice({ type: "error", text: e.message }); }); return () => { active = false; }; }, [isZonal, allowedStoreKey]);
   useEffect(() => { if (!isZonal) return; api("/zonal/asistencia").then((attendance) => setZonalAlerts({ attendance })).catch(() => setZonalAlerts(null)); }, [isZonal]);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
   const changeStore = (value) => { dashboardRequestId.current += 1; setProfile(null); setSummary(null); setSalesForecast(null); setSalesForecastError(""); setNotice(null); setStoreId(value); };
@@ -87,7 +88,7 @@ export default function MiTienda({ user, onNavigate, view = "summary", renderSec
       <TrafficHourMatrix coloredHeatmap={view === "commercial"} user={user} tiendaId={isZonal ? storeId : ""} scopeName={storeName} period={matrixPeriod} />
       {!isStoreAdmin && <><DashboardSection kicker="Personal de tienda" title={`Asistencia y movimientos de ${storeName}`} />
       {["jefe_tienda", "jefe_zonal"].includes(user.rol) && <AttendanceMatrix key={`${dashboardKey}-${storeId}`} people={people} errors={errors} showErrors={!isStoreAdmin} onNavigate={onNavigate} tiendaId={isZonal ? storeId : null} readOnly={isZonal} period={matrixPeriod} onPeriodChange={setMatrixPeriod} isZonal={isZonal} storeId={storeId} />}
-      <TrainingDevelopmentHome /></>}
+      <TrainingDevelopmentHome tiendaId={isZonal ? storeId : ""} /></>}
       </>}
       {isStoreAdmin && dashboardActions}
 
@@ -170,7 +171,7 @@ function ZonalStoreComparison({ user, stores, refreshKey, onSelectStore }) {
     api(`/zonal/comparativa?fecha=${hasta}&desde=${desde}&hasta=${hasta}`).then((result) => { if (active) { setComparison(isOperationalDemo() ? demoZonalComparison(result, desde, hasta) : result); setAppliedPeriod(period); } }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [desde, hasta, period, refreshKey, retry]);
-  const rows = comparison?.tiendas || [];
+  const rows = (comparison?.tiendas || []).filter(row => stores.some(store => Number(store.id) === Number(row.id)));
   const totals = rows.reduce((sum, row) => ({
     personal: sum.personal + row.personal, presentes: sum.presentes + row.presentes,
     tardanzas: sum.tardanzas + row.tardanzas, faltas: sum.faltas + row.faltas,
@@ -212,14 +213,14 @@ function ZonalStoreComparison({ user, stores, refreshKey, onSelectStore }) {
         {totals.visitas > 0 && <article><header><h3>Tráfico por tienda</h3></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 8, left: 0, bottom: 8 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 10 }} /><YAxis type="category" dataKey="nombre" width={108} tick={{ fill: "#173b60", fontSize: 10, fontWeight: 700 }} /><Tooltip formatter={(value) => Number(value).toLocaleString("es-PE")} /><Bar dataKey="visitas" name="Tráfico" fill="#0d6fa1" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div></div></article>}
         {totals.incidencias + totals.errores > 0 && <article><header><h3>Incidencias y errores</h3></header><div className="zonal-comparison-chart-scroll"><div className="zonal-comparison-chart" style={{ height: chartHeight }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={rows} margin={{ top: 12, right: 8, left: 0, bottom: 8 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e0e8f0" /><XAxis type="number" allowDecimals={false} tick={{ fill: "#52667c", fontSize: 10 }} /><YAxis type="category" dataKey="nombre" width={108} tick={{ fill: "#173b60", fontSize: 10, fontWeight: 700 }} /><Tooltip /><Legend /><Bar dataKey="incidencias_administrativas" name="Operación" stackId="incidencias" fill="#e6a23c" /><Bar dataKey="incidencias_seguridad" name="Seguridad" stackId="incidencias" fill="#d75b66" /><Bar dataKey="errores" name="Errores" fill="#4b86bb" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div></div></article>}
       </div>
-      <section className="zonal-comparison-traffic"><TrafficHourMatrix user={user} scopeName="todas las tiendas" period={appliedPeriod} comparisonStores={rows} refreshKey={refreshKey} /></section>
+      <section className="zonal-comparison-traffic"><TrafficHourMatrix user={user} scopeName="todas las tiendas" period={appliedPeriod} comparisonStores={rows} allowedStoreIds={stores.map(store => String(store.id))} refreshKey={refreshKey} /></section>
       <section className="zonal-comparison-table-card"><header><h3>Pulso operativo por tienda</h3></header><div className="zonal-comparison-table-scroll"><table><thead><tr><th>Tienda</th><th title="Colaboradores frente a la dotación planificada para el período">Dotación / meta</th><th>Brecha</th><th>Tráfico / persona</th><th>Novedades de asistencia</th><th>Alertas</th></tr></thead><tbody>{rows.map((row) => { const attendanceIssues=row.faltas+row.tardanzas+row.pendientes; const alerts=row.incidencias_administrativas+row.incidencias_seguridad+row.errores+row.documentos_por_vencer; return <tr key={row.id}><th><button type="button" onClick={() => onSelectStore(String(row.id))}>{row.nombre}</button></th><td title={row.meta_campana ? "Meta de campaña" : "Meta base"}>{row.personal}{row.meta_personal === null ? " / —" : ` / ${row.meta_personal}`}</td><td className={row.brecha_personal < 0 ? "is-short" : ""}>{row.brecha_personal === null ? "—" : row.brecha_personal < 0 ? `Faltan ${-row.brecha_personal}` : row.brecha_personal ? `+${row.brecha_personal}` : "Completa"}</td><td>{row.visitas&&row.personal ? (row.visitas/row.personal).toLocaleString("es-PE", { maximumFractionDigits: 1 }) : "—"}</td><td title="Faltas, tardanzas y marcas pendientes">{attendanceIssues || "—"}</td><td title={`${row.incidencias_administrativas+row.incidencias_seguridad} incidencias · ${row.errores} errores · ${row.documentos_por_vencer} documentos por vencer`}>{alerts || "—"}</td></tr>; })}</tbody></table></div></section>
     </> : <p className="zonal-comparison-empty">No hay tiendas asignadas a tu zona.</p>}
     </>}
   </div>;
 }
 
-function TrainingDevelopmentHome({ compactTitles = false }) {
+function TrainingDevelopmentHome({ compactTitles = false, tiendaId = "" }) {
   const [courses, setCourses] = useState([]); const [courseId, setCourseId] = useState(""); const [people, setPeople] = useState([]); const [status, setStatus] = useState("todos"); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [page, setPage] = useState(1);
   useEffect(() => { api("/cursos").then((rows) => { setCourses(rows.filter((row) => row.activo)); }).catch(err => { setError(err.message); setLoading(false); }); }, []);
@@ -235,11 +236,12 @@ function TrainingDevelopmentHome({ compactTitles = false }) {
     return () => { current = false; };
   }, [courseId, courses]);
   const selectedCourse = courses.find((course) => String(course.id) === String(courseId));
-  const filteredByStatus = people.filter((person) => status === "todos" || person.progreso_estado === status);
+  const scopedPeople = tiendaId ? people.filter(person => String(person.tienda_id) === String(tiendaId)) : people;
+  const filteredByStatus = scopedPeople.filter((person) => status === "todos" || person.progreso_estado === status);
   const workerRows = new Map();
   for (const person of filteredByStatus) { const current = workerRows.get(person.trabajador_id) || { ...person, total:0, completados:0, en_curso:0 }; current.total += 1; current.completados += person.progreso_estado === "completado" ? 1 : 0; current.en_curso += person.progreso_estado === "en_curso" ? 1 : 0; workerRows.set(person.trabajador_id, current); }
   const selectableWorkers = [...workerRows.values()];
-  const visible = selectedWorkerId ? people.filter((person) => String(person.trabajador_id) === String(selectedWorkerId)) : filteredByStatus;
+  const visible = selectedWorkerId ? scopedPeople.filter((person) => String(person.trabajador_id) === String(selectedWorkerId)) : filteredByStatus;
   const completed = visible.filter((person) => person.progreso_estado === "completado").length;
   const pages = Math.max(1, Math.ceil(visible.length / 6));
   const visiblePage = visible.slice((page - 1) * 6, page * 6);
