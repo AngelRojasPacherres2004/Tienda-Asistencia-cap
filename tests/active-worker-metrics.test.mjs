@@ -74,13 +74,13 @@ test('las tarjetas usan los activos de la tienda y actualizan el denominador al 
   assert.equal(s.talentKpiModel().birthdays, 'N/A');
 });
 
-test('tienda más productiva solo está habilitada para gerente comercial y coach', () => {
+test('tienda más productiva está habilitada para supervisores con su alcance filtrado', () => {
   const s = setup();
-  for (const role of ['jefe_tienda', 'asistente_tienda', 'jefe_zonal', '']) {
+  for (const role of ['jefe_tienda', 'asistente_tienda', '']) {
     s.role.set(role);
     assert.equal(s.talentKpiModel().showTopStore, false);
   }
-  for (const role of ['gerente_comercial', 'coach']) {
+  for (const role of ['gerencia_general', 'gerente_comercial', 'jefe_zonal', 'coach']) {
     s.role.set(role);
     assert.equal(s.talentKpiModel().showTopStore, true);
     assert.equal(s.talentKpiModel().topStore, 'AYA');

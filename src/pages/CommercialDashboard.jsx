@@ -7,7 +7,8 @@ import { Loading, Notice } from "../components/UI";
 import { TrainingDevelopmentPanel } from "./Dashboard";
 import { commercialSummaryRanges, mergeCommercialSummaries, mergeStoreSummaries } from "../lib/commercialSummaryFilters";
 import DashboardFilters from "../components/DashboardFilters";
-import MiTienda from './MiTienda';
+import MiTienda, { AttendanceMatrix } from './MiTienda';
+import ZonalOperationalPanels from '../components/ZonalOperationalPanels';
 
 function dashboardRange(filters, today) {
   const prefix = `${filters.anio}-${filters.mes}`;
@@ -25,6 +26,8 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
   const [filters, setFilters] = useState({ tienda_id: "", anio: today.slice(0, 4), mes: today.slice(5, 7), dia: "" });
   const [zonalDetailsOpen, setZonalDetailsOpen] = useState(false);
   const selectedStoreId = embedded ? (dashboardFilters?.tienda_id || "") : filters.tienda_id;
+  const showAttendance = Boolean(selectedStoreId && (embedded ? dashboardFilters?.singleStoreSelected : true));
+  const [attendancePeriod, setAttendancePeriod] = useState(() => ({ year: String(dashboardFilters?.year || today.slice(0, 4)), monthNumber: String(dashboardFilters?.months?.at(-1) || today.slice(5, 7)).padStart(2, '0'), week: '', day: '' }));
   const storeScopeKey = JSON.stringify(embedded && Array.isArray(dashboardFilters?.tienda_ids) ? dashboardFilters.tienda_ids : null);
   const storeScope = useMemo(() => JSON.parse(storeScopeKey), [storeScopeKey]);
   const allAccessibleStores = dashboardFilters?.allAccessibleStores === true;
@@ -93,7 +96,9 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
     overview: <div className="manager-summary-group">
       <section className="store-dashboard-personnel-kpis"><CommercialKpi icon={Building2} label="Tiendas activas" value={activeStores.length} detail={scopeLabel}/><CommercialKpi icon={Users} label="Equipo activo" value={personnel===null?"—":scopedPersonnel.reduce((total,store)=>total+store.active,0)} detail={personnel===null?"Cargando dotación":"Colaboradores de tienda"}/></section>
 </div>,
-    personnel: <div className="manager-summary-group">      <header className="store-dashboard-section"><div><span>Dotación · {scopeLabel}</span><h2>Personal por tienda</h2></div></header>
+    personnel: <div className="manager-summary-group">
+      {isZonal && embedded && <ZonalOperationalPanels ranges={ranges} storeIds={storeScope || []} showAttendance={allAccessibleStores} />}
+      <header className="store-dashboard-section"><div><span>Dotación · {scopeLabel}</span><h2>Personal por tienda</h2></div></header>
       {personnelError && <Notice type="error">No se pudo cargar la dotación: {personnelError}</Notice>}
       {personnel===null ? !personnelError && <p className="commercial-inline-loading" role="status">Cargando dotación por tienda…</p> : <div className="commercial-store-personnel"><div className="commercial-store-personnel__head"><span>Tienda</span><span>Equipo</span><span>Meta</span><span>Brecha</span><span>Cobertura</span></div>{scopedPersonnel.map(store=><div key={store.id}><strong>{store.nombre}<small>{clusterLabel(store.cluster_nombre)}{store.campaign&&store.base&&store.campaign>store.base?` · +${store.campaign-store.base} en campaña`:""}</small></strong><b>{store.active}</b><span>{store.target??"—"}</span><span className={store.gap<0?"is-short":""}>{store.gap===null?"Sin meta":store.gap<0?`Faltan ${-store.gap}`:store.gap?`+${store.gap}`:"Completa"}</span><span className="commercial-personnel-coverage">{store.coverage===null?"—":<><i><em style={{width:`${Math.min(store.coverage,100)}%`}}/></i><strong>{store.coverage}%</strong></>}</span></div>)}</div>}
 </div>,
@@ -104,6 +109,9 @@ export default function CommercialDashboard({ user, embedded = false, renderSect
     training: <div className="manager-summary-group">
       <div className="commercial-progress-grid"><article><span><GraduationCap size={19}/></span><div><small>Capacitaciones en curso</small><strong>{summary.cursos_en_curso}</strong><p>{alerts.pendingCourses} asignaciones pendientes.</p></div></article></div>
       <TrainingDevelopmentPanel rows={data.dashboard.progresoCursos || []} year={effectiveYear} />
+      {showAttendance && (personnel === null
+        ? personnelError ? <Notice type="error">No se pudo cargar el personal de la matriz: {personnelError}</Notice> : <Loading />
+        : <AttendanceMatrix key={selectedStoreId} people={personnel.filter(person => String(person.tienda_id) === selectedStoreId)} errors={[]} tiendaId={selectedStoreId} storeId={selectedStoreId} readOnly tableOnly showErrors={false} period={attendancePeriod} onPeriodChange={setAttendancePeriod} />)}
 </div>,
   };
   if (embedded && renderSections) return renderSections(sections);
