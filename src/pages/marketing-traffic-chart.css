@@ -1,0 +1,15 @@
+.marketing-traffic-chart { min-width:0; }
+.marketing-traffic-chart__filters { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding:16px 18px; }
+.marketing-traffic-chart__filters label { display:grid; gap:6px; color:#203b56; font-size:12px; font-weight:700; }
+.marketing-traffic-chart__filters :is(input,select) { min-height:38px; max-width:100%; padding:7px 10px; border:1px solid #b9c9da; border-radius:7px; background:#fff; color:#203b56; font:inherit; }
+.marketing-traffic-chart__filters select:disabled { opacity:.6; }
+.marketing-traffic-chart__summary { margin:8px 18px 16px; color:#40556d; font-size:13px; line-height:1.5; }
+.marketing-traffic-chart__scroll { overflow-x:auto; padding:0 6px; }
+.marketing-traffic-chart__legend { display:flex; flex-wrap:wrap; gap:16px; margin:8px 18px; color:#203b56; font-size:12px; }
+.marketing-traffic-chart__legend span { display:flex; align-items:center; gap:6px; }
+.marketing-traffic-chart__legend i { display:inline-block; width:12px; height:12px; border-radius:2px; }
+.marketing-traffic-chart__months { margin:0 18px 16px; padding:12px; border-radius:9px; background:#f0f5fa; color:#203b56; }
+.marketing-traffic-chart__months label { display:grid; gap:8px; font-size:12px; }
+.marketing-traffic-chart__months input { width:100%; accent-color:#245b91; cursor:pointer; }
+.marketing-traffic-chart__month-ends { display:flex; justify-content:space-between; font-size:11px; }
+@media(max-width:600px) { .marketing-traffic-chart__filters { display:grid; grid-template-columns:minmax(0,1fr); } }

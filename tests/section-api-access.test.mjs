@@ -2,6 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {allowsSectionRequest as allows} from '../shared/section-api-access.js';
 import {allowedSections, firstAllowedSection} from '../shared/section-catalog.js';
+
+test('inicio de Marketing permite matrices de lectura sin habilitar escrituras', () => {
+ const user = {rol:'marketing',secciones_permitidas:['marketing-inicio']};
+ for (const path of ['/trafico/matriz','/marketing/attendance']) {
+  assert.equal(allows(user,'GET',path),true);
+  assert.equal(allows({...user,secciones_permitidas:['marketing-personal']},'GET',path),false);
+  assert.equal(allows(user,'PUT',path),false);
+ }
+ assert.equal(allows(user,'POST','/trafico'),false);
+ assert.equal(allows(user,'PUT','/asistencias/lote'),false);
+ assert.equal(allows(user,'GET','/asistencias/historial'),false);
+});
 test('general solo resumen conserva lecturas pero bloquea gestión',()=>{
  const u={rol:'gerencia_general',secciones_permitidas:['dashboard']};
  assert.equal(allows(u,'GET','/commercial/access'),true);

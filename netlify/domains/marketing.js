@@ -207,6 +207,16 @@ export function createMarketingDomain({ supabase, dbError, readAllResult, todayI
   }
   async function marketingAttendance(user, event, method) {
     if (method === "GET") {
+      const { desde, hasta } = event.queryStringParameters || {};
+      if (desde || hasta) {
+        validateMarketingDate(desde); validateMarketingDate(hasta);
+        if (desde > hasta || Date.parse(hasta) - Date.parse(desde) > 366 * 86400000) throw httpError("Selecciona un intervalo válido de hasta 366 días.", 400);
+        const { data, error } = await readAllResult(supabase.from("asistencias_marketing")
+          .select("*,personal_marketing!inner(creado_por,nombres,apellidos)")
+          .eq("personal_marketing.creado_por", user.id).gte("fecha", desde).lte("fecha", hasta).order("fecha").order("id"));
+        if (error) throw dbError(error);
+        return data || [];
+      }
       const fecha = event.queryStringParameters?.fecha || todayISO(); validateMarketingDate(fecha);
       const {data,error}=await supabase.from("asistencias_marketing").select("*,personal_marketing!inner(creado_por)").eq("personal_marketing.creado_por",user.id).eq("fecha",fecha);
       if(error)throw dbError(error);return data;

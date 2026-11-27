@@ -1142,7 +1142,7 @@ export async function handler(event) {
       return json(200, await storeSalesForecast(event, user));
     }
     if (path === "/trafico/matriz" && method === "GET") {
-      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda"]);
+      ensureAuth(event, ["gerencia_general", "gerente_comercial", "jefe_zonal", "jefe_tienda", "asistente_tienda", "marketing"]);
       return json(200, await listTrafficMatrix(event, user));
     }
     if (path === "/trafico" && method === "GET") {

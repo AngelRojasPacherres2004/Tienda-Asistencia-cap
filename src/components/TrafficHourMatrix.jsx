@@ -15,7 +15,7 @@ const shortDate = (value) => new Intl.DateTimeFormat("es-PE", { weekday: "short"
 const rangeLabel = (range) => range.replaceAll(":00", "h").replace("-", "–");
 const dateFromParts = (year, month, day) => `${year}-${month}-${String(day).padStart(2, "0")}`;
 
-export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, allowedStoreIds, refreshKey = 0, storeFormat = false, currentMonth = false, coloredHeatmap = false }) {
+export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "", period, comparisonStores = EMPTY_STORES, allowedStoreIds, refreshKey = 0, storeFormat = false, currentMonth = false, coloredHeatmap = false, storeFilter }) {
   const [data, setData] = useState(null); const [error, setError] = useState(""); const [loading, setLoading] = useState(false); const [expanded, setExpanded] = useState(false);
   const [today, setToday] = useState(todayISO);
   const [filter, setFilter] = useState({ mode: "month", month: today.slice(0, 7), year: today.slice(0, 4), from: today.slice(0, 8) + "01", to: today });
@@ -135,6 +135,7 @@ export default function TrafficHourMatrix({ user, tiendaId = "", scopeName = "",
   return <section className={`traffic-matrix-card ${coloredHeatmap ? "traffic-matrix-card--colored" : ""} ${expanded ? "is-expanded" : ""}`}>
     <header className="traffic-matrix-head"><div>{!compact && <span className="traffic-matrix-eyebrow"><Activity size={14} />{roleEyebrow}</span>}<h2>{compact ? (storeFormat ? `Tráfico por hora · ${periodLabel} · Total: ${loading ? "Cargando..." : view.records.length ? `${view.total.toLocaleString("es-PE")} personas` : "Sin registros"}` : "Tráfico por hora") : `Matriz de tráfico por hora${scopeName ? ` · ${scopeName}` : ""}`}</h2></div><div className="traffic-matrix-actions"><button type="button" onClick={load} aria-label="Actualizar matriz"><RefreshCw size={17} className={loading ? "is-spinning" : ""} /></button><button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Cerrar vista ampliada" : "Ampliar matriz"}>{expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>{expanded && <button type="button" onClick={() => setExpanded(false)} aria-label="Cerrar"><X size={19} /></button>}</div></header>
     <form className="traffic-matrix-filters" onSubmit={applyFilter} aria-label="Filtros de tráfico por hora">
+      {storeFilter}
       <label>Período<select value={filter.mode} onChange={event => changeFilter("mode", event.target.value)}>
         <option value="month">Mes</option><option value="year">Año completo</option><option value="range">Rango de fechas</option>
       </select></label>

@@ -11,7 +11,7 @@ const states = {
 };
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-export default function AttendanceOverviewMatrix({ tiendaId = "", scopeName = "", selectedMonth = "", onMonthChange, activeStoresOnly = false }) {
+export default function AttendanceOverviewMatrix({ tiendaId = "", scopeName = "", selectedMonth = "", onMonthChange, activeStoresOnly = false, marketingPeople }) {
   const current = todayISO();
   const [month, setMonth] = useState(selectedMonth || current.slice(0, 7));
   const [records, setRecords] = useState(null);
@@ -21,17 +21,22 @@ export default function AttendanceOverviewMatrix({ tiendaId = "", scopeName = ""
   const monthNumber = Number(month.slice(5, 7));
   const daysCount = new Date(year, monthNumber, 0).getDate();
   const days = Array.from({ length: daysCount }, (_, index) => index + 1);
+  const isMarketing = Array.isArray(marketingPeople);
 
   useEffect(() => { if (selectedMonth) setMonth(selectedMonth); }, [selectedMonth]);
 
   useEffect(() => {
     let active = true;
     setRecords(null); setError("");
-    api(`/asistencias/historial?desde=${month}-01&hasta=${month}-${String(daysCount).padStart(2, "0")}&estado_usuario=todos&orden=asc${tiendaId ? `&tienda_id=${tiendaId}` : ""}${activeStoresOnly ? "&solo_tiendas_activas=true" : ""}`)
-      .then((rows) => { if (active) setRecords(rows); })
+    const end = `${month}-${String(daysCount).padStart(2, "0")}`;
+    const endpoint = isMarketing
+      ? `/marketing/attendance?desde=${month}-01&hasta=${end > current ? current : end}`
+      : `/asistencias/historial?desde=${month}-01&hasta=${end}&estado_usuario=todos&orden=asc${tiendaId ? `&tienda_id=${tiendaId}` : ""}${activeStoresOnly ? "&solo_tiendas_activas=true" : ""}`;
+    api(endpoint)
+      .then((rows) => { if (active) setRecords(isMarketing ? rows.map(row => ({ ...row, persona_id: row.personal_id, nombre: `${row.personal_marketing.nombres} ${row.personal_marketing.apellidos}` })) : rows); })
       .catch((err) => { if (active) setError(err.message); });
     return () => { active = false; };
-  }, [month, daysCount, tiendaId, activeStoresOnly]);
+  }, [month, daysCount, tiendaId, activeStoresOnly, isMarketing, current]);
 
   useEffect(() => {
     if (!expanded) return undefined;
@@ -44,7 +49,7 @@ export default function AttendanceOverviewMatrix({ tiendaId = "", scopeName = ""
   const people = useMemo(() => [...(records || []).reduce((map, row) => {
     if (!map.has(attendancePersonId(row))) map.set(attendancePersonId(row), { id: attendancePersonId(row), nombre: row.nombre || row.usuario || `Usuario ${attendancePersonId(row)}` });
     return map;
-  }, new Map()).values()].sort((a, b) => a.nombre.localeCompare(b.nombre)), [records]);
+  }, new Map((marketingPeople || []).filter(person => person.estado === 'activo').map(person => [person.id, { id: person.id, nombre: `${person.nombres} ${person.apellidos}` }]))).values()].sort((a, b) => a.nombre.localeCompare(b.nombre)), [records, marketingPeople]);
   const indexed = useMemo(() => attendanceDayIndex(records || []), [records]);
   const registered = (records || []).length;
   const attendance = (records || []).filter((row) => ["presente", "tardanza", "medio_turno", "apoyo_ingreso"].includes(row.estado)).length;

@@ -12,6 +12,7 @@ export function allowsSectionRequest(user, method, path) {
   if (path.startsWith('/systems/credential-permissions') || path.startsWith('/systems/module-permissions')) return has('sistemas-credenciales');
   if (path.startsWith('/systems/maintenance/')) return has('sistemas-registros');
   if (path.startsWith('/systems/batches') || path.startsWith('/systems/uploads')) return has('sistemas');
+  if (user.rol === 'marketing' && get && ['/trafico/matriz', '/marketing/attendance'].includes(path)) return has('marketing-inicio') || path === '/marketing/attendance' && has('marketing-asistencia');
   if (path.startsWith('/marketing')) {
     if (get && path === '/marketing') return [...sections].some(id => id.startsWith('marketing-'));
     if (path === '/marketing/facebook-insights') return get && has('marketing-seguidores');

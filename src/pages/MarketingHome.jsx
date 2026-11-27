@@ -1,6 +1,7 @@
 import { AlertTriangle, BarChart3, CalendarCheck2, ClipboardCheck, Megaphone, TrendingUp, Users } from "lucide-react";
 import { EmptyState, StatusBadge } from "../components/UI";
 import { formatDate } from "../lib/api";
+import MarketingOperations from "./MarketingOperations";
 
 const money = value => new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" }).format(Number(value || 0));
 const number = value => new Intl.NumberFormat("es-PE").format(value || 0);
@@ -21,6 +22,7 @@ export default function MarketingHome({ data, metrics, facebook }) {
         <strong>{value}</strong><p>{detail}</p>
       </article>)}
     </div>
+    <MarketingOperations stores={data.stores} people={data.people} />
     <section className="panel marketing-facebook">
       <div><span className="marketing-home__eyebrow">Meta · Facebook</span><h2>{facebook.page?.name || "Página de Facebook"}</h2><p>Seguidores actuales de la página. Las campañas mostradas abajo son registros internos de Marketing.</p></div>
       <div className="marketing-facebook__value"><strong>{facebook.loading ? "Cargando…" : facebook.page?.followers == null ? "—" : number(facebook.page.followers)}</strong><span>Seguidores</span></div>

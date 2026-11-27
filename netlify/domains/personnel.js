@@ -18,10 +18,20 @@ export function createPersonnelDomain({ supabase, readAllResult, fetchAllReportP
 
   async function resolveStoreScope(user, requestedStoreId = null) {
     const requestedId = requestedStoreId ? Number(requestedStoreId) : null;
-    if (requestedId && (!Number.isInteger(requestedId) || requestedId < 1)) {
+    if (requestedStoreId && (!Number.isInteger(requestedId) || requestedId < 1)) {
       throw httpError("La tienda seleccionada no es válida.", 400);
     }
     if (["gerencia_general", "gerente_comercial", "coach"].includes(user.rol)) return requestedId || null;
+    if (user.rol === "marketing") {
+      const { data: account, error } = await supabase.from("usuarios").select("acceso_todas_tiendas").eq("id", user.id).single();
+      if (error) throw dbError(error);
+      if (account.acceso_todas_tiendas) return requestedId || null;
+      const { data, error: accessError } = await readAllResult(supabase.from("marketing_tiendas").select("tienda_id").eq("usuario_id", user.id), "tienda_id");
+      if (accessError) throw dbError(accessError);
+      const ids = (data || []).map(row => Number(row.tienda_id));
+      if (requestedId && !ids.includes(requestedId)) throw httpError("La tienda no está autorizada para tu cuenta de Marketing.", 403);
+      return requestedId || ids;
+    }
     if (user.rol === "jefe_zonal") {
       const ids = await zonalStoreIds(user.id);
       if (requestedId && !ids.includes(requestedId)) throw httpError("La tienda no pertenece a tu clúster.", 403);
